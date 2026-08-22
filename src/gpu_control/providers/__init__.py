@@ -18,6 +18,7 @@ from .controller import (
     observe_provider_job,
     submit_approved_plan,
 )
+from .runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
 from .runpod_pricing import (
     RunPodCatalogPricingEvidence,
     build_catalog_pricing_evidence,
@@ -45,6 +46,8 @@ __all__ = [
     "PublishedImageEvidence",
     "RUNPOD_V2_BASE_URL",
     "RunPodCatalogPricingEvidence",
+    "RunPodV2Adapter",
+    "RunPodV2AdapterError",
     "RunPodV2Error",
     "RunPodV2HttpClient",
     "SubmittedJob",
