@@ -27,16 +27,17 @@ stages:
   - id: control_plane_validation
     order: 5
     required: true
-    description: Run gpu-control self-tests, policy validation, source/container checks, and dry-run gates.
+    description: Run gpu-control self-tests, policy validation, source/container checks, dry-run gates, and produce an approved execution plan.
 
   - id: paid_gpu_runpod
     order: 6
     required: false
     final_stage: true
-    description: Escalate to a bounded RunPod GPU job only when GPU compute is actually required and explicit human authorization is present.
+    description: Escalate to a bounded RunPod GPU job only when GPU compute is actually required and an approved execution plan exists.
 
 paid_compute:
   provider: runpod
+  provider_adapter_input: approved_execution_plan
   requires:
     - explicit_human_request
     - authorized_workload_repository
@@ -45,9 +46,11 @@ paid_compute:
     - reproducible_dependencies
     - minimal_experiment_configuration
     - successful_dry_run
+    - verified_provider_price
     - explicit_runtime_limit
     - explicit_cost_limit
     - cleanup_plan
+    - approved_execution_plan
   defaults:
     gpu_count: 1
     execution_model: asynchronous_submit_collect
@@ -58,6 +61,7 @@ paid_compute:
     - invalid_container_contract
     - missing_authorization
     - missing_cleanup_guarantee
+    - missing_approved_execution_plan
 
 forbidden:
   - arbitrary_remote_shell_interface
@@ -67,3 +71,4 @@ forbidden:
   - silent_cost_or_runtime_escalation
   - long_lived_actions_polling
   - provider_allocation_without_explicit_authorization
+  - provider_adapter_accepting_raw_workload_request
