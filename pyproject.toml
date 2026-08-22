@@ -26,7 +26,7 @@ gpu-control = "gpu_control.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-gpu_control = ["default_policy.yaml"]
+gpu_control = ["default_policy.yaml", "default_result_policy.yaml"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
