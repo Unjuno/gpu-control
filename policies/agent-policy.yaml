@@ -75,6 +75,8 @@ paid_compute:
     - missing_authorization
     - missing_cleanup_guarantee
     - missing_approved_execution_plan
+    - invalid_persisted_approved_plan
+    - approved_plan_fingerprint_mismatch
 
 async_execution:
   persisted_state:
@@ -85,8 +87,18 @@ async_execution:
     reject_missing_fields: true
     money_encoding: decimal_string
     parse_success_is_not_trust: true
+  approved_plan:
+    strict_schema_validation: true
+    canonical_workload_identity_required: true
+    immutable_image_digest_required: true
+    recompute_worst_case_cost_on_restore: true
+    all_gate_flags_must_remain_true: true
+    trusted_expected_fingerprint_required_for_provider_submission: true
+    expected_fingerprint_is_not_derived_from_untrusted_plan_payload: true
+    fingerprint_is_integrity_correlation_not_signature: true
   submit_stage:
     provider_input: approved_execution_plan
+    restored_approved_plan_must_match_trusted_expected_fingerprint: true
     revalidate_pricing_freshness_immediately_before_submit: true
     persist_submission_receipt_before_exit: true
     restored_receipt_must_match_approved_plan: true
@@ -139,6 +151,9 @@ forbidden:
   - paid_gate_accepting_bare_price_scalar
   - submit_stage_waiting_for_long_running_gpu_completion
   - provider_submission_with_expired_pricing_evidence
+  - provider_submission_from_unverified_restored_plan
+  - trusting_approved_plan_without_expected_fingerprint
+  - deriving_expected_fingerprint_from_same_untrusted_plan_payload
   - collection_without_submission_receipt_correlation
   - trusting_persisted_state_only_because_it_parsed
   - unbounded_result_collection
