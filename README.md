@@ -48,6 +48,10 @@ The initial workflow accepts:
 
 The first implementation is intentionally dry-run only. No provider API key is required yet.
 
+## CI smoke test
+
+Pull requests run the validation test suite on a standard GitHub-hosted Ubuntu runner. This provides a zero-GPU, zero-provider-cost smoke test for the control plane before any paid compute integration is enabled.
+
 ## Security model
 
 This repository is public by design. Assume every workflow, policy, source file, and Actions log is visible to an attacker.
