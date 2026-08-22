@@ -37,21 +37,26 @@ repository
 
 Repository creation, collaborator access, secrets, and write permissions remain explicit human-controlled boundaries. An agent must not infer authorization merely because a repository exists.
 
+The current public MVP accepts public GitHub workload repositories only. Private-repository support requires a separate authorization design rather than merely passing a more powerful token.
+
 ## 4. Validate through the control plane
 
-Before paid execution, `gpu-control` should validate the request and eventually verify the source and container. The intended gates are:
+Before paid execution, `gpu-control` validates the request and resource policy. It now also verifies public GitHub source identity before any provider integration is enabled.
+
+The gate sequence is:
 
 ```text
 self-test
   -> request validation
   -> policy validation
-  -> source/SHA verification
-  -> Dockerfile verification
-  -> container build/smoke test
+  -> repository visibility verification
+  -> exact commit SHA verification
+  -> Dockerfile-at-SHA verification
+  -> container build/smoke test (next milestone)
   -> dry-run execution plan
 ```
 
-A failed gate stops escalation.
+A failed gate stops escalation. Source verification does not execute repository code.
 
 ## 5. Use RunPod as the final escalation stage
 
