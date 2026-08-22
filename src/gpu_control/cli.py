@@ -7,7 +7,8 @@ import json
 import sys
 
 from .policy import PolicyError, load_policy, validate_against_policy
-from .validation import ValidationError, build_request
+from .source import SourceVerificationError, verify_public_github_source
+from .validation import ValidationError, WorkloadRequest, build_request
 
 
 _SELF_TEST_SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -19,7 +20,7 @@ def _json_default(value: object) -> str:
     raise TypeError(f"unsupported value: {type(value)!r}")
 
 
-def _validate_request(args: argparse.Namespace) -> dict[str, object]:
+def _build_validated_request(args: argparse.Namespace) -> tuple[WorkloadRequest, dict[str, object]]:
     request = build_request(
         target_repo=args.target_repo,
         target_sha=args.target_sha,
@@ -30,6 +31,11 @@ def _validate_request(args: argparse.Namespace) -> dict[str, object]:
     )
     policy = load_policy(args.policy)
     effective_policy = validate_against_policy(request, policy)
+    return request, effective_policy
+
+
+def _validate_request(args: argparse.Namespace) -> dict[str, object]:
+    request, effective_policy = _build_validated_request(args)
     return {
         "status": "valid",
         "dry_run": True,
@@ -38,22 +44,44 @@ def _validate_request(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="gpu-control")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+def _verify_source(args: argparse.Namespace) -> dict[str, object]:
+    request, effective_policy = _build_validated_request(args)
+    source = verify_public_github_source(request)
+    return {
+        "status": "verified",
+        "dry_run": True,
+        "request": asdict(request),
+        "effective_policy": effective_policy,
+        "source": asdict(source),
+    }
 
-    validate = subparsers.add_parser("validate", help="validate a workload request without launching GPU resources")
-    validate.add_argument("--target-repo", required=True)
-    validate.add_argument("--target-sha", required=True)
-    validate.add_argument("--dockerfile-path", default="Dockerfile")
-    validate.add_argument("--gpu-profile", required=True)
-    validate.add_argument("--max-runtime-minutes", required=True)
-    validate.add_argument("--max-cost-usd", required=True)
-    validate.add_argument(
+
+def _add_request_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--target-repo", required=True)
+    parser.add_argument("--target-sha", required=True)
+    parser.add_argument("--dockerfile-path", default="Dockerfile")
+    parser.add_argument("--gpu-profile", required=True)
+    parser.add_argument("--max-runtime-minutes", required=True)
+    parser.add_argument("--max-cost-usd", required=True)
+    parser.add_argument(
         "--policy",
         default=None,
         help="optional policy YAML path; omitted uses the policy bundled with gpu-control",
     )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="gpu-control")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    validate = subparsers.add_parser("validate", help="validate a workload request without network or GPU access")
+    _add_request_arguments(validate)
+
+    verify_source = subparsers.add_parser(
+        "verify-source",
+        help="validate the request and verify the public GitHub repository, exact commit, and Dockerfile",
+    )
+    _add_request_arguments(verify_source)
 
     subparsers.add_parser(
         "self-test",
@@ -68,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validate":
             result = _validate_request(args)
+        elif args.command == "verify-source":
+            result = _verify_source(args)
         elif args.command == "self-test":
             request = build_request(
                 target_repo="example/model",
@@ -86,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
             }
         else:
             return 2
-    except (ValidationError, PolicyError, OSError, ValueError) as exc:
+    except (ValidationError, PolicyError, SourceVerificationError, OSError, ValueError) as exc:
         print(json.dumps({"status": "rejected", "error": str(exc)}, sort_keys=True))
         return 2
 
