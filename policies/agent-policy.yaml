@@ -74,6 +74,36 @@ paid_compute:
     - missing_cleanup_guarantee
     - missing_approved_execution_plan
 
+async_execution:
+  submit_stage:
+    provider_input: approved_execution_plan
+    persist_submission_receipt_before_exit: true
+    submission_receipt_requires:
+      - provider
+      - provider_resource_id
+      - provider_job_id
+      - plan_fingerprint
+      - image_digest
+      - submitted_at_utc
+      - max_runtime_minutes
+      - max_cost_usd
+    wait_for_gpu_workload_completion: false
+  collection_stage:
+    correlate_by:
+      - provider_job_id
+      - plan_fingerprint
+    reject_identity_changes: true
+    reject_backward_timestamps: true
+    enforce_monotonic_job_state: true
+    enforce_monotonic_cleanup_state: true
+    finalized_requires:
+      - terminal_job_state
+      - cleanup_completed
+  recovery:
+    cleanup_failure_visible: true
+    cleanup_retry_allowed: true
+    idempotent_observation_processing: true
+
 forbidden:
   - arbitrary_remote_shell_interface
   - secrets_in_source_or_logs
@@ -85,3 +115,5 @@ forbidden:
   - provider_adapter_accepting_raw_workload_request
   - paid_gate_accepting_bare_container_boolean
   - paid_gate_accepting_bare_price_scalar
+  - submit_stage_waiting_for_long_running_gpu_completion
+  - collection_without_submission_receipt_correlation
