@@ -6,6 +6,7 @@ api:
   base_url: https://api.runpod.io/v2
   authentication: bearer_header
   live_calls_enabled: false
+  live_adapter_enabled: false
   cli_enabled: false
   workflow_enabled: false
 
@@ -23,9 +24,13 @@ submission:
   user_ports_forwarded: false
   user_env_forwarded: false
   user_mounts_forwarded: false
+  automatic_create_retry: false
+  ambiguous_create_requires_reconciliation: true
   post_create_identity_revalidation: true
   post_create_cloud_revalidation: true
   post_create_price_must_not_exceed_verified_price: true
+  post_create_validation_failure_terminates_known_pod: true
+  compensating_termination_failure_is_visible: true
 
 status:
   provisioning: submitted
@@ -39,6 +44,11 @@ status:
 cleanup:
   terminate_endpoint: DELETE /pods/{id}
   terminate_is_irreversible: true
+  cleanup_failure_visible: true
+
+results:
+  enabled: false
+  requires_authenticated_workload_completion_evidence: true
 
 catalog:
   endpoint: GET /catalog/gpus
@@ -55,6 +65,7 @@ catalog:
 forbidden:
   - live_runpod_call_from_ci
   - live_runpod_call_from_public_cli
+  - live_adapter_from_public_cli
   - arbitrary_api_origin
   - api_key_in_query_string
   - api_key_in_logs_or_errors
@@ -64,8 +75,12 @@ forbidden:
   - stale_catalog_pricing_evidence
   - catalog_gpu_below_profile_vram
   - catalog_gpu_without_one_gpu_capacity
+  - automatic_retry_after_ambiguous_create
   - unverified_post_create_gpu_identity
   - create_response_cloud_mismatch
   - accepting_price_above_verified_price
+  - leaving_known_invalid_created_pod_running
+  - hiding_compensating_termination_failure
   - treating_exited_as_success_without_completion_evidence
   - treating_unknown_provider_status_as_success
+  - collecting_results_without_authenticated_completion_evidence
