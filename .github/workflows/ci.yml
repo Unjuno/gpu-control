@@ -60,6 +60,8 @@ jobs:
 
       - name: Run with bounded container privileges
         shell: bash
+        env:
+          GPU_CONTROL_SECRET_SENTINEL: host-only-sentinel
         run: |
           set -euo pipefail
           trap 'docker rm -f gpu-control-reference >/dev/null 2>&1 || true' EXIT
@@ -88,6 +90,12 @@ jobs:
           assert result["schema_version"] == 1
           assert result["status"] == "ok"
           assert result["workload_id"] == "gpu-control-reference"
+          assert result["isolation_checks"] == {
+              "credentials_absent": True,
+              "docker_socket_absent": True,
+              "gpu_devices_absent": True,
+              "network_blocked": True,
+          }
 
           inspect = json.loads(
               subprocess.check_output(
@@ -103,4 +111,14 @@ jobs:
           assert host["PidsLimit"] == 64
           assert host["Memory"] == 134217728
           assert host["NanoCpus"] == 1_000_000_000
+          assert host["Privileged"] is False
+          assert host["Devices"] in (None, [])
+          assert host["Binds"] in (None, [])
+          assert host["PidMode"] != "host"
+          assert host["IpcMode"] != "host"
+
+          environment = inspect["Config"].get("Env") or []
+          sensitive_names = ("GITHUB_TOKEN", "RUNPOD_API_KEY", "GPU_CONTROL_SECRET_SENTINEL")
+          for name in sensitive_names:
+              assert not any(entry.startswith(f"{name}=") for entry in environment)
           PY
