@@ -12,16 +12,19 @@ api:
 submission:
   approved_plan_required: true
   published_image_evidence_required: true
+  catalog_pricing_evidence_required: true
   image_reference_must_be_digest_pinned: true
   published_image_must_match_plan_fingerprint: true
   published_image_digest_must_match_plan: true
   gpu_type_id_from_verified_pricing: true
+  create_cloud_from_catalog_pricing_evidence: true
   gpu_count: 1
   global_networking: false
   user_ports_forwarded: false
   user_env_forwarded: false
   user_mounts_forwarded: false
   post_create_identity_revalidation: true
+  post_create_cloud_revalidation: true
   post_create_price_must_not_exceed_verified_price: true
 
 status:
@@ -41,6 +44,13 @@ catalog:
   endpoint: GET /catalog/gpus
   include_availability: true
   product: POD
+  gpu_count: 1
+  evidence_max_ttl_seconds: 300
+  required_availability: HIGH
+  require_high_availability_datacenter: true
+  require_profile_min_vram: true
+  require_cloud_price: true
+  require_cloud_capacity: true
 
 forbidden:
   - live_runpod_call_from_ci
@@ -50,7 +60,12 @@ forbidden:
   - api_key_in_logs_or_errors
   - mutable_tag_only_image
   - submit_image_not_bound_to_approved_plan
+  - submission_cloud_not_bound_to_pricing_evidence
+  - stale_catalog_pricing_evidence
+  - catalog_gpu_below_profile_vram
+  - catalog_gpu_without_one_gpu_capacity
   - unverified_post_create_gpu_identity
+  - create_response_cloud_mismatch
   - accepting_price_above_verified_price
   - treating_exited_as_success_without_completion_evidence
   - treating_unknown_provider_status_as_success
