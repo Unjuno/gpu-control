@@ -43,6 +43,7 @@ def test_paid_compute_requires_explicit_human_request_and_bounds() -> None:
     assert "cleanup_plan" in requirements
     assert "approved_execution_plan" in requirements
     assert policy["paid_compute"]["defaults"]["gpu_count"] == 1
+    assert policy["paid_compute"]["defaults"]["execution_model"] == "asynchronous_submit_collect"
     assert policy["paid_compute"]["provider_adapter_input"] == "approved_execution_plan"
 
 
@@ -53,6 +54,7 @@ def test_repository_context_files_exist() -> None:
         ROOT / "CONTRIBUTING.md",
         ROOT / "docs" / "OPERATING_MODEL.md",
         ROOT / "docs" / "CONTAINER_VERIFICATION.md",
+        ROOT / "docs" / "ASYNC_EXECUTION.md",
         ROOT / ".github" / "copilot-instructions.md",
         ROOT / "policies" / "agent-policy.yaml",
         ROOT / "policies" / "gpu-policy.yaml",
