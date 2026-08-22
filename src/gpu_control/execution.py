@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from decimal import Decimal, InvalidOperation, ROUND_CEILING
+from datetime import datetime, timezone
+from decimal import Decimal, ROUND_CEILING
 import hashlib
 import json
 from typing import Any, Mapping
 
 from .container import ContainerVerificationResult
+from .pricing import PricingVerificationError, PricingVerificationResult
 from .source import SourceVerificationResult
 from .validation import WorkloadRequest
 
@@ -20,6 +22,7 @@ class ApprovedExecutionPlan:
     """Immutable provider input produced only after all paid-compute gates pass."""
 
     provider: str
+    provider_resource_id: str
     target_repo: str
     target_sha: str
     dockerfile_path: str
@@ -30,10 +33,14 @@ class ApprovedExecutionPlan:
     max_runtime_minutes: int
     max_cost_usd: Decimal
     verified_hourly_price_usd: Decimal
+    pricing_verification_reference: str
+    pricing_verified_at_utc: str
+    pricing_valid_until_utc: str
     worst_case_cost_usd: Decimal
     authorization_reference: str
     source_verified: bool = True
     container_verified: bool = True
+    pricing_verified: bool = True
     dry_run_succeeded: bool = True
     cleanup_guaranteed: bool = True
     explicit_human_authorization: bool = True
@@ -63,16 +70,6 @@ class ApprovedExecutionPlan:
         """
         digest = hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
         return f"sha256:{digest}"
-
-
-def _positive_decimal(value: object, field: str) -> Decimal:
-    try:
-        result = Decimal(str(value))
-    except (InvalidOperation, ValueError) as exc:
-        raise ExecutionGateError(f"{field} must be a decimal number") from exc
-    if not result.is_finite() or result <= 0:
-        raise ExecutionGateError(f"{field} must be finite and positive")
-    return result
 
 
 def _validate_source_identity(request: WorkloadRequest, source: SourceVerificationResult) -> None:
@@ -117,18 +114,54 @@ def _validate_container_evidence(
             raise ExecutionGateError(f"{label} must pass before paid compute")
 
 
+def _validate_decision_time(value: datetime | None) -> datetime:
+    decision_time = value or datetime.now(timezone.utc)
+    if decision_time.tzinfo is None or decision_time.utcoffset() != timezone.utc.utcoffset(decision_time):
+        raise ExecutionGateError("decision_time_utc must be timezone-aware UTC")
+    return decision_time
+
+
+def _validate_pricing_evidence(
+    request: WorkloadRequest,
+    pricing: PricingVerificationResult,
+    *,
+    decision_time_utc: datetime | None,
+) -> Decimal:
+    try:
+        verified_at, valid_until = pricing.validate_shape()
+    except PricingVerificationError as exc:
+        raise ExecutionGateError(str(exc)) from exc
+
+    if pricing.provider.strip().lower() == "":
+        raise ExecutionGateError("pricing provider is required")
+    if pricing.gpu_profile != request.gpu_profile:
+        raise ExecutionGateError("pricing gpu_profile does not match the workload request")
+    if not pricing.price_verified:
+        raise ExecutionGateError("provider price verification must pass before paid compute")
+    if not pricing.availability_verified:
+        raise ExecutionGateError("provider resource availability must be verified before paid compute")
+
+    decision_time = _validate_decision_time(decision_time_utc)
+    if decision_time < verified_at:
+        raise ExecutionGateError("pricing evidence cannot be newer than the approval decision")
+    if decision_time >= valid_until:
+        raise ExecutionGateError("pricing evidence expired before the approval decision")
+
+    return pricing.hourly_price_usd
+
+
 def build_approved_execution_plan(
     request: WorkloadRequest,
     effective_policy: Mapping[str, Any],
     source: SourceVerificationResult,
     container: ContainerVerificationResult,
+    pricing: PricingVerificationResult,
     *,
-    provider: str,
-    verified_hourly_price_usd: str | Decimal,
     dry_run_succeeded: bool,
     cleanup_guaranteed: bool,
     explicit_human_authorization: bool,
     authorization_reference: str,
+    decision_time_utc: datetime | None = None,
 ) -> ApprovedExecutionPlan:
     """Create immutable provider input only when every paid-compute gate passes.
 
@@ -139,6 +172,11 @@ def build_approved_execution_plan(
 
     _validate_source_identity(request, source)
     _validate_container_evidence(request, source, container)
+    hourly_price = _validate_pricing_evidence(
+        request,
+        pricing,
+        decision_time_utc=decision_time_utc,
+    )
 
     if not dry_run_succeeded:
         raise ExecutionGateError("a successful dry-run is required before paid compute")
@@ -148,8 +186,6 @@ def build_approved_execution_plan(
         raise ExecutionGateError("explicit human authorization is required for paid compute")
     if not authorization_reference or not authorization_reference.strip():
         raise ExecutionGateError("authorization_reference is required for paid compute")
-    if not provider or not provider.strip():
-        raise ExecutionGateError("provider must be explicitly identified")
 
     if effective_policy.get("profile") != request.gpu_profile:
         raise ExecutionGateError("effective policy profile does not match the request")
@@ -165,11 +201,15 @@ def build_approved_execution_plan(
     if request.max_runtime_minutes > allowed_runtime:
         raise ExecutionGateError("requested runtime exceeds the effective policy")
 
-    allowed_cost = _positive_decimal(effective_policy.get("max_cost_usd"), "effective policy max_cost_usd")
+    try:
+        allowed_cost = Decimal(str(effective_policy.get("max_cost_usd")))
+    except Exception as exc:
+        raise ExecutionGateError("effective policy max_cost_usd must be a decimal number") from exc
+    if not allowed_cost.is_finite() or allowed_cost <= 0:
+        raise ExecutionGateError("effective policy max_cost_usd must be finite and positive")
     if request.max_cost_usd > allowed_cost:
         raise ExecutionGateError("requested cost exceeds the effective policy")
 
-    hourly_price = _positive_decimal(verified_hourly_price_usd, "verified_hourly_price_usd")
     raw_worst_case = hourly_price * Decimal(request.max_runtime_minutes) / Decimal(60)
     worst_case_cost = raw_worst_case.quantize(Decimal("0.01"), rounding=ROUND_CEILING)
 
@@ -179,7 +219,8 @@ def build_approved_execution_plan(
         )
 
     return ApprovedExecutionPlan(
-        provider=provider.strip(),
+        provider=pricing.provider.strip(),
+        provider_resource_id=pricing.provider_resource_id.strip(),
         target_repo=request.target_repo,
         target_sha=request.target_sha,
         dockerfile_path=request.dockerfile_path,
@@ -190,6 +231,9 @@ def build_approved_execution_plan(
         max_runtime_minutes=request.max_runtime_minutes,
         max_cost_usd=request.max_cost_usd,
         verified_hourly_price_usd=hourly_price,
+        pricing_verification_reference=pricing.verification_reference.strip(),
+        pricing_verified_at_utc=pricing.verified_at_utc.strip(),
+        pricing_valid_until_utc=pricing.valid_until_utc.strip(),
         worst_case_cost_usd=worst_case_cost,
         authorization_reference=authorization_reference.strip(),
     )
