@@ -18,6 +18,15 @@ from .controller import (
     observe_provider_job,
     submit_approved_plan,
 )
+from .runpod_v2 import (
+    RUNPOD_V2_BASE_URL,
+    PublishedImageEvidence,
+    RunPodV2Error,
+    RunPodV2HttpClient,
+    build_create_pod_payload,
+    translate_pod_status,
+    validate_created_pod,
+)
 from .synthetic import SyntheticProviderAdapter
 
 __all__ = [
@@ -27,10 +36,17 @@ __all__ = [
     "ProviderResultSnapshot",
     "ProviderStatusSnapshot",
     "ProviderSubmission",
+    "PublishedImageEvidence",
+    "RUNPOD_V2_BASE_URL",
+    "RunPodV2Error",
+    "RunPodV2HttpClient",
     "SubmittedJob",
     "SyntheticProviderAdapter",
+    "build_create_pod_payload",
     "cleanup_provider_job",
     "collect_provider_results",
     "observe_provider_job",
     "submit_approved_plan",
+    "translate_pod_status",
+    "validate_created_pod",
 ]
