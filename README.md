@@ -2,54 +2,37 @@
 
 `gpu-control` is a public, local-first control plane for reproducible containerized GPU experiments.
 
-Its purpose is not to send every experiment to a cloud GPU. Its purpose is to make escalation deliberate:
+It is designed to make escalation deliberate rather than sending every experiment directly to paid GPU infrastructure:
 
 ```text
 inspect
   -> local container
   -> smallest useful experiment
   -> workload repository + immutable commit
-  -> validation / CI / dry-run
+  -> policy + source verification
+  -> container verification
   -> RunPod only when GPU compute is actually required
 ```
 
-> **Current status:** validation and dry-run only. No provider API is called and no paid GPU resource is created yet.
+> **Current status:** local validation, public GitHub source verification, and dry-run workflows are implemented. No provider API is called and no paid GPU resource can be created yet.
 
-## Why this project exists
+## Operating rule
 
-GPU experiments become expensive and difficult to debug when source control, containers, CI, provider APIs, and autonomous agents are mixed together without a clear boundary.
+Use the cheapest, smallest, most local execution environment that can answer the current question. Paid compute is an escalation stage, not the default development loop.
 
-`gpu-control` separates those concerns. A workload lives in its own repository. This repository validates the workload identity and resource policy, then eventually submits a bounded GPU job only after cheaper checks have passed.
+Repository access is not authorization to spend money. Agents operating in this repository must follow [AGENTS.md](AGENTS.md), and paid compute is denied by default in [policies/agent-policy.yaml](policies/agent-policy.yaml).
 
-The repository is public by design. Provider credentials are not stored in source.
+The intended sequence is:
 
-## Operating model
+1. Test the workload locally in a container.
+2. Reduce it to the smallest useful experiment.
+3. Put the workload in a separate repository with reproducible dependencies.
+4. Identify the workload by an immutable 40-character commit SHA.
+5. Validate policy and verify the repository, exact commit, and Dockerfile.
+6. Verify the container itself.
+7. Escalate to RunPod only after the earlier gates pass and a human explicitly authorizes paid compute.
 
-The expected workflow is:
-
-1. **Experiment locally in a container.** Validate imports, configuration, entrypoint behavior, outputs, and exit codes before remote execution.
-2. **Make the experiment small.** Use the smallest dataset, steps, timeout, process count, and resource footprint that can answer the current question.
-3. **Create or select a workload repository.** Keep the workload separate from `gpu-control` and make the execution state reproducible.
-4. **Grant repository access deliberately.** Repository creation, collaborator permissions, secrets, and write access remain explicit human-controlled boundaries.
-5. **Validate through `gpu-control`.** Run self-tests, request/policy checks, source/container verification, and dry-run gates.
-6. **Escalate to RunPod last.** Paid GPU compute is used only when the workload genuinely needs it and the paid run is explicitly authorized.
-
-See [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md) for the rationale and detailed gates.
-
-## Agent behavior
-
-This repository is intended to be useful as execution context for coding and automation agents, not merely as a collection of scripts.
-
-Agents operating in this repository must follow [AGENTS.md](AGENTS.md). The central rule is:
-
-> **Paid compute is denied by default. Repository access or a request to prepare an experiment does not authorize GPU spending.**
-
-The repository also contains:
-
-- `.github/copilot-instructions.md` for GitHub Copilot repository context;
-- `policies/agent-policy.yaml` as a machine-readable escalation policy;
-- `SECURITY.md` for trust and secret boundaries;
-- `policies/gpu-policy.yaml` for GPU resource limits.
+See [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md) for the detailed rationale.
 
 ## Quick start
 
@@ -58,119 +41,95 @@ Requirements:
 - Python 3.11+
 - `uv`
 
-Clone and install the locked development environment:
-
 ```bash
 git clone https://github.com/Unjuno/gpu-control.git
 cd gpu-control
 uv sync --locked --extra dev
-```
-
-Run the standalone self-test:
-
-```bash
 uv run gpu-control self-test
-```
-
-The self-test requires no GPU, no provider account, and no GitHub token. It verifies the CLI, bundled policy, and validation path.
-
-Run the full test suite:
-
-```bash
 uv run pytest
 ```
 
-The package can also be invoked directly:
+`self-test` is offline and requires no GPU, provider account, or GitHub token.
 
-```bash
-uv run python -m gpu_control self-test
-```
+## Validate a request offline
 
-## Validate a request locally
-
-`validate` checks the workload request and resource policy without launching anything:
+`validate` checks syntax and resource policy only. It performs no network or provider calls.
 
 ```bash
 uv run gpu-control validate \
   --target-repo example/model \
   --target-sha 0123456789abcdef0123456789abcdef01234567 \
+  --dockerfile-path Dockerfile \
   --gpu-profile cheap-24gb \
   --max-runtime-minutes 15 \
   --max-cost-usd 0.20
 ```
 
-A successful request returns machine-readable JSON with `status: valid` and `dry_run: true`.
+A successful result contains `status: valid` and `dry_run: true`.
 
-### Request fields
+`max_cost_usd` accepts at most two decimal places. Values requiring implicit rounding are rejected.
 
-- `target_repo`: GitHub repository in `owner/repository` form
-- `target_sha`: immutable 40-character Git commit SHA
-- `dockerfile_path`: relative POSIX path, default `Dockerfile`
-- `gpu_profile`: policy-defined resource profile
-- `max_runtime_minutes`: requested runtime ceiling
-- `max_cost_usd`: requested provider-cost ceiling
+## Verify a public GitHub workload
 
-The public interface does not accept arbitrary shell commands.
+`verify-source` runs the same request and policy validation, then verifies through the GitHub API that:
+
+- the repository exists and is public;
+- the requested full SHA resolves to that exact commit;
+- `dockerfile_path` resolves to a file at that commit.
+
+```bash
+uv run gpu-control verify-source \
+  --target-repo example/model \
+  --target-sha 0123456789abcdef0123456789abcdef01234567 \
+  --dockerfile-path Dockerfile \
+  --gpu-profile cheap-24gb \
+  --max-runtime-minutes 15 \
+  --max-cost-usd 0.20
+```
+
+The command can use `GITHUB_TOKEN` when present to improve GitHub API reliability and rate limits. The current MVP still rejects private repositories even if a token could access them.
+
+A successful result contains `status: verified` and remains `dry_run: true`.
 
 ## Workload contract
 
-A GPU workload should normally live in a separate repository and be addressable by an immutable commit.
-
-The baseline contract is intentionally narrow:
+The baseline workload contract is intentionally narrow:
 
 ```text
-public or explicitly authorized repository
-+ immutable commit SHA
+public repository
++ immutable full commit SHA
 + Dockerfile
 + locked/reproducible dependencies where applicable
 + finite non-interactive container entrypoint
 + meaningful process exit code
 ```
 
-The container should start, run a bounded experiment, write outputs, and exit. Interactive SSH sessions are not the default execution model.
-
-## Policy
-
-The CLI ships with a bundled default GPU policy, so installed usage is independent of the current working directory.
-
-Human-editable copy:
-
-```text
-policies/gpu-policy.yaml
-```
-
-Packaged copy:
-
-```text
-src/gpu_control/default_policy.yaml
-```
-
-Tests require them to remain identical.
-
-A custom policy can be supplied explicitly:
-
-```bash
-uv run gpu-control validate \
-  --target-repo example/model \
-  --target-sha 0123456789abcdef0123456789abcdef01234567 \
-  --gpu-profile cheap-24gb \
-  --max-runtime-minutes 15 \
-  --max-cost-usd 0.20 \
-  --policy ./my-policy.yaml
-```
-
-The current MVP allows exactly one GPU and constrains runtime, cost, and minimum VRAM by profile.
+The container should start, perform a bounded experiment, write outputs, and exit. Interactive SSH sessions and arbitrary remote shell commands are not the default execution model.
 
 ## GitHub Actions
 
-Two workflows are currently included:
+Two workflows are included:
 
-- **CI** — runs locked-environment unit and standalone tests on pushes and pull requests.
-- **GPU request dry-run** — manually validates a request through `workflow_dispatch` without creating GPU resources.
+- **CI** — tests the locked environment on Python 3.11, 3.12, and 3.13 using `ubuntu-24.04`.
+- **GPU request dry-run** — manually validates policy and verifies the public workload repository, exact commit, and Dockerfile without creating GPU resources.
 
-Workflows declare minimal permissions and pin third-party Actions to immutable commit SHAs.
+Workflows use minimal permissions and pin third-party Actions to immutable commit SHAs.
 
 Paid compute must never be triggered directly by untrusted pull requests, forks, issues, comments, or public webhooks.
+
+## Repository context and policy
+
+This repository is intended to be useful as execution context for both humans and automation agents:
+
+- [AGENTS.md](AGENTS.md) — normative agent operating rules;
+- [policies/agent-policy.yaml](policies/agent-policy.yaml) — machine-readable escalation policy;
+- [policies/gpu-policy.yaml](policies/gpu-policy.yaml) — GPU, runtime, and cost limits;
+- [SECURITY.md](SECURITY.md) — trust, authorization, and secret boundaries;
+- [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md) — staged experiment workflow;
+- [.github/copilot-instructions.md](.github/copilot-instructions.md) — GitHub Copilot repository context;
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution requirements.
+
+When policy, authorization, price, or cleanup guarantees are unknown, the intended behavior is fail-closed.
 
 ## Planned architecture
 
@@ -181,17 +140,17 @@ Workload repository
         v
     gpu-control
         |
-        +-- input validation
-        +-- agent/resource policy
+        +-- request validation
+        +-- resource / agent policy
         +-- source verification
         +-- container verification
-        +-- dry-run plan
-        +-- bounded job submission
+        +-- dry-run execution plan
+        +-- explicit paid-compute authorization
         |
         v
       RunPod
         |
-        | asynchronous execution
+        | asynchronous submit / collect
         v
  containerized workload
         |
@@ -199,52 +158,18 @@ Workload repository
  results / status collection
 ```
 
-Long-running GPU work should not keep a GitHub-hosted runner waiting. Provider integration will use an asynchronous submit/collect lifecycle.
-
-## Security model
-
-Assume every source file, workflow, policy, and Actions log in this public repository is visible to an attacker.
-
-- Never commit API keys, tokens, `.env` files, private datasets, or private checkpoints.
-- Provider credentials belong in GitHub Actions Secrets or an equivalent secret store.
-- Paid-compute authorization is separate from repository read/write access.
-- Pull requests, forks, issues, comments, and `pull_request_target` must not launch paid compute.
-- Arbitrary shell commands are not workflow inputs.
-- GPU count, runtime, and cost are bounded by policy.
-- Provider jobs must have cleanup behavior for success, failure, timeout, and cancellation.
-- Unknown price, authorization, policy state, or cleanup capability must fail closed.
-
-See [SECURITY.md](SECURITY.md).
-
-## Repository layout
-
-```text
-.github/workflows/              GitHub Actions workflows
-.github/copilot-instructions.md GitHub Copilot repository instructions
-AGENTS.md                       Normative agent operating policy
-docs/OPERATING_MODEL.md         Human-readable staged workflow
-policies/agent-policy.yaml      Machine-readable agent escalation policy
-policies/gpu-policy.yaml        GPU resource limits
-src/gpu_control/                CLI, validation, policy logic, bundled GPU policy
-tests/                          Unit, standalone, and repository-policy tests
-pyproject.toml                   Python package metadata
-uv.lock                          Locked Python dependency graph
-```
+Long-running GPU work must not keep a GitHub-hosted runner polling for hours.
 
 ## Roadmap
 
 1. Standalone CLI, bundled policy, lockfile, and zero-GPU CI. **Done.**
 2. Repository-level agent policy and public operating model. **Done.**
-3. Verify target repository, commit SHA, and Dockerfile existence.
-4. Build the target container and run a CPU-side smoke check where possible.
-5. Add the RunPod adapter with fail-closed pricing, authorization, and lifecycle cleanup.
-6. Submit GPU jobs asynchronously so Actions runners are released during execution.
-7. Collect status, logs, metrics, and outputs.
-8. Add additional providers behind the same resource-policy interface if useful.
-
-## Contributing
-
-Contributions should preserve the local-first escalation model and public-repository security assumptions. See [CONTRIBUTING.md](CONTRIBUTING.md).
+3. Verify public target repository, exact commit SHA, and Dockerfile. **Done.**
+4. Build the target container and run a bounded smoke check.
+5. Publish a minimal reference workload repository for end-to-end testing.
+6. Add the RunPod adapter behind explicit authorization, price, runtime, and cleanup gates.
+7. Submit GPU jobs asynchronously and collect status, logs, metrics, and outputs.
+8. Add other providers behind the same resource-policy interface if useful.
 
 ## License
 
