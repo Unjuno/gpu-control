@@ -50,9 +50,11 @@ def test_repository_context_files_exist() -> None:
         ROOT / "SECURITY.md",
         ROOT / "CONTRIBUTING.md",
         ROOT / "docs" / "OPERATING_MODEL.md",
+        ROOT / "docs" / "CONTAINER_VERIFICATION.md",
         ROOT / ".github" / "copilot-instructions.md",
         ROOT / "policies" / "agent-policy.yaml",
         ROOT / "policies" / "gpu-policy.yaml",
+        ROOT / "policies" / "container-verification-policy.yaml",
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     assert missing == []
