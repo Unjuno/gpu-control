@@ -19,6 +19,7 @@ from .controller import (
     submit_approved_plan,
 )
 from .runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
+from .runpod_occupancy import RunPodAccountOccupancyEvidence, build_account_occupancy_evidence
 from .runpod_pricing import (
     RunPodCatalogPricingEvidence,
     build_catalog_pricing_evidence,
@@ -45,6 +46,7 @@ __all__ = [
     "ProviderSubmission",
     "PublishedImageEvidence",
     "RUNPOD_V2_BASE_URL",
+    "RunPodAccountOccupancyEvidence",
     "RunPodCatalogPricingEvidence",
     "RunPodV2Adapter",
     "RunPodV2AdapterError",
@@ -52,6 +54,7 @@ __all__ = [
     "RunPodV2HttpClient",
     "SubmittedJob",
     "SyntheticProviderAdapter",
+    "build_account_occupancy_evidence",
     "build_catalog_pricing_evidence",
     "build_create_pod_payload",
     "build_priced_create_pod_payload",
