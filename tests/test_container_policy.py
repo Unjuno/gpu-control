@@ -14,12 +14,23 @@ def load_policy() -> dict:
     return policy
 
 
-def test_generic_container_execution_is_denied_until_isolation_exists() -> None:
+def test_generic_container_execution_remains_denied() -> None:
     policy = load_policy()
     assert policy["default"] == "denied"
-    assert policy["status"] == "design_only"
+    assert policy["status"] == "trusted_reference_only"
     assert policy["build"]["generic_execution_enabled"] is False
     assert policy["runtime"]["generic_execution_enabled"] is False
+
+
+def test_only_repository_owned_reference_fixture_is_enabled() -> None:
+    reference = load_policy()["trusted_reference"]
+    assert reference["enabled"] is True
+    assert reference["scope"] == "repository_owned_ci_fixture"
+    assert reference["path"] == "examples/reference-workload"
+    assert reference["gpu"] == "forbidden"
+    assert reference["network"] == "none"
+    assert reference["provider_credentials"] == "forbidden"
+    assert reference["wall_clock_seconds"] <= 30
 
 
 def test_workload_environment_forbids_control_plane_credentials() -> None:
@@ -43,7 +54,7 @@ def test_runtime_defaults_to_restricted_offline_smoke_test() -> None:
     assert runtime["limits"]["pids"] <= 256
 
 
-def test_untrusted_events_cannot_trigger_container_execution() -> None:
+def test_untrusted_events_cannot_trigger_generic_container_execution() -> None:
     trigger = load_policy()["trigger"]
     assert trigger["explicit_authenticated_authorization_required"] is True
     assert trigger["untrusted_pull_request"] == "forbidden"
@@ -52,5 +63,7 @@ def test_untrusted_events_cannot_trigger_container_execution() -> None:
     assert trigger["issue_comment"] == "forbidden"
 
 
-def test_container_policy_requires_security_documentation() -> None:
+def test_container_policy_requires_security_documentation_and_fixture() -> None:
     assert (ROOT / "docs" / "CONTAINER_VERIFICATION.md").is_file()
+    assert (ROOT / "examples" / "reference-workload" / "Dockerfile").is_file()
+    assert (ROOT / "examples" / "reference-workload" / "main.py").is_file()
