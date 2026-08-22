@@ -52,6 +52,28 @@ def test_paid_compute_requires_explicit_human_request_and_bounds() -> None:
     assert policy["paid_compute"]["provider_adapter_input"] == "approved_execution_plan"
 
 
+def test_provider_adapter_must_cross_the_control_plane_controller() -> None:
+    adapter = load_agent_policy()["provider_adapter"]
+
+    assert adapter["live_implementation_enabled"] is False
+    assert adapter["controller_module"] == "gpu_control.providers.controller"
+    assert adapter["adapter_input"] == "approved_execution_plan_only"
+    assert adapter["provider_name_must_match_plan"] is True
+    assert set(adapter["submit_requires"]) == {
+        "strict_approved_plan_validation",
+        "trusted_expected_plan_fingerprint_match",
+        "fresh_pricing_at_submit_boundary",
+    }
+    assert adapter["returned_data_is_untrusted"] is True
+    assert adapter["provider_job_id_must_match_submission_receipt_after_submit"] is True
+    assert adapter["status_transitions_must_pass_lifecycle_validation"] is True
+    assert adapter["cleanup_requires_terminal_job_state"] is True
+    assert adapter["result_collection_requires_finalized_lifecycle_state"] is True
+    assert adapter["result_collection_uses_bounded_result_policy"] is True
+    assert adapter["long_running_wait_inside_actions"] is False
+    assert adapter["synthetic_test_backend_may_not_allocate_resources"] is True
+
+
 def test_async_state_is_strict_and_not_trusted_on_parse_alone() -> None:
     async_policy = load_agent_policy()["async_execution"]
     persisted = async_policy["persisted_state"]
@@ -118,6 +140,7 @@ def test_repository_context_files_exist() -> None:
         ROOT / "docs" / "PRICING_VERIFICATION.md",
         ROOT / "docs" / "RESULT_COLLECTION.md",
         ROOT / "docs" / "APPROVED_PLAN_PERSISTENCE.md",
+        ROOT / "docs" / "PROVIDER_ADAPTER_CONTRACT.md",
         ROOT / ".github" / "copilot-instructions.md",
         ROOT / "policies" / "agent-policy.yaml",
         ROOT / "policies" / "gpu-policy.yaml",
@@ -137,6 +160,12 @@ def test_forbidden_policy_blocks_common_agent_escalation_failures() -> None:
     assert "long_lived_actions_polling" in forbidden
     assert "provider_allocation_without_explicit_authorization" in forbidden
     assert "provider_adapter_accepting_raw_workload_request" in forbidden
+    assert "provider_adapter_bypassing_control_plane_controller" in forbidden
+    assert "trusting_provider_response_without_correlation" in forbidden
+    assert "provider_status_identity_change" in forbidden
+    assert "provider_cleanup_before_terminal_state" in forbidden
+    assert "provider_result_collection_before_cleanup_completed" in forbidden
+    assert "live_provider_implementation_without_explicit_enablement" in forbidden
     assert "paid_gate_accepting_bare_container_boolean" in forbidden
     assert "paid_gate_accepting_bare_price_scalar" in forbidden
     assert "submit_stage_waiting_for_long_running_gpu_completion" in forbidden
