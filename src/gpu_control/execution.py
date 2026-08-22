@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
+import hashlib
+import json
 from typing import Any, Mapping
 
 from .container import ContainerVerificationResult
@@ -35,6 +37,32 @@ class ApprovedExecutionPlan:
     dry_run_succeeded: bool = True
     cleanup_guaranteed: bool = True
     explicit_human_authorization: bool = True
+    schema_version: int = 1
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a stable JSON-compatible representation of the approved plan."""
+        payload = asdict(self)
+        for field in ("max_cost_usd", "verified_hourly_price_usd", "worst_case_cost_usd"):
+            payload[field] = format(payload[field], "f")
+        return payload
+
+    def canonical_json(self) -> str:
+        """Serialize the plan deterministically for cross-stage identity."""
+        return json.dumps(
+            self.to_dict(),
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    def fingerprint(self) -> str:
+        """Return a content fingerprint for correlation, not authorization.
+
+        The fingerprint detects plan changes and gives asynchronous stages a stable
+        identifier. It is not a signature and does not authenticate the caller.
+        """
+        digest = hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+        return f"sha256:{digest}"
 
 
 def _positive_decimal(value: object, field: str) -> Decimal:
