@@ -27,22 +27,40 @@ def test_live_runpod_calls_are_disabled_by_default() -> None:
     assert api["workflow_enabled"] is False
 
 
-def test_submission_is_bound_to_plan_image_gpu_and_price() -> None:
+def test_submission_is_bound_to_plan_image_gpu_cloud_and_price() -> None:
     submission = load_policy()["submission"]
 
     assert submission["approved_plan_required"] is True
     assert submission["published_image_evidence_required"] is True
+    assert submission["catalog_pricing_evidence_required"] is True
     assert submission["image_reference_must_be_digest_pinned"] is True
     assert submission["published_image_must_match_plan_fingerprint"] is True
     assert submission["published_image_digest_must_match_plan"] is True
     assert submission["gpu_type_id_from_verified_pricing"] is True
+    assert submission["create_cloud_from_catalog_pricing_evidence"] is True
     assert submission["gpu_count"] == 1
     assert submission["global_networking"] is False
     assert submission["user_ports_forwarded"] is False
     assert submission["user_env_forwarded"] is False
     assert submission["user_mounts_forwarded"] is False
     assert submission["post_create_identity_revalidation"] is True
+    assert submission["post_create_cloud_revalidation"] is True
     assert submission["post_create_price_must_not_exceed_verified_price"] is True
+
+
+def test_catalog_evidence_is_short_lived_and_capacity_checked() -> None:
+    catalog = load_policy()["catalog"]
+
+    assert catalog["endpoint"] == "GET /catalog/gpus"
+    assert catalog["include_availability"] is True
+    assert catalog["product"] == "POD"
+    assert catalog["gpu_count"] == 1
+    assert catalog["evidence_max_ttl_seconds"] == 300
+    assert catalog["required_availability"] == "HIGH"
+    assert catalog["require_high_availability_datacenter"] is True
+    assert catalog["require_profile_min_vram"] is True
+    assert catalog["require_cloud_price"] is True
+    assert catalog["require_cloud_capacity"] is True
 
 
 def test_ambiguous_or_future_provider_states_fail_closed() -> None:
@@ -67,7 +85,12 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
     assert "api_key_in_logs_or_errors" in forbidden
     assert "mutable_tag_only_image" in forbidden
     assert "submit_image_not_bound_to_approved_plan" in forbidden
+    assert "submission_cloud_not_bound_to_pricing_evidence" in forbidden
+    assert "stale_catalog_pricing_evidence" in forbidden
+    assert "catalog_gpu_below_profile_vram" in forbidden
+    assert "catalog_gpu_without_one_gpu_capacity" in forbidden
     assert "unverified_post_create_gpu_identity" in forbidden
+    assert "create_response_cloud_mismatch" in forbidden
     assert "accepting_price_above_verified_price" in forbidden
     assert "treating_exited_as_success_without_completion_evidence" in forbidden
     assert "treating_unknown_provider_status_as_success" in forbidden
