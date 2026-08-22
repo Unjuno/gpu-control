@@ -1,0 +1,20 @@
+version: 1
+
+logs:
+  max_retained_bytes: 1048576
+
+artifacts:
+  max_entries: 32
+  max_name_length: 160
+  max_reference_length: 2048
+  max_media_type_length: 128
+  max_declared_bytes: 1099511627776
+
+collection:
+  max_collected_file_bytes: 67108864
+  max_total_collected_bytes: 134217728
+
+behavior:
+  large_artifacts: reference_only
+  require_sha256: true
+  auto_fetch_references: false
