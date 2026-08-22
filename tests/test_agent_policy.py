@@ -37,7 +37,11 @@ def test_paid_compute_requires_explicit_human_request_and_bounds() -> None:
     assert "structured_container_verification_evidence" in requirements
     assert "immutable_image_digest" in requirements
     assert "successful_dry_run" in requirements
+    assert "structured_pricing_verification_evidence" in requirements
     assert "verified_provider_price" in requirements
+    assert "verified_provider_resource_availability" in requirements
+    assert "provider_resource_id" in requirements
+    assert "unexpired_pricing_evidence" in requirements
     assert "explicit_runtime_limit" in requirements
     assert "explicit_cost_limit" in requirements
     assert "cleanup_plan" in requirements
@@ -55,6 +59,7 @@ def test_repository_context_files_exist() -> None:
         ROOT / "docs" / "OPERATING_MODEL.md",
         ROOT / "docs" / "CONTAINER_VERIFICATION.md",
         ROOT / "docs" / "ASYNC_EXECUTION.md",
+        ROOT / "docs" / "PRICING_VERIFICATION.md",
         ROOT / ".github" / "copilot-instructions.md",
         ROOT / "policies" / "agent-policy.yaml",
         ROOT / "policies" / "gpu-policy.yaml",
@@ -74,3 +79,4 @@ def test_forbidden_policy_blocks_common_agent_escalation_failures() -> None:
     assert "provider_allocation_without_explicit_authorization" in forbidden
     assert "provider_adapter_accepting_raw_workload_request" in forbidden
     assert "paid_gate_accepting_bare_container_boolean" in forbidden
+    assert "paid_gate_accepting_bare_price_scalar" in forbidden
