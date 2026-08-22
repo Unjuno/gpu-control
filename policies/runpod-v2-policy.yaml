@@ -14,6 +14,7 @@ submission:
   approved_plan_required: true
   published_image_evidence_required: true
   catalog_pricing_evidence_required: true
+  account_occupancy_evidence_required: true
   image_reference_must_be_digest_pinned: true
   published_image_must_match_plan_fingerprint: true
   published_image_digest_must_match_plan: true
@@ -26,10 +27,15 @@ submission:
   user_mounts_forwarded: false
   automatic_create_retry: false
   ambiguous_create_requires_reconciliation: true
+  pre_create_account_must_have_zero_non_terminated_pods: true
+  post_create_account_must_contain_only_new_pod: true
+  occupancy_evidence_max_ttl_seconds: 60
+  occupancy_failure_is_fail_closed: true
   post_create_identity_revalidation: true
   post_create_cloud_revalidation: true
   post_create_price_must_not_exceed_verified_price: true
   post_create_validation_failure_terminates_known_pod: true
+  post_create_exclusivity_failure_terminates_new_pod: true
   compensating_termination_failure_is_visible: true
 
 status:
@@ -75,6 +81,9 @@ forbidden:
   - stale_catalog_pricing_evidence
   - catalog_gpu_below_profile_vram
   - catalog_gpu_without_one_gpu_capacity
+  - create_without_account_occupancy_evidence
+  - create_while_another_non_terminated_pod_exists
+  - losing_account_exclusivity_after_create
   - automatic_retry_after_ambiguous_create
   - unverified_post_create_gpu_identity
   - create_response_cloud_mismatch

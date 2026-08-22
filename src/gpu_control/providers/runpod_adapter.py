@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Callable
 
 from ..execution import ApprovedExecutionPlan
 from ..lifecycle import CleanupState, JobObservation, SubmissionReceipt
@@ -10,6 +12,7 @@ from .base import (
     ProviderStatusSnapshot,
     ProviderSubmission,
 )
+from .runpod_occupancy import RunPodAccountOccupancyEvidence
 from .runpod_pricing import (
     RunPodCatalogPricingEvidence,
     build_priced_create_pod_payload,
@@ -22,20 +25,28 @@ class RunPodV2AdapterError(RuntimeError):
     """Raised when the live-provider adapter cannot preserve the control-plane contract."""
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @dataclass(frozen=True)
 class RunPodV2Adapter:
     """RunPod ProviderAdapter implementation with live wiring intentionally disabled.
 
-    The adapter is constructed only from an already-approved plan plus provider-
-    specific image and catalog evidence. Repository tests inject a fake HTTP client;
-    no public CLI or workflow constructs this adapter with a real API key yet.
+    In addition to plan/image/pricing identity, submission requires an account-wide
+    occupancy probe. The probe must show zero active Pods immediately before create
+    and exactly the newly created Pod immediately after create. This prevents an
+    unauthorized or out-of-band Pod from silently sharing the account's paid GPU
+    execution capacity with gpu-control.
     """
 
     client: RunPodV2HttpClient
     approved_plan: ApprovedExecutionPlan
     published_image: PublishedImageEvidence
     catalog_pricing: RunPodCatalogPricingEvidence
+    occupancy_probe: Callable[[ApprovedExecutionPlan], RunPodAccountOccupancyEvidence]
     disk_gb: int = 20
+    clock: Callable[[], datetime] = _utc_now
 
     def __post_init__(self) -> None:
         try:
@@ -46,6 +57,10 @@ class RunPodV2Adapter:
             raise RunPodV2AdapterError(str(exc)) from exc
         if self.approved_plan.provider != "runpod":
             raise RunPodV2AdapterError("RunPod adapter requires a runpod approved plan")
+        if not callable(self.occupancy_probe):
+            raise RunPodV2AdapterError("RunPod adapter requires an account occupancy probe")
+        if not callable(self.clock):
+            raise RunPodV2AdapterError("RunPod adapter clock must be callable")
         if isinstance(self.disk_gb, bool) or not isinstance(self.disk_gb, int) or self.disk_gb < 1:
             raise RunPodV2AdapterError("RunPod adapter disk_gb must be a positive integer")
 
@@ -75,10 +90,37 @@ class RunPodV2Adapter:
         if receipt.image_digest != self.approved_plan.image_digest:
             raise RunPodV2AdapterError("RunPod receipt image digest mismatch")
 
+    def _probe_before_create(self, plan: ApprovedExecutionPlan) -> None:
+        try:
+            evidence = self.occupancy_probe(plan)
+            if not isinstance(evidence, RunPodAccountOccupancyEvidence):
+                raise RunPodV2Error("RunPod occupancy probe returned an invalid evidence type")
+            evidence.validate_before_create(plan, now_utc=self.clock())
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV2AdapterError(str(exc)) from exc
+
+    def _probe_after_create(self, plan: ApprovedExecutionPlan, pod_id: str) -> None:
+        evidence = self.occupancy_probe(plan)
+        if not isinstance(evidence, RunPodAccountOccupancyEvidence):
+            raise RunPodV2Error("RunPod occupancy probe returned an invalid evidence type")
+        evidence.validate_after_create(plan, expected_pod_id=pod_id, now_utc=self.clock())
+
+    def _terminate_invalid_created_pod(self, pod_id: str, cause: Exception) -> None:
+        try:
+            self.client.terminate_pod(pod_id)
+        except Exception as cleanup_error:
+            raise RunPodV2AdapterError(
+                "RunPod post-create validation failed and compensating termination also failed"
+            ) from cleanup_error
+        raise RunPodV2AdapterError(
+            "RunPod post-create validation failed; the returned Pod was terminated"
+        ) from cause
+
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
-        """Submit exactly once; this method never retries POST /pods automatically."""
+        """Submit exactly once after owner/account exclusivity checks pass."""
 
         self._require_plan_identity(plan)
+        self._probe_before_create(plan)
         payload = build_priced_create_pod_payload(
             plan,
             self.published_image,
@@ -99,18 +141,15 @@ class RunPodV2Adapter:
             )
         except RunPodV2Error as validation_error:
             if isinstance(pod_id, str) and pod_id.strip():
-                try:
-                    self.client.terminate_pod(pod_id.strip())
-                except Exception as cleanup_error:
-                    raise RunPodV2AdapterError(
-                        "RunPod post-create validation failed and compensating termination also failed"
-                    ) from cleanup_error
-                raise RunPodV2AdapterError(
-                    "RunPod post-create validation failed; the returned Pod was terminated"
-                ) from validation_error
+                self._terminate_invalid_created_pod(pod_id.strip(), validation_error)
             raise RunPodV2AdapterError(
                 "RunPod post-create validation failed before a trustworthy Pod id was available"
             ) from validation_error
+
+        try:
+            self._probe_after_create(plan, validated_id)
+        except Exception as occupancy_error:
+            self._terminate_invalid_created_pod(validated_id, occupancy_error)
         return ProviderSubmission(provider_job_id=validated_id)
 
     def observe(self, receipt: SubmissionReceipt) -> ProviderStatusSnapshot:

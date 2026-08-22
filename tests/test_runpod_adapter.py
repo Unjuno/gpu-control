@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -9,6 +9,7 @@ from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.lifecycle import JobState
 from gpu_control.providers.controller import cleanup_provider_job, observe_provider_job, submit_approved_plan
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
+from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
 from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodV2Error
 
@@ -105,23 +106,48 @@ class FakeClient:
             raise self.terminate_error
 
 
-def adapter(value: ApprovedExecutionPlan | None = None) -> tuple[RunPodV2Adapter, FakeClient]:
+class FakeOccupancyProbe:
+    def __init__(self, value: ApprovedExecutionPlan) -> None:
+        self.value = value
+        self.calls = 0
+        self.responses: list[list[dict[str, str]]] = [
+            [],
+            [{"id": "pod-123", "status": "PROVISIONING"}],
+        ]
+
+    def __call__(self, value: ApprovedExecutionPlan):
+        assert value.fingerprint() == self.value.fingerprint()
+        self.calls += 1
+        pods = self.responses.pop(0)
+        return build_account_occupancy_evidence(
+            value,
+            pods,
+            checked_at_utc=SUBMITTED_AT,
+            ttl_seconds=60,
+        )
+
+
+def adapter(value: ApprovedExecutionPlan | None = None) -> tuple[RunPodV2Adapter, FakeClient, FakeOccupancyProbe]:
     value = value or plan()
     client = FakeClient(value)
+    occupancy = FakeOccupancyProbe(value)
     return (
         RunPodV2Adapter(
             client=client,  # type: ignore[arg-type]
             approved_plan=value,
             published_image=image(value),
             catalog_pricing=pricing(),
+            occupancy_probe=occupancy,
+            clock=lambda: SUBMITTED_AT + timedelta(seconds=1),
         ),
         client,
+        occupancy,
     )
 
 
 def test_adapter_crosses_existing_trusted_controller_and_cleans_up_failure() -> None:
     value = plan()
-    runpod, client = adapter(value)
+    runpod, client, occupancy = adapter(value)
 
     submitted = submit_approved_plan(
         runpod,
@@ -131,6 +157,7 @@ def test_adapter_crosses_existing_trusted_controller_and_cleans_up_failure() -> 
     )
     assert submitted.receipt.provider_job_id == "pod-123"
     assert client.create_calls == 1
+    assert occupancy.calls == 2
 
     running = observe_provider_job(
         runpod,
@@ -162,9 +189,39 @@ def test_adapter_crosses_existing_trusted_controller_and_cleans_up_failure() -> 
         runpod.collect_results(submitted.receipt, finalized)
 
 
+def test_existing_non_terminated_pod_blocks_create_before_paid_allocation() -> None:
+    value = plan()
+    runpod, client, occupancy = adapter(value)
+    occupancy.responses = [[{"id": "someone-else-pod", "status": "RUNNING"}]]
+
+    with pytest.raises(RunPodV2AdapterError, match="account is busy"):
+        runpod.submit(value)
+
+    assert client.create_calls == 0
+    assert occupancy.calls == 1
+
+
+def test_competing_pod_appearing_during_create_terminates_new_pod() -> None:
+    value = plan()
+    runpod, client, occupancy = adapter(value)
+    occupancy.responses = [
+        [],
+        [
+            {"id": "pod-123", "status": "PROVISIONING"},
+            {"id": "racing-pod", "status": "RUNNING"},
+        ],
+    ]
+
+    with pytest.raises(RunPodV2AdapterError, match="was terminated"):
+        runpod.submit(value)
+
+    assert client.create_calls == 1
+    assert client.terminate_calls == ["pod-123"]
+
+
 def test_post_create_price_mismatch_triggers_immediate_compensating_termination() -> None:
     value = plan()
-    runpod, client = adapter(value)
+    runpod, client, _ = adapter(value)
     client.create_response = pod_payload(value, cost=0.45)
 
     with pytest.raises(RunPodV2AdapterError, match="was terminated"):
@@ -176,7 +233,7 @@ def test_post_create_price_mismatch_triggers_immediate_compensating_termination(
 
 def test_post_create_cloud_mismatch_triggers_compensating_termination() -> None:
     value = plan()
-    runpod, client = adapter(value)
+    runpod, client, _ = adapter(value)
     client.create_response = dict(pod_payload(value), cloud="COMMUNITY")
 
     with pytest.raises(RunPodV2AdapterError, match="was terminated"):
@@ -187,7 +244,7 @@ def test_post_create_cloud_mismatch_triggers_compensating_termination() -> None:
 
 def test_compensating_termination_failure_is_visible() -> None:
     value = plan()
-    runpod, client = adapter(value)
+    runpod, client, _ = adapter(value)
     client.create_response = pod_payload(value, cost=0.45)
     client.terminate_error = RunPodV2Error("terminate failed")
 
@@ -200,19 +257,20 @@ def test_compensating_termination_failure_is_visible() -> None:
 
 def test_ambiguous_create_transport_failure_is_not_retried() -> None:
     value = plan()
-    runpod, client = adapter(value)
+    runpod, client, occupancy = adapter(value)
     client.create_error = RunPodV2Error("RunPod API could not be reached")
 
     with pytest.raises(RunPodV2Error, match="could not be reached"):
         runpod.submit(value)
 
+    assert occupancy.calls == 1
     assert client.create_calls == 1
     assert client.terminate_calls == []
 
 
-def test_different_plan_is_rejected_before_create() -> None:
+def test_different_plan_is_rejected_before_occupancy_or_create() -> None:
     value = plan()
-    runpod, client = adapter(value)
+    runpod, client, occupancy = adapter(value)
     changed = ApprovedExecutionPlan.from_dict(
         {**value.to_dict(), "authorization_reference": "workflow_dispatch:other"}
     )
@@ -220,12 +278,13 @@ def test_different_plan_is_rejected_before_create() -> None:
     with pytest.raises(RunPodV2AdapterError, match="different approved plan"):
         runpod.submit(changed)
 
+    assert occupancy.calls == 0
     assert client.create_calls == 0
 
 
 def test_exited_status_remains_ambiguous_and_does_not_fake_success() -> None:
     value = plan()
-    runpod, client = adapter(value)
+    runpod, client, _ = adapter(value)
     submitted = submit_approved_plan(
         runpod,
         value,

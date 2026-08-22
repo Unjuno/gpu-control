@@ -1,0 +1,54 @@
+version: 1
+
+live_paid_compute_enabled: false
+
+github_identity:
+  repository: Unjuno/gpu-control
+  repository_owner: Unjuno
+  authorized_actor: Unjuno
+  authorized_triggering_actor: Unjuno
+  event_name: workflow_dispatch
+  ref: refs/heads/main
+  workflow_path: .github/workflows/paid-runpod.yml
+  require_actor_and_triggering_actor_match: true
+  reject_rerun_by_different_triggering_actor: true
+
+github_environment:
+  name: paid-runpod
+  required_reviewer: Unjuno
+  prevent_self_review: false
+  protected_branch_only: true
+  secret_scope: environment_only
+  secret_names:
+    - RUNPOD_API_KEY
+
+concurrency:
+  group: gpu-control-paid-runpod
+  max_in_flight: 1
+  cancel_in_progress: false
+  authorization_before_concurrency: true
+  unauthorized_runs_must_not_enter_paid_queue: true
+
+provider_occupancy:
+  require_zero_active_gpu_pods_before_submit: true
+  recheck_immediately_before_create: true
+  fail_closed_on_list_error: true
+  fail_closed_on_unknown_pod_state: true
+  ambiguous_create_requires_reconciliation: true
+
+forbidden:
+  - paid_compute_from_pull_request
+  - paid_compute_from_fork
+  - paid_compute_from_issue
+  - paid_compute_from_issue_comment
+  - paid_compute_from_repository_dispatch
+  - paid_compute_from_schedule
+  - paid_compute_from_non_main_ref
+  - paid_compute_from_non_owner_actor
+  - paid_compute_from_non_owner_triggering_actor
+  - repository_level_runpod_secret
+  - organization_level_runpod_secret
+  - unauthorized_run_entering_paid_concurrency_group
+  - more_than_one_paid_gpu_job_in_flight
+  - create_without_provider_occupancy_check
+  - create_while_other_gpu_pod_is_active
