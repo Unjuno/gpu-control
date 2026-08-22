@@ -11,6 +11,12 @@ trusted_reference:
   network: none
   provider_credentials: forbidden
   wall_clock_seconds: 30
+  active_runtime_probes:
+    - credentials_absent
+    - docker_socket_absent
+    - gpu_devices_absent
+    - network_blocked
+  independent_host_config_assertions: true
 
 source:
   public_repository_only: true

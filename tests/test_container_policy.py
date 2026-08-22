@@ -31,6 +31,13 @@ def test_only_repository_owned_reference_fixture_is_enabled() -> None:
     assert reference["network"] == "none"
     assert reference["provider_credentials"] == "forbidden"
     assert reference["wall_clock_seconds"] <= 30
+    assert set(reference["active_runtime_probes"]) == {
+        "credentials_absent",
+        "docker_socket_absent",
+        "gpu_devices_absent",
+        "network_blocked",
+    }
+    assert reference["independent_host_config_assertions"] is True
 
 
 def test_workload_environment_forbids_control_plane_credentials() -> None:
