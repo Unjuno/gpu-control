@@ -1,6 +1,8 @@
 # Repository instructions
 
-Before making changes or proposing execution steps, read and follow the root `AGENTS.md` and `SECURITY.md`.
+Before making changes or proposing execution steps, read and follow the root `AGENTS.md`, `SECURITY.md`, and `policies/repository-state.yaml`.
+
+If `policies/repository-state.yaml` says `mode: parked`, preserve parked mode unless the human explicitly asks to activate the repository for a concrete workload. In parked mode, do not create a paid workflow, reference provider secrets, enable RunPod live calls, enable generic external Dockerfile execution, or treat code-completeness as authorization to move toward paid execution.
 
 The operating model is local-first and escalation-based:
 
