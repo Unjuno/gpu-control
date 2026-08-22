@@ -15,8 +15,9 @@ Use the cheapest, smallest, most local execution environment that can answer the
 3. **Make the experiment small.** Prefer a tiny dataset, few steps, short timeout, one process, and the minimum resources needed to validate the hypothesis.
 4. **Use a workload repository.** GPU workloads should live in a separate repository with an immutable commit SHA, Dockerfile, and locked dependencies where applicable.
 5. **Do not assume repository authority.** Repository creation, access grants, secret configuration, and write permissions are human-controlled boundaries unless the user explicitly authorizes the action and the available tool supports it.
-6. **Validate through `gpu-control`.** Run self-tests, policy validation, source/container checks, and dry-run gates before paid compute.
-7. **Escalate to RunPod only last.** Use RunPod only when the experiment genuinely requires a GPU or the user explicitly requests a paid GPU run after the preceding checks are satisfied.
+6. **Validate through `gpu-control`.** Run self-tests, policy validation, exact source verification, container checks, dry-run gates, price checks, and cleanup checks before paid compute.
+7. **Produce an approved execution plan.** Paid-provider code must consume an `ApprovedExecutionPlan`, not a raw workload request.
+8. **Escalate to RunPod only last.** Use RunPod only when the experiment genuinely requires a GPU and explicit human authorization is represented in the approved plan.
 
 ## Paid compute is denied by default
 
@@ -27,14 +28,17 @@ Before any billable provider call, require all of the following:
 - an explicit human request to perform the paid GPU run;
 - an authorized workload repository;
 - an immutable 40-character commit SHA;
+- verified source identity for repository, commit, and Dockerfile;
 - a validated Dockerfile/container contract;
 - locked or otherwise reproducible dependencies where applicable;
 - the smallest reasonable experiment configuration;
 - a successful `gpu-control` dry-run;
+- a verified provider price;
 - an explicit runtime limit;
 - an explicit cost limit;
 - one GPU unless policy explicitly permits otherwise;
-- a cleanup path for success, failure, timeout, and cancellation.
+- a cleanup path for success, failure, timeout, and cancellation;
+- an immutable `ApprovedExecutionPlan` produced by the execution gate.
 
 If any precondition is missing, stop before provider allocation and report the missing gate.
 
@@ -47,6 +51,7 @@ If any precondition is missing, stop before provider allocation and report the m
 - Never increase GPU count, runtime, or cost simply to make a failing experiment pass without explicit human approval.
 - Never keep a GitHub-hosted runner polling for hours while a GPU job runs; use submit/collect behavior.
 - Never treat provider availability as permission to allocate resources.
+- Never let a provider adapter accept a raw `WorkloadRequest` or bypass the approved execution-plan gate.
 
 ## Workload contract
 
@@ -67,13 +72,15 @@ A workload should start, perform a bounded experiment, write outputs, and exit. 
 
 Before escalation, reduce the experiment to the smallest test that can falsify or support the current hypothesis. Prefer smoke tests over full training, synthetic/public inputs over private data, and minutes over hours.
 
-Record enough context to reproduce a result: repository, commit SHA, container definition, configuration, runtime limit, cost limit, GPU profile, exit status, and relevant metrics/output locations.
+Record enough context to reproduce a result: repository, commit SHA, container definition, configuration, runtime limit, cost limit, verified provider price, GPU profile, authorization reference, exit status, and relevant metrics/output locations.
 
 ## Provider policy
 
-RunPod is the first intended paid GPU provider. Provider-specific implementation must remain behind the control-plane policy layer. The public interface should describe resource requirements, not expose unrestricted provider operations.
+RunPod is the first intended paid GPU provider. Provider-specific implementation must remain behind the control-plane policy and execution-plan layers. The public interface should describe resource requirements, not expose unrestricted provider operations.
 
-When pricing, GPU availability, policy compliance, or cleanup guarantees cannot be determined, fail closed and do not launch.
+A future provider adapter must accept an `ApprovedExecutionPlan`. It must not create resources from a raw user request merely because credentials are available.
+
+When pricing, GPU availability, policy compliance, authorization, or cleanup guarantees cannot be determined, fail closed and do not launch.
 
 ## Source of truth
 
@@ -82,5 +89,6 @@ When pricing, GPU availability, policy compliance, or cleanup guarantees cannot 
 - Machine-readable escalation policy: `policies/agent-policy.yaml`
 - Security boundaries: `SECURITY.md`
 - GPU resource limits: `policies/gpu-policy.yaml`
+- Runtime paid-compute gate: `src/gpu_control/execution.py`
 
 When these documents conflict, choose the safer interpretation and do not allocate paid resources until the conflict is resolved.
