@@ -23,6 +23,7 @@ def test_live_runpod_calls_are_disabled_by_default() -> None:
     assert api["base_url"] == "https://api.runpod.io/v2"
     assert api["authentication"] == "bearer_header"
     assert api["live_calls_enabled"] is False
+    assert api["live_adapter_enabled"] is False
     assert api["cli_enabled"] is False
     assert api["workflow_enabled"] is False
 
@@ -43,9 +44,13 @@ def test_submission_is_bound_to_plan_image_gpu_cloud_and_price() -> None:
     assert submission["user_ports_forwarded"] is False
     assert submission["user_env_forwarded"] is False
     assert submission["user_mounts_forwarded"] is False
+    assert submission["automatic_create_retry"] is False
+    assert submission["ambiguous_create_requires_reconciliation"] is True
     assert submission["post_create_identity_revalidation"] is True
     assert submission["post_create_cloud_revalidation"] is True
     assert submission["post_create_price_must_not_exceed_verified_price"] is True
+    assert submission["post_create_validation_failure_terminates_known_pod"] is True
+    assert submission["compensating_termination_failure_is_visible"] is True
 
 
 def test_catalog_evidence_is_short_lived_and_capacity_checked() -> None:
@@ -64,7 +69,8 @@ def test_catalog_evidence_is_short_lived_and_capacity_checked() -> None:
 
 
 def test_ambiguous_or_future_provider_states_fail_closed() -> None:
-    status = load_policy()["status"]
+    policy = load_policy()
+    status = policy["status"]
 
     assert status["provisioning"] == "submitted"
     assert status["starting"] == "submitted"
@@ -73,6 +79,8 @@ def test_ambiguous_or_future_provider_states_fail_closed() -> None:
     assert status["terminated"] == "cancelled"
     assert status["exited"] == "ambiguous_requires_workload_completion_evidence"
     assert status["unknown"] == "reject"
+    assert policy["results"]["enabled"] is False
+    assert policy["results"]["requires_authenticated_workload_completion_evidence"] is True
 
 
 def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
@@ -80,6 +88,7 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
 
     assert "live_runpod_call_from_ci" in forbidden
     assert "live_runpod_call_from_public_cli" in forbidden
+    assert "live_adapter_from_public_cli" in forbidden
     assert "arbitrary_api_origin" in forbidden
     assert "api_key_in_query_string" in forbidden
     assert "api_key_in_logs_or_errors" in forbidden
@@ -89,8 +98,12 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
     assert "stale_catalog_pricing_evidence" in forbidden
     assert "catalog_gpu_below_profile_vram" in forbidden
     assert "catalog_gpu_without_one_gpu_capacity" in forbidden
+    assert "automatic_retry_after_ambiguous_create" in forbidden
     assert "unverified_post_create_gpu_identity" in forbidden
     assert "create_response_cloud_mismatch" in forbidden
     assert "accepting_price_above_verified_price" in forbidden
+    assert "leaving_known_invalid_created_pod_running" in forbidden
+    assert "hiding_compensating_termination_failure" in forbidden
     assert "treating_exited_as_success_without_completion_evidence" in forbidden
     assert "treating_unknown_provider_status_as_success" in forbidden
+    assert "collecting_results_without_authenticated_completion_evidence" in forbidden
