@@ -18,13 +18,15 @@ A fingerprint is **not a signature** and is **not authorization**. An attacker w
 
 ## Implemented lifecycle model
 
-`src/gpu_control/lifecycle.py` now provides provider-neutral types for the submit/collect handoff:
+`src/gpu_control/lifecycle.py` provides provider-neutral types for the submit/collect handoff:
 
 - `SubmissionReceipt` — persisted after a provider accepts a job;
 - `JobObservation` — one correlated provider-state observation;
 - `JobState` — submitted, running, succeeded, failed, cancelled, or timed out;
 - `CleanupState` — not started, pending, completed, or failed;
-- transition validation for job and cleanup state.
+- transition validation for job and cleanup state;
+- strict JSON serialization/deserialization for cross-process persistence;
+- submission-time revalidation of time-sensitive pricing evidence.
 
 These types make the asynchronous contract executable without adding a provider adapter.
 
@@ -35,6 +37,7 @@ A future trusted submit stage should be short-lived:
 ```text
 ApprovedExecutionPlan
         |
+        | validate_plan_for_submission(now)
         | verify trusted plan fingerprint
         v
 provider adapter
@@ -50,7 +53,17 @@ build + persist SubmissionReceipt
 GitHub Actions job exits
 ```
 
-`build_submission_receipt(...)` binds the provider response to:
+The approval decision and the provider submission are separate time boundaries. Pricing may expire between them. `validate_plan_for_submission(...)` therefore re-checks immediately before submission that:
+
+- pricing verification has not expired;
+- submission does not predate pricing verification;
+- the approved plan still records verified pricing;
+- explicit human authorization is still represented in the immutable plan;
+- the cleanup guarantee is still represented in the immutable plan.
+
+A future provider adapter should call this validation immediately before the billable provider request. `build_submission_receipt(...)` repeats the same check defensively.
+
+`SubmissionReceipt` binds the provider response to:
 
 - provider name;
 - concrete provider resource id;
@@ -63,7 +76,29 @@ GitHub Actions job exits
 
 The receipt has its own deterministic JSON representation and `sha256:` fingerprint for persistence/correlation. Like the plan fingerprint, the receipt fingerprint is not a signature.
 
-The submit stage must not wait for training or inference to finish.
+## Durable state format
+
+Submission and collection normally run in different processes or workflow jobs, so in-memory dataclasses are not enough.
+
+`SubmissionReceipt.from_json(...)` and `JobObservation.from_json(...)` provide strict restoration of persisted lifecycle state. The parser fails closed on:
+
+- invalid JSON;
+- non-object JSON;
+- duplicate JSON keys;
+- missing fields;
+- unknown fields;
+- unsupported schema versions;
+- malformed enum values;
+- malformed fingerprints/digests;
+- invalid timestamps;
+- invalid limits;
+- JSON numeric money values instead of decimal strings.
+
+Money is serialized as a decimal string such as `"0.10"`, not as a JSON floating-point number. This avoids precision ambiguity between workflow stages and languages.
+
+After restoring a receipt, `validate_receipt_against_plan(...)` must verify that provider, provider resource id, plan fingerprint, image digest, runtime ceiling, and cost ceiling still match the trusted `ApprovedExecutionPlan`.
+
+Persisted state is not trusted merely because it parses successfully.
 
 ## Provider execution stage
 
@@ -76,14 +111,16 @@ Provider execution must remain bounded by the approved plan and provider-side li
 A later authenticated event or scheduled recovery path starts a separate short-lived collection stage:
 
 ```text
-SubmissionReceipt
+trusted ApprovedExecutionPlan
+        +
+restored SubmissionReceipt
         |
-        | correlate plan fingerprint + provider job id
+        | validate receipt against plan
         v
 read provider status/results
         |
         v
-JobObservation
+restored/new JobObservation
         |
         +-- validate identity and monotonic state transition
         +-- collect bounded logs/metrics/artifacts
@@ -107,6 +144,7 @@ The design must account for failures between every transition:
 
 - provider accepted the job but the submit workflow failed before persisting the receipt;
 - provider API returned an ambiguous response;
+- persisted lifecycle state was corrupted or tampered with;
 - result callback was lost;
 - collection failed after the GPU job completed;
 - cleanup failed after success or failure;
