@@ -26,9 +26,11 @@ Repository creation, collaborator grants, secret configuration, and write permis
 
 Provider adapters must not accept a raw `WorkloadRequest`. A billable provider adapter is expected to accept an immutable `ApprovedExecutionPlan` produced by `src/gpu_control/execution.py`.
 
-The execution-plan gate requires verified source identity, container verification, a successful dry-run, verified provider pricing, policy-compliant runtime and cost, a cleanup guarantee, and explicit human authorization with an audit reference.
+The execution-plan gate requires verified source identity, structured container-verification evidence, a successful dry-run, verified provider pricing, policy-compliant runtime and cost, a cleanup guarantee, and explicit human authorization with an audit reference.
 
-The execution-plan gate is defense in depth, not an identity provider. The trusted caller or workflow is responsible for establishing that the authorization evidence actually came from an authorized human. An agent must not manufacture authorization evidence merely to satisfy the function signature.
+Container verification is represented by `ContainerVerificationResult`, not a bare boolean. The evidence must carry the exact repository, commit SHA, Dockerfile path, immutable lowercase `sha256:` image digest, and a verification reference. Build isolation, runtime isolation, smoke testing, output-contract verification, credential isolation, network policy, and resource limits must all be recorded as passed. The paid gate rejects evidence that does not match the independently verified source identity.
+
+The execution-plan gate is defense in depth, not an identity provider. The trusted caller or workflow is responsible for establishing that the authorization and verification evidence actually came from trusted stages. An agent must not manufacture evidence merely to satisfy a function signature.
 
 The worst-case cost calculation rounds upward to the nearest cent so the control plane does not approve a run by underestimating spend.
 
@@ -88,7 +90,11 @@ Source verification is read-only and must not execute code from the workload rep
 
 Building or running a Dockerfile from an arbitrary public repository executes untrusted code. Do not add generic container build/run behavior to a credential-bearing GitHub Actions job without a separate sandbox and threat model.
 
-Until that isolation boundary exists, source verification and container execution must remain separate stages.
+A repository-owned reference fixture is currently built and run with restricted settings to validate the mechanics of the isolation boundary. That fixture does not authorize arbitrary external Dockerfile execution.
+
+Generic container verification must eventually produce a structured `ContainerVerificationResult` tied to the exact source identity and immutable image digest. A caller-supplied `container_verified=True` flag is not sufficient evidence for paid execution.
+
+Until hostile build/runtime, secret-isolation, and resource-limit tests are complete, source verification and generic external container execution remain separate stages.
 
 ## Escalation and cost safety
 
@@ -96,7 +102,7 @@ Agents and workflows must prefer local/container validation and the smallest use
 
 A paid run requires an explicit cost limit and runtime limit. GPU count defaults to one. An agent must not silently raise cost, runtime, GPU count, or resource class merely to make a failing workload pass.
 
-Unknown price, missing policy data, ambiguous authorization, invalid workload identity, missing approved execution plan, or inability to guarantee cleanup must stop allocation.
+Unknown price, missing policy data, ambiguous authorization, invalid workload identity, missing or mismatched container evidence, missing approved execution plan, or inability to guarantee cleanup must stop allocation.
 
 ## Provider lifecycle
 
