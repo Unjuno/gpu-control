@@ -35,10 +35,13 @@ def test_paid_compute_requires_explicit_human_request_and_bounds() -> None:
     assert "explicit_human_request" in requirements
     assert "immutable_commit_sha" in requirements
     assert "successful_dry_run" in requirements
+    assert "verified_provider_price" in requirements
     assert "explicit_runtime_limit" in requirements
     assert "explicit_cost_limit" in requirements
     assert "cleanup_plan" in requirements
+    assert "approved_execution_plan" in requirements
     assert policy["paid_compute"]["defaults"]["gpu_count"] == 1
+    assert policy["paid_compute"]["provider_adapter_input"] == "approved_execution_plan"
 
 
 def test_repository_context_files_exist() -> None:
@@ -63,3 +66,4 @@ def test_forbidden_policy_blocks_common_agent_escalation_failures() -> None:
     assert "silent_cost_or_runtime_escalation" in forbidden
     assert "long_lived_actions_polling" in forbidden
     assert "provider_allocation_without_explicit_authorization" in forbidden
+    assert "provider_adapter_accepting_raw_workload_request" in forbidden
