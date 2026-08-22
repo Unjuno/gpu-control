@@ -1,5 +1,7 @@
 from dataclasses import replace
 from decimal import Decimal
+import hashlib
+import json
 
 import pytest
 
@@ -97,6 +99,33 @@ def test_builds_immutable_plan_only_after_all_gates_pass() -> None:
     assert plan.container_verified is True
     assert plan.explicit_human_authorization is True
     assert plan.cleanup_guaranteed is True
+    assert plan.schema_version == 1
+
+
+def test_plan_serialization_is_canonical_and_json_compatible() -> None:
+    plan = approve(make_request())
+
+    payload = plan.to_dict()
+    canonical = plan.canonical_json()
+
+    assert payload["schema_version"] == 1
+    assert payload["max_cost_usd"] == "0.10"
+    assert payload["verified_hourly_price_usd"] == "0.34"
+    assert payload["worst_case_cost_usd"] == "0.09"
+    assert json.loads(canonical) == payload
+    assert canonical == json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+
+def test_plan_fingerprint_is_stable_content_identity_not_authorization() -> None:
+    plan = approve(make_request())
+    canonical = plan.canonical_json()
+    expected = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    assert plan.fingerprint() == expected
+    assert plan.fingerprint() == plan.fingerprint()
+
+    changed = replace(plan, authorization_reference="workflow_dispatch:other")
+    assert changed.fingerprint() != plan.fingerprint()
 
 
 @pytest.mark.parametrize(
