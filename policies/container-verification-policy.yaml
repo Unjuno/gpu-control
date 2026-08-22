@@ -1,7 +1,16 @@
 version: 1
 
 default: denied
-status: design_only
+status: trusted_reference_only
+
+trusted_reference:
+  enabled: true
+  scope: repository_owned_ci_fixture
+  path: examples/reference-workload
+  gpu: forbidden
+  network: none
+  provider_credentials: forbidden
+  wall_clock_seconds: 30
 
 source:
   public_repository_only: true
@@ -72,7 +81,7 @@ promotion:
     - source_verified
     - isolated_container_verification_passed
   required_before_generic_execution_enabled:
-    - reference_workload_repository
+    - external_reference_workload_repository
     - hostile_build_tests
     - hostile_runtime_tests
     - secret_isolation_tests
