@@ -68,6 +68,8 @@ def parse_cost(value: str | Decimal) -> Decimal:
         raise ValidationError("max_cost_usd must be a decimal number") from exc
     if not cost.is_finite() or cost <= 0:
         raise ValidationError("max_cost_usd must be a finite positive number")
+    if cost.as_tuple().exponent < -2:
+        raise ValidationError("max_cost_usd must use at most two decimal places")
     return cost.quantize(Decimal("0.01"))
 
 
