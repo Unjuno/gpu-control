@@ -1,0 +1,56 @@
+version: 1
+
+provider: runpod
+api:
+  version: v2-beta
+  base_url: https://api.runpod.io/v2
+  authentication: bearer_header
+  live_calls_enabled: false
+  cli_enabled: false
+  workflow_enabled: false
+
+submission:
+  approved_plan_required: true
+  published_image_evidence_required: true
+  image_reference_must_be_digest_pinned: true
+  published_image_must_match_plan_fingerprint: true
+  published_image_digest_must_match_plan: true
+  gpu_type_id_from_verified_pricing: true
+  gpu_count: 1
+  global_networking: false
+  user_ports_forwarded: false
+  user_env_forwarded: false
+  user_mounts_forwarded: false
+  post_create_identity_revalidation: true
+  post_create_price_must_not_exceed_verified_price: true
+
+status:
+  provisioning: submitted
+  starting: submitted
+  running: running
+  error: failed
+  terminated: cancelled
+  exited: ambiguous_requires_workload_completion_evidence
+  unknown: reject
+
+cleanup:
+  terminate_endpoint: DELETE /pods/{id}
+  terminate_is_irreversible: true
+
+catalog:
+  endpoint: GET /catalog/gpus
+  include_availability: true
+  product: POD
+
+forbidden:
+  - live_runpod_call_from_ci
+  - live_runpod_call_from_public_cli
+  - arbitrary_api_origin
+  - api_key_in_query_string
+  - api_key_in_logs_or_errors
+  - mutable_tag_only_image
+  - submit_image_not_bound_to_approved_plan
+  - unverified_post_create_gpu_identity
+  - accepting_price_above_verified_price
+  - treating_exited_as_success_without_completion_evidence
+  - treating_unknown_provider_status_as_success
