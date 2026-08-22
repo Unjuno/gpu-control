@@ -13,6 +13,19 @@ github_identity:
   require_actor_and_triggering_actor_match: true
   reject_rerun_by_different_triggering_actor: true
 
+github_repository_security:
+  branch_protection_required: true
+  pull_request_required: true
+  required_status_checks_required: true
+  required_status_checks:
+    - Python 3.11
+    - Python 3.12
+    - Python 3.13
+    - Trusted reference container
+  force_pushes_forbidden: true
+  deletions_forbidden: true
+  trusted_evidence_required_for_live_authorization: true
+
 github_environment:
   name: paid-runpod
   required_reviewer: Unjuno
@@ -46,6 +59,9 @@ forbidden:
   - paid_compute_from_non_main_ref
   - paid_compute_from_non_owner_actor
   - paid_compute_from_non_owner_triggering_actor
+  - paid_compute_without_branch_protection_evidence
+  - paid_compute_on_unprotected_main
+  - paid_compute_without_required_ci_checks
   - repository_level_runpod_secret
   - organization_level_runpod_secret
   - unauthorized_run_entering_paid_concurrency_group

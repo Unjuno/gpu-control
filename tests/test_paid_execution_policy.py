@@ -28,6 +28,22 @@ def test_paid_compute_stays_disabled_until_owner_environment_is_configured() -> 
     assert identity["reject_rerun_by_different_triggering_actor"] is True
 
 
+def test_main_must_be_protected_before_live_paid_authorization() -> None:
+    controls = policy()["github_repository_security"]
+    assert controls["branch_protection_required"] is True
+    assert controls["pull_request_required"] is True
+    assert controls["required_status_checks_required"] is True
+    assert controls["required_status_checks"] == [
+        "Python 3.11",
+        "Python 3.12",
+        "Python 3.13",
+        "Trusted reference container",
+    ]
+    assert controls["force_pushes_forbidden"] is True
+    assert controls["deletions_forbidden"] is True
+    assert controls["trusted_evidence_required_for_live_authorization"] is True
+
+
 def test_no_paid_workflow_or_provider_secret_access_exists_while_live_is_disabled() -> None:
     assert not (WORKFLOWS / "paid-runpod.yml").exists()
     for workflow in WORKFLOWS.glob("*.yml"):
@@ -76,6 +92,9 @@ def test_public_or_non_owner_paid_entrypoints_are_explicitly_forbidden() -> None
         "paid_compute_from_non_main_ref",
         "paid_compute_from_non_owner_actor",
         "paid_compute_from_non_owner_triggering_actor",
+        "paid_compute_without_branch_protection_evidence",
+        "paid_compute_on_unprotected_main",
+        "paid_compute_without_required_ci_checks",
         "repository_level_runpod_secret",
         "organization_level_runpod_secret",
         "unauthorized_run_entering_paid_concurrency_group",

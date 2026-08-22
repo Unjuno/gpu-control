@@ -7,6 +7,8 @@ from typing import Any, Mapping
 
 import yaml
 
+from .repository_security import RepositorySecurityError, RepositorySecurityEvidence
+
 
 class PaidAuthorizationError(ValueError):
     """Raised when a GitHub Actions context is not allowed to reach paid compute."""
@@ -37,6 +39,7 @@ class PaidAuthorizationEvidence:
     run_attempt: int
     environment_name: str
     concurrency_group: str
+    repository_security_reference: str
     authorization_reference: str
 
 
@@ -72,6 +75,7 @@ def authorize_paid_execution(
     context: PaidExecutionContext,
     policy: Mapping[str, Any] | None = None,
     *,
+    repository_security: RepositorySecurityEvidence | None = None,
     require_live_enabled: bool = True,
 ) -> PaidAuthorizationEvidence:
     """Authorize the one GitHub identity allowed to approach the paid boundary.
@@ -79,6 +83,10 @@ def authorize_paid_execution(
     This gate deliberately validates both ``actor`` and ``triggering_actor``. GitHub
     re-runs retain the privileges of the original actor, so checking only ``actor``
     would allow another write-capable user to re-run an owner's historical paid run.
+
+    A live-enabled policy additionally requires trusted evidence that GitHub is
+    actually enforcing branch protection on main. Policy text alone is not proof of
+    repository configuration and can never substitute for this evidence.
 
     The function does not grant access to any secret and does not replace the
     protected GitHub Environment. It is an independent fail-closed code gate that
@@ -88,8 +96,20 @@ def authorize_paid_execution(
     policy = policy or load_paid_execution_policy()
     if policy.get("version") != 1:
         raise PaidAuthorizationError("unsupported paid execution policy version")
-    if require_live_enabled and policy.get("live_paid_compute_enabled") is not True:
+
+    live_enabled = policy.get("live_paid_compute_enabled") is True
+    if require_live_enabled and not live_enabled:
         raise PaidAuthorizationError("live paid compute remains disabled by policy")
+
+    repository_security_reference = "not-live"
+    if live_enabled:
+        if repository_security is None:
+            raise PaidAuthorizationError("live paid compute requires trusted GitHub branch protection evidence")
+        try:
+            repository_security.validate_against_policy(policy)
+        except RepositorySecurityError as exc:
+            raise PaidAuthorizationError(str(exc)) from exc
+        repository_security_reference = repository_security.verification_reference
 
     identity = _mapping(policy.get("github_identity"), "github_identity")
     environment = _mapping(policy.get("github_environment"), "github_environment")
@@ -171,5 +191,6 @@ def authorize_paid_execution(
         run_attempt=context.run_attempt,
         environment_name=environment_name,
         concurrency_group=group,
+        repository_security_reference=repository_security_reference,
         authorization_reference=reference,
     )
