@@ -15,7 +15,7 @@ inspect
   -> RunPod only when GPU compute is actually required
 ```
 
-> **Current status:** local validation, public GitHub source verification, a repository-owned trusted container smoke test, dry-run workflows, and the provider-agnostic paid-execution gate are implemented. Generic external Dockerfile execution and provider adapters remain disabled, so no paid GPU resource can be created.
+> **Current status:** local validation, public GitHub source verification, a repository-owned trusted container smoke test, dry-run workflows, structured container-verification evidence, and the provider-agnostic paid-execution gate are implemented. Generic external Dockerfile execution and provider adapters remain disabled, so no paid GPU resource can be created.
 
 ## Operating rule
 
@@ -30,7 +30,7 @@ The intended sequence is:
 3. Put the workload in a separate repository with reproducible dependencies.
 4. Identify the workload by an immutable 40-character commit SHA.
 5. Validate policy and verify the repository, exact commit, and Dockerfile.
-6. Verify the container itself in an appropriate isolation boundary.
+6. Verify the container itself in an appropriate isolation boundary and produce structured evidence tied to the exact workload identity and image digest.
 7. Produce an immutable `ApprovedExecutionPlan` only after source, container, dry-run, pricing, cleanup, policy, and explicit-human-authorization gates pass.
 8. Allow a provider adapter to consume that approved plan; never pass it a raw workload request.
 9. Escalate to RunPod only when GPU compute is actually required.
@@ -112,6 +112,20 @@ The fixture writes `/outputs/result.json` during execution and emits the same ma
 
 This is intentionally **not** generic workload execution. `policies/container-verification-policy.yaml` keeps external build/run denied until hostile workload, secret-isolation, and resource-limit tests are complete.
 
+## Structured container evidence
+
+`src/gpu_control/container.py` defines `ContainerVerificationResult`. Paid-compute code does not accept a bare `container_verified=True` flag.
+
+Container evidence must be tied to:
+
+- the exact repository;
+- the exact commit SHA;
+- the exact Dockerfile path;
+- an immutable lowercase `sha256:` image digest;
+- a non-empty verification/audit reference.
+
+It also records whether build isolation, runtime isolation, smoke testing, output-contract checks, credential isolation, network policy, and resource limits all passed. The paid gate rejects partial evidence and rejects evidence whose repository/SHA/Dockerfile identity does not match the verified source.
+
 ## Paid execution gate
 
 `src/gpu_control/execution.py` defines the boundary future provider adapters must use.
@@ -119,7 +133,9 @@ This is intentionally **not** generic workload execution. `policies/container-ve
 A raw `WorkloadRequest` is not sufficient to allocate resources. `build_approved_execution_plan(...)` requires:
 
 - exact source verification matching the request;
-- container verification;
+- a structured `ContainerVerificationResult` matching the same workload identity;
+- an immutable container image digest and verification reference;
+- all required container isolation checks to have passed;
 - a successful dry-run;
 - verified provider hourly pricing;
 - policy-compliant runtime and cost limits;
@@ -129,7 +145,7 @@ A raw `WorkloadRequest` is not sufficient to allocate resources. `build_approved
 
 Worst-case spend is calculated from the verified hourly price and requested runtime, then rounded **up** to the nearest cent before comparison with the requested cost ceiling.
 
-The resulting `ApprovedExecutionPlan` is immutable. This is a defense-in-depth gate, not an identity provider: the trusted workflow or caller must establish that the authorization evidence actually came from an authorized human.
+The resulting `ApprovedExecutionPlan` is immutable and carries the verified image digest and container-verification reference forward to the provider boundary. This is a defense-in-depth gate, not an identity provider: the trusted workflow or caller must establish that the authorization and verification evidence actually came from trusted stages.
 
 There is intentionally no public CLI command that manufactures an approved paid plan yet. A trusted authorization path must exist first.
 
@@ -170,6 +186,7 @@ This repository is intended to be useful as execution context for both humans an
 - [SECURITY.md](SECURITY.md) — trust, authorization, and secret boundaries;
 - [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md) — staged experiment workflow;
 - [docs/CONTAINER_VERIFICATION.md](docs/CONTAINER_VERIFICATION.md) — untrusted container boundary;
+- `src/gpu_control/container.py` — structured container-verification evidence;
 - `src/gpu_control/execution.py` — runtime paid-compute precondition gate;
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) — GitHub Copilot repository context;
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution requirements.
@@ -189,6 +206,7 @@ Workload repository
         +-- resource / agent policy
         +-- source verification
         +-- isolated container verification
+        +-- structured container evidence + image digest
         +-- dry-run
         +-- verified provider price
         +-- explicit authorization + cleanup gates
@@ -214,11 +232,12 @@ Long-running GPU work must not keep a GitHub-hosted runner polling for hours.
 3. Verify public target repository, exact commit SHA, and Dockerfile. **Done.**
 4. Add provider-agnostic `ApprovedExecutionPlan` and fail-closed paid-compute preconditions. **Done.**
 5. Run a repository-owned reference container under bounded, secret-free CI isolation. **Done.**
-6. Publish a separate minimal reference workload repository and add hostile build/runtime isolation tests.
-7. Generalize container verification to explicitly authorized public workload repositories.
-8. Add the RunPod adapter so it accepts only an approved execution plan.
-9. Submit GPU jobs asynchronously and collect status, logs, metrics, and outputs.
-10. Add other providers behind the same resource-policy interface if useful.
+6. Replace bare container booleans with structured verification evidence tied to workload identity and image digest. **Done.**
+7. Publish a separate minimal reference workload repository and add hostile build/runtime isolation tests.
+8. Generalize container verification to explicitly authorized public workload repositories.
+9. Add the RunPod adapter so it accepts only an approved execution plan.
+10. Submit GPU jobs asynchronously and collect status, logs, metrics, and outputs.
+11. Add other providers behind the same resource-policy interface if useful.
 
 ## License
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from typing import Any, Mapping
 
+from .container import ContainerVerificationResult
 from .source import SourceVerificationResult
 from .validation import WorkloadRequest
 
@@ -20,6 +21,8 @@ class ApprovedExecutionPlan:
     target_repo: str
     target_sha: str
     dockerfile_path: str
+    image_digest: str
+    container_verification_reference: str
     gpu_profile: str
     gpu_count: int
     max_runtime_minutes: int
@@ -55,14 +58,45 @@ def _validate_source_identity(request: WorkloadRequest, source: SourceVerificati
         raise ExecutionGateError("verified Dockerfile does not match the workload request")
 
 
+def _validate_container_evidence(
+    request: WorkloadRequest,
+    source: SourceVerificationResult,
+    container: ContainerVerificationResult,
+) -> None:
+    try:
+        container.validate_shape()
+    except ValueError as exc:
+        raise ExecutionGateError(str(exc)) from exc
+
+    if container.repository != request.target_repo or container.repository != source.repository:
+        raise ExecutionGateError("container repository identity does not match verified source")
+    if container.commit_sha != request.target_sha or container.commit_sha != source.commit_sha:
+        raise ExecutionGateError("container commit identity does not match verified source")
+    if container.dockerfile_path != request.dockerfile_path or container.dockerfile_path != source.dockerfile_path:
+        raise ExecutionGateError("container Dockerfile identity does not match verified source")
+
+    checks = {
+        "isolated container build": container.build_isolated,
+        "isolated container runtime": container.runtime_isolated,
+        "container smoke test": container.smoke_test_passed,
+        "container output contract": container.output_contract_verified,
+        "container credential isolation": container.credentials_absent,
+        "container network policy": container.network_policy_enforced,
+        "container resource limits": container.resource_limits_enforced,
+    }
+    for label, passed in checks.items():
+        if not passed:
+            raise ExecutionGateError(f"{label} must pass before paid compute")
+
+
 def build_approved_execution_plan(
     request: WorkloadRequest,
     effective_policy: Mapping[str, Any],
     source: SourceVerificationResult,
+    container: ContainerVerificationResult,
     *,
     provider: str,
     verified_hourly_price_usd: str | Decimal,
-    container_verified: bool,
     dry_run_succeeded: bool,
     cleanup_guaranteed: bool,
     explicit_human_authorization: bool,
@@ -76,9 +110,8 @@ def build_approved_execution_plan(
     """
 
     _validate_source_identity(request, source)
+    _validate_container_evidence(request, source, container)
 
-    if not container_verified:
-        raise ExecutionGateError("container verification must pass before paid compute")
     if not dry_run_succeeded:
         raise ExecutionGateError("a successful dry-run is required before paid compute")
     if not cleanup_guaranteed:
@@ -122,6 +155,8 @@ def build_approved_execution_plan(
         target_repo=request.target_repo,
         target_sha=request.target_sha,
         dockerfile_path=request.dockerfile_path,
+        image_digest=container.image_digest,
+        container_verification_reference=container.verification_reference.strip(),
         gpu_profile=request.gpu_profile,
         gpu_count=gpu_count,
         max_runtime_minutes=request.max_runtime_minutes,

@@ -43,6 +43,8 @@ paid_compute:
     - authorized_workload_repository
     - immutable_commit_sha
     - validated_container_contract
+    - structured_container_verification_evidence
+    - immutable_image_digest
     - reproducible_dependencies
     - minimal_experiment_configuration
     - successful_dry_run
@@ -59,6 +61,8 @@ paid_compute:
     - unavailable_policy_data
     - invalid_or_missing_commit
     - invalid_container_contract
+    - missing_container_verification_evidence
+    - mismatched_container_identity
     - missing_authorization
     - missing_cleanup_guarantee
     - missing_approved_execution_plan
@@ -72,3 +76,4 @@ forbidden:
   - long_lived_actions_polling
   - provider_allocation_without_explicit_authorization
   - provider_adapter_accepting_raw_workload_request
+  - paid_gate_accepting_bare_container_boolean
