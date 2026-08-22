@@ -8,9 +8,17 @@ Do not jump directly to paid GPU compute.
 
 Use the cheapest, smallest, most local execution environment that can answer the current question. Paid GPU execution is an escalation stage, not the default development loop.
 
+## Parked mode
+
+Read `policies/repository-state.yaml` before proposing execution changes. When it says `mode: parked`, the repository is intentionally being held without an active GPU workload.
+
+While parked, do not create a paid workflow, configure or reference provider secrets, enable RunPod live calls, enable generic external Dockerfile execution, or treat implementation progress as a reason to activate paid compute. Documentation, policy, offline tests, mock-provider work, source validation, and the repository-owned trusted container are still allowed.
+
+Leaving parked mode requires an explicit human request plus a reviewed repository change. Changing the mode is not itself spend authorization; all independent GitHub, provider, pricing, workload, completion-evidence, and cleanup gates still apply.
+
 ## Required operating order
 
-1. **Inspect first.** Read `README.md`, `SECURITY.md`, `policies/agent-policy.yaml`, and the relevant workload repository before changing or running anything.
+1. **Inspect first.** Read `README.md`, `SECURITY.md`, `policies/repository-state.yaml`, `policies/agent-policy.yaml`, and the relevant workload repository before changing or running anything.
 2. **Run locally in a container first.** Reproduce the workload with its Dockerfile or container contract when practical.
 3. **Make the experiment small.** Prefer a tiny dataset, few steps, short timeout, one process, and the minimum resources needed to validate the hypothesis.
 4. **Use a workload repository.** GPU workloads should live in a separate repository with an immutable commit SHA, Dockerfile, and locked dependencies where applicable.
@@ -93,6 +101,8 @@ When pricing, GPU availability, policy compliance, authorization, or cleanup gua
 ## Source of truth
 
 - Human-facing project overview: `README.md`
+- Current repository operating state: `policies/repository-state.yaml`
+- Parked-mode rationale and resume criteria: `docs/PARKED_MODE.md`
 - Agent execution rules: `AGENTS.md`
 - Machine-readable escalation policy: `policies/agent-policy.yaml`
 - Security boundaries: `SECURITY.md`

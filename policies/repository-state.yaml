@@ -2,3 +2,34 @@ version: 1
 
 mode: parked
 reason: no_active_workload
+
+while_parked:
+  paid_workflow_allowed: false
+  provider_secret_reference_allowed: false
+  live_paid_compute_allowed: false
+  runpod_live_calls_allowed: false
+  runpod_live_adapter_allowed: false
+  runpod_workflow_allowed: false
+  generic_external_container_execution_allowed: false
+  scheduled_paid_execution_allowed: false
+  repository_dispatch_paid_execution_allowed: false
+
+authorization:
+  activation_requires_explicit_human_request: true
+  repository_access_does_not_activate: true
+  code_change_request_does_not_activate: true
+  dry_run_request_does_not_activate: true
+
+activation_prerequisites:
+  - active_workload_repository_selected
+  - main_branch_protection_configured
+  - required_ci_checks_enforced
+  - owner_only_paid_environment_configured
+  - environment_scoped_runpod_secret_configured
+  - immutable_published_image_path_available
+  - authenticated_workload_completion_evidence_available
+  - reliable_cleanup_path_available
+
+resume_rule:
+  change_mode_through_reviewed_repository_change: true
+  keep_paid_compute_disabled_until_external_github_gates_are_verified: true
