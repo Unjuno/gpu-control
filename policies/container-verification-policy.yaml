@@ -1,0 +1,79 @@
+version: 1
+
+default: denied
+status: design_only
+
+source:
+  public_repository_only: true
+  immutable_full_commit_sha: true
+  exact_dockerfile_at_sha: true
+  submodules_default: disabled
+
+build:
+  generic_execution_enabled: false
+  requires:
+    - ephemeral_worker
+    - no_provider_credentials
+    - no_repository_write_credentials
+    - no_ssh_forwarding
+    - no_buildkit_secret_mounts
+    - no_privileged_mode
+    - no_host_filesystem_mounts
+    - no_host_network_mode
+    - no_persistent_host_docker_socket
+    - hard_timeout
+    - bounded_storage
+  network:
+    default: policy_decision_required
+    secrets_forbidden_when_enabled: true
+
+runtime:
+  generic_execution_enabled: false
+  gpu: forbidden
+  network: none
+  read_only_rootfs: required_where_practical
+  capabilities: drop_all
+  no_new_privileges: true
+  host_pid_namespace: forbidden
+  host_ipc_namespace: forbidden
+  host_network_namespace: forbidden
+  docker_socket: forbidden
+  host_devices: forbidden
+  interactive_tty: forbidden
+  ssh_service: forbidden
+  limits:
+    wall_clock_seconds: 120
+    cpus: 2
+    memory_mib: 4096
+    pids: 256
+
+credentials:
+  github_token_in_workload_environment: forbidden
+  runpod_api_key: forbidden
+  provider_credentials: forbidden
+  private_registry_credentials: forbidden_by_default
+
+outputs:
+  dedicated_writable_output_only: true
+  log_size_must_be_bounded: true
+  artifact_size_must_be_bounded: true
+  generated_code_execution: forbidden
+
+trigger:
+  explicit_authenticated_authorization_required: true
+  untrusted_pull_request: forbidden
+  fork: forbidden
+  issue: forbidden
+  issue_comment: forbidden
+  public_webhook_without_independent_auth: forbidden
+
+promotion:
+  required_before_approved_execution_plan:
+    - source_verified
+    - isolated_container_verification_passed
+  required_before_generic_execution_enabled:
+    - reference_workload_repository
+    - hostile_build_tests
+    - hostile_runtime_tests
+    - secret_isolation_tests
+    - resource_limit_tests
