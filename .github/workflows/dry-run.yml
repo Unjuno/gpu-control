@@ -31,7 +31,7 @@ on:
         default: 15
         type: number
       max_cost_usd:
-        description: Requested maximum provider cost in USD
+        description: Requested maximum provider cost in USD, at most two decimal places
         required: true
         default: "0.20"
         type: string
@@ -45,7 +45,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       TARGET_REPO: ${{ inputs.target_repo }}
@@ -54,6 +54,7 @@ jobs:
       GPU_PROFILE: ${{ inputs.gpu_profile }}
       MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes }}
       MAX_COST_USD: ${{ inputs.max_cost_usd }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout control plane
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -72,9 +73,9 @@ jobs:
       - name: Run unit tests before validating request
         run: uv run --locked pytest
 
-      - name: Validate request (no GPU resources are created)
+      - name: Validate request and verify source (no GPU resources are created)
         run: |
-          uv run --locked gpu-control validate \
+          uv run --locked gpu-control verify-source \
             --target-repo "$TARGET_REPO" \
             --target-sha "$TARGET_SHA" \
             --dockerfile-path "$DOCKERFILE_PATH" \
