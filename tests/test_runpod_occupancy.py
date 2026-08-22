@@ -36,10 +36,10 @@ def plan() -> ApprovedExecutionPlan:
     return value
 
 
-def test_empty_account_is_valid_for_short_window() -> None:
+def test_empty_account_is_valid_before_create_for_short_window() -> None:
     value = plan()
     evidence = build_account_occupancy_evidence(value, [], checked_at_utc=NOW, ttl_seconds=30)
-    evidence.validate_against_plan(value, now_utc=NOW + timedelta(seconds=1))
+    evidence.validate_before_create(value, now_utc=NOW + timedelta(seconds=1))
     assert evidence.active_pod_ids == ()
 
 
@@ -52,7 +52,7 @@ def test_any_non_terminated_pod_makes_account_busy(status: str) -> None:
         checked_at_utc=NOW,
     )
     with pytest.raises(RunPodV2Error, match="account is busy"):
-        evidence.validate_against_plan(value, now_utc=NOW + timedelta(seconds=1))
+        evidence.validate_before_create(value, now_utc=NOW + timedelta(seconds=1))
 
 
 def test_terminated_pods_do_not_block_new_owner_job() -> None:
@@ -62,14 +62,43 @@ def test_terminated_pods_do_not_block_new_owner_job() -> None:
         [{"id": "old-pod", "status": "TERMINATED"}],
         checked_at_utc=NOW,
     )
-    evidence.validate_against_plan(value, now_utc=NOW + timedelta(seconds=1))
+    evidence.validate_before_create(value, now_utc=NOW + timedelta(seconds=1))
+
+
+def test_post_create_requires_exactly_new_pod_and_nothing_else() -> None:
+    value = plan()
+    evidence = build_account_occupancy_evidence(
+        value,
+        [{"id": "pod-123", "status": "PROVISIONING"}],
+        checked_at_utc=NOW,
+    )
+    evidence.validate_after_create(
+        value,
+        expected_pod_id="pod-123",
+        now_utc=NOW + timedelta(seconds=1),
+    )
+
+    raced = build_account_occupancy_evidence(
+        value,
+        [
+            {"id": "pod-123", "status": "PROVISIONING"},
+            {"id": "other-pod", "status": "RUNNING"},
+        ],
+        checked_at_utc=NOW,
+    )
+    with pytest.raises(RunPodV2Error, match="exclusivity was lost"):
+        raced.validate_after_create(
+            value,
+            expected_pod_id="pod-123",
+            now_utc=NOW + timedelta(seconds=1),
+        )
 
 
 def test_expired_occupancy_evidence_fails_closed() -> None:
     value = plan()
     evidence = build_account_occupancy_evidence(value, [], checked_at_utc=NOW, ttl_seconds=5)
     with pytest.raises(RunPodV2Error, match="expired"):
-        evidence.validate_against_plan(value, now_utc=NOW + timedelta(seconds=5))
+        evidence.validate_before_create(value, now_utc=NOW + timedelta(seconds=5))
 
 
 def test_occupancy_evidence_is_bound_to_exact_plan() -> None:
@@ -77,4 +106,4 @@ def test_occupancy_evidence_is_bound_to_exact_plan() -> None:
     evidence = build_account_occupancy_evidence(value, [], checked_at_utc=NOW)
     changed = ApprovedExecutionPlan.from_dict({**value.to_dict(), "authorization_reference": "other"})
     with pytest.raises(RunPodV2Error, match="fingerprint"):
-        evidence.validate_against_plan(changed, now_utc=NOW + timedelta(seconds=1))
+        evidence.validate_before_create(changed, now_utc=NOW + timedelta(seconds=1))
