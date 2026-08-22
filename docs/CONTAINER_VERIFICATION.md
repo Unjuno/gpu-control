@@ -6,9 +6,26 @@ Reading a public repository is not equivalent to building or running it. A Docke
 
 ## Current status
 
-Generic remote container build/run is **denied** until the isolation requirements in `policies/container-verification-policy.yaml` are implemented and tested.
+A repository-owned fixture at `examples/reference-workload/` is built and run in CI under restricted settings. This validates the mechanics of a bounded container smoke test without trusting arbitrary external Dockerfiles.
 
-Source verification remains read-only. No workload code is executed by the existing dry-run workflow.
+Generic external container build/run remains **denied** until the isolation requirements in `policies/container-verification-policy.yaml` are implemented and tested against hostile workloads.
+
+Source verification remains read-only. The manual dry-run workflow does not execute target workload code.
+
+## Trusted reference fixture
+
+The trusted fixture is deliberately narrower than the future generic verifier:
+
+- its source is part of this repository and reviewed with the control plane;
+- it has no third-party Python dependencies;
+- its Docker base image is pinned by digest;
+- it performs a deterministic finite calculation;
+- it writes a machine-readable `/outputs/result.json`;
+- it requires no GPU, network, token, provider account, or secret.
+
+CI runs it with a read-only root filesystem, `--network none`, all Linux capabilities dropped, `no-new-privileges`, PID/CPU/memory limits, a hard external timeout, and bounded tmpfs mounts. CI also inspects the created container and asserts the key runtime restrictions rather than relying only on the workflow text.
+
+Passing this fixture proves the isolation mechanism works for repository-owned code. It does **not** establish that arbitrary hostile Dockerfiles are safe.
 
 ## Trust model
 
@@ -36,11 +53,11 @@ The verification environment must not receive:
 - package registry credentials unless a future policy explicitly designs for them;
 - reusable host credentials.
 
-A GitHub token used earlier for read-only source verification must not be forwarded into the workload build or runtime environment.
+A GitHub token used earlier for read-only source verification must not be forwarded into the workload build or runtime environment. GitHub checkout credentials should not be persisted when they are unnecessary.
 
 ## Source requirements
 
-Before container execution:
+Before generic container execution:
 
 1. `target_repo` must pass the public source policy;
 2. `target_sha` must be an immutable full commit SHA;
@@ -69,6 +86,8 @@ Minimum requirements:
 - no cache reuse across unrelated untrusted workload repositories unless the cache design is explicitly hardened.
 
 Build-time network access is a separate policy decision because many legitimate Dockerfiles install dependencies during build. If build networking is allowed, it must still run without secrets and within a bounded disposable environment.
+
+The current trusted fixture has no Dockerfile `RUN` step, so it does not yet exercise hostile build-time behavior. That is intentionally left for the hostile-build test milestone.
 
 ## Runtime isolation requirements
 
@@ -103,17 +122,21 @@ The control plane must bound and sanitize what it retains:
 - do not publish secrets detected in output;
 - keep machine-readable exit status separate from free-form logs.
 
+The trusted fixture currently validates a small JSON result. Generic artifact ingestion is not enabled.
+
 ## Authorization
 
 A request to verify source does not authorize executing the container.
 
-Container execution should require an explicit trusted action from a repository writer or another authenticated control path. Public users, forks, issues, comments, and pull-request content must not be able to trigger generic workload execution.
+Generic container execution should require an explicit trusted action from a repository writer or another authenticated control path. Public users, forks, issues, comments, and pull-request content must not be able to trigger generic workload execution.
 
-Container verification is still non-billable provider work, but it is a code-execution boundary and therefore needs explicit authorization.
+The repository-owned reference fixture is part of ordinary CI and is not a general target-repository execution interface.
+
+Container verification is still non-billable provider work, but it is a code-execution boundary and therefore needs explicit authorization before it is generalized.
 
 ## Relationship to paid compute
 
-A successful container verification result becomes one input to `ApprovedExecutionPlan` generation. It is not itself authorization to allocate a GPU.
+A successful isolated container verification result becomes one input to `ApprovedExecutionPlan` generation. It is not itself authorization to allocate a GPU.
 
 The paid-compute gate still requires:
 
@@ -129,12 +152,12 @@ The paid-compute gate still requires:
 
 The intended implementation sequence is:
 
-1. keep generic container execution denied;
-2. publish a minimal reference workload repository;
-3. implement an isolated, secret-free build path for that reference workload;
-4. add bounded offline runtime smoke testing;
-5. test hostile Dockerfile and runtime cases;
-6. only then generalize to authorized public workload repositories;
+1. keep generic external container execution denied — **done**;
+2. add a repository-owned trusted reference workload — **done**;
+3. run that reference workload in bounded, secret-free CI isolation — **done**;
+4. publish the reference workload as a separate public repository;
+5. add hostile build, hostile runtime, secret-isolation, and resource-limit tests;
+6. only then generalize to explicitly authorized public workload repositories;
 7. keep paid provider credentials in a later, separate job/stage.
 
 Do not collapse container verification and paid provider submission into one credential-bearing workflow job.
