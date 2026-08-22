@@ -34,6 +34,8 @@ def test_paid_compute_requires_explicit_human_request_and_bounds() -> None:
     requirements = set(policy["paid_compute"]["requires"])
     assert "explicit_human_request" in requirements
     assert "immutable_commit_sha" in requirements
+    assert "structured_container_verification_evidence" in requirements
+    assert "immutable_image_digest" in requirements
     assert "successful_dry_run" in requirements
     assert "verified_provider_price" in requirements
     assert "explicit_runtime_limit" in requirements
@@ -69,3 +71,4 @@ def test_forbidden_policy_blocks_common_agent_escalation_failures() -> None:
     assert "long_lived_actions_polling" in forbidden
     assert "provider_allocation_without_explicit_authorization" in forbidden
     assert "provider_adapter_accepting_raw_workload_request" in forbidden
+    assert "paid_gate_accepting_bare_container_boolean" in forbidden
