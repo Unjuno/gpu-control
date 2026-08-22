@@ -1,0 +1,65 @@
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+POLICY_PATH = ROOT / "policies" / "agent-policy.yaml"
+
+
+def load_agent_policy() -> dict:
+    with POLICY_PATH.open("r", encoding="utf-8") as handle:
+        policy = yaml.safe_load(handle)
+    assert isinstance(policy, dict)
+    return policy
+
+
+def test_paid_compute_is_denied_by_default() -> None:
+    policy = load_agent_policy()
+    assert policy["default_mode"] == "local_first"
+    assert policy["paid_compute_default"] == "denied"
+
+
+def test_runpod_is_final_escalation_stage() -> None:
+    policy = load_agent_policy()
+    stages = policy["stages"]
+    paid_stage = next(stage for stage in stages if stage["id"] == "paid_gpu_runpod")
+    assert paid_stage["final_stage"] is True
+    assert paid_stage["order"] == max(stage["order"] for stage in stages)
+    assert policy["paid_compute"]["provider"] == "runpod"
+
+
+def test_paid_compute_requires_explicit_human_request_and_bounds() -> None:
+    policy = load_agent_policy()
+    requirements = set(policy["paid_compute"]["requires"])
+    assert "explicit_human_request" in requirements
+    assert "immutable_commit_sha" in requirements
+    assert "successful_dry_run" in requirements
+    assert "explicit_runtime_limit" in requirements
+    assert "explicit_cost_limit" in requirements
+    assert "cleanup_plan" in requirements
+    assert policy["paid_compute"]["defaults"]["gpu_count"] == 1
+
+
+def test_repository_context_files_exist() -> None:
+    required = [
+        ROOT / "AGENTS.md",
+        ROOT / "SECURITY.md",
+        ROOT / "CONTRIBUTING.md",
+        ROOT / "docs" / "OPERATING_MODEL.md",
+        ROOT / ".github" / "copilot-instructions.md",
+        ROOT / "policies" / "agent-policy.yaml",
+        ROOT / "policies" / "gpu-policy.yaml",
+    ]
+    missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
+    assert missing == []
+
+
+def test_forbidden_policy_blocks_common_agent_escalation_failures() -> None:
+    policy = load_agent_policy()
+    forbidden = set(policy["forbidden"])
+    assert "arbitrary_remote_shell_interface" in forbidden
+    assert "paid_compute_from_untrusted_events" in forbidden
+    assert "silent_cost_or_runtime_escalation" in forbidden
+    assert "long_lived_actions_polling" in forbidden
+    assert "provider_allocation_without_explicit_authorization" in forbidden
