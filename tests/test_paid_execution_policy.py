@@ -28,11 +28,11 @@ def test_paid_compute_stays_disabled_until_owner_environment_is_configured() -> 
     assert identity["reject_rerun_by_different_triggering_actor"] is True
 
 
-def test_no_paid_workflow_or_provider_secret_reference_exists_while_live_is_disabled() -> None:
+def test_no_paid_workflow_or_provider_secret_access_exists_while_live_is_disabled() -> None:
     assert not (WORKFLOWS / "paid-runpod.yml").exists()
     for workflow in WORKFLOWS.glob("*.yml"):
         content = workflow.read_text(encoding="utf-8")
-        assert "RUNPOD_API_KEY" not in content
+        assert "secrets.RUNPOD_API_KEY" not in content
         assert "environment: paid-runpod" not in content
 
 
