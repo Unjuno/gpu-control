@@ -13,7 +13,6 @@ class ProviderSubmission:
     """Minimal untrusted response returned when a provider accepts a job."""
 
     provider_job_id: str
-    submission_reference: str
 
 
 @dataclass(frozen=True)
@@ -42,7 +41,6 @@ class ProviderResultSnapshot:
     log_bytes_retained: int
     logs_truncated: bool
     artifacts: tuple[OutputArtifact, ...]
-    result_reference: str
 
 
 @runtime_checkable
