@@ -1,0 +1,81 @@
+name: GPU request dry-run
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: Public GitHub repository in owner/repository form
+        required: true
+        type: string
+      target_sha:
+        description: Immutable 40-character Git commit SHA
+        required: true
+        type: string
+      dockerfile_path:
+        description: Relative Dockerfile path in the target repository
+        required: true
+        default: Dockerfile
+        type: string
+      gpu_profile:
+        description: Policy-defined GPU profile
+        required: true
+        default: cheap-24gb
+        type: choice
+        options:
+          - cheap-24gb
+          - fast-24gb
+          - large-vram
+      max_runtime_minutes:
+        description: Requested maximum GPU runtime in minutes
+        required: true
+        default: 15
+        type: number
+      max_cost_usd:
+        description: Requested maximum provider cost in USD
+        required: true
+        default: "0.20"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-control-dry-run-${{ github.actor }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_REPO: ${{ inputs.target_repo }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+      GPU_PROFILE: ${{ inputs.gpu_profile }}
+      MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes }}
+      MAX_COST_USD: ${{ inputs.max_cost_usd }}
+    steps:
+      - name: Checkout control plane
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+
+      - name: Run unit tests before validating request
+        run: pytest
+
+      - name: Validate request (no GPU resources are created)
+        run: |
+          gpu-control validate \
+            --target-repo "$TARGET_REPO" \
+            --target-sha "$TARGET_SHA" \
+            --dockerfile-path "$DOCKERFILE_PATH" \
+            --gpu-profile "$GPU_PROFILE" \
+            --max-runtime-minutes "$MAX_RUNTIME_MINUTES" \
+            --max-cost-usd "$MAX_COST_USD"
