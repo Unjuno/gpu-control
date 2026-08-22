@@ -108,7 +108,7 @@ CI builds and runs that fixture with:
 - explicit CPU, memory, PID, and wall-clock limits;
 - a bounded writable `/outputs` tmpfs.
 
-The fixture writes `/outputs/result.json`, which CI copies out and validates. The Docker base image is pinned by digest.
+The fixture writes `/outputs/result.json` during execution and emits the same machine-readable result on stdout; CI validates the stdout result because the tmpfs is intentionally ephemeral after container exit. The Docker base image is pinned by digest.
 
 This is intentionally **not** generic workload execution. `policies/container-verification-policy.yaml` keeps external build/run denied until hostile workload, secret-isolation, and resource-limit tests are complete.
 
