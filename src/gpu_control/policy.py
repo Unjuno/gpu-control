@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -13,13 +14,21 @@ class PolicyError(ValidationError):
     """Raised when a valid request exceeds configured policy."""
 
 
-def load_policy(path: str | Path) -> dict[str, Any]:
-    policy_path = Path(path)
-    with policy_path.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
+def _parse_policy(text: str) -> dict[str, Any]:
+    data = yaml.safe_load(text)
     if not isinstance(data, dict):
         raise PolicyError("policy file must contain a mapping")
     return data
+
+
+def load_policy(path: str | Path | None = None) -> dict[str, Any]:
+    """Load a policy file, or the policy bundled with gpu-control when omitted."""
+    if path is None:
+        resource = files("gpu_control").joinpath("default_policy.yaml")
+        return _parse_policy(resource.read_text(encoding="utf-8"))
+
+    policy_path = Path(path)
+    return _parse_policy(policy_path.read_text(encoding="utf-8"))
 
 
 def _as_decimal(value: Any, field: str) -> Decimal:
