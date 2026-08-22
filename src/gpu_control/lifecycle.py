@@ -100,6 +100,8 @@ def _parse_utc(value: str, field: str) -> datetime:
 
 
 def _format_utc(value: datetime, field: str) -> str:
+    if not isinstance(value, datetime):
+        raise LifecycleError(f"{field} must be a datetime")
     if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(value):
         raise LifecycleError(f"{field} must be timezone-aware UTC")
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -110,7 +112,7 @@ def _validate_identity(provider: str, provider_job_id: str, plan_fingerprint: st
         raise LifecycleError("provider is required")
     if not isinstance(provider_job_id, str) or not provider_job_id.strip():
         raise LifecycleError("provider_job_id is required")
-    if not _FINGERPRINT_RE.fullmatch(plan_fingerprint):
+    if not isinstance(plan_fingerprint, str) or not _FINGERPRINT_RE.fullmatch(plan_fingerprint):
         raise LifecycleError("plan_fingerprint must be a lowercase sha256 fingerprint")
 
 
@@ -129,14 +131,16 @@ class SubmissionReceipt:
     schema_version: int = 1
 
     def validate_shape(self) -> datetime:
+        if self.schema_version != 1:
+            raise LifecycleError("unsupported submission receipt schema_version")
         _validate_identity(self.provider, self.provider_job_id, self.plan_fingerprint)
         if not isinstance(self.provider_resource_id, str) or not self.provider_resource_id.strip():
             raise LifecycleError("provider_resource_id is required")
-        if self.max_runtime_minutes <= 0:
-            raise LifecycleError("max_runtime_minutes must be positive")
+        if isinstance(self.max_runtime_minutes, bool) or not isinstance(self.max_runtime_minutes, int) or self.max_runtime_minutes <= 0:
+            raise LifecycleError("max_runtime_minutes must be a positive integer")
         if not isinstance(self.max_cost_usd, Decimal) or not self.max_cost_usd.is_finite() or self.max_cost_usd <= 0:
             raise LifecycleError("max_cost_usd must be a finite positive Decimal")
-        if not _FINGERPRINT_RE.fullmatch(self.image_digest):
+        if not isinstance(self.image_digest, str) or not _FINGERPRINT_RE.fullmatch(self.image_digest):
             raise LifecycleError("image_digest must be a lowercase sha256 digest")
         return _parse_utc(self.submitted_at_utc, "submitted_at_utc")
 
@@ -167,6 +171,8 @@ class JobObservation:
     schema_version: int = 1
 
     def validate_shape(self) -> datetime:
+        if self.schema_version != 1:
+            raise LifecycleError("unsupported job observation schema_version")
         _validate_identity(self.provider, self.provider_job_id, self.plan_fingerprint)
         if not isinstance(self.state, JobState):
             raise LifecycleError("state must be a JobState")
@@ -193,10 +199,11 @@ def build_submission_receipt(
     provider_job_id: str,
     submitted_at_utc: datetime,
 ) -> SubmissionReceipt:
+    normalized_job_id = provider_job_id.strip() if isinstance(provider_job_id, str) else provider_job_id
     receipt = SubmissionReceipt(
         provider=plan.provider,
         provider_resource_id=plan.provider_resource_id,
-        provider_job_id=provider_job_id.strip(),
+        provider_job_id=normalized_job_id,  # type: ignore[arg-type]
         plan_fingerprint=plan.fingerprint(),
         submitted_at_utc=_format_utc(submitted_at_utc, "submitted_at_utc"),
         max_runtime_minutes=plan.max_runtime_minutes,
