@@ -7,6 +7,7 @@ import json
 import sys
 
 from .policy import PolicyError, load_policy, validate_against_policy
+from .provider_selftest import run_provider_contract_self_test
 from .source import SourceVerificationError, verify_public_github_source
 from .validation import ValidationError, WorkloadRequest, build_request
 
@@ -87,6 +88,13 @@ def build_parser() -> argparse.ArgumentParser:
         "self-test",
         help="verify the installed CLI and bundled policy without network or GPU access",
     )
+    subparsers.add_parser(
+        "provider-self-test",
+        help=(
+            "exercise approved-plan, provider-controller, lifecycle, cleanup, and result-policy contracts "
+            "using a deterministic no-network synthetic provider"
+        ),
+    )
     return parser
 
 
@@ -114,6 +122,8 @@ def main(argv: list[str] | None = None) -> int:
                 "checks": ["cli", "bundled_policy", "validation"],
                 "effective_policy": effective_policy,
             }
+        elif args.command == "provider-self-test":
+            result = run_provider_contract_self_test()
         else:
             return 2
     except (ValidationError, PolicyError, SourceVerificationError, OSError, ValueError) as exc:
