@@ -59,6 +59,7 @@ def test_repository_context_files_exist() -> None:
         ROOT / "docs" / "OPERATING_MODEL.md",
         ROOT / "docs" / "CONTAINER_VERIFICATION.md",
         ROOT / "docs" / "ASYNC_EXECUTION.md",
+        ROOT / "docs" / "PRICING_VERIFICATION.md",
         ROOT / ".github" / "copilot-instructions.md",
         ROOT / "policies" / "agent-policy.yaml",
         ROOT / "policies" / "gpu-policy.yaml",
