@@ -27,7 +27,7 @@ stages:
   - id: control_plane_validation
     order: 5
     required: true
-    description: Run gpu-control self-tests, policy validation, source/container checks, dry-run gates, and produce an approved execution plan.
+    description: Run gpu-control self-tests, policy validation, source/container checks, pricing verification, dry-run gates, and produce an approved execution plan.
 
   - id: paid_gpu_runpod
     order: 6
@@ -48,7 +48,11 @@ paid_compute:
     - reproducible_dependencies
     - minimal_experiment_configuration
     - successful_dry_run
+    - structured_pricing_verification_evidence
     - verified_provider_price
+    - verified_provider_resource_availability
+    - provider_resource_id
+    - unexpired_pricing_evidence
     - explicit_runtime_limit
     - explicit_cost_limit
     - cleanup_plan
@@ -58,11 +62,14 @@ paid_compute:
     execution_model: asynchronous_submit_collect
   fail_closed_on:
     - unknown_price
+    - expired_price
+    - missing_provider_resource_identity
     - unavailable_policy_data
     - invalid_or_missing_commit
     - invalid_container_contract
     - missing_container_verification_evidence
     - mismatched_container_identity
+    - missing_pricing_verification_evidence
     - missing_authorization
     - missing_cleanup_guarantee
     - missing_approved_execution_plan
@@ -77,3 +84,4 @@ forbidden:
   - provider_allocation_without_explicit_authorization
   - provider_adapter_accepting_raw_workload_request
   - paid_gate_accepting_bare_container_boolean
+  - paid_gate_accepting_bare_price_scalar
