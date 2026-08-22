@@ -41,7 +41,7 @@ The current public MVP accepts public GitHub workload repositories only. Private
 
 ## 4. Validate through the control plane
 
-Before paid execution, `gpu-control` validates the request and resource policy. It now also verifies public GitHub source identity before any provider integration is enabled.
+Before paid execution, `gpu-control` validates the request and resource policy and verifies public GitHub source identity.
 
 The gate sequence is:
 
@@ -52,29 +52,51 @@ self-test
   -> repository visibility verification
   -> exact commit SHA verification
   -> Dockerfile-at-SHA verification
-  -> container build/smoke test (next milestone)
-  -> dry-run execution plan
+  -> isolated container build/smoke test (next milestone)
+  -> dry-run
+  -> provider price verification
+  -> cleanup guarantee
+  -> explicit human authorization evidence
+  -> ApprovedExecutionPlan
 ```
 
-A failed gate stops escalation. Source verification does not execute repository code.
+A failed gate stops escalation. Source verification is read-only and does not execute repository code.
 
-## 5. Use RunPod as the final escalation stage
+## 5. Treat container execution as a separate trust boundary
+
+Building or running an arbitrary workload Dockerfile executes untrusted code. It must not be casually inserted into a credential-bearing GitHub Actions job.
+
+The container-verification stage therefore needs its own isolation model, bounded runtime/resources, and threat analysis before it becomes a generic control-plane feature.
+
+Until then, `gpu-control` intentionally stops after source verification and dry-run validation.
+
+## 6. Produce an approved execution plan
+
+Future provider adapters must not accept raw workload requests.
+
+`src/gpu_control/execution.py` produces an immutable `ApprovedExecutionPlan` only when source identity matches the request and the following are all satisfied:
+
+- container verification passed;
+- dry-run passed;
+- provider price is verified;
+- projected worst-case spend fits the requested and policy limits;
+- cleanup is guaranteed;
+- explicit human authorization is present with an audit reference;
+- the current one-GPU MVP policy is satisfied.
+
+Worst-case cost is rounded upward to the nearest cent before approval.
+
+The gate does not authenticate a human by itself. The trusted caller or workflow must establish genuine authorization evidence; an agent must not fabricate it.
+
+## 7. Use RunPod as the final escalation stage
 
 RunPod is the first intended external GPU provider, not the default development environment.
 
-Use it only when the experiment requires GPU compute that is not reasonably available in the earlier stages, or when a human explicitly requests the remote GPU run after the gates pass.
+A future RunPod adapter should accept only an `ApprovedExecutionPlan`. It must not allocate resources directly from user-supplied repository, runtime, cost, or GPU values.
 
-Every paid run must be bounded by:
+Every paid run must use an asynchronous submit/collect lifecycle and cleanup on success, failure, timeout, cancellation, and allocation-related provider errors where possible.
 
-- one GPU by default;
-- an explicit GPU profile;
-- an explicit runtime ceiling;
-- an explicit cost ceiling;
-- an immutable workload commit;
-- an asynchronous submit/collect lifecycle;
-- cleanup on success, failure, timeout, and cancellation.
-
-If price, authorization, policy compliance, or cleanup cannot be established, do not allocate the resource.
+If price, authorization, policy compliance, approved-plan status, or cleanup cannot be established, do not allocate the resource.
 
 ## Why the order matters
 

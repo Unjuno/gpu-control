@@ -11,10 +11,11 @@ inspect
   -> workload repository + immutable commit
   -> policy + source verification
   -> container verification
+  -> approved execution plan
   -> RunPod only when GPU compute is actually required
 ```
 
-> **Current status:** local validation, public GitHub source verification, and dry-run workflows are implemented. No provider API is called and no paid GPU resource can be created yet.
+> **Current status:** local validation, public GitHub source verification, dry-run workflows, and the provider-agnostic paid-execution gate are implemented. Container verification and provider adapters are not implemented yet, so no paid GPU resource can be created.
 
 ## Operating rule
 
@@ -29,8 +30,10 @@ The intended sequence is:
 3. Put the workload in a separate repository with reproducible dependencies.
 4. Identify the workload by an immutable 40-character commit SHA.
 5. Validate policy and verify the repository, exact commit, and Dockerfile.
-6. Verify the container itself.
-7. Escalate to RunPod only after the earlier gates pass and a human explicitly authorizes paid compute.
+6. Verify the container itself in an appropriate isolation boundary.
+7. Produce an immutable `ApprovedExecutionPlan` only after source, container, dry-run, pricing, cleanup, policy, and explicit-human-authorization gates pass.
+8. Allow a provider adapter to consume that approved plan; never pass it a raw workload request.
+9. Escalate to RunPod only when GPU compute is actually required.
 
 See [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md) for the detailed rationale.
 
@@ -89,7 +92,28 @@ uv run gpu-control verify-source \
 
 The command can use `GITHUB_TOKEN` when present to improve GitHub API reliability and rate limits. The current MVP still rejects private repositories even if a token could access them.
 
-A successful result contains `status: verified` and remains `dry_run: true`.
+A successful result contains `status: verified` and remains `dry_run: true`. Source verification is read-only and does not execute workload code.
+
+## Paid execution gate
+
+`src/gpu_control/execution.py` defines the boundary future provider adapters must use.
+
+A raw `WorkloadRequest` is not sufficient to allocate resources. `build_approved_execution_plan(...)` requires:
+
+- exact source verification matching the request;
+- container verification;
+- a successful dry-run;
+- verified provider hourly pricing;
+- policy-compliant runtime and cost limits;
+- one GPU in the current MVP;
+- a cleanup guarantee;
+- explicit human authorization plus an audit reference.
+
+Worst-case spend is calculated from the verified hourly price and requested runtime, then rounded **up** to the nearest cent before comparison with the requested cost ceiling.
+
+The resulting `ApprovedExecutionPlan` is immutable. This is a defense-in-depth gate, not an identity provider: the trusted workflow or caller must establish that the authorization evidence actually came from an authorized human.
+
+There is intentionally no public CLI command that manufactures an approved paid plan yet. A trusted authorization path must exist first.
 
 ## Workload contract
 
@@ -126,10 +150,17 @@ This repository is intended to be useful as execution context for both humans an
 - [policies/gpu-policy.yaml](policies/gpu-policy.yaml) — GPU, runtime, and cost limits;
 - [SECURITY.md](SECURITY.md) — trust, authorization, and secret boundaries;
 - [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md) — staged experiment workflow;
+- `src/gpu_control/execution.py` — runtime paid-compute precondition gate;
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) — GitHub Copilot repository context;
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution requirements.
 
 When policy, authorization, price, or cleanup guarantees are unknown, the intended behavior is fail-closed.
+
+## Container-verification security boundary
+
+Building or running a Dockerfile from an arbitrary public repository executes untrusted code. Generic remote container builds must not be added to a credential-bearing GitHub Actions job without a separate isolation model and threat analysis.
+
+For that reason, source verification is implemented now, while generic container execution remains a separate milestone.
 
 ## Planned architecture
 
@@ -143,12 +174,14 @@ Workload repository
         +-- request validation
         +-- resource / agent policy
         +-- source verification
-        +-- container verification
-        +-- dry-run execution plan
-        +-- explicit paid-compute authorization
+        +-- isolated container verification
+        +-- dry-run
+        +-- verified provider price
+        +-- explicit authorization + cleanup gates
+        +-- ApprovedExecutionPlan
         |
         v
-      RunPod
+ provider adapter (RunPod first)
         |
         | asynchronous submit / collect
         v
@@ -165,11 +198,12 @@ Long-running GPU work must not keep a GitHub-hosted runner polling for hours.
 1. Standalone CLI, bundled policy, lockfile, and zero-GPU CI. **Done.**
 2. Repository-level agent policy and public operating model. **Done.**
 3. Verify public target repository, exact commit SHA, and Dockerfile. **Done.**
-4. Build the target container and run a bounded smoke check.
-5. Publish a minimal reference workload repository for end-to-end testing.
-6. Add the RunPod adapter behind explicit authorization, price, runtime, and cleanup gates.
-7. Submit GPU jobs asynchronously and collect status, logs, metrics, and outputs.
-8. Add other providers behind the same resource-policy interface if useful.
+4. Add provider-agnostic `ApprovedExecutionPlan` and fail-closed paid-compute preconditions. **Done.**
+5. Design and implement isolated target-container verification with a bounded smoke check.
+6. Publish a minimal reference workload repository for end-to-end testing.
+7. Add the RunPod adapter so it accepts only an approved execution plan.
+8. Submit GPU jobs asynchronously and collect status, logs, metrics, and outputs.
+9. Add other providers behind the same resource-policy interface if useful.
 
 ## License
 
