@@ -1,0 +1,4 @@
+version: 1
+
+mode: parked
+reason: no_active_workload
