@@ -20,6 +20,31 @@ def test_self_test_works_outside_repository(tmp_path, monkeypatch, capsys) -> No
     assert payload["effective_policy"]["gpu_count"] == 1
 
 
+def test_provider_self_test_runs_full_no_network_contract_outside_repository(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["provider-self-test"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["dry_run"] is True
+    assert payload["provider"] == "synthetic"
+    assert payload["network_access"] is False
+    assert payload["external_resources_created"] is False
+    assert payload["billable_compute"] is False
+    assert payload["terminal_state"] == "succeeded"
+    assert payload["artifact_dispositions"]["metrics.json"] == "collected"
+    assert payload["artifact_dispositions"]["checkpoints/example.safetensors"] == "reference_only"
+    assert payload["plan_fingerprint"].startswith("sha256:")
+    assert payload["submission_receipt_fingerprint"].startswith("sha256:")
+    assert payload["result_manifest_fingerprint"].startswith("sha256:")
+
+
 def test_validate_uses_bundled_policy_outside_repository(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
 

@@ -42,6 +42,11 @@ jobs:
           cd /tmp
           "$GITHUB_WORKSPACE/.venv/bin/gpu-control" self-test
 
+      - name: Standalone provider contract self-test
+        run: |
+          cd /tmp
+          "$GITHUB_WORKSPACE/.venv/bin/gpu-control" provider-self-test
+
       - name: Test
         run: uv run --locked pytest
 

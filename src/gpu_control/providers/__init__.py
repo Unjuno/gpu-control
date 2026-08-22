@@ -18,6 +18,7 @@ from .controller import (
     observe_provider_job,
     submit_approved_plan,
 )
+from .synthetic import SyntheticProviderAdapter
 
 __all__ = [
     "ProviderAdapter",
@@ -27,6 +28,7 @@ __all__ = [
     "ProviderStatusSnapshot",
     "ProviderSubmission",
     "SubmittedJob",
+    "SyntheticProviderAdapter",
     "cleanup_provider_job",
     "collect_provider_results",
     "observe_provider_job",
