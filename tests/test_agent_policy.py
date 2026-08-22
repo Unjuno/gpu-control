@@ -42,6 +42,7 @@ def test_paid_compute_requires_explicit_human_request_and_bounds() -> None:
     assert "verified_provider_resource_availability" in requirements
     assert "provider_resource_id" in requirements
     assert "unexpired_pricing_evidence" in requirements
+    assert "pricing_freshness_rechecked_immediately_before_submission" in requirements
     assert "explicit_runtime_limit" in requirements
     assert "explicit_cost_limit" in requirements
     assert "cleanup_plan" in requirements
@@ -49,6 +50,31 @@ def test_paid_compute_requires_explicit_human_request_and_bounds() -> None:
     assert policy["paid_compute"]["defaults"]["gpu_count"] == 1
     assert policy["paid_compute"]["defaults"]["execution_model"] == "asynchronous_submit_collect"
     assert policy["paid_compute"]["provider_adapter_input"] == "approved_execution_plan"
+
+
+def test_async_state_is_strict_and_not_trusted_on_parse_alone() -> None:
+    async_policy = load_agent_policy()["async_execution"]
+    persisted = async_policy["persisted_state"]
+    submit = async_policy["submit_stage"]
+    collection = async_policy["collection_stage"]
+
+    assert persisted["schema_version_required"] is True
+    assert persisted["strict_known_fields_only"] is True
+    assert persisted["reject_duplicate_json_keys"] is True
+    assert persisted["reject_unknown_fields"] is True
+    assert persisted["reject_missing_fields"] is True
+    assert persisted["money_encoding"] == "decimal_string"
+    assert persisted["parse_success_is_not_trust"] is True
+
+    assert submit["revalidate_pricing_freshness_immediately_before_submit"] is True
+    assert submit["persist_submission_receipt_before_exit"] is True
+    assert submit["restored_receipt_must_match_approved_plan"] is True
+    assert submit["wait_for_gpu_workload_completion"] is False
+
+    assert collection["restored_observations_must_pass_strict_schema_validation"] is True
+    assert collection["reject_identity_changes"] is True
+    assert collection["enforce_monotonic_job_state"] is True
+    assert collection["enforce_monotonic_cleanup_state"] is True
 
 
 def test_repository_context_files_exist() -> None:
@@ -80,3 +106,7 @@ def test_forbidden_policy_blocks_common_agent_escalation_failures() -> None:
     assert "provider_adapter_accepting_raw_workload_request" in forbidden
     assert "paid_gate_accepting_bare_container_boolean" in forbidden
     assert "paid_gate_accepting_bare_price_scalar" in forbidden
+    assert "submit_stage_waiting_for_long_running_gpu_completion" in forbidden
+    assert "provider_submission_with_expired_pricing_evidence" in forbidden
+    assert "collection_without_submission_receipt_correlation" in forbidden
+    assert "trusting_persisted_state_only_because_it_parsed" in forbidden
