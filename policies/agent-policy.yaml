@@ -109,6 +109,15 @@ async_execution:
     enforce_monotonic_job_state: true
     enforce_monotonic_cleanup_state: true
     restored_observations_must_pass_strict_schema_validation: true
+    result_policy: policies/result-policy.yaml
+    require_result_manifest: true
+    result_manifest_must_match_lifecycle_fingerprints: true
+    bounded_retained_logs: true
+    bounded_collected_artifacts: true
+    large_artifacts: reference_only
+    artifact_sha256_required: true
+    auto_fetch_artifact_references: false
+    safe_relative_artifact_names: true
     finalized_requires:
       - terminal_job_state
       - cleanup_completed
@@ -132,3 +141,7 @@ forbidden:
   - provider_submission_with_expired_pricing_evidence
   - collection_without_submission_receipt_correlation
   - trusting_persisted_state_only_because_it_parsed
+  - unbounded_result_collection
+  - auto_fetching_reference_only_artifacts
+  - result_manifest_before_cleanup_completed
+  - artifact_path_traversal
