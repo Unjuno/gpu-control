@@ -23,6 +23,18 @@ def test_build_request_accepts_valid_public_workload() -> None:
     assert request.max_cost_usd == Decimal("0.20")
 
 
+def test_cost_with_one_decimal_is_normalized_without_rounding() -> None:
+    request = build_request(
+        target_repo="example/model-a",
+        target_sha=VALID_SHA,
+        dockerfile_path="Dockerfile",
+        gpu_profile="cheap-24gb",
+        max_runtime_minutes=15,
+        max_cost_usd="0.2",
+    )
+    assert request.max_cost_usd == Decimal("0.20")
+
+
 @pytest.mark.parametrize(
     "target_repo",
     [
@@ -87,7 +99,7 @@ def test_rejects_invalid_runtime(runtime: object) -> None:
         )
 
 
-@pytest.mark.parametrize("cost", ["0", "-0.1", "NaN", "Infinity", "abc"])
+@pytest.mark.parametrize("cost", ["0", "-0.1", "NaN", "Infinity", "abc", "0.205", "0.001", "1.000"])
 def test_rejects_invalid_cost(cost: str) -> None:
     with pytest.raises(ValidationError):
         build_request(
