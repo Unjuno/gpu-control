@@ -77,6 +77,20 @@ def test_async_state_is_strict_and_not_trusted_on_parse_alone() -> None:
     assert collection["enforce_monotonic_cleanup_state"] is True
 
 
+def test_result_collection_is_bounded_and_reference_safe() -> None:
+    collection = load_agent_policy()["async_execution"]["collection_stage"]
+
+    assert collection["result_policy"] == "policies/result-policy.yaml"
+    assert collection["require_result_manifest"] is True
+    assert collection["result_manifest_must_match_lifecycle_fingerprints"] is True
+    assert collection["bounded_retained_logs"] is True
+    assert collection["bounded_collected_artifacts"] is True
+    assert collection["large_artifacts"] == "reference_only"
+    assert collection["artifact_sha256_required"] is True
+    assert collection["auto_fetch_artifact_references"] is False
+    assert collection["safe_relative_artifact_names"] is True
+
+
 def test_repository_context_files_exist() -> None:
     required = [
         ROOT / "AGENTS.md",
@@ -86,10 +100,12 @@ def test_repository_context_files_exist() -> None:
         ROOT / "docs" / "CONTAINER_VERIFICATION.md",
         ROOT / "docs" / "ASYNC_EXECUTION.md",
         ROOT / "docs" / "PRICING_VERIFICATION.md",
+        ROOT / "docs" / "RESULT_COLLECTION.md",
         ROOT / ".github" / "copilot-instructions.md",
         ROOT / "policies" / "agent-policy.yaml",
         ROOT / "policies" / "gpu-policy.yaml",
         ROOT / "policies" / "container-verification-policy.yaml",
+        ROOT / "policies" / "result-policy.yaml",
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     assert missing == []
@@ -110,3 +126,7 @@ def test_forbidden_policy_blocks_common_agent_escalation_failures() -> None:
     assert "provider_submission_with_expired_pricing_evidence" in forbidden
     assert "collection_without_submission_receipt_correlation" in forbidden
     assert "trusting_persisted_state_only_because_it_parsed" in forbidden
+    assert "unbounded_result_collection" in forbidden
+    assert "auto_fetching_reference_only_artifacts" in forbidden
+    assert "result_manifest_before_cleanup_completed" in forbidden
+    assert "artifact_path_traversal" in forbidden
