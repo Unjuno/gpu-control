@@ -28,12 +28,11 @@ def _iso(value: datetime) -> str:
 
 @dataclass(frozen=True)
 class RunPodAccountOccupancyEvidence:
-    """Short-lived evidence that the RunPod account has no competing GPU Pod.
+    """Short-lived account-wide Pod occupancy evidence.
 
-    This is intentionally account-scoped, not workflow-scoped. The owner-exclusive
-    GitHub gate prevents other actors from entering paid compute; this evidence also
-    prevents gpu-control from allocating a new Pod while any non-terminated Pod is
-    already present in the credential's RunPod account.
+    Only TERMINATED Pods are considered released. EXITED, ERROR, provisioning,
+    running, and unknown/future states remain busy until they are explicitly
+    terminated. This is intentionally stricter than a workload-success model.
     """
 
     plan_fingerprint: str
@@ -43,14 +42,12 @@ class RunPodAccountOccupancyEvidence:
     verification_reference: str
     schema_version: int = 1
 
-    def validate_against_plan(self, plan: ApprovedExecutionPlan, *, now_utc: datetime) -> None:
+    def _validate_common(self, plan: ApprovedExecutionPlan, *, now_utc: datetime) -> None:
         plan.validate_shape()
         if self.schema_version != 1:
             raise RunPodV2Error("unsupported RunPod occupancy evidence schema_version")
         if self.plan_fingerprint != plan.fingerprint():
             raise RunPodV2Error("RunPod occupancy evidence does not match approved plan fingerprint")
-        if self.active_pod_ids:
-            raise RunPodV2Error("RunPod account is busy; another non-terminated Pod exists")
         if not self.verification_reference.strip():
             raise RunPodV2Error("RunPod occupancy verification_reference is required")
         try:
@@ -70,6 +67,26 @@ class RunPodAccountOccupancyEvidence:
         if now >= valid_until:
             raise RunPodV2Error("RunPod occupancy evidence expired before submission")
 
+    def validate_before_create(self, plan: ApprovedExecutionPlan, *, now_utc: datetime) -> None:
+        self._validate_common(plan, now_utc=now_utc)
+        if self.active_pod_ids:
+            raise RunPodV2Error("RunPod account is busy; another non-terminated Pod exists")
+
+    def validate_after_create(
+        self,
+        plan: ApprovedExecutionPlan,
+        *,
+        expected_pod_id: str,
+        now_utc: datetime,
+    ) -> None:
+        self._validate_common(plan, now_utc=now_utc)
+        if not isinstance(expected_pod_id, str) or not expected_pod_id.strip():
+            raise RunPodV2Error("expected created Pod id is required")
+        if self.active_pod_ids != (expected_pod_id.strip(),):
+            raise RunPodV2Error(
+                "RunPod account exclusivity was lost after create; expected only the newly created Pod"
+            )
+
 
 def build_account_occupancy_evidence(
     plan: ApprovedExecutionPlan,
@@ -78,7 +95,7 @@ def build_account_occupancy_evidence(
     checked_at_utc: datetime,
     ttl_seconds: int = 30,
 ) -> RunPodAccountOccupancyEvidence:
-    """Normalize a trusted account-level List Pods response into short-lived evidence."""
+    """Normalize an account-level List Pods response into short-lived evidence."""
 
     plan.validate_shape()
     checked = _utc(checked_at_utc, "checked_at_utc")
@@ -106,8 +123,7 @@ def build_account_occupancy_evidence(
     digest = hashlib.sha256(
         json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    valid_until = checked.timestamp() + ttl_seconds
-    until = datetime.fromtimestamp(valid_until, tz=timezone.utc)
+    until = datetime.fromtimestamp(checked.timestamp() + ttl_seconds, tz=timezone.utc)
     return RunPodAccountOccupancyEvidence(
         plan_fingerprint=plan.fingerprint(),
         active_pod_ids=tuple(sorted(active)),
