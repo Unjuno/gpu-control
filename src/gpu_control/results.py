@@ -228,8 +228,9 @@ def _validate_artifact_name(value: object, policy: ResultPolicy) -> str:
     name = _validate_text(value, "artifact name", policy.max_name_length)
     if "\\" in name:
         raise ResultContractError("artifact name must use POSIX separators")
+    segments = name.split("/")
     path = PurePosixPath(name)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+    if path.is_absolute() or any(segment in {"", ".", ".."} for segment in segments):
         raise ResultContractError("artifact name must be a safe relative POSIX path")
     return name
 
