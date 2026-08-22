@@ -53,6 +53,7 @@ paid_compute:
     - verified_provider_resource_availability
     - provider_resource_id
     - unexpired_pricing_evidence
+    - pricing_freshness_rechecked_immediately_before_submission
     - explicit_runtime_limit
     - explicit_cost_limit
     - cleanup_plan
@@ -63,6 +64,7 @@ paid_compute:
   fail_closed_on:
     - unknown_price
     - expired_price
+    - price_expired_before_submission
     - missing_provider_resource_identity
     - unavailable_policy_data
     - invalid_or_missing_commit
@@ -75,9 +77,19 @@ paid_compute:
     - missing_approved_execution_plan
 
 async_execution:
+  persisted_state:
+    schema_version_required: true
+    strict_known_fields_only: true
+    reject_duplicate_json_keys: true
+    reject_unknown_fields: true
+    reject_missing_fields: true
+    money_encoding: decimal_string
+    parse_success_is_not_trust: true
   submit_stage:
     provider_input: approved_execution_plan
+    revalidate_pricing_freshness_immediately_before_submit: true
     persist_submission_receipt_before_exit: true
+    restored_receipt_must_match_approved_plan: true
     submission_receipt_requires:
       - provider
       - provider_resource_id
@@ -96,6 +108,7 @@ async_execution:
     reject_backward_timestamps: true
     enforce_monotonic_job_state: true
     enforce_monotonic_cleanup_state: true
+    restored_observations_must_pass_strict_schema_validation: true
     finalized_requires:
       - terminal_job_state
       - cleanup_completed
@@ -116,4 +129,6 @@ forbidden:
   - paid_gate_accepting_bare_container_boolean
   - paid_gate_accepting_bare_price_scalar
   - submit_stage_waiting_for_long_running_gpu_completion
+  - provider_submission_with_expired_pricing_evidence
   - collection_without_submission_receipt_correlation
+  - trusting_persisted_state_only_because_it_parsed
