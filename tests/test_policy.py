@@ -1,4 +1,5 @@
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -7,6 +8,7 @@ from gpu_control.validation import WorkloadRequest
 
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
+POLICY_PATH = Path("policies/gpu-policy.yaml")
 
 
 def request(*, profile: str = "cheap-24gb", runtime: int = 15, cost: str = "0.20") -> WorkloadRequest:
@@ -18,6 +20,10 @@ def request(*, profile: str = "cheap-24gb", runtime: int = 15, cost: str = "0.20
         max_runtime_minutes=runtime,
         max_cost_usd=Decimal(cost),
     )
+
+
+def test_repository_policy_matches_bundled_policy() -> None:
+    assert load_policy(POLICY_PATH) == load_policy()
 
 
 def test_accepts_request_within_profile_limits() -> None:
