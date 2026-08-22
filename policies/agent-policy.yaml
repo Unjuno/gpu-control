@@ -1,0 +1,69 @@
+version: 1
+
+default_mode: local_first
+paid_compute_default: denied
+
+stages:
+  - id: inspect
+    order: 1
+    required: true
+    description: Read repository context, security rules, policies, and the target workload before acting.
+
+  - id: local_container
+    order: 2
+    required: true
+    description: Reproduce or validate the workload locally in its container when practical.
+
+  - id: minimal_experiment
+    order: 3
+    required: true
+    description: Reduce the experiment to the smallest dataset, steps, runtime, and resources that answer the question.
+
+  - id: workload_repository
+    order: 4
+    required: true
+    description: Place the workload in a separate authorized repository with an immutable commit SHA, Dockerfile, and reproducible dependencies.
+
+  - id: control_plane_validation
+    order: 5
+    required: true
+    description: Run gpu-control self-tests, policy validation, source/container checks, and dry-run gates.
+
+  - id: paid_gpu_runpod
+    order: 6
+    required: false
+    final_stage: true
+    description: Escalate to a bounded RunPod GPU job only when GPU compute is actually required and explicit human authorization is present.
+
+paid_compute:
+  provider: runpod
+  requires:
+    - explicit_human_request
+    - authorized_workload_repository
+    - immutable_commit_sha
+    - validated_container_contract
+    - reproducible_dependencies
+    - minimal_experiment_configuration
+    - successful_dry_run
+    - explicit_runtime_limit
+    - explicit_cost_limit
+    - cleanup_plan
+  defaults:
+    gpu_count: 1
+    execution_model: asynchronous_submit_collect
+  fail_closed_on:
+    - unknown_price
+    - unavailable_policy_data
+    - invalid_or_missing_commit
+    - invalid_container_contract
+    - missing_authorization
+    - missing_cleanup_guarantee
+
+forbidden:
+  - arbitrary_remote_shell_interface
+  - secrets_in_source_or_logs
+  - paid_compute_from_untrusted_events
+  - floating_branch_as_workload_identity
+  - silent_cost_or_runtime_escalation
+  - long_lived_actions_polling
+  - provider_allocation_without_explicit_authorization
