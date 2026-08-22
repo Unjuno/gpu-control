@@ -5,6 +5,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "policies" / "paid-execution-policy.yaml"
+WORKFLOWS = ROOT / ".github" / "workflows"
 
 
 def policy() -> dict:
@@ -25,6 +26,14 @@ def test_paid_compute_stays_disabled_until_owner_environment_is_configured() -> 
     assert identity["ref"] == "refs/heads/main"
     assert identity["require_actor_and_triggering_actor_match"] is True
     assert identity["reject_rerun_by_different_triggering_actor"] is True
+
+
+def test_no_paid_workflow_or_provider_secret_reference_exists_while_live_is_disabled() -> None:
+    assert not (WORKFLOWS / "paid-runpod.yml").exists()
+    for workflow in WORKFLOWS.glob("*.yml"):
+        content = workflow.read_text(encoding="utf-8")
+        assert "RUNPOD_API_KEY" not in content
+        assert "environment: paid-runpod" not in content
 
 
 def test_paid_secret_is_environment_only_and_owner_reviewed() -> None:
