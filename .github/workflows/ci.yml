@@ -77,8 +77,7 @@ jobs:
             --tmpfs '/outputs:rw,noexec,nosuid,nodev,size=1m,mode=1777' \
             gpu-control-reference:ci
 
-          timeout 30s docker start -a gpu-control-reference
-          docker cp gpu-control-reference:/outputs/result.json ./reference-result.json
+          timeout 30s docker start -a gpu-control-reference | tee ./reference-result.json
 
           python3 - <<'PY'
           import json
