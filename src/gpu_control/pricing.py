@@ -10,7 +10,7 @@ class PricingVerificationError(ValueError):
 
 
 def parse_utc_timestamp(value: str, field: str) -> datetime:
-    if not value or not value.strip():
+    if not isinstance(value, str) or not value.strip():
         raise PricingVerificationError(f"{field} is required")
 
     normalized = value.strip()
@@ -47,14 +47,16 @@ class PricingVerificationResult:
     availability_verified: bool
 
     def validate_shape(self) -> tuple[datetime, datetime]:
-        if not self.provider.strip():
+        if not isinstance(self.provider, str) or not self.provider.strip():
             raise PricingVerificationError("pricing provider is required")
-        if not self.gpu_profile.strip():
+        if not isinstance(self.gpu_profile, str) or not self.gpu_profile.strip():
             raise PricingVerificationError("pricing gpu_profile is required")
-        if not self.provider_resource_id.strip():
+        if not isinstance(self.provider_resource_id, str) or not self.provider_resource_id.strip():
             raise PricingVerificationError("provider_resource_id is required")
-        if not self.verification_reference.strip():
+        if not isinstance(self.verification_reference, str) or not self.verification_reference.strip():
             raise PricingVerificationError("pricing verification_reference is required")
+        if not isinstance(self.hourly_price_usd, Decimal):
+            raise PricingVerificationError("hourly_price_usd must be a Decimal")
         if not self.hourly_price_usd.is_finite() or self.hourly_price_usd <= 0:
             raise PricingVerificationError("hourly_price_usd must be finite and positive")
 
