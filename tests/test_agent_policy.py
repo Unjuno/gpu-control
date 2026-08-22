@@ -77,6 +77,22 @@ def test_async_state_is_strict_and_not_trusted_on_parse_alone() -> None:
     assert collection["enforce_monotonic_cleanup_state"] is True
 
 
+def test_persisted_approved_plan_requires_trusted_fingerprint_binding() -> None:
+    async_policy = load_agent_policy()["async_execution"]
+    approved = async_policy["approved_plan"]
+    submit = async_policy["submit_stage"]
+
+    assert approved["strict_schema_validation"] is True
+    assert approved["canonical_workload_identity_required"] is True
+    assert approved["immutable_image_digest_required"] is True
+    assert approved["recompute_worst_case_cost_on_restore"] is True
+    assert approved["all_gate_flags_must_remain_true"] is True
+    assert approved["trusted_expected_fingerprint_required_for_provider_submission"] is True
+    assert approved["expected_fingerprint_is_not_derived_from_untrusted_plan_payload"] is True
+    assert approved["fingerprint_is_integrity_correlation_not_signature"] is True
+    assert submit["restored_approved_plan_must_match_trusted_expected_fingerprint"] is True
+
+
 def test_result_collection_is_bounded_and_reference_safe() -> None:
     collection = load_agent_policy()["async_execution"]["collection_stage"]
 
@@ -101,6 +117,7 @@ def test_repository_context_files_exist() -> None:
         ROOT / "docs" / "ASYNC_EXECUTION.md",
         ROOT / "docs" / "PRICING_VERIFICATION.md",
         ROOT / "docs" / "RESULT_COLLECTION.md",
+        ROOT / "docs" / "APPROVED_PLAN_PERSISTENCE.md",
         ROOT / ".github" / "copilot-instructions.md",
         ROOT / "policies" / "agent-policy.yaml",
         ROOT / "policies" / "gpu-policy.yaml",
@@ -124,6 +141,9 @@ def test_forbidden_policy_blocks_common_agent_escalation_failures() -> None:
     assert "paid_gate_accepting_bare_price_scalar" in forbidden
     assert "submit_stage_waiting_for_long_running_gpu_completion" in forbidden
     assert "provider_submission_with_expired_pricing_evidence" in forbidden
+    assert "provider_submission_from_unverified_restored_plan" in forbidden
+    assert "trusting_approved_plan_without_expected_fingerprint" in forbidden
+    assert "deriving_expected_fingerprint_from_same_untrusted_plan_payload" in forbidden
     assert "collection_without_submission_receipt_correlation" in forbidden
     assert "trusting_persisted_state_only_because_it_parsed" in forbidden
     assert "unbounded_result_collection" in forbidden
