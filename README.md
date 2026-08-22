@@ -10,12 +10,12 @@ inspect
   -> smallest useful experiment
   -> workload repository + immutable commit
   -> policy + source verification
-  -> container verification
+  -> isolated container verification
   -> approved execution plan
   -> RunPod only when GPU compute is actually required
 ```
 
-> **Current status:** local validation, public GitHub source verification, dry-run workflows, and the provider-agnostic paid-execution gate are implemented. Container verification and provider adapters are not implemented yet, so no paid GPU resource can be created.
+> **Current status:** local validation, public GitHub source verification, a repository-owned trusted container smoke test, dry-run workflows, and the provider-agnostic paid-execution gate are implemented. Generic external Dockerfile execution and provider adapters remain disabled, so no paid GPU resource can be created.
 
 ## Operating rule
 
@@ -94,6 +94,24 @@ The command can use `GITHUB_TOKEN` when present to improve GitHub API reliabilit
 
 A successful result contains `status: verified` and remains `dry_run: true`. Source verification is read-only and does not execute workload code.
 
+## Trusted container smoke test
+
+`examples/reference-workload/` is a repository-owned fixture used to exercise the container boundary without enabling arbitrary external Dockerfiles.
+
+CI builds and runs that fixture with:
+
+- no network;
+- read-only root filesystem;
+- all Linux capabilities dropped;
+- `no-new-privileges`;
+- no GPU or provider credential;
+- explicit CPU, memory, PID, and wall-clock limits;
+- a bounded writable `/outputs` tmpfs.
+
+The fixture writes `/outputs/result.json` during execution and emits the same machine-readable result on stdout; CI validates the stdout result because the tmpfs is intentionally ephemeral after container exit. The Docker base image is pinned by digest.
+
+This is intentionally **not** generic workload execution. `policies/container-verification-policy.yaml` keeps external build/run denied until hostile workload, secret-isolation, and resource-limit tests are complete.
+
 ## Paid execution gate
 
 `src/gpu_control/execution.py` defines the boundary future provider adapters must use.
@@ -134,10 +152,10 @@ The container should start, perform a bounded experiment, write outputs, and exi
 
 Two workflows are included:
 
-- **CI** — tests the locked environment on Python 3.11, 3.12, and 3.13 using `ubuntu-24.04`.
+- **CI** — tests the locked Python environment on 3.11, 3.12, and 3.13 using `ubuntu-24.04`, and separately runs the trusted reference container under restricted settings.
 - **GPU request dry-run** — manually validates policy and verifies the public workload repository, exact commit, and Dockerfile without creating GPU resources.
 
-Workflows use minimal permissions and pin third-party Actions to immutable commit SHAs.
+Checkout credentials are not persisted. Workflows use minimal permissions and pin third-party Actions to immutable commit SHAs.
 
 Paid compute must never be triggered directly by untrusted pull requests, forks, issues, comments, or public webhooks.
 
@@ -148,19 +166,15 @@ This repository is intended to be useful as execution context for both humans an
 - [AGENTS.md](AGENTS.md) — normative agent operating rules;
 - [policies/agent-policy.yaml](policies/agent-policy.yaml) — machine-readable escalation policy;
 - [policies/gpu-policy.yaml](policies/gpu-policy.yaml) — GPU, runtime, and cost limits;
+- [policies/container-verification-policy.yaml](policies/container-verification-policy.yaml) — container trust and isolation policy;
 - [SECURITY.md](SECURITY.md) — trust, authorization, and secret boundaries;
 - [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md) — staged experiment workflow;
+- [docs/CONTAINER_VERIFICATION.md](docs/CONTAINER_VERIFICATION.md) — untrusted container boundary;
 - `src/gpu_control/execution.py` — runtime paid-compute precondition gate;
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) — GitHub Copilot repository context;
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution requirements.
 
 When policy, authorization, price, or cleanup guarantees are unknown, the intended behavior is fail-closed.
-
-## Container-verification security boundary
-
-Building or running a Dockerfile from an arbitrary public repository executes untrusted code. Generic remote container builds must not be added to a credential-bearing GitHub Actions job without a separate isolation model and threat analysis.
-
-For that reason, source verification is implemented now, while generic container execution remains a separate milestone.
 
 ## Planned architecture
 
@@ -199,11 +213,12 @@ Long-running GPU work must not keep a GitHub-hosted runner polling for hours.
 2. Repository-level agent policy and public operating model. **Done.**
 3. Verify public target repository, exact commit SHA, and Dockerfile. **Done.**
 4. Add provider-agnostic `ApprovedExecutionPlan` and fail-closed paid-compute preconditions. **Done.**
-5. Design and implement isolated target-container verification with a bounded smoke check.
-6. Publish a minimal reference workload repository for end-to-end testing.
-7. Add the RunPod adapter so it accepts only an approved execution plan.
-8. Submit GPU jobs asynchronously and collect status, logs, metrics, and outputs.
-9. Add other providers behind the same resource-policy interface if useful.
+5. Run a repository-owned reference container under bounded, secret-free CI isolation. **Done.**
+6. Publish a separate minimal reference workload repository and add hostile build/runtime isolation tests.
+7. Generalize container verification to explicitly authorized public workload repositories.
+8. Add the RunPod adapter so it accepts only an approved execution plan.
+9. Submit GPU jobs asynchronously and collect status, logs, metrics, and outputs.
+10. Add other providers behind the same resource-policy interface if useful.
 
 ## License
 

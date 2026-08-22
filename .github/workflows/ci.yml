@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -42,3 +44,63 @@ jobs:
 
       - name: Test
         run: uv run --locked pytest
+
+  reference-workload:
+    name: Trusted reference container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build trusted reference image
+        run: docker build --tag gpu-control-reference:ci examples/reference-workload
+
+      - name: Run with bounded container privileges
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker rm -f gpu-control-reference >/dev/null 2>&1 || true' EXIT
+
+          docker create \
+            --name gpu-control-reference \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 64 \
+            --memory 128m \
+            --cpus 1 \
+            --tmpfs '/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777' \
+            --tmpfs '/outputs:rw,noexec,nosuid,nodev,size=1m,mode=1777' \
+            gpu-control-reference:ci
+
+          timeout 30s docker start -a gpu-control-reference | tee ./reference-result.json
+
+          python3 - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          result = json.loads(Path("reference-result.json").read_text(encoding="utf-8"))
+          assert result["schema_version"] == 1
+          assert result["status"] == "ok"
+          assert result["workload_id"] == "gpu-control-reference"
+
+          inspect = json.loads(
+              subprocess.check_output(
+                  ["docker", "inspect", "gpu-control-reference"],
+                  text=True,
+              )
+          )[0]
+          host = inspect["HostConfig"]
+          assert host["NetworkMode"] == "none"
+          assert host["ReadonlyRootfs"] is True
+          assert host["CapDrop"] == ["ALL"]
+          assert "no-new-privileges" in host["SecurityOpt"]
+          assert host["PidsLimit"] == 64
+          assert host["Memory"] == 134217728
+          assert host["NanoCpus"] == 1_000_000_000
+          PY
