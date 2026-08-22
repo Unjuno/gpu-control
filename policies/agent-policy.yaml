@@ -77,6 +77,26 @@ paid_compute:
     - missing_approved_execution_plan
     - invalid_persisted_approved_plan
     - approved_plan_fingerprint_mismatch
+    - provider_adapter_identity_mismatch
+    - provider_response_identity_mismatch
+
+provider_adapter:
+  live_implementation_enabled: false
+  controller_module: gpu_control.providers.controller
+  adapter_input: approved_execution_plan_only
+  provider_name_must_match_plan: true
+  submit_requires:
+    - strict_approved_plan_validation
+    - trusted_expected_plan_fingerprint_match
+    - fresh_pricing_at_submit_boundary
+  returned_data_is_untrusted: true
+  provider_job_id_must_match_submission_receipt_after_submit: true
+  status_transitions_must_pass_lifecycle_validation: true
+  cleanup_requires_terminal_job_state: true
+  result_collection_requires_finalized_lifecycle_state: true
+  result_collection_uses_bounded_result_policy: true
+  long_running_wait_inside_actions: false
+  synthetic_test_backend_may_not_allocate_resources: true
 
 async_execution:
   persisted_state:
@@ -147,6 +167,12 @@ forbidden:
   - long_lived_actions_polling
   - provider_allocation_without_explicit_authorization
   - provider_adapter_accepting_raw_workload_request
+  - provider_adapter_bypassing_control_plane_controller
+  - trusting_provider_response_without_correlation
+  - provider_status_identity_change
+  - provider_cleanup_before_terminal_state
+  - provider_result_collection_before_cleanup_completed
+  - live_provider_implementation_without_explicit_enablement
   - paid_gate_accepting_bare_container_boolean
   - paid_gate_accepting_bare_price_scalar
   - submit_stage_waiting_for_long_running_gpu_completion
