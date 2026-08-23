@@ -7,39 +7,88 @@ stages:
   - id: inspect
     order: 1
     required: true
-    description: Read repository context, security rules, policies, and the target workload before acting.
+    description: Read repository context, security rules, decision policy, and the target workload before acting.
+
+  - id: decision_gate
+    order: 2
+    required: true
+    description: Define the active goal and current question, then choose the smallest justified action that can advance the objective.
 
   - id: local_container
-    order: 2
+    order: 3
     required: true
     description: Reproduce or validate the workload locally in its container when practical.
 
   - id: minimal_experiment
-    order: 3
+    order: 4
     required: true
-    description: Reduce the experiment to the smallest dataset, steps, runtime, and resources that answer the question.
+    description: Reduce the experiment to the smallest dataset, steps, runtime, and resources that can change the next decision.
 
   - id: workload_repository
-    order: 4
+    order: 5
     required: true
     description: Place the workload in a separate authorized repository with an immutable commit SHA, Dockerfile, and reproducible dependencies.
 
   - id: control_plane_validation
-    order: 5
+    order: 6
     required: true
     description: Run gpu-control self-tests, policy validation, source/container checks, pricing verification, dry-run gates, and produce an approved execution plan.
 
   - id: paid_gpu_runpod
-    order: 6
+    order: 7
     required: false
     final_stage: true
-    description: Escalate to a bounded RunPod GPU job only when GPU compute is actually required and an approved execution plan exists.
+    description: Escalate to a bounded RunPod GPU job only when GPU compute is actually required, decision rationale is current, and an approved execution plan exists.
+
+decision_governance:
+  policy: policies/decision-policy.yaml
+  principle: goal_preserving_restraint
+  action_denial_does_not_equal_goal_failure: true
+  safe_progress_preferred_over_unnecessary_stop: true
+  action_outcome_order:
+    - continue
+    - reduce_scope
+    - safer_alternative
+    - human_checkpoint
+    - deny_action
+  when_paid_action_denied:
+    preserve_active_goal_when_possible: true
+    report_specific_reason: true
+    propose_cheapest_safe_next_step: true
+    allow_local_or_read_only_progress: true
+    request_human_judgment_when_required: true
+  escalation:
+    uncertainty_must_not_increase_action_scope: true
+    previous_stage_success_does_not_authorize_next_stage: true
+    previous_failure_does_not_justify_more_spend: true
+    remaining_budget_is_not_a_reason_to_spend: true
+    expansion_requires_new_information: true
+  paid_decision_record_requires:
+    - active_goal
+    - current_question
+    - cheapest_viable_alternative
+    - why_cheaper_alternative_is_insufficient
+    - expected_decision_impact
+    - maximum_justified_cost
+    - success_condition
+    - stop_condition
+    - failure_learning_value
+    - worst_case_downside
+  hard_stop_is_last_resort: true
 
 paid_compute:
   provider: runpod
   provider_adapter_input: approved_execution_plan
   requires:
     - explicit_human_request
+    - active_goal
+    - current_decision_rationale
+    - cheapest_viable_alternative_considered
+    - expected_decision_impact
+    - explicit_success_condition
+    - explicit_stop_condition
+    - failure_learning_value
+    - maximum_justified_cost
     - authorized_workload_repository
     - immutable_commit_sha
     - validated_container_contract
@@ -73,6 +122,8 @@ paid_compute:
     - mismatched_container_identity
     - missing_pricing_verification_evidence
     - missing_authorization
+    - missing_current_decision_rationale
+    - missing_stop_condition
     - missing_cleanup_guarantee
     - missing_approved_execution_plan
     - invalid_persisted_approved_plan
@@ -186,3 +237,10 @@ forbidden:
   - auto_fetching_reference_only_artifacts
   - result_manifest_before_cleanup_completed
   - artifact_path_traversal
+  - paid_compute_without_current_decision_rationale
+  - open_ended_experiment_without_stop_condition
+  - spending_remaining_budget_without_new_rationale
+  - escalating_scope_after_failure_without_new_evidence
+  - assuming_previous_stage_authorizes_next_stage
+  - treating_action_denial_as_goal_failure
+  - unnecessary_hard_stop_when_safe_progress_exists

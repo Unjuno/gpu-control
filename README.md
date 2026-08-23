@@ -6,6 +6,7 @@ It is designed to make escalation deliberate rather than sending every experimen
 
 ```text
 inspect
+  -> decision gate
   -> local container
   -> smallest useful experiment
   -> workload repository + immutable commit
@@ -21,7 +22,9 @@ inspect
 
 Use the cheapest, smallest, most local execution environment that can answer the current question. Paid compute is an escalation stage, not the default development loop.
 
-Repository access is not authorization to spend money. Agents operating in this repository must follow [AGENTS.md](AGENTS.md), and paid compute is denied by default in [policies/agent-policy.yaml](policies/agent-policy.yaml).
+Repository access is not authorization to spend money. Agents operating in this repository must follow [AGENTS.md](AGENTS.md), [policies/decision-policy.yaml](policies/decision-policy.yaml), and [policies/agent-policy.yaml](policies/agent-policy.yaml).
+
+Defensive controls are expected to preserve the user's objective whenever a safe path remains. Rejecting a specific high-impact action does not automatically mean abandoning the goal.
 
 ## Parked state
 
@@ -31,17 +34,41 @@ Parked mode keeps offline validation, tests, documentation, policy work, mock-pr
 
 See [docs/PARKED_MODE.md](docs/PARKED_MODE.md) for the resume criteria. Leaving parked mode requires an explicit human request and a reviewed repository change; changing the mode is not itself authorization to spend money.
 
+## Decision governance
+
+`policies/decision-policy.yaml` defines a goal-preserving decision layer before escalation.
+
+When a proposed action is unjustified, too broad, too costly, insufficiently evidenced, or outside current authority, the preferred response is:
+
+```text
+continue
+  -> reduce scope
+  -> safer alternative
+  -> human checkpoint
+  -> deny the specific action
+```
+
+The mission remains active unless the objective has been achieved, explicitly cancelled, become invalid, or no safe and authorized path remains.
+
+Before increasing experiment scope, consider purpose, evidence, cheaper alternatives, decision value, economic value, reversibility, blast radius, authority, stop conditions, failure learning value, and opportunity cost.
+
+A remaining budget is not a reason to spend it. Cost limits are loss ceilings, not spending targets. Success at one stage does not authorize the next stage, and failure does not justify more spending. Expansion requires new information and a current rationale tied to the active goal.
+
+See [docs/DECISION_GOVERNANCE.md](docs/DECISION_GOVERNANCE.md).
+
 The intended execution sequence remains:
 
-1. Test the workload locally in a container.
-2. Reduce it to the smallest useful experiment.
-3. Put the workload in a separate repository with reproducible dependencies.
-4. Identify the workload by an immutable 40-character commit SHA.
-5. Validate policy and verify the repository, exact commit, and Dockerfile.
-6. Verify the container itself in an appropriate isolation boundary and produce structured evidence tied to the exact workload identity and image digest.
-7. Produce an immutable `ApprovedExecutionPlan` only after source, container, dry-run, pricing, cleanup, policy, and explicit-human-authorization gates pass.
-8. Allow a provider adapter to consume that approved plan; never pass it a raw workload request.
-9. Escalate to RunPod only when GPU compute is actually required.
+1. Define the current objective and question.
+2. Choose the smallest justified action that can change the next decision.
+3. Test the workload locally in a container when practical.
+4. Reduce it to the smallest useful experiment.
+5. Put the workload in a separate repository with reproducible dependencies.
+6. Identify the workload by an immutable 40-character commit SHA.
+7. Validate policy and verify the repository, exact commit, and Dockerfile.
+8. Verify the container itself in an appropriate isolation boundary and produce structured evidence tied to the exact workload identity and image digest.
+9. Produce an immutable `ApprovedExecutionPlan` only after decision, source, container, dry-run, pricing, cleanup, policy, and explicit-human-authorization gates pass.
+10. Allow a provider adapter to consume that approved plan; never pass it a raw workload request.
+11. Escalate to RunPod only when GPU compute is actually required.
 
 See [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md) for the detailed rationale.
 
@@ -133,6 +160,8 @@ Container evidence is tied to the exact repository, commit SHA, Dockerfile path,
 
 A raw `WorkloadRequest` is not sufficient to allocate resources. `build_approved_execution_plan(...)` requires exact source verification, structured container evidence, an immutable image digest, a successful dry-run, fresh structured pricing/availability evidence, policy-compliant runtime/cost limits, a cleanup guarantee, and explicit human authorization.
 
+The repository policy additionally requires a current paid-compute decision rationale: an active goal, current question, cheapest viable alternative, expected decision impact, maximum justified cost, success condition, stop condition, failure learning value, and worst-case downside. The current runtime `ApprovedExecutionPlan` schema does not yet encode this qualitative record; live compute remains disabled, so that integration can be done only when a concrete workload requires it.
+
 Worst-case spend is calculated from verified hourly price and requested runtime, then rounded **up** to the nearest cent before comparison with the requested cost ceiling.
 
 The resulting `ApprovedExecutionPlan` is immutable, has canonical JSON/fingerprinting support, and is revalidated when restored across asynchronous stages. The fingerprint is an integrity/correlation identity, not a cryptographic signature.
@@ -156,6 +185,8 @@ Paid execution is designed to be exclusive to the repository owner and is still 
 Future live authorization requires the expected repository, `main`, dedicated manual workflow identity, matching `github.actor` and `github.triggering_actor`, actual protected-main evidence with required CI checks, a protected owner-reviewed `paid-runpod` GitHub Environment, an environment-scoped `RUNPOD_API_KEY`, global single-flight concurrency, and an empty RunPod account before submission.
 
 The actual `main` branch protection and protected Environment are external GitHub settings; they are prerequisites rather than assumptions. Current runtime gates fail closed without trusted evidence that they are configured.
+
+Fail-closed behavior applies to the risky provider action. When possible, the active objective should remain available for local, read-only, mock, CPU, or otherwise lower-risk progress.
 
 ## Workload contract
 
@@ -189,6 +220,8 @@ This repository is intended to be useful as execution context for both humans an
 
 - [policies/repository-state.yaml](policies/repository-state.yaml) — current parked/active repository mode;
 - [docs/PARKED_MODE.md](docs/PARKED_MODE.md) — parked-state invariants and resume criteria;
+- [policies/decision-policy.yaml](policies/decision-policy.yaml) — goal-preserving action and escalation policy;
+- [docs/DECISION_GOVERNANCE.md](docs/DECISION_GOVERNANCE.md) — decision rationale, progressive experimentation, and stop semantics;
 - [AGENTS.md](AGENTS.md) — normative agent operating rules;
 - [policies/agent-policy.yaml](policies/agent-policy.yaml) — machine-readable escalation policy;
 - [policies/gpu-policy.yaml](policies/gpu-policy.yaml) — GPU, runtime, and cost limits;
@@ -204,7 +237,7 @@ This repository is intended to be useful as execution context for both humans an
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) — GitHub Copilot repository context;
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution requirements.
 
-When policy, authorization, price, repository security, or cleanup guarantees are unknown, the intended behavior is fail-closed.
+When a high-impact action lacks policy, authorization, price, repository security, or cleanup guarantees, that action is fail-closed. When a safe lower-impact path remains, continue progress toward the active objective rather than treating the entire mission as failed.
 
 ## Planned architecture
 
@@ -215,6 +248,7 @@ Workload repository
         v
     gpu-control
         |
+        +-- active goal + decision governance
         +-- request validation
         +-- resource / agent policy
         +-- source verification
@@ -250,11 +284,12 @@ Workload repository
 6. Add provider-neutral asynchronous lifecycle, durable receipts/observations, cleanup state, and bounded result manifests. **Done.**
 7. Add RunPod API v2 transport, catalog-pricing evidence, account-exclusivity checks, and a mock-tested adapter behind the control plane. **Done; live disabled.**
 8. Add owner-exclusive paid authorization and protected-main evidence requirements. **Done; external GitHub protection still must be configured before activation.**
-9. Publish/select a separate minimal workload repository and add hostile build/runtime isolation tests.
-10. Generalize isolated container verification to explicitly authorized public workload repositories and establish immutable image publication.
-11. Add authenticated workload-completion evidence and live result collection.
-12. Only then configure the protected owner-only paid Environment and consider enabling the live RunPod path for a concrete workload.
-13. Add other providers behind the same resource-policy interface only if useful.
+9. Add goal-preserving decision governance so defensive controls reduce or redirect unjustified actions without needlessly abandoning the objective. **Done at policy/prompt level; runtime paid-plan integration deferred until a concrete workload exists.**
+10. Publish/select a separate minimal workload repository and add hostile build/runtime isolation tests.
+11. Generalize isolated container verification to explicitly authorized public workload repositories and establish immutable image publication.
+12. Add authenticated workload-completion evidence and live result collection.
+13. Only then configure the protected owner-only paid Environment and consider enabling the live RunPod path for a concrete workload.
+14. Add other providers behind the same resource-policy interface only if useful.
 
 ## License
 
