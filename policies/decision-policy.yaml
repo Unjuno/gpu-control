@@ -1,5 +1,12 @@
 version: 1
 
+constitution:
+  document: ACTION_CONSTITUTION.md
+  machine_policy: policies/action-constitution.yaml
+  must_conform: true
+  hard_boundaries_are_non_bypassable: true
+  denied_action_does_not_abandon_goal_when_safe_progress_exists: true
+
 principle: goal_preserving_restraint
 
 mission:
