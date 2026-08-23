@@ -12,9 +12,15 @@ The project separates three boundaries that must not be conflated:
 
 Having the first or second does not imply the third.
 
+## Constitutional relationship
+
+`ACTION_CONSTITUTION.md` is the highest-level behavioral norm for pursuing an authorized objective, but it is **not an authorization source**. Neither the constitution nor `policies/decision-policy.yaml` may create missing permissions, weaken security controls, expose credentials, bypass external approval, or convert a safer-path preference into authority for a consequential action.
+
+Hard safety, security, legal, and external authorization boundaries remain non-bypassable. The constitutional goal-preservation rule applies after those boundaries are respected: when a risky action is denied, agents should preserve safe lower-impact progress where possible rather than treating the entire objective as failed.
+
 ## Agent authorization boundary
 
-Automated agents must follow `AGENTS.md` and `policies/agent-policy.yaml`.
+Automated agents must follow `ACTION_CONSTITUTION.md`, `AGENTS.md`, `policies/action-constitution.yaml`, and `policies/agent-policy.yaml`.
 
 Paid compute is denied by default. A request to inspect a repository, edit code, prepare a Dockerfile, create a workload repository, run tests, or perform a dry-run is not authorization to spend provider credits.
 
