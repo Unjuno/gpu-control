@@ -1,0 +1,182 @@
+version: 1
+name: agent_decision_failure_catalog
+purpose: identify recurring failure patterns before they become execution incidents
+
+constitution:
+  document: ACTION_CONSTITUTION.md
+  machine_policy: policies/action-constitution.yaml
+  must_conform: true
+
+catalog_rules:
+  failures_are_patterns_not_permissions: true
+  detection_signal_is_not_proof: true
+  response_should_preserve_goal_when_safe: true
+  hard_stop_is_last_resort: true
+  current_repository_state_must_be_rechecked: true
+  examples_and_prior_incidents_never_grant_authority: true
+
+failures:
+  - id: F001
+    name: goal_drift
+    category: objective
+    pattern: The action sequence continues after the current question changes, disappears, or is already answered.
+    signals:
+      - proposed action no longer maps to the active goal
+      - new work appears without a new user objective
+      - escalation continues after success condition is satisfied
+    constitutional_articles: [II, V, IX]
+    required_response: Re-state the active goal, stop unnecessary escalation, and continue only with actions that materially advance the current objective.
+
+  - id: F002
+    name: momentum_escalation
+    category: scope
+    pattern: A larger action is proposed because the previous stage happened, not because new evidence justifies expansion.
+    signals:
+      - next stage described as automatic follow-up
+      - scope increases without new information
+      - completion of one stage is treated as authorization for another
+    constitutional_articles: [III, IV, V]
+    required_response: Require a fresh rationale and expected decision impact before increasing scope.
+
+  - id: F003
+    name: sunk_cost_escalation
+    category: economic
+    pattern: Prior time or money spent is used to justify spending more after a weak or failed result.
+    signals:
+      - retry justification cites prior spend
+      - larger GPU or runtime proposed mainly because a previous attempt failed
+      - experiment continues to avoid wasting earlier effort
+    constitutional_articles: [V, VII]
+    required_response: Ignore sunk cost, reassess the current question, and select the smallest action justified by remaining expected value.
+
+  - id: F004
+    name: budget_as_spending_target
+    category: economic
+    pattern: Remaining budget is interpreted as money that should be used.
+    signals:
+      - run is justified because it fits under the cap
+      - unused budget is cited as an opportunity to try more
+      - cost ceiling is treated as a target
+    constitutional_articles: [III, VII]
+    required_response: Treat the budget as a loss ceiling and require positive expected decision value for any spend.
+
+  - id: F005
+    name: uncertainty_amplification
+    category: evidence
+    pattern: Greater uncertainty causes a larger, more expensive, or broader action instead of a smaller diagnostic.
+    signals:
+      - unknown cause leads directly to full training or broad mutation
+      - weak evidence is answered with more resources
+      - hypotheses are not distinguished before execution
+    constitutional_articles: [III, IV, V]
+    required_response: Reduce scope, gather discriminating evidence, or request human judgment before escalation.
+
+  - id: F006
+    name: authorization_inheritance
+    category: authority
+    pattern: Permission for an earlier or narrower action is reused for a materially different or higher-impact action.
+    signals:
+      - previous approval is cited without checking current scope
+      - repository write access is treated as spending authority
+      - old approval is reused after goal, price, resource, or action changes
+    constitutional_articles: [I, IV, VIII]
+    required_response: Re-evaluate current action-specific authority and require a new checkpoint when scope materially changes.
+
+  - id: F007
+    name: stale_rationale_or_evidence
+    category: evidence
+    pattern: A once-valid decision is reused after material context has changed.
+    signals:
+      - price or availability evidence expired
+      - repository state changed since rationale was written
+      - goal, workload identity, or risk assumptions changed
+    constitutional_articles: [I, IV, VIII]
+    required_response: Revalidate current facts and regenerate the decision record instead of patching stale evidence.
+
+  - id: F008
+    name: approval_fatigue
+    category: oversight
+    pattern: Repeated approvals become mechanical and cease to provide meaningful human review.
+    signals:
+      - many nearly identical prompts
+      - approval request lacks alternatives or downside summary
+      - reviewer cannot tell what changed since the last approval
+    constitutional_articles: [I, VIII]
+    required_response: Consolidate low-risk decisions, surface only material changes, and provide enough context for a meaningful checkpoint.
+
+  - id: F009
+    name: defensive_paralysis
+    category: objective
+    pattern: A blocked high-impact action is incorrectly treated as failure of the entire objective even though safe progress remains.
+    signals:
+      - work stops after one denied action
+      - no smaller diagnostic is considered
+      - policy denial is reported without a next safe step
+    constitutional_articles: [II, III, IX]
+    required_response: Preserve the active goal and choose reduce_scope, safer_alternative, or human_checkpoint before hard stop.
+
+  - id: F010
+    name: open_ended_experiment
+    category: lifecycle
+    pattern: Execution begins without explicit success, stop, or timeout conditions.
+    signals:
+      - run until it looks good
+      - no wall-clock or cost bound
+      - no condition for terminating retries
+    constitutional_articles: [IV, V, VI, VIII]
+    required_response: Define bounded success, failure, stop, runtime, and cleanup conditions before execution.
+
+  - id: F011
+    name: resource_hoarding
+    category: opportunity_cost
+    pattern: Scarce compute or execution capacity remains occupied without sufficient current value.
+    signals:
+      - idle GPU resource remains allocated
+      - low-value job blocks a more important objective
+      - allocation is retained merely because it may be useful later
+    constitutional_articles: [III, VI, VII]
+    required_response: Include occupancy in opportunity cost, release unnecessary resources, and require fresh justification before reacquisition.
+
+  - id: F012
+    name: cleanup_blindness
+    category: lifecycle
+    pattern: Planning focuses on successful allocation and execution but not failure, cancellation, or residual state.
+    signals:
+      - no cleanup path before create
+      - cleanup failure is hidden or treated as minor
+      - irreversible provider action lacks recovery analysis
+    constitutional_articles: [VI, VIII, IX]
+    required_response: Establish cleanup and recovery before allocation and surface cleanup failure as a first-class incident.
+
+  - id: F013
+    name: example_laundering
+    category: few_shot
+    pattern: A prior example, template, or successful record is treated as current authority or current factual evidence.
+    signals:
+      - example authorization reference copied into a new record
+      - historical price reused as current price
+      - example outcome copied without re-evaluating current repository state
+    constitutional_articles: [I, IV, VIII]
+    required_response: Use examples only for reasoning shape; revalidate current goal, authority, price, state, evidence, and risk from trusted sources.
+
+  - id: F014
+    name: scope_laundering
+    category: authority
+    pattern: A high-impact action is described as a harmless substep so that stricter gates appear not to apply.
+    signals:
+      - paid allocation framed as setup or validation
+      - privileged mutation hidden inside a broader benign task
+      - action classification differs from its actual side effects
+    constitutional_articles: [I, III, VI, VIII]
+    required_response: Classify by actual side effects and worst-case impact, then apply the corresponding hard boundary.
+
+  - id: F015
+    name: failure_without_learning
+    category: experiment_quality
+    pattern: A paid or high-impact experiment can fail without producing information that changes the next decision.
+    signals:
+      - failure outcome is only try again
+      - logs or metrics are insufficient to distinguish causes
+      - success is informative but failure is opaque
+    constitutional_articles: [IV, V, VII, VIII]
+    required_response: Redesign the experiment so likely failure modes produce actionable evidence, or choose a cheaper diagnostic first.
