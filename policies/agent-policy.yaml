@@ -3,11 +3,21 @@ version: 1
 default_mode: local_first
 paid_compute_default: denied
 
+constitution:
+  document: ACTION_CONSTITUTION.md
+  machine_policy: policies/action-constitution.yaml
+  normative: true
+  applies_before_decision_policy: true
+  hard_safety_security_and_external_authorization_are_non_bypassable: true
+  lower_policies_may_be_more_restrictive_for_concrete_risk: true
+  lower_policies_may_not_grant_missing_authority: true
+  lower_policies_may_not_abandon_active_goal_only_because_one_action_is_denied: true
+
 stages:
   - id: inspect
     order: 1
     required: true
-    description: Read repository context, security rules, decision policy, and the target workload before acting.
+    description: Read the action constitution, repository state, security rules, decision policy, and target workload before acting.
 
   - id: decision_gate
     order: 2
@@ -244,3 +254,5 @@ forbidden:
   - assuming_previous_stage_authorizes_next_stage
   - treating_action_denial_as_goal_failure
   - unnecessary_hard_stop_when_safe_progress_exists
+  - weakening_non_bypassable_boundary_by_behavioral_policy
+  - inheriting_stale_authorization_for_higher_impact_action

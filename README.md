@@ -22,9 +22,26 @@ inspect
 
 Use the cheapest, smallest, most local execution environment that can answer the current question. Paid compute is an escalation stage, not the default development loop.
 
-Repository access is not authorization to spend money. Agents operating in this repository must follow [AGENTS.md](AGENTS.md), [policies/decision-policy.yaml](policies/decision-policy.yaml), and [policies/agent-policy.yaml](policies/agent-policy.yaml).
+Repository access is not authorization to spend money. Agents operating in this repository must follow [ACTION_CONSTITUTION.md](ACTION_CONSTITUTION.md), [AGENTS.md](AGENTS.md), [policies/decision-policy.yaml](policies/decision-policy.yaml), and [policies/agent-policy.yaml](policies/agent-policy.yaml).
 
 Defensive controls are expected to preserve the user's objective whenever a safe path remains. Rejecting a specific high-impact action does not automatically mean abandoning the goal.
+
+## Action constitution
+
+`ACTION_CONSTITUTION.md` is the repository's highest-level behavioral norm. Its machine-readable counterpart is `policies/action-constitution.yaml`.
+
+The constitution does **not** grant authority or weaken hard security boundaries. It defines how an authorized objective should be pursued when safety, cost, uncertainty, reversibility, and progress pull in different directions.
+
+Its conflict-resolution order is:
+
+1. preserve human control;
+2. prevent unacceptable irreversible harm or unauthorized action;
+3. preserve the active objective;
+4. prefer smaller, reversible, evidence-producing progress;
+5. maximize useful information or outcome relative to cost and risk;
+6. stop only when no acceptable path remains.
+
+Lower-level policies may become more restrictive for concrete security, authorization, or repository-state reasons. They may not silently turn denial of one high-impact action into abandonment of an otherwise achievable objective.
 
 ## Parked state
 
@@ -36,7 +53,7 @@ See [docs/PARKED_MODE.md](docs/PARKED_MODE.md) for the resume criteria. Leaving 
 
 ## Decision governance
 
-`policies/decision-policy.yaml` defines a goal-preserving decision layer before escalation.
+`policies/decision-policy.yaml` defines a goal-preserving decision layer before escalation and must conform to the action constitution.
 
 When a proposed action is unjustified, too broad, too costly, insufficiently evidenced, or outside current authority, the preferred response is:
 
@@ -218,6 +235,8 @@ Paid compute must never be triggered directly by untrusted pull requests, forks,
 
 This repository is intended to be useful as execution context for both humans and automation agents:
 
+- [ACTION_CONSTITUTION.md](ACTION_CONSTITUTION.md) — highest-level provider-neutral behavioral constitution;
+- [policies/action-constitution.yaml](policies/action-constitution.yaml) — machine-readable constitutional invariants and conflict order;
 - [policies/repository-state.yaml](policies/repository-state.yaml) — current parked/active repository mode;
 - [docs/PARKED_MODE.md](docs/PARKED_MODE.md) — parked-state invariants and resume criteria;
 - [policies/decision-policy.yaml](policies/decision-policy.yaml) — goal-preserving action and escalation policy;
@@ -248,6 +267,7 @@ Workload repository
         v
     gpu-control
         |
+        +-- action constitution
         +-- active goal + decision governance
         +-- request validation
         +-- resource / agent policy
@@ -285,11 +305,12 @@ Workload repository
 7. Add RunPod API v2 transport, catalog-pricing evidence, account-exclusivity checks, and a mock-tested adapter behind the control plane. **Done; live disabled.**
 8. Add owner-exclusive paid authorization and protected-main evidence requirements. **Done; external GitHub protection still must be configured before activation.**
 9. Add goal-preserving decision governance so defensive controls reduce or redirect unjustified actions without needlessly abandoning the objective. **Done at policy/prompt level; runtime paid-plan integration deferred until a concrete workload exists.**
-10. Publish/select a separate minimal workload repository and add hostile build/runtime isolation tests.
-11. Generalize isolated container verification to explicitly authorized public workload repositories and establish immutable image publication.
-12. Add authenticated workload-completion evidence and live result collection.
-13. Only then configure the protected owner-only paid Environment and consider enabling the live RunPod path for a concrete workload.
-14. Add other providers behind the same resource-policy interface only if useful.
+10. Add a provider-neutral action constitution above decision and agent policy, with machine-readable invariants and CI consistency checks. **Done at policy/prompt level.**
+11. Publish/select a separate minimal workload repository and add hostile build/runtime isolation tests.
+12. Generalize isolated container verification to explicitly authorized public workload repositories and establish immutable image publication.
+13. Add authenticated workload-completion evidence and live result collection.
+14. Only then configure the protected owner-only paid Environment and consider enabling the live RunPod path for a concrete workload.
+15. Add other providers behind the same resource-policy interface only if useful.
 
 ## License
 

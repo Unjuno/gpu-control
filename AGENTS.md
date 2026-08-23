@@ -2,6 +2,21 @@
 
 This repository is a control plane for GPU experiments. Treat this file as normative repository context for automated agents.
 
+## Constitutional rule
+
+Read and follow `ACTION_CONSTITUTION.md` before interpreting lower-level execution policy. Its machine-readable counterpart is `policies/action-constitution.yaml`.
+
+The constitution does not grant authority, spending permission, credentials, or an exception to security controls. Hard safety, security, legal, and external authorization boundaries remain non-bypassable. Lower-level policies may be more restrictive because of concrete risk or repository state, but they must not treat denial of one action as abandonment of the user's objective while a useful safe path remains.
+
+The constitutional priority is:
+
+1. preserve human control;
+2. prevent unacceptable irreversible harm or unauthorized action;
+3. preserve the active objective;
+4. prefer smaller, reversible, evidence-producing progress;
+5. maximize useful information or outcome relative to cost and risk;
+6. stop only when no acceptable path remains.
+
 ## Core rule
 
 Do not jump directly to paid GPU compute.
@@ -20,7 +35,7 @@ Leaving parked mode requires an explicit human request plus a reviewed repositor
 
 ## Decision governance
 
-Read `policies/decision-policy.yaml` before escalating action scope. The governing principle is **goal-preserving restraint**.
+Read `policies/decision-policy.yaml` before escalating action scope. The governing principle is **goal-preserving restraint** and it must conform to the action constitution.
 
 When a proposed action is unjustified, unsafe, unauthorized, too expensive, too broad, or insufficiently evidenced, do not automatically treat the objective as failed. Prefer this order:
 
@@ -38,15 +53,16 @@ A remaining budget is not a reason to spend it. Cost limits are loss ceilings, n
 
 ## Required operating order
 
-1. **Inspect first.** Read `README.md`, `SECURITY.md`, `policies/repository-state.yaml`, `policies/decision-policy.yaml`, `policies/agent-policy.yaml`, and the relevant workload repository before changing or running anything.
-2. **Clarify the current question.** Identify what uncertainty or objective the next action is supposed to resolve and how its result will change the next decision.
-3. **Run locally in a container first.** Reproduce or validate the workload locally in its container when practical.
-4. **Make the experiment small.** Prefer a tiny dataset, few steps, short timeout, one process, and the minimum resources needed to validate the hypothesis.
-5. **Use a workload repository.** GPU workloads should live in a separate authorized repository with an immutable commit SHA, Dockerfile, and locked dependencies where applicable.
-6. **Do not assume repository authority.** Repository creation, access grants, secret configuration, and write permissions are human-controlled boundaries unless the user explicitly authorizes the action and the available tool supports it.
-7. **Validate through `gpu-control`.** Run self-tests, policy validation, exact source verification, container checks, dry-run gates, fresh provider pricing/availability checks, and cleanup checks before paid compute.
-8. **Produce an approved execution plan.** Paid-provider code must consume an `ApprovedExecutionPlan`, not a raw workload request, bare container boolean, or caller-supplied price scalar.
-9. **Escalate to RunPod only last.** Use RunPod only when the experiment genuinely requires a GPU and explicit human authorization is represented in the approved plan.
+1. **Read the constitution first.** Read `ACTION_CONSTITUTION.md` and preserve its hierarchy and conflict-resolution order.
+2. **Inspect current state.** Read `README.md`, `SECURITY.md`, `policies/repository-state.yaml`, `policies/action-constitution.yaml`, `policies/decision-policy.yaml`, `policies/agent-policy.yaml`, and the relevant workload repository before changing or running anything.
+3. **Clarify the current question.** Identify what uncertainty or objective the next action is supposed to resolve and how its result will change the next decision.
+4. **Run locally in a container first.** Reproduce or validate the workload locally in its container when practical.
+5. **Make the experiment small.** Prefer a tiny dataset, few steps, short timeout, one process, and the minimum resources needed to validate the hypothesis.
+6. **Use a workload repository.** GPU workloads should live in a separate authorized repository with an immutable commit SHA, Dockerfile, and locked dependencies where applicable.
+7. **Do not assume repository authority.** Repository creation, access grants, secret configuration, and write permissions are human-controlled boundaries unless the user explicitly authorizes the action and the available tool supports it.
+8. **Validate through `gpu-control`.** Run self-tests, policy validation, exact source verification, container checks, dry-run gates, fresh provider pricing/availability checks, and cleanup checks before paid compute.
+9. **Produce an approved execution plan.** Paid-provider code must consume an `ApprovedExecutionPlan`, not a raw workload request, bare container boolean, or caller-supplied price scalar.
+10. **Escalate to RunPod only last.** Use RunPod only when the experiment genuinely requires a GPU and explicit human authorization is represented in the approved plan.
 
 ## Paid compute is denied by default
 
@@ -86,6 +102,8 @@ If any paid-compute precondition is missing, deny provider allocation. Preserve 
 - Never expose API keys, tokens, private datasets, or private artifacts in source, logs, issues, or artifacts.
 - Never launch paid compute from an untrusted PR, fork, issue, comment, or public webhook.
 - Never substitute a floating branch name for an immutable workload commit SHA.
+- Never weaken a hard security or external authorization boundary because a behavioral rule prefers progress.
+- Never inherit stale or narrower authorization for a materially different higher-impact action.
 - Never increase GPU count, runtime, cost, dataset size, or experiment scope merely because the previous attempt failed.
 - Never treat unused budget as a reason to spend money.
 - Never treat completion of a smaller stage as authorization for a larger stage.
@@ -131,6 +149,8 @@ When pricing, GPU availability, policy compliance, authorization, or cleanup gua
 
 ## Source of truth
 
+- Highest-level behavioral norm: `ACTION_CONSTITUTION.md`
+- Machine-readable constitutional invariants: `policies/action-constitution.yaml`
 - Human-facing project overview: `README.md`
 - Current repository operating state: `policies/repository-state.yaml`
 - Parked-mode rationale and resume criteria: `docs/PARKED_MODE.md`
@@ -145,4 +165,4 @@ When pricing, GPU availability, policy compliance, authorization, or cleanup gua
 - Asynchronous lifecycle contract: `docs/ASYNC_EXECUTION.md`
 - Runtime paid-compute gate: `src/gpu_control/execution.py`
 
-When these documents conflict, choose the interpretation that preserves both safety and the user's active objective. Do not allocate paid resources until the conflict is resolved, but continue safe local or read-only progress when possible.
+When these documents conflict, first preserve non-bypassable safety/security/authorization boundaries, then apply the constitutional conflict-resolution order. Do not allocate paid resources until the conflict is resolved, but continue safe local or read-only progress when possible.
