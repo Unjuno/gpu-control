@@ -1,0 +1,39 @@
+schema_version: 1
+illustrative_only: true
+record_id: EXAMPLE-DR-003
+mission_state: active
+active_goal: Validate the provider control-plane contract without creating billable GPU resources.
+current_question: Can the provider lifecycle contract be exercised without a live paid allocation?
+proposed_action: Create a live paid GPU resource to test submit, observe, cleanup, and result flow.
+evidence:
+  - The repository state is hypothetically parked in this example.
+  - The control plane includes an offline synthetic provider path capable of exercising lifecycle contracts.
+alternatives_considered:
+  - Run the offline provider self-test.
+  - Inspect provider adapter tests and lifecycle fixtures.
+cheapest_viable_alternative: Run the offline provider self-test and inspect mock adapter coverage.
+why_cheaper_alternative_is_insufficient: It is sufficient for the current contract question; live allocation is unnecessary.
+expected_decision_impact: Confirms whether control-plane lifecycle logic is internally coherent before considering live integration.
+economic:
+  expected_cost_usd: "0.00"
+  maximum_justified_cost_usd: "0.00"
+  opportunity_cost: Avoids billable GPU occupancy and avoids opening a paid execution surface for a contract-only question.
+  budget_is_loss_ceiling: true
+risk:
+  reversibility: full
+  blast_radius: local
+  worst_case_downside: Offline tests fail and require code or policy inspection.
+  recovery_path: Inspect failing tests and repair the offline contract without provider allocation.
+authority:
+  required_authority: Current-session permission to run offline repository tests; live provider authority would be separate.
+  authority_reference: null
+  current_authority_verified: false
+conditions:
+  success_condition: Offline submit, observe, cleanup, and result-contract tests pass.
+  stop_condition: Stop when offline contract coverage answers the lifecycle question or identifies a concrete live-only uncertainty.
+  failure_learning_value: Reveals which contract or lifecycle invariant is broken without incurring provider cost.
+decision:
+  action_outcome: safer_alternative
+  rationale: The paid action is unnecessary because a zero-cost offline path can answer the current question.
+  next_safe_step: In a live decision, re-check repository state and authority, then use the offline provider self-test if permitted.
+  human_checkpoint_required: false
