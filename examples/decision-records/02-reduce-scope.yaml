@@ -1,0 +1,39 @@
+schema_version: 1
+illustrative_only: true
+record_id: EXAMPLE-DR-002
+mission_state: active
+active_goal: Determine whether a hypothetical training loop can complete one forward and backward pass.
+current_question: Is a full local training run necessary to validate the training loop mechanics?
+proposed_action: Run the complete local training configuration for multiple epochs.
+evidence:
+  - The current uncertainty is limited to forward/backward and optimizer mechanics.
+  - Multiple epochs are not required to answer that question.
+alternatives_considered:
+  - One synthetic batch forward/backward step.
+  - Static import and configuration validation only.
+cheapest_viable_alternative: One synthetic batch forward/backward step with bounded runtime.
+why_cheaper_alternative_is_insufficient: Static validation alone cannot prove backward and optimizer execution, but one synthetic batch can.
+expected_decision_impact: Determines whether the training loop is mechanically runnable before any longer experiment.
+economic:
+  expected_cost_usd: "0.00"
+  maximum_justified_cost_usd: "0.00"
+  opportunity_cost: A full run would consume unnecessary local compute and debugging time.
+  budget_is_loss_ceiling: true
+risk:
+  reversibility: full
+  blast_radius: local
+  worst_case_downside: A bounded local test fails and produces diagnostic output.
+  recovery_path: Fix the failing step and rerun the same bounded test.
+authority:
+  required_authority: Current-session permission to run the repository-owned local test environment.
+  authority_reference: null
+  current_authority_verified: false
+conditions:
+  success_condition: One synthetic batch completes forward, backward, and optimizer step successfully.
+  stop_condition: Stop after one successful step or the first actionable failure.
+  failure_learning_value: Localizes the first failing training-loop phase without paying for a longer run.
+decision:
+  action_outcome: reduce_scope
+  rationale: The proposed full run is larger than required to answer the current question.
+  next_safe_step: In a live decision, verify current local execution authority and run exactly one bounded synthetic batch.
+  human_checkpoint_required: false
