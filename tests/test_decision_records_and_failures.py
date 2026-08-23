@@ -183,6 +183,28 @@ def test_decision_policy_binds_schema_examples_and_failure_catalog_without_runti
     assert policy["consult_failure_catalog_before_consequential_escalation"] is True
 
 
+def test_agent_context_teaches_safe_few_shot_usage() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    copilot = (ROOT / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
+
+    for text in (agents, copilot):
+        assert "policies/decision-record-schema.yaml" in text
+        assert "policies/failure-catalog.yaml" in text
+        assert "examples/decision-records/" in text
+        assert "example" in text.lower()
+        assert "authority" in text.lower()
+        assert "revalid" in text.lower()
+
+    assert "example_laundering" in agents
+    assert "example laundering" in copilot
+
+
+def test_runtime_execution_gate_is_not_implicitly_bound_to_decision_record() -> None:
+    execution = (ROOT / "src" / "gpu_control" / "execution.py").read_text(encoding="utf-8")
+    assert "DecisionRecord" not in execution
+    assert "decision-record-schema" not in execution
+
+
 def test_repository_remains_parked_after_decision_context_additions() -> None:
     state = load_yaml(STATE_PATH)
     assert state["mode"] == "parked"
