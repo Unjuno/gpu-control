@@ -1,7 +1,23 @@
 version: 1
 
 mode: parked
-reason: no_active_workload
+reason: activation_prerequisites_incomplete
+
+active_workload:
+  repository: Unjuno/orbitune
+  source_sha: dfb878b91f258e8ca496fac5e457dfbc4216ba89
+  dockerfile_path: workloads/runpod-training-canary/Dockerfile
+  workload_id: orbitune-runpod-training-canary-v1
+  gpu_profile: cheap-24gb
+  max_runtime_minutes: 30
+  max_cost_usd: 0.30
+  training_tokens: 512000
+  source_ci:
+    full_pytest: passed
+    runpod_canary_smoke: passed
+  immutable_image:
+    published: false
+    digest: null
 
 while_parked:
   paid_workflow_allowed: false
