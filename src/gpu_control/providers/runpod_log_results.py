@@ -96,9 +96,16 @@ def _select_markers(lines: Iterable[str]) -> tuple[str, str]:
         scanned_lines += 1
         if scanned_lines > MAX_SCAN_LINES:
             raise RunPodV2Error("RunPod container log scan exceeded bounded line count")
-        scanned_bytes += len(line.encode("utf-8"))
-        if scanned_bytes > MAX_SCAN_BYTES:
+
+        remaining_bytes = MAX_SCAN_BYTES - scanned_bytes
+        # UTF-8 uses at least one byte per Unicode code point. Reject an obviously
+        # oversized provider line before materializing an encoded copy.
+        if len(line) > remaining_bytes:
             raise RunPodV2Error("RunPod container log scan exceeded bounded byte count")
+        encoded_line = line.encode("utf-8")
+        if len(encoded_line) > remaining_bytes:
+            raise RunPodV2Error("RunPod container log scan exceeded bounded byte count")
+        scanned_bytes += len(encoded_line)
 
         if line.startswith(RESULT_MARKER):
             if result_line is not None:
@@ -183,7 +190,10 @@ def _require_actual_int(value: object, label: str, *, minimum: int = 0) -> int:
 def _require_finite_number(value: object, label: str, *, positive: bool = False) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise RunPodV2Error(f"authenticated result {label} must be a finite number")
-    parsed = float(value)
+    try:
+        parsed = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise RunPodV2Error(f"authenticated result {label} must be a finite number") from exc
     if not math.isfinite(parsed) or (positive and parsed <= 0):
         qualifier = "positive finite" if positive else "finite"
         raise RunPodV2Error(f"authenticated result {label} must be a {qualifier} number")
@@ -210,7 +220,7 @@ def _validate_common_result_identity(
     if payload.get("source_sha") != challenge.source_sha:
         raise RunPodV2Error("authenticated result source_sha does not match completion challenge")
     status = payload.get("status")
-    if status not in {"pass", "fail"}:
+    if not isinstance(status, str) or status not in {"pass", "fail"}:
         raise RunPodV2Error("authenticated result status must be pass or fail")
     return status
 
@@ -270,7 +280,7 @@ def _validate_training_result(payload: Mapping[str, Any]) -> None:
     if not isinstance(payload.get("cuda_available"), bool):
         raise RunPodV2Error("authenticated result cuda_available must be a boolean")
     device_type = payload.get("device_type")
-    if device_type not in {"cpu", "cuda"}:
+    if not isinstance(device_type, str) or device_type not in {"cpu", "cuda"}:
         raise RunPodV2Error("authenticated result device_type must be cpu or cuda")
     gpu_name = payload.get("gpu_name")
     if gpu_name is not None:
