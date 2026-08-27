@@ -47,8 +47,8 @@ class RunPodV2Adapter:
     In addition to plan/image/pricing identity, submission requires an account-wide
     occupancy probe. Optional reconciliation wiring can recover one ambiguous create
     only when a per-execution completion identity and a fresh full Pod inventory are
-    both available. Cleanup can use the same inventory to confirm that an ambiguous
-    terminate request nevertheless released the exact Pod.
+    both available. The same inventory contract can prove release after an ambiguous
+    normal or compensating termination without converting an active Pod to success.
     """
 
     client: RunPodV2HttpClient
@@ -134,13 +134,39 @@ class RunPodV2Adapter:
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
 
+    def _prove_pod_released(self, pod_id: str) -> None:
+        """Fail unless fresh inventory proves the exact Pod absent or TERMINATED."""
+
+        evidence = self._probe_inventory(self.approved_plan)
+        try:
+            released = cleanup_reconciled(
+                evidence,
+                self.approved_plan,
+                pod_id,
+                now_utc=self.clock(),
+            )
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV2AdapterError("RunPod Pod release reconciliation evidence is invalid") from exc
+        if not released:
+            raise RunPodV2AdapterError("RunPod Pod remains active after ambiguous terminate request")
+
     def _terminate_invalid_created_pod(self, pod_id: str, cause: Exception) -> None:
         try:
             self.client.terminate_pod(pod_id)
-        except Exception as cleanup_error:
+        except RunPodV2Error as cleanup_error:
+            if self.inventory_probe is None:
+                raise RunPodV2AdapterError(
+                    "RunPod post-create validation failed and compensating termination also failed"
+                ) from cleanup_error
+            try:
+                self._prove_pod_released(pod_id)
+            except RunPodV2AdapterError as reconciliation_error:
+                raise RunPodV2AdapterError(
+                    "RunPod post-create validation failed and the invalid Pod could not be proven released"
+                ) from reconciliation_error
             raise RunPodV2AdapterError(
-                "RunPod post-create validation failed and compensating termination also failed"
-            ) from cleanup_error
+                "RunPod post-create validation failed; invalid Pod release was reconciled"
+            ) from cause
         raise RunPodV2AdapterError(
             "RunPod post-create validation failed; the returned Pod was terminated"
         ) from cause
@@ -259,15 +285,8 @@ class RunPodV2Adapter:
             if self.inventory_probe is None:
                 raise cleanup_error
             try:
-                evidence = self._probe_inventory(self.approved_plan)
-                if not cleanup_reconciled(
-                    evidence,
-                    self.approved_plan,
-                    receipt.provider_job_id,
-                    now_utc=self.clock(),
-                ):
-                    raise RunPodV2Error("RunPod Pod remains active after ambiguous terminate request")
-            except (RunPodV2Error, ValueError) as reconciliation_error:
+                self._prove_pod_released(receipt.provider_job_id)
+            except RunPodV2AdapterError as reconciliation_error:
                 raise RunPodV2AdapterError(
                     "RunPod cleanup failed and the exact Pod could not be proven released"
                 ) from reconciliation_error
