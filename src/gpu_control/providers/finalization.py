@@ -32,7 +32,7 @@ from .controller import ProviderContractError
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PROVIDER_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
-_MAX_CAPTURE_JSON_BYTES = 256 * 1024
+_MAX_CAPTURE_JSON_BYTES = 2 * 1024 * 1024
 _CAPTURE_KEYS = {
     "provider",
     "provider_job_id",
@@ -102,8 +102,9 @@ def _load_json_object(value: str, label: str) -> dict[str, Any]:
         raise ResultContractError(f"{label} JSON is required")
     # A persisted capture is bounded by policy, so restoration must reject an
     # unbounded serialized representation before the JSON decoder allocates a
-    # large object graph. The preliminary code-point check avoids encoding an
-    # obviously oversized string; the UTF-8 byte check defines the actual bound.
+    # large object graph. Two MiB comfortably covers the worst-case escaped text
+    # allowed by the current artifact-count/name/reference policy while remaining
+    # a strict control-plane input ceiling.
     if len(value) > _MAX_CAPTURE_JSON_BYTES:
         raise ResultContractError(f"{label} JSON exceeds bounded input size")
     try:
