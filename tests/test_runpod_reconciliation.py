@@ -14,6 +14,7 @@ from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2Adapte
 from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
 from gpu_control.providers.runpod_reconciliation import (
+    RunPodPodInventoryEvidence,
     build_pod_inventory_evidence,
     cleanup_reconciled,
     reconcile_ambiguous_create,
@@ -165,6 +166,20 @@ def test_inventory_is_bounded_and_rejects_duplicate_pod_ids() -> None:
         inventory(value, duplicates)
 
 
+def test_reconstructed_inventory_revalidates_entry_shape_and_digest() -> None:
+    value = plan()
+    evidence = inventory(value, [{"id": "pod-1", "name": "name-1", "status": "RUNNING"}])
+
+    tampered_entry = replace(evidence.pods[0], status="running")
+    with pytest.raises(RunPodV2Error, match="canonical uppercase"):
+        replace(evidence, pods=(tampered_entry,)).validate_against_plan(value, now_utc=NOW)
+
+    with pytest.raises(RunPodV2Error, match="verification_reference"):
+        replace(evidence, verification_reference="runpod-v2-pods:sha256:" + "f" * 64).validate_against_plan(
+            value, now_utc=NOW
+        )
+
+
 def test_cleanup_reconciliation_requires_absent_or_terminated_exact_pod() -> None:
     value = plan()
     assert cleanup_reconciled(inventory(value, []), value, "pod-123", now_utc=NOW) is True
@@ -178,6 +193,7 @@ class FakeClient:
     def __init__(self, value: ApprovedExecutionPlan, launch: RunPodCompletionLaunch) -> None:
         self.value = value
         self.launch = launch
+        self.expected_create_name = launch.challenge.execution_name
         self.create_calls = 0
         self.get_calls = 0
         self.terminate_calls: list[str] = []
@@ -187,7 +203,7 @@ class FakeClient:
 
     def create_pod(self, payload):  # type: ignore[no-untyped-def]
         self.create_calls += 1
-        assert payload["name"] == self.launch.challenge.execution_name
+        assert payload["name"] == self.expected_create_name
         if self.create_error is not None:
             raise self.create_error
         return self.get_response
@@ -247,6 +263,8 @@ def make_adapter(*, with_completion: bool = True):  # type: ignore[no-untyped-de
     value = plan()
     launch = completion(value)
     client = FakeClient(value, launch)
+    if not with_completion:
+        client.expected_create_name = f"gpu-control-{value.fingerprint()[7:19]}"
     occupancy = OccupancyProbe(value)
     inventory_probe = InventoryProbe(value, launch)
     adapter = RunPodV2Adapter(
