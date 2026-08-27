@@ -11,20 +11,27 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-08-27T16:23:00Z
-  implementation_contract: legacy_v2_beta
-  current_official_rest_base_observed: https://rest.runpod.io/v1
-  current_official_contract_revalidation_required: true
-  implementation_may_not_be_enabled_live_until_revalidated: true
-  migration_or_equivalence_review_required: true
+  audited_at_utc: 2026-08-28T00:00:00Z
+  implementation_contract: current_official_v2_beta
+  current_official_base_verified: https://api.runpod.io/v2
+  current_official_contract_revalidation_required: false
+  live_account_verification_still_required: true
   live_enablement_by_flag_only_forbidden: true
-  note: The current adapter remains mock-only until its request, response, pricing, occupancy, status, completion, and cleanup contracts are revalidated against current official RunPod documentation.
+  verified_endpoints:
+    - GET /pods
+    - POST /pods
+    - GET /pods/{id}
+    - DELETE /pods/{id}
+    - GET /pods/{id}/logs
+    - GET /catalog/gpus
+  note: The request/response shapes used by the adapter match the current official RunPod API v2 beta documentation. Live use remains disabled until repository, environment, image, authorization, and real-account canary gates pass.
 
 submission:
   approved_plan_required: true
   published_image_evidence_required: true
   catalog_pricing_evidence_required: true
   account_occupancy_evidence_required: true
+  live_list_pods_probe_implemented: true
   image_reference_must_be_digest_pinned: true
   published_image_must_match_plan_fingerprint: true
   published_image_digest_must_match_plan: true
@@ -37,6 +44,8 @@ submission:
   user_mounts_forwarded: false
   automatic_create_retry: false
   ambiguous_create_requires_reconciliation: true
+  ambiguous_create_reconciliation_implemented: true
+  reconciliation_identity: per_execution_plan_and_nonce_name
   pre_create_account_must_have_zero_non_terminated_pods: true
   post_create_account_must_contain_only_new_pod: true
   occupancy_evidence_max_ttl_seconds: 60
@@ -49,9 +58,11 @@ submission:
   compensating_termination_failure_is_visible: true
 
 completion_evidence:
-  protocol: hmac-sha256-v1
-  implementation_status: offline_contract_only
+  protocol: hmac-sha256-v2
+  implementation_status: offline_live_wiring_implemented
   per_run_nonce_required: true
+  pre_create_execution_identity_required: true
+  provider_job_id_bound_by_submission_receipt_not_container_environment: true
   minimum_secret_bytes: 32
   secret_persistence: forbidden
   secret_logging: forbidden
@@ -61,17 +72,25 @@ completion_evidence:
     - GPU_CONTROL_COMPLETION_KEY_B64
     - GPU_CONTROL_COMPLETION_KEY_ID
     - GPU_CONTROL_COMPLETION_NONCE
+    - GPU_CONTROL_EXECUTION_NAME
     - GPU_CONTROL_PLAN_FINGERPRINT
-    - GPU_CONTROL_PROVIDER_JOB_ID
     - GPU_CONTROL_IMAGE_DIGEST
   binds:
     - key_id
     - nonce
+    - execution_name
     - approved_plan_fingerprint
-    - provider_job_id
     - workload_source_sha
     - image_digest
     - result_sha256
+  bounded_result_transport: runpod_container_sse_log_markers
+  result_marker: GPU_CONTROL_RESULT_JSON_V1
+  completion_marker: GPU_CONTROL_COMPLETION_JSON_V2
+  decoded_marker_max_bytes: 131072
+  live_injection_code_available: true
+  live_collection_code_available: true
+  live_injection_verified_against_real_provider: false
+  live_collection_verified_against_real_provider: false
   live_injection_enabled: false
   live_collection_enabled: false
 
@@ -81,18 +100,22 @@ status:
   running: running
   error: failed
   terminated: cancelled
-  exited: ambiguous_requires_workload_completion_evidence
+  exited: authenticate_bounded_workload_completion_before_terminal_state
   unknown: reject
 
 cleanup:
   terminate_endpoint: DELETE /pods/{id}
   terminate_is_irreversible: true
   cleanup_failure_visible: true
-  idempotent_already_absent_reconciliation_required_before_live: true
+  collect_ephemeral_result_before_terminate: true
+  idempotent_already_absent_reconciliation_implemented: true
+  cleanup_404_requires_list_pods_absence_confirmation: true
 
 results:
   enabled: false
+  authenticated_log_collection_implemented: true
   requires_authenticated_workload_completion_evidence: true
+  manifest_binds_cleanup_finalized_observation: true
 
 catalog:
   endpoint: GET /catalog/gpus
@@ -110,8 +133,8 @@ forbidden:
   - live_runpod_call_from_ci
   - live_runpod_call_from_public_cli
   - live_adapter_from_public_cli
-  - live_enablement_without_current_official_api_contract_revalidation
   - live_enablement_by_policy_flag_only
+  - live_enablement_without_real_account_preflight
   - arbitrary_api_origin
   - api_key_in_query_string
   - api_key_in_logs_or_errors
@@ -126,6 +149,7 @@ forbidden:
   - losing_account_exclusivity_after_create
   - automatic_retry_after_ambiguous_create
   - ambiguous_create_without_reconciliation
+  - reusing_plan_only_pod_name_as_live_execution_identity
   - unverified_post_create_gpu_identity
   - create_response_cloud_mismatch
   - accepting_price_above_verified_price
@@ -138,4 +162,5 @@ forbidden:
   - treating_exited_as_success_without_completion_evidence
   - treating_unknown_provider_status_as_success
   - collecting_results_without_authenticated_completion_evidence
-  - treating_cleanup_404_as_success_without_reconciliation_policy
+  - deleting_pod_before_ephemeral_result_collection
+  - treating_cleanup_404_as_success_without_list_pods_reconciliation
