@@ -10,14 +10,35 @@ https://api.runpod.io/v2
 
 The implementation in `src/gpu_control/providers/runpod_v2.py` is **not wired to a CLI or GitHub Actions workflow**. Repository CI injects a fake HTTP opener and makes no request to RunPod.
 
-Official references used for this boundary:
+Official references used for this boundary include RunPod's public v2 documentation and the official `runpod/runpod-mcp` repository, whose v2 migration tests track differences between the development and production API surfaces.
 
-- https://docs.runpod.io/api-reference-v2/overview
-- https://docs.runpod.io/api-reference-v2/pods/create-a-pod
-- https://docs.runpod.io/api-reference-v2/pods/get-a-pod
-- https://docs.runpod.io/api-reference-v2/pods/terminate-a-pod
-- https://docs.runpod.io/api-reference-v2/pods/trigger-a-pod-state-transition
-- https://docs.runpod.io/api-reference-v2/catalog/list-gpu-types
+## Current production-log limitation
+
+The production v2 API and the Pod container-log operation must be treated as separate contracts.
+
+As of the 2026-08-27 UTC audit, the exact upstream evidence is pinned to:
+
+```text
+repository  runpod/runpod-mcp
+commit      465872464c4f157a2e87afcd855c60a607954c26
+path        test.md
+section     K — Dev-only tools, currently DISABLED (not registered)
+URL         https://github.com/runpod/runpod-mcp/blob/465872464c4f157a2e87afcd855c60a607954c26/test.md
+```
+
+That pinned official RunPod validation records:
+
+- production REST v2 is live at `https://api.runpod.io/v2`;
+- the Pod log stream operation `GET /v2/pods/{id}/logs` is present on the development v2 surface;
+- the same operation is intentionally disabled in the official MCP production tool surface because production currently returns HTTP 422 `path not found`;
+- the official tool is to be re-enabled only when the production operation ships.
+
+Therefore `gpu-control` may implement and test bounded marker parsing and completion authentication **offline**, but it must not treat Pod log SSE as a supported production result-collection transport. A future live path needs either:
+
+1. fresh evidence that RunPod has shipped the production Pod-log operation and the exact contract has been revalidated; or
+2. a different provider-supported authenticated result transport that preserves the same isolation, boundedness, correlation, and cleanup requirements.
+
+Opening SSH, a public service port, unrestricted runtime networking, or an unverified volume-transfer path merely to bypass this limitation is not an acceptable implicit fallback.
 
 ## Why published-image evidence is separate
 
@@ -83,9 +104,9 @@ The v2 Pod states are translated conservatively:
 | `EXITED` | rejected as ambiguous |
 | unknown future state | rejected |
 
-`EXITED` is intentionally not treated as success. RunPod Pod status shows that the container stopped, but the control plane still needs workload completion evidence to distinguish a successful experiment from an application failure or explicit stop.
+`EXITED` is intentionally not treated as success. RunPod Pod status shows that the container stopped, but the control plane still needs authenticated workload completion evidence to distinguish a successful experiment from an application failure or explicit stop.
 
-This is the main remaining state-model blocker before implementing a full `ProviderAdapter` for RunPod.
+The workload-side completion protocol and offline verifier now exist. The remaining blocker is a currently supported production transport that can retrieve that evidence before destructive cleanup.
 
 ## HTTP client constraints
 
@@ -99,17 +120,18 @@ This is the main remaining state-model blocker before implementing a full `Provi
 - validates response status and JSON shape;
 - does not include the API key in raised error messages.
 
-The current public policy in `policies/runpod-v2-policy.yaml` keeps live calls, CLI wiring, and workflow wiring disabled.
+The current public policy in `policies/runpod-v2-policy.yaml` keeps live calls, CLI wiring, workflow wiring, and live result collection disabled.
 
 ## Remaining work before a real paid Pod
 
 The remaining prerequisites are deliberately explicit:
 
 1. implement a trusted image build/publish stage that produces `PublishedImageEvidence`;
-2. derive fresh `PricingVerificationResult` from the v2 GPU catalog and availability response;
-3. define authenticated workload-completion evidence for the ambiguous `EXITED` state;
-4. implement a live RunPod `ProviderAdapter` using the existing trusted provider controller;
-5. add immediate compensating termination on any post-create validation failure;
-6. wire the live adapter only to an explicit trusted paid-compute workflow with `RUNPOD_API_KEY` stored as a GitHub Actions secret.
+2. derive fresh provider pricing and availability evidence from the current v2 catalog;
+3. retain authenticated completion verification while choosing a production-supported collection transport;
+4. revalidate the current production RunPod API immediately before activation, including the chosen result transport;
+5. implement/review ambiguous-create reconciliation and idempotent cleanup reconciliation;
+6. wire a live adapter only after the provider transport and repository security prerequisites are independently satisfied;
+7. require fresh structured human authorization for the exact approved execution plan before any billable create.
 
 Until those items are complete, no repository workflow can create a RunPod resource.
