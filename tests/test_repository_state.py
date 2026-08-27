@@ -18,11 +18,19 @@ def load(path: Path) -> dict:
     return value
 
 
-def test_repository_is_explicitly_parked() -> None:
+def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None:
     state = load(STATE)
     assert state["version"] == 1
     assert state["mode"] == "parked"
-    assert state["reason"] == "no_active_workload"
+    assert state["reason"] == "activation_prerequisites_incomplete"
+    workload = state["active_workload"]
+    assert workload["repository"] == "Unjuno/orbitune"
+    assert workload["source_sha"] == "dfb878b91f258e8ca496fac5e457dfbc4216ba89"
+    assert workload["dockerfile_path"] == "workloads/runpod-training-canary/Dockerfile"
+    assert workload["workload_id"] == "orbitune-runpod-training-canary-v1"
+    assert workload["training_tokens"] == 512000
+    assert workload["source_ci"] == {"full_pytest": "passed", "runpod_canary_smoke": "passed"}
+    assert workload["immutable_image"] == {"published": False, "digest": None}
     parked = state["while_parked"]
     assert all(value is False for value in parked.values())
     assert state["authorization"]["activation_requires_explicit_human_request"] is True
