@@ -10,6 +10,16 @@ api:
   cli_enabled: false
   workflow_enabled: false
 
+api_contract_audit:
+  audited_at_utc: 2026-08-27T16:23:00Z
+  implementation_contract: legacy_v2_beta
+  current_official_rest_base_observed: https://rest.runpod.io/v1
+  current_official_contract_revalidation_required: true
+  implementation_may_not_be_enabled_live_until_revalidated: true
+  migration_or_equivalence_review_required: true
+  live_enablement_by_flag_only_forbidden: true
+  note: The current adapter remains mock-only until its request, response, pricing, occupancy, status, and cleanup contracts are revalidated against current official RunPod documentation.
+
 submission:
   approved_plan_required: true
   published_image_evidence_required: true
@@ -51,6 +61,7 @@ cleanup:
   terminate_endpoint: DELETE /pods/{id}
   terminate_is_irreversible: true
   cleanup_failure_visible: true
+  idempotent_already_absent_reconciliation_required_before_live: true
 
 results:
   enabled: false
@@ -72,6 +83,8 @@ forbidden:
   - live_runpod_call_from_ci
   - live_runpod_call_from_public_cli
   - live_adapter_from_public_cli
+  - live_enablement_without_current_official_api_contract_revalidation
+  - live_enablement_by_policy_flag_only
   - arbitrary_api_origin
   - api_key_in_query_string
   - api_key_in_logs_or_errors
@@ -85,6 +98,7 @@ forbidden:
   - create_while_another_non_terminated_pod_exists
   - losing_account_exclusivity_after_create
   - automatic_retry_after_ambiguous_create
+  - ambiguous_create_without_reconciliation
   - unverified_post_create_gpu_identity
   - create_response_cloud_mismatch
   - accepting_price_above_verified_price
@@ -93,3 +107,4 @@ forbidden:
   - treating_exited_as_success_without_completion_evidence
   - treating_unknown_provider_status_as_success
   - collecting_results_without_authenticated_completion_evidence
+  - treating_cleanup_404_as_success_without_reconciliation_policy
