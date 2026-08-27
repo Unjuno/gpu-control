@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import io
@@ -117,8 +118,19 @@ def test_authenticated_create_payload_injects_only_control_plane_completion_env(
 def test_completion_launch_must_match_exact_approved_plan() -> None:
     plan = make_plan()
     other = make_plan(target_sha="f" * 40)
-    with pytest.raises(RunPodV2Error, match="source_sha"):
+    with pytest.raises(RunPodV2Error, match="plan fingerprint"):
         build_create_pod_payload(plan, make_image(plan), completion=make_completion(other))
+
+
+def test_completion_launch_must_match_approved_source_sha() -> None:
+    plan = make_plan()
+    valid = make_completion(plan)
+    invalid = RunPodCompletionLaunch(
+        challenge=replace(valid.challenge, source_sha="f" * 40),
+        secret_key=valid.secret_key,
+    )
+    with pytest.raises(RunPodV2Error, match="source_sha"):
+        build_create_pod_payload(plan, make_image(plan), completion=invalid)
 
 
 def test_completion_launch_rejects_short_secret_before_create() -> None:
