@@ -66,6 +66,25 @@ def test_json_integer_digit_limit_is_normalized_to_runpod_error() -> None:
         authenticate(marker(RESULT_MARKER, raw), completion_marker_for(raw))
 
 
+def test_excessive_json_nesting_is_normalized_to_runpod_error() -> None:
+    raw = b'{"nested":' + (b"[" * 1100) + b"0" + (b"]" * 1100) + b"}"
+    assert len(raw) < 16 * 1024
+    with pytest.raises(RunPodV2Error, match="bounded UTF-8 JSON"):
+        authenticate(marker(RESULT_MARKER, raw), completion_marker_for(raw))
+
+
+def test_unencodable_provider_log_text_is_normalized_to_runpod_error() -> None:
+    valid_result = b"{}"
+    with pytest.raises(RunPodV2Error, match="valid UTF-8 text"):
+        authenticate_runpod_log_result(
+            ("\ud800", marker(RESULT_MARKER, valid_result), completion_marker_for(valid_result)),
+            challenge=challenge(),
+            secret_key=SECRET,
+            process_exit_code=0,
+            expected_workload_id=WORKLOAD_ID,
+        )
+
+
 def test_standard_base64_alphabet_is_not_accepted_as_base64url() -> None:
     # 0xfbff encodes with '+' and '/' in the standard alphabet but '-' and '_'
     # in the URL-safe alphabet. The parser accepts only the producer's URL-safe form.
