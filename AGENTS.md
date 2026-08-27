@@ -51,18 +51,41 @@ Before increasing scope, check purpose, evidence, cheaper alternatives, decision
 
 A remaining budget is not a reason to spend it. Cost limits are loss ceilings, not spending targets. Success at one experiment stage does not authorize the next stage, and failure does not justify spending more. Expansion requires new information and a current rationale tied to the active goal.
 
+## Decision records and few-shot context
+
+Use `policies/decision-record-schema.yaml` as the structured reasoning shape for consequential decisions. The schema is currently offline governance only and is not bound to `ApprovedExecutionPlan` or any live provider call.
+
+Consult `policies/failure-catalog.yaml` before consequential escalation when useful. It describes recurring errors such as goal drift, sunk-cost escalation, authorization inheritance, defensive paralysis, resource hoarding, cleanup blindness, example laundering, scope laundering, and experiments that can fail without useful learning.
+
+The files under `examples/decision-records/` are intentionally useful as few-shot context. Learn from their **reasoning structure and comparison logic**, not from their facts. Every example is illustrative only.
+
+Never treat a few-shot example as proof of current:
+
+- human authorization;
+- repository mode;
+- provider price or availability;
+- workload identity;
+- security posture;
+- cleanup guarantees;
+- risk or acceptable downside.
+
+Before applying an example pattern, revalidate the current goal, evidence, authority, cost, external state, and risk from trusted sources. Copying an example authorization, historical price, or old outcome into a live decision is `example_laundering` and is forbidden.
+
+See `docs/DECISION_RECORD.md` and `docs/FAILURE_CATALOG.md`.
+
 ## Required operating order
 
 1. **Read the constitution first.** Read `ACTION_CONSTITUTION.md` and preserve its hierarchy and conflict-resolution order.
 2. **Inspect current state.** Read `README.md`, `SECURITY.md`, `policies/repository-state.yaml`, `policies/action-constitution.yaml`, `policies/decision-policy.yaml`, `policies/agent-policy.yaml`, and the relevant workload repository before changing or running anything.
 3. **Clarify the current question.** Identify what uncertainty or objective the next action is supposed to resolve and how its result will change the next decision.
-4. **Run locally in a container first.** Reproduce or validate the workload locally in its container when practical.
-5. **Make the experiment small.** Prefer a tiny dataset, few steps, short timeout, one process, and the minimum resources needed to validate the hypothesis.
-6. **Use a workload repository.** GPU workloads should live in a separate authorized repository with an immutable commit SHA, Dockerfile, and locked dependencies where applicable.
-7. **Do not assume repository authority.** Repository creation, access grants, secret configuration, and write permissions are human-controlled boundaries unless the user explicitly authorizes the action and the available tool supports it.
-8. **Validate through `gpu-control`.** Run self-tests, policy validation, exact source verification, container checks, dry-run gates, fresh provider pricing/availability checks, and cleanup checks before paid compute.
-9. **Produce an approved execution plan.** Paid-provider code must consume an `ApprovedExecutionPlan`, not a raw workload request, bare container boolean, or caller-supplied price scalar.
-10. **Escalate to RunPod only last.** Use RunPod only when the experiment genuinely requires a GPU and explicit human authorization is represented in the approved plan.
+4. **Use structured decision context when useful.** Consult the DecisionRecord shape, failure catalog, and few-shot examples, then revalidate all current facts rather than inheriting example authority or state.
+5. **Run locally in a container first.** Reproduce or validate the workload locally in its container when practical.
+6. **Make the experiment small.** Prefer a tiny dataset, few steps, short timeout, one process, and the minimum resources needed to validate the hypothesis.
+7. **Use a workload repository.** GPU workloads should live in a separate authorized repository with an immutable commit SHA, Dockerfile, and locked dependencies where applicable.
+8. **Do not assume repository authority.** Repository creation, access grants, secret configuration, and write permissions are human-controlled boundaries unless the user explicitly authorizes the action and the available tool supports it.
+9. **Validate through `gpu-control`.** Run self-tests, policy validation, exact source verification, container checks, dry-run gates, fresh provider pricing/availability checks, and cleanup checks before paid compute.
+10. **Produce an approved execution plan.** Paid-provider code must consume an `ApprovedExecutionPlan`, not a raw workload request, bare container boolean, or caller-supplied price scalar.
+11. **Escalate to RunPod only last.** Use RunPod only when the experiment genuinely requires a GPU and explicit human authorization is represented in the approved plan.
 
 ## Paid compute is denied by default
 
@@ -104,6 +127,7 @@ If any paid-compute precondition is missing, deny provider allocation. Preserve 
 - Never substitute a floating branch name for an immutable workload commit SHA.
 - Never weaken a hard security or external authorization boundary because a behavioral rule prefers progress.
 - Never inherit stale or narrower authorization for a materially different higher-impact action.
+- Never treat a few-shot example, template, prior record, historical price, or prior incident as current authorization or current external-state evidence.
 - Never increase GPU count, runtime, cost, dataset size, or experiment scope merely because the previous attempt failed.
 - Never treat unused budget as a reason to spend money.
 - Never treat completion of a smaller stage as authorization for a larger stage.
@@ -156,6 +180,11 @@ When pricing, GPU availability, policy compliance, authorization, or cleanup gua
 - Parked-mode rationale and resume criteria: `docs/PARKED_MODE.md`
 - Goal-preserving decision policy: `policies/decision-policy.yaml`
 - Decision-governance rationale: `docs/DECISION_GOVERNANCE.md`
+- Structured decision shape: `policies/decision-record-schema.yaml`
+- DecisionRecord semantics and safe few-shot usage: `docs/DECISION_RECORD.md`
+- Few-shot decision examples: `examples/decision-records/`
+- Recurring decision failure patterns: `policies/failure-catalog.yaml`
+- Failure catalog rationale: `docs/FAILURE_CATALOG.md`
 - Agent execution rules: `AGENTS.md`
 - Machine-readable escalation policy: `policies/agent-policy.yaml`
 - Security boundaries: `SECURITY.md`

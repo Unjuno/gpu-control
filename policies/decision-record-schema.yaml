@@ -1,0 +1,141 @@
+version: 1
+name: DecisionRecord
+purpose: structured_decision_context
+runtime_enforced: false
+
+constitution:
+  document: ACTION_CONSTITUTION.md
+  machine_policy: policies/action-constitution.yaml
+  must_conform: true
+
+example_safety:
+  examples_are_illustrative_only: true
+  examples_never_grant_authority: true
+  examples_never_prove_current_price_or_availability: true
+  examples_never_override_repository_state: true
+  examples_must_not_be_copied_as_live_authorization: true
+  current_facts_must_be_revalidated: true
+
+required_fields:
+  - schema_version
+  - illustrative_only
+  - record_id
+  - mission_state
+  - active_goal
+  - current_question
+  - proposed_action
+  - evidence
+  - alternatives_considered
+  - cheapest_viable_alternative
+  - why_cheaper_alternative_is_insufficient
+  - expected_decision_impact
+  - economic
+  - risk
+  - authority
+  - conditions
+  - decision
+
+fields:
+  schema_version:
+    type: integer
+    const: 1
+  illustrative_only:
+    type: boolean
+  record_id:
+    type: string
+    non_empty: true
+  mission_state:
+    type: enum
+    values:
+      - active
+      - achieved
+      - blocked
+      - abandoned
+  active_goal:
+    type: string
+    non_empty: true
+  current_question:
+    type: string
+    non_empty: true
+  proposed_action:
+    type: string
+    non_empty: true
+  evidence:
+    type: list_of_strings
+    min_items: 1
+  alternatives_considered:
+    type: list_of_strings
+    min_items: 1
+  cheapest_viable_alternative:
+    type: string
+    non_empty: true
+  why_cheaper_alternative_is_insufficient:
+    type: string
+    non_empty: true
+    note: State why it is insufficient, or explicitly state that it is sufficient and therefore preferred.
+  expected_decision_impact:
+    type: string
+    non_empty: true
+  economic:
+    type: object
+    required:
+      - expected_cost_usd
+      - maximum_justified_cost_usd
+      - opportunity_cost
+      - budget_is_loss_ceiling
+    money_encoding: decimal_string
+  risk:
+    type: object
+    required:
+      - reversibility
+      - blast_radius
+      - worst_case_downside
+      - recovery_path
+    reversibility_values:
+      - full
+      - partial
+      - none
+    blast_radius_values:
+      - local
+      - workload
+      - repository
+      - provider_account
+      - external
+  authority:
+    type: object
+    required:
+      - required_authority
+      - authority_reference
+      - current_authority_verified
+    authority_reference_nullable: true
+  conditions:
+    type: object
+    required:
+      - success_condition
+      - stop_condition
+      - failure_learning_value
+  decision:
+    type: object
+    required:
+      - action_outcome
+      - rationale
+      - next_safe_step
+      - human_checkpoint_required
+    action_outcome_values:
+      - continue
+      - reduce_scope
+      - safer_alternative
+      - human_checkpoint
+      - deny_action
+
+invariants:
+  - action_denial_does_not_equal_goal_failure
+  - achieved_goal_stops_unnecessary_escalation
+  - uncertainty_does_not_expand_scope
+  - prior_success_does_not_authorize_next_stage
+  - prior_failure_does_not_justify_more_spend
+  - budget_is_loss_ceiling_not_spending_target
+  - denied_paid_action_preserves_safe_progress_when_available
+  - authority_is_current_action_specific_and_non_inheritable
+  - examples_are_not_authorization_evidence
+  - runtime_binding_requires_separate_review_before_live_compute

@@ -1,0 +1,39 @@
+schema_version: 1
+illustrative_only: true
+record_id: EXAMPLE-DR-001
+mission_state: active
+active_goal: Determine whether a hypothetical workload configuration is internally consistent before any execution.
+current_question: Can read-only inspection answer the configuration question without running code?
+proposed_action: Inspect configuration and policy files without mutation or provider access.
+evidence:
+  - The question concerns static configuration consistency.
+  - No runtime behavior is required to answer the current question.
+alternatives_considered:
+  - Run the workload locally.
+  - Launch a paid GPU smoke test.
+cheapest_viable_alternative: Read-only repository inspection.
+why_cheaper_alternative_is_insufficient: It is sufficient, so the read-only alternative is the proposed action.
+expected_decision_impact: Determines whether any execution is necessary at all.
+economic:
+  expected_cost_usd: "0.00"
+  maximum_justified_cost_usd: "0.00"
+  opportunity_cost: Minimal; no scarce compute or mutation is occupied.
+  budget_is_loss_ceiling: true
+risk:
+  reversibility: full
+  blast_radius: local
+  worst_case_downside: Incorrect interpretation requiring another read-only review.
+  recovery_path: Re-read the source files and correct the analysis.
+authority:
+  required_authority: Current-session permission to inspect the public repository.
+  authority_reference: null
+  current_authority_verified: false
+conditions:
+  success_condition: The configuration question is answered from repository evidence.
+  stop_condition: Stop immediately once the question is answered or if runtime evidence becomes necessary.
+  failure_learning_value: Identifies exactly which runtime fact cannot be established statically.
+decision:
+  action_outcome: continue
+  rationale: Read-only inspection is the least consequential action capable of answering the current question.
+  next_safe_step: In a live decision, verify current read authority and perform read-only inspection.
+  human_checkpoint_required: false

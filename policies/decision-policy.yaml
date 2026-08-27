@@ -91,6 +91,15 @@ hard_stop:
     report_what_would_be_required_to_resume_when_applicable: true
 
 decision_record:
+  schema: policies/decision-record-schema.yaml
+  documentation: docs/DECISION_RECORD.md
+  examples_directory: examples/decision-records
+  failure_catalog: policies/failure-catalog.yaml
+  runtime_binding_enabled: false
+  illustrative_examples_never_grant_authority: true
+  illustrative_examples_never_prove_current_external_state: true
+  current_facts_must_be_revalidated: true
+  consult_failure_catalog_before_consequential_escalation: true
   required_before_paid_compute:
     - active_goal
     - current_question

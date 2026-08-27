@@ -1,0 +1,39 @@
+schema_version: 1
+illustrative_only: true
+record_id: EXAMPLE-DR-004
+mission_state: active
+active_goal: Prepare a hypothetical repository for a future concrete GPU workload while preserving human control over activation.
+current_question: Should the repository leave parked mode and begin live-path preparation now?
+proposed_action: Change repository operating mode from parked to active preparation.
+evidence:
+  - Activation changes the repository's operating posture and can enable later higher-impact work.
+  - The Action Constitution assigns consequential escalation and objective changes to the human principal.
+alternatives_considered:
+  - Keep parked mode and continue documentation or offline tests.
+  - Prepare a proposed activation checklist without changing repository state.
+cheapest_viable_alternative: Prepare the activation checklist and present the concrete workload rationale to the human.
+why_cheaper_alternative_is_insufficient: It can prepare the decision but cannot legitimately change repository state without current explicit human authorization.
+expected_decision_impact: Determines whether future implementation work may progress toward a live paid path.
+economic:
+  expected_cost_usd: "0.00"
+  maximum_justified_cost_usd: "0.00"
+  opportunity_cost: Premature activation would increase maintenance and attack surface before a workload justifies it.
+  budget_is_loss_ceiling: true
+risk:
+  reversibility: partial
+  blast_radius: repository
+  worst_case_downside: Repository policy drifts toward live execution before external protections and a concrete workload are ready.
+  recovery_path: Restore parked mode through reviewed changes and verify all live flags and secret references remain disabled.
+authority:
+  required_authority: Explicit current human request to activate the repository for a concrete workload.
+  authority_reference: null
+  current_authority_verified: false
+conditions:
+  success_condition: A human makes an informed activation decision with the workload and prerequisites visible.
+  stop_condition: Do not mutate repository state until explicit current authorization is available.
+  failure_learning_value: Identifies missing activation prerequisites or missing rationale without opening the live path.
+decision:
+  action_outcome: human_checkpoint
+  rationale: The preparatory analysis can continue, but changing operating mode requires human authority that the agent cannot infer.
+  next_safe_step: Present the activation prerequisites and concrete workload rationale for human decision while keeping parked mode unchanged.
+  human_checkpoint_required: true

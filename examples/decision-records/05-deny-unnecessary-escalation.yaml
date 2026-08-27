@@ -1,0 +1,39 @@
+schema_version: 1
+illustrative_only: true
+record_id: EXAMPLE-DR-005
+mission_state: achieved
+active_goal: Determine whether a hypothetical configuration parser accepts the target input format.
+current_question: Has the parser acceptance question already been answered by a bounded local test?
+proposed_action: Launch an additional paid GPU run after the local parser test already succeeded.
+evidence:
+  - The local test directly exercised the parser with the target input shape.
+  - The current question concerns parsing only and does not depend on GPU behavior.
+alternatives_considered:
+  - Record the successful local result and stop.
+  - Repeat the same parser test locally.
+cheapest_viable_alternative: Record the result and stop further escalation.
+why_cheaper_alternative_is_insufficient: It is sufficient because the active question is already answered.
+expected_decision_impact: Prevents unrelated compute from being mistaken for necessary validation.
+economic:
+  expected_cost_usd: "0.00"
+  maximum_justified_cost_usd: "0.00"
+  opportunity_cost: A paid run would consume money and scarce GPU capacity without changing the decision.
+  budget_is_loss_ceiling: true
+risk:
+  reversibility: partial
+  blast_radius: provider_account
+  worst_case_downside: Unnecessary paid allocation creates cost, occupancy, and additional failure surface.
+  recovery_path: Terminate any accidental allocation and return to the already established local result.
+authority:
+  required_authority: Separate current authorization would be required for any paid action even if it were useful.
+  authority_reference: null
+  current_authority_verified: false
+conditions:
+  success_condition: The parser acceptance question is already satisfied by existing evidence.
+  stop_condition: Stop immediately; do not escalate after the active question is answered.
+  failure_learning_value: No additional learning is expected from the proposed paid action for this question.
+decision:
+  action_outcome: deny_action
+  rationale: The proposed action has no remaining decision value because the goal is already achieved.
+  next_safe_step: Report the completed result and wait for a new objective before considering further execution.
+  human_checkpoint_required: false
