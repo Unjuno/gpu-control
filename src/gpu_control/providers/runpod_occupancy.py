@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from ..execution import ApprovedExecutionPlan
-from .runpod_v2 import RunPodV2Error
+from .runpod_v2 import RunPodV2Error, RunPodV2HttpClient
 
 
 _TERMINATED = "TERMINATED"
@@ -24,6 +24,10 @@ def _utc(value: datetime, field: str) -> datetime:
 
 def _iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -131,3 +135,30 @@ def build_account_occupancy_evidence(
         valid_until_utc=_iso(until),
         verification_reference=f"runpod-account-pods:sha256:{digest}",
     )
+
+
+@dataclass(frozen=True)
+class RunPodV2AccountOccupancyProbe:
+    """Read the authenticated account-wide v2 Pod list and normalize it."""
+
+    client: RunPodV2HttpClient
+    clock: Callable[[], datetime] = _utc_now
+    ttl_seconds: int = 30
+
+    def __post_init__(self) -> None:
+        if not callable(self.clock):
+            raise RunPodV2Error("RunPod occupancy probe clock must be callable")
+        if isinstance(self.ttl_seconds, bool) or not isinstance(self.ttl_seconds, int) or not 1 <= self.ttl_seconds <= 60:
+            raise RunPodV2Error("RunPod occupancy probe ttl_seconds must be between 1 and 60")
+
+    def __call__(self, plan: ApprovedExecutionPlan) -> RunPodAccountOccupancyEvidence:
+        payload = self.client.list_pods()
+        pods = payload.get("pods")
+        if not isinstance(pods, list):
+            raise RunPodV2Error("RunPod List Pods response is missing pods")
+        return build_account_occupancy_evidence(
+            plan,
+            pods,
+            checked_at_utc=self.clock(),
+            ttl_seconds=self.ttl_seconds,
+        )
