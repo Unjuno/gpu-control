@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import json
 import re
@@ -69,14 +69,14 @@ class RunPodCompletionLaunch:
     """Ephemeral trusted completion material used only while creating one Pod.
 
     The challenge is safe to persist separately. The secret key is intentionally
-    non-serializable here and must be supplied from protected control-plane state.
-    This type is the only supported path for injecting environment variables into
-    a RunPod create request; arbitrary user-provided environment mappings remain
-    outside the trusted provider boundary.
+    excluded from repr/serialization and must be supplied from protected
+    control-plane state. This type is the only supported path for injecting
+    environment variables into a RunPod create request; arbitrary user-provided
+    environment mappings remain outside the trusted provider boundary.
     """
 
     challenge: CompletionChallenge
-    secret_key: bytes
+    secret_key: bytes = field(repr=False)
 
     def validate_against_plan(self, plan: ApprovedExecutionPlan) -> None:
         try:
@@ -169,10 +169,16 @@ def validate_created_pod(
     plan: ApprovedExecutionPlan,
     image: PublishedImageEvidence,
     pod: Mapping[str, Any],
+    *,
+    completion: RunPodCompletionLaunch | None = None,
 ) -> str:
     """Validate RunPod's create response before it becomes lifecycle identity."""
 
     image.validate_against_plan(plan)
+    if completion is not None:
+        completion.validate_against_plan(plan)
+        if pod.get("name") != completion.challenge.execution_name:
+            raise RunPodV2Error("RunPod create response name does not match pre-create execution identity")
     pod_id = pod.get("id")
     if not isinstance(pod_id, str) or not pod_id.strip():
         raise RunPodV2Error("RunPod create response is missing pod id")
