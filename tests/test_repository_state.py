@@ -25,18 +25,24 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
     assert state["reason"] == "activation_prerequisites_incomplete"
     workload = state["active_workload"]
     assert workload["repository"] == "Unjuno/orbitune"
-    assert workload["source_sha"] == "8c19af0e7d091a1ead928cecfdeecf177f7e32f8"
+    assert workload["source_sha"] == "38594057d1b118a7acf6c843e39d7d8a25571316"
     assert workload["dockerfile_path"] == "workloads/runpod-training-canary/Dockerfile"
     assert workload["workload_id"] == "orbitune-runpod-training-canary-v1"
     assert workload["training_tokens"] == 512000
     assert workload["source_ci"] == {
+        "evidence_scope": "exact_main_sha",
         "full_pytest": "passed",
+        "full_pytest_run_id": 33117645383,
         "runpod_canary_smoke": "passed",
+        "runpod_canary_smoke_run_id": 33117645387,
         "authenticated_completion_envelope": "passed",
+        "completion_protocol": "gpu-control-hmac-sha256-v2",
     }
     assert workload["immutable_image"] == {"published": False, "digest": None}
     assert workload["completion_evidence"] == {
-        "workload_protocol": "implemented_and_smoke_tested",
+        "workload_protocol": "gpu-control-hmac-sha256-v2",
+        "workload_signer_boundary": "root_signer_uid_0_training_uid_10001",
+        "workload_protocol_status": "implemented_and_smoke_tested",
         "control_plane_verifier": "implemented_offline",
         "live_secret_injection": False,
         "live_result_collection": False,
