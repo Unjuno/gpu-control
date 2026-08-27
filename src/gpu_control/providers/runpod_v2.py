@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import base64
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import json
 import re
@@ -9,6 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from ..completion import CompletionChallenge, CompletionEvidenceError
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
 from ..lifecycle import JobState
 
@@ -62,12 +64,54 @@ class PublishedImageEvidence:
             raise RunPodV2Error("published image verification_reference must not contain surrounding whitespace")
 
 
+@dataclass(frozen=True)
+class RunPodCompletionLaunch:
+    """Ephemeral trusted completion material used only while creating one Pod.
+
+    The challenge is safe to persist separately. The secret key is intentionally
+    excluded from repr/serialization and must be supplied from protected
+    control-plane state. This type is the only supported path for injecting
+    environment variables into a RunPod create request; arbitrary user-provided
+    environment mappings remain outside the trusted provider boundary.
+    """
+
+    challenge: CompletionChallenge
+    secret_key: bytes = field(repr=False)
+
+    def validate_against_plan(self, plan: ApprovedExecutionPlan) -> None:
+        try:
+            self.challenge.validate_shape()
+        except CompletionEvidenceError as exc:
+            raise RunPodV2Error(str(exc)) from exc
+        plan.validate_shape()
+        if self.challenge.plan_fingerprint != plan.fingerprint():
+            raise RunPodV2Error("completion challenge does not match approved plan fingerprint")
+        if self.challenge.source_sha != plan.target_sha:
+            raise RunPodV2Error("completion challenge source_sha does not match approved plan")
+        if self.challenge.image_digest != plan.image_digest:
+            raise RunPodV2Error("completion challenge image_digest does not match approved plan")
+        if not isinstance(self.secret_key, bytes) or len(self.secret_key) < 32:
+            raise RunPodV2Error("completion secret key must contain at least 32 bytes")
+
+    def provider_environment(self, plan: ApprovedExecutionPlan) -> dict[str, str]:
+        self.validate_against_plan(plan)
+        return {
+            "GPU_CONTROL_COMPLETION_KEY_B64": base64.b64encode(self.secret_key).decode("ascii"),
+            "GPU_CONTROL_COMPLETION_KEY_ID": self.challenge.key_id,
+            "GPU_CONTROL_COMPLETION_NONCE": self.challenge.nonce,
+            "GPU_CONTROL_EXECUTION_NAME": self.challenge.execution_name,
+            "GPU_CONTROL_PLAN_FINGERPRINT": self.challenge.plan_fingerprint,
+            "GPU_CONTROL_IMAGE_DIGEST": self.challenge.image_digest,
+        }
+
+
 def build_create_pod_payload(
     plan: ApprovedExecutionPlan,
     image: PublishedImageEvidence,
     *,
     disk_gb: int = 20,
     cloud: str = "SECURE",
+    completion: RunPodCompletionLaunch | None = None,
 ) -> dict[str, object]:
     """Build the minimal RunPod v2 create-pod body from trusted inputs only."""
 
@@ -83,8 +127,14 @@ def build_create_pod_payload(
     if cloud not in _ALLOWED_CLOUDS:
         raise RunPodV2Error("cloud must be SECURE or COMMUNITY")
 
-    return {
-        "name": f"gpu-control-{plan.fingerprint()[7:19]}",
+    name = f"gpu-control-{plan.fingerprint()[7:19]}"
+    environment = None
+    if completion is not None:
+        environment = completion.provider_environment(plan)
+        name = completion.challenge.execution_name
+
+    payload: dict[str, object] = {
+        "name": name,
         "image": image.image_reference,
         "gpu": {
             "id": plan.provider_resource_id,
@@ -94,6 +144,9 @@ def build_create_pod_payload(
         "cloud": cloud,
         "globalNetworking": False,
     }
+    if environment is not None:
+        payload["env"] = environment
+    return payload
 
 
 def _require_mapping(payload: object, label: str) -> Mapping[str, Any]:
@@ -116,10 +169,16 @@ def validate_created_pod(
     plan: ApprovedExecutionPlan,
     image: PublishedImageEvidence,
     pod: Mapping[str, Any],
+    *,
+    completion: RunPodCompletionLaunch | None = None,
 ) -> str:
     """Validate RunPod's create response before it becomes lifecycle identity."""
 
     image.validate_against_plan(plan)
+    if completion is not None:
+        completion.validate_against_plan(plan)
+        if pod.get("name") != completion.challenge.execution_name:
+            raise RunPodV2Error("RunPod create response name does not match pre-create execution identity")
     pod_id = pod.get("id")
     if not isinstance(pod_id, str) or not pod_id.strip():
         raise RunPodV2Error("RunPod create response is missing pod id")

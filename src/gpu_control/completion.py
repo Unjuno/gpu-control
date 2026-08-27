@@ -12,6 +12,7 @@ from typing import Any, Mapping
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
 _KEY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+_EXECUTION_NAME_RE = re.compile(r"^gpu-control-[0-9a-f]{12}-[0-9a-f]{12}$")
 
 
 class CompletionEvidenceError(ValueError):
@@ -31,22 +32,34 @@ def _require_sha256(value: object, field: str) -> str:
     return normalized
 
 
+def _require_secret_key(secret_key: bytes) -> None:
+    if not isinstance(secret_key, bytes) or len(secret_key) < 32:
+        raise CompletionEvidenceError("completion secret key must contain at least 32 bytes")
+
+
+def execution_name_for(plan_fingerprint: str, nonce: str) -> str:
+    fingerprint = _require_sha256(plan_fingerprint, "plan_fingerprint")
+    if not isinstance(nonce, str) or not _HEX_64_RE.fullmatch(nonce):
+        raise CompletionEvidenceError("nonce must be 32 random bytes encoded as lowercase hex")
+    return f"gpu-control-{fingerprint[7:19]}-{nonce[:12]}"
+
+
 def _canonical_payload(
     *,
     key_id: str,
     nonce: str,
     plan_fingerprint: str,
-    provider_job_id: str,
+    execution_name: str,
     source_sha: str,
     image_digest: str,
     result_sha256: str,
 ) -> bytes:
     payload = {
+        "execution_name": execution_name,
         "image_digest": image_digest,
         "key_id": key_id,
         "nonce": nonce,
         "plan_fingerprint": plan_fingerprint,
-        "provider_job_id": provider_job_id,
         "result_sha256": result_sha256,
         "source_sha": source_sha,
     }
@@ -55,7 +68,11 @@ def _canonical_payload(
 
 @dataclass(frozen=True)
 class CompletionChallenge:
-    """Public, persisted correlation data for one approved workload execution.
+    """Persistable pre-create identity for one approved workload execution.
+
+    The provider-assigned Pod id is deliberately absent because it does not exist
+    when the container environment is fixed. Provider identity is correlated later
+    through the submission receipt and the exact Pod log endpoint.
 
     The HMAC key is deliberately absent. It must be supplied from a protected
     control-plane secret at issue/verify time and must never be serialized into
@@ -65,20 +82,24 @@ class CompletionChallenge:
     key_id: str
     nonce: str
     plan_fingerprint: str
-    provider_job_id: str
+    execution_name: str
     source_sha: str
     image_digest: str
-    schema_version: int = 1
+    schema_version: int = 2
 
     def validate_shape(self) -> None:
-        if self.schema_version != 1:
+        if self.schema_version != 2:
             raise CompletionEvidenceError("unsupported completion challenge schema_version")
         if not isinstance(self.key_id, str) or not _KEY_ID_RE.fullmatch(self.key_id):
             raise CompletionEvidenceError("key_id is invalid")
         if not isinstance(self.nonce, str) or not _HEX_64_RE.fullmatch(self.nonce):
             raise CompletionEvidenceError("nonce must be 32 random bytes encoded as lowercase hex")
         _require_sha256(self.plan_fingerprint, "plan_fingerprint")
-        _require_nonempty(self.provider_job_id, "provider_job_id")
+        if not isinstance(self.execution_name, str) or not _EXECUTION_NAME_RE.fullmatch(self.execution_name):
+            raise CompletionEvidenceError("execution_name is invalid")
+        expected_name = execution_name_for(self.plan_fingerprint, self.nonce)
+        if self.execution_name != expected_name:
+            raise CompletionEvidenceError("execution_name does not match plan_fingerprint and nonce")
         if not isinstance(self.source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", self.source_sha):
             raise CompletionEvidenceError("source_sha must be a lowercase 40-character commit SHA")
         _require_sha256(self.image_digest, "image_digest")
@@ -89,7 +110,7 @@ class CompletionChallenge:
             "key_id": self.key_id,
             "nonce": self.nonce,
             "plan_fingerprint": self.plan_fingerprint,
-            "provider_job_id": self.provider_job_id,
+            "execution_name": self.execution_name,
             "source_sha": self.source_sha,
             "image_digest": self.image_digest,
             "schema_version": self.schema_version,
@@ -101,15 +122,15 @@ class CompletionChallenge:
         *,
         key_id: str,
         plan_fingerprint: str,
-        provider_job_id: str,
         source_sha: str,
         image_digest: str,
     ) -> "CompletionChallenge":
+        nonce = secrets.token_hex(32)
         value = cls(
             key_id=key_id,
-            nonce=secrets.token_hex(32),
+            nonce=nonce,
             plan_fingerprint=plan_fingerprint,
-            provider_job_id=provider_job_id,
+            execution_name=execution_name_for(plan_fingerprint, nonce),
             source_sha=source_sha,
             image_digest=image_digest,
         )
@@ -124,22 +145,25 @@ class CompletionEvidence:
     key_id: str
     nonce: str
     plan_fingerprint: str
-    provider_job_id: str
+    execution_name: str
     source_sha: str
     image_digest: str
     result_sha256: str
     mac_sha256: str
-    schema_version: int = 1
+    schema_version: int = 2
 
     def validate_shape(self) -> None:
-        if self.schema_version != 1:
+        if self.schema_version != 2:
             raise CompletionEvidenceError("unsupported completion evidence schema_version")
         if not isinstance(self.key_id, str) or not _KEY_ID_RE.fullmatch(self.key_id):
             raise CompletionEvidenceError("key_id is invalid")
         if not isinstance(self.nonce, str) or not _HEX_64_RE.fullmatch(self.nonce):
             raise CompletionEvidenceError("nonce is invalid")
         _require_sha256(self.plan_fingerprint, "plan_fingerprint")
-        _require_nonempty(self.provider_job_id, "provider_job_id")
+        if not isinstance(self.execution_name, str) or not _EXECUTION_NAME_RE.fullmatch(self.execution_name):
+            raise CompletionEvidenceError("execution_name is invalid")
+        if self.execution_name != execution_name_for(self.plan_fingerprint, self.nonce):
+            raise CompletionEvidenceError("execution_name does not match plan_fingerprint and nonce")
         if not isinstance(self.source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", self.source_sha):
             raise CompletionEvidenceError("source_sha must be a lowercase 40-character commit SHA")
         _require_sha256(self.image_digest, "image_digest")
@@ -153,7 +177,7 @@ class CompletionEvidence:
             "key_id": self.key_id,
             "nonce": self.nonce,
             "plan_fingerprint": self.plan_fingerprint,
-            "provider_job_id": self.provider_job_id,
+            "execution_name": self.execution_name,
             "source_sha": self.source_sha,
             "image_digest": self.image_digest,
             "result_sha256": self.result_sha256,
@@ -164,7 +188,7 @@ class CompletionEvidence:
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CompletionEvidence":
         expected = {
-            "key_id", "nonce", "plan_fingerprint", "provider_job_id", "source_sha",
+            "key_id", "nonce", "plan_fingerprint", "execution_name", "source_sha",
             "image_digest", "result_sha256", "mac_sha256", "schema_version",
         }
         if set(payload) != expected:
@@ -173,7 +197,7 @@ class CompletionEvidence:
             key_id=payload["key_id"],  # type: ignore[arg-type]
             nonce=payload["nonce"],  # type: ignore[arg-type]
             plan_fingerprint=payload["plan_fingerprint"],  # type: ignore[arg-type]
-            provider_job_id=payload["provider_job_id"],  # type: ignore[arg-type]
+            execution_name=payload["execution_name"],  # type: ignore[arg-type]
             source_sha=payload["source_sha"],  # type: ignore[arg-type]
             image_digest=payload["image_digest"],  # type: ignore[arg-type]
             result_sha256=payload["result_sha256"],  # type: ignore[arg-type]
@@ -192,13 +216,12 @@ def sign_completion(
 ) -> CompletionEvidence:
     challenge.validate_shape()
     result_digest = _require_sha256(result_sha256, "result_sha256")
-    if not isinstance(secret_key, bytes) or len(secret_key) < 32:
-        raise CompletionEvidenceError("completion secret key must contain at least 32 bytes")
+    _require_secret_key(secret_key)
     message = _canonical_payload(
         key_id=challenge.key_id,
         nonce=challenge.nonce,
         plan_fingerprint=challenge.plan_fingerprint,
-        provider_job_id=challenge.provider_job_id,
+        execution_name=challenge.execution_name,
         source_sha=challenge.source_sha,
         image_digest=challenge.image_digest,
         result_sha256=result_digest,
@@ -208,7 +231,7 @@ def sign_completion(
         key_id=challenge.key_id,
         nonce=challenge.nonce,
         plan_fingerprint=challenge.plan_fingerprint,
-        provider_job_id=challenge.provider_job_id,
+        execution_name=challenge.execution_name,
         source_sha=challenge.source_sha,
         image_digest=challenge.image_digest,
         result_sha256=result_digest,
@@ -226,10 +249,9 @@ def verify_completion(
     challenge.validate_shape()
     evidence.validate_shape()
     expected_result = _require_sha256(expected_result_sha256, "expected_result_sha256")
-    if not isinstance(secret_key, bytes) or len(secret_key) < 32:
-        raise CompletionEvidenceError("completion secret key must contain at least 32 bytes")
+    _require_secret_key(secret_key)
 
-    for field in ("key_id", "nonce", "plan_fingerprint", "provider_job_id", "source_sha", "image_digest"):
+    for field in ("key_id", "nonce", "plan_fingerprint", "execution_name", "source_sha", "image_digest"):
         if getattr(evidence, field) != getattr(challenge, field):
             raise CompletionEvidenceError(f"completion evidence {field} does not match challenge")
     if evidence.result_sha256 != expected_result:

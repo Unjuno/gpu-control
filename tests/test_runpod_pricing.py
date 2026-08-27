@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from gpu_control.completion import CompletionChallenge, execution_name_for
 from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.providers.runpod_pricing import (
     RunPodCatalogPricingEvidence,
@@ -12,12 +13,13 @@ from gpu_control.providers.runpod_pricing import (
     build_priced_create_pod_payload,
     validate_created_pod_with_pricing,
 )
-from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodV2Error
+from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2Error
 from gpu_control.validation import build_request
 
 
 DIGEST = "sha256:" + "a" * 64
 VERIFIED_AT = datetime(2026, 8, 22, 16, 0, tzinfo=timezone.utc)
+SECRET = bytes(range(32))
 
 
 def catalog(**overrides):  # type: ignore[no-untyped-def]
@@ -104,6 +106,19 @@ def image_for(plan: ApprovedExecutionPlan) -> PublishedImageEvidence:
     )
 
 
+def completion_for(plan: ApprovedExecutionPlan) -> RunPodCompletionLaunch:
+    nonce = "c" * 64
+    challenge = CompletionChallenge(
+        key_id="paid-runpod-v2",
+        nonce=nonce,
+        plan_fingerprint=plan.fingerprint(),
+        execution_name=execution_name_for(plan.fingerprint(), nonce),
+        source_sha=plan.target_sha,
+        image_digest=plan.image_digest,
+    )
+    return RunPodCompletionLaunch(challenge=challenge, secret_key=SECRET)
+
+
 def test_catalog_row_becomes_short_lived_structured_pricing_evidence() -> None:
     evidence = build_evidence()
     result = evidence.to_pricing_result()
@@ -185,6 +200,22 @@ def test_create_payload_cloud_must_come_from_same_catalog_evidence_as_plan() -> 
         build_priced_create_pod_payload(plan, image_for(plan), community)
 
 
+def test_priced_create_payload_preserves_typed_completion_identity() -> None:
+    evidence = build_evidence("SECURE")
+    plan = make_plan(evidence)
+    completion = completion_for(plan)
+    payload = build_priced_create_pod_payload(
+        plan,
+        image_for(plan),
+        evidence,
+        completion=completion,
+    )
+
+    assert payload["name"] == completion.challenge.execution_name
+    assert payload["env"]["GPU_CONTROL_EXECUTION_NAME"] == completion.challenge.execution_name  # type: ignore[index]
+    assert payload["env"]["GPU_CONTROL_PLAN_FINGERPRINT"] == plan.fingerprint()  # type: ignore[index]
+
+
 def test_create_response_cloud_is_revalidated() -> None:
     evidence = build_evidence("SECURE")
     plan = make_plan(evidence)
@@ -203,3 +234,37 @@ def test_create_response_cloud_is_revalidated() -> None:
     wrong_cloud = dict(pod, cloud="COMMUNITY")
     with pytest.raises(RunPodV2Error, match="cloud does not match"):
         validate_created_pod_with_pricing(plan, image, evidence, wrong_cloud)
+
+
+def test_create_response_name_is_revalidated_for_authenticated_launch() -> None:
+    evidence = build_evidence("SECURE")
+    plan = make_plan(evidence)
+    image = image_for(plan)
+    completion = completion_for(plan)
+    pod = {
+        "id": "pod-123",
+        "name": completion.challenge.execution_name,
+        "image": image.image_reference,
+        "gpu": {"id": evidence.gpu_type_id, "count": 1},
+        "cloud": "SECURE",
+        "cost": 0.44,
+        "status": "PROVISIONING",
+    }
+
+    assert validate_created_pod_with_pricing(
+        plan,
+        image,
+        evidence,
+        pod,
+        completion=completion,
+    ) == "pod-123"
+
+    wrong_name = dict(pod, name="gpu-control-ffffffffffff-cccccccccccc")
+    with pytest.raises(RunPodV2Error, match="execution identity"):
+        validate_created_pod_with_pricing(
+            plan,
+            image,
+            evidence,
+            wrong_name,
+            completion=completion,
+        )
