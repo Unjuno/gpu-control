@@ -130,13 +130,13 @@ def _decode_marker(line: str, marker: str) -> bytes:
     if not encoded:
         raise RunPodV2Error(f"{marker[:-1]} log marker payload is empty")
     if not _BASE64URL_RE.fullmatch(encoded):
-        raise RunPodV2Error(f"{marker[:-1]} log marker is not canonical base64url")
+        raise RunPodV2Error(f"{marker[:-1]} log marker is not valid base64url")
     try:
         raw = base64.b64decode(encoded.encode("ascii"), altchars=b"-_", validate=True)
     except Exception as exc:
         raise RunPodV2Error(f"{marker[:-1]} log marker is not valid base64url") from exc
     if base64.urlsafe_b64encode(raw).decode("ascii") != encoded:
-        raise RunPodV2Error(f"{marker[:-1]} log marker is not canonical base64url")
+        raise RunPodV2Error(f"{marker[:-1]} log marker is not valid base64url")
     return raw
 
 
