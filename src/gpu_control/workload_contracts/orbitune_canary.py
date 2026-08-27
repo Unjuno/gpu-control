@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import math
 import re
 from typing import Any, Mapping, Sequence
 
+from ..completion import CompletionEvidenceError
 from ..lifecycle import JobState
 from ..providers.runpod_log_results import AuthenticatedRunPodLogResult
 
 
 WORKLOAD_ID = "orbitune-runpod-training-canary-v1"
+SELECTED_SOURCE_SHA = "38594057d1b118a7acf6c843e39d7d8a25571316"
 ARCHITECTURE = "orbitune-midi-gpt-v0"
 TOKENIZER = "theory-remi-v0"
 PARAMETERS = 10_200_960
@@ -37,6 +40,7 @@ class OrbituneCanaryResultAcceptance:
     """
 
     source_sha: str
+    plan_fingerprint: str
     image_digest: str
     workload_id: str
     architecture: str
@@ -67,15 +71,26 @@ def _require_sequence(value: object, label: str) -> Sequence[Any]:
 def _require_finite(value: object, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise WorkloadAcceptanceError(f"{label} must be finite")
-    parsed = float(value)
+    try:
+        parsed = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise WorkloadAcceptanceError(f"{label} must be finite") from exc
     if not math.isfinite(parsed):
         raise WorkloadAcceptanceError(f"{label} must be finite")
     return parsed
 
 
-def _require_expected_source_sha(value: object) -> str:
+def _require_selected_source_sha(value: object) -> str:
     if not isinstance(value, str) or not _SOURCE_SHA_RE.fullmatch(value):
         raise WorkloadAcceptanceError("trusted expected_source_sha is invalid")
+    if value != SELECTED_SOURCE_SHA:
+        raise WorkloadAcceptanceError("trusted expected_source_sha is not the selected Orbitune canary source")
+    return value
+
+
+def _require_sha256(value: object, label: str) -> str:
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        raise WorkloadAcceptanceError(f"trusted {label} is invalid")
     return value
 
 
@@ -83,28 +98,51 @@ def validate_orbitune_canary_result(
     authenticated: AuthenticatedRunPodLogResult,
     *,
     expected_source_sha: str,
+    expected_plan_fingerprint: str,
+    expected_image_digest: str,
 ) -> OrbituneCanaryResultAcceptance:
-    """Apply the frozen Orbitune paid-canary result criteria to authenticated bytes.
+    """Apply frozen paid-canary criteria to one authenticated workload result.
 
-    The caller must still finalize provider cleanup separately before treating the
-    overall paid canary as accepted.
+    ``authenticated`` must come from the completion-verifying provider boundary.
+    The caller additionally supplies the current trusted source, approved-plan
+    fingerprint, and approved immutable image digest. Provider cleanup remains a
+    separate finalization gate and is intentionally not certified here.
     """
 
     if not isinstance(authenticated, AuthenticatedRunPodLogResult):
         raise WorkloadAcceptanceError("authenticated RunPod result is required")
-    trusted_source_sha = _require_expected_source_sha(expected_source_sha)
+    trusted_source_sha = _require_selected_source_sha(expected_source_sha)
+    trusted_plan_fingerprint = _require_sha256(expected_plan_fingerprint, "expected_plan_fingerprint")
+    trusted_image_digest = _require_sha256(expected_image_digest, "expected_image_digest")
+
     if authenticated.state is not JobState.SUCCEEDED or authenticated.process_exit_code != 0:
         raise WorkloadAcceptanceError("Orbitune canary result requires authenticated process success")
+    if not isinstance(authenticated.result_bytes, bytes):
+        raise WorkloadAcceptanceError("Orbitune canary authenticated result bytes are invalid")
+
+    evidence = authenticated.completion_evidence
+    try:
+        evidence.validate_shape()
+    except CompletionEvidenceError as exc:
+        raise WorkloadAcceptanceError(str(exc)) from exc
+    if evidence.source_sha != trusted_source_sha:
+        raise WorkloadAcceptanceError("Orbitune completion source_sha mismatch")
+    if evidence.plan_fingerprint != trusted_plan_fingerprint:
+        raise WorkloadAcceptanceError("Orbitune completion plan_fingerprint mismatch")
+    if evidence.image_digest != trusted_image_digest:
+        raise WorkloadAcceptanceError("Orbitune completion image_digest mismatch")
+    observed_result_sha256 = "sha256:" + hashlib.sha256(authenticated.result_bytes).hexdigest()
+    if evidence.result_sha256 != observed_result_sha256:
+        raise WorkloadAcceptanceError("Orbitune completion result_sha256 does not match authenticated result bytes")
 
     payload = _require_mapping(authenticated.result_payload, "result_payload")
-    if payload.get("schema_version") != 1 or isinstance(payload.get("schema_version"), bool):
+    schema_version = payload.get("schema_version")
+    if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version != 1:
         raise WorkloadAcceptanceError("Orbitune canary result schema_version must be integer 1")
     if payload.get("workload_id") != WORKLOAD_ID:
         raise WorkloadAcceptanceError("Orbitune canary workload_id mismatch")
     if payload.get("source_sha") != trusted_source_sha:
         raise WorkloadAcceptanceError("Orbitune canary source_sha mismatch")
-    if authenticated.completion_evidence.source_sha != trusted_source_sha:
-        raise WorkloadAcceptanceError("Orbitune completion source_sha mismatch")
     if payload.get("status") != "pass":
         raise WorkloadAcceptanceError("Orbitune canary result status must be pass")
     if payload.get("architecture") != ARCHITECTURE:
@@ -172,13 +210,10 @@ def validate_orbitune_canary_result(
     if artifact.get("transport") != "container-local-only":
         raise WorkloadAcceptanceError("Orbitune canary checkpoint transport boundary mismatch")
 
-    image_digest = authenticated.completion_evidence.image_digest
-    if not _SHA256_RE.fullmatch(image_digest):
-        raise WorkloadAcceptanceError("Orbitune completion image digest is invalid")
-
     return OrbituneCanaryResultAcceptance(
         source_sha=trusted_source_sha,
-        image_digest=image_digest,
+        plan_fingerprint=trusted_plan_fingerprint,
+        image_digest=trusted_image_digest,
         workload_id=WORKLOAD_ID,
         architecture=ARCHITECTURE,
         tokenizer=TOKENIZER,
