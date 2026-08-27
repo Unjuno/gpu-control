@@ -199,6 +199,7 @@ def test_live_activation_is_blocked_on_new_prompt_authorization_and_provider_pre
         "current_runpod_api_contract_revalidated",
         "live_account_occupancy_probe_available",
         "ambiguous_create_reconciliation_available",
+        "supported_production_completion_transport_available",
         "cleanup_idempotency_reconciliation_available",
     } <= prerequisites
 
@@ -219,12 +220,16 @@ def test_runpod_v2_beta_contract_is_current_but_still_blocked_from_live_enableme
     assert audit["implementation_contract"] == "rest_v2_public_beta_offline"
     assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
     assert audit["create_env_contract_observed"] is True
-    assert audit["container_log_sse_contract_observed"] is True
+    assert audit["pod_container_log_sse_status"] == "dev_only_prod_unavailable"
+    assert audit["pod_container_log_sse_prod_verified"] is False
+    assert audit["pod_container_log_sse_prod_failure"] == "http_422_path_not_found"
+    assert audit["pod_container_log_sse_live_collection_allowed"] is False
     assert audit["current_official_contract_revalidation_required"] is True
     assert audit["implementation_may_not_be_enabled_live_until_revalidated"] is True
     assert audit["live_enablement_by_flag_only_forbidden"] is True
     assert completion["protocol"] == "hmac-sha256-v2"
     assert completion["pre_create_execution_name_required"] is True
+    assert completion["production_collection_transport_status"] == "blocked_pending_supported_provider_transport"
     assert completion["live_injection_enabled"] is False
     assert completion["live_collection_enabled"] is False
 
