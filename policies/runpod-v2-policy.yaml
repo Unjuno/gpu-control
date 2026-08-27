@@ -11,15 +11,23 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-08-27T19:16:00Z
+  audited_at_utc: 2026-08-27T21:34:00Z
   implementation_contract: rest_v2_public_beta_offline
   current_official_rest_base_observed: https://api.runpod.io/v2
   current_official_contract_revalidation_required: true
   implementation_may_not_be_enabled_live_until_revalidated: true
   live_enablement_by_flag_only_forbidden: true
   create_env_contract_observed: true
-  container_log_sse_contract_observed: true
-  note: The current fixed-origin adapter now targets the documented RunPod REST API v2 public beta. Live calls remain disabled because v2 is beta and authenticated result collection, durable completion challenge binding, credential wiring, live occupancy verification, and cleanup reconciliation are not yet complete. Revalidate the OpenAPI contract immediately before any live activation.
+  pod_container_log_sse_status: dev_only_prod_unavailable
+  pod_container_log_sse_prod_verified: false
+  pod_container_log_sse_prod_failure: http_422_path_not_found
+  pod_container_log_sse_live_collection_allowed: false
+  pod_container_log_sse_evidence_repository: runpod/runpod-mcp
+  pod_container_log_sse_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
+  pod_container_log_sse_evidence_path: test.md
+  pod_container_log_sse_evidence_section: "K — Dev-only tools, currently DISABLED (not registered)"
+  pod_container_log_sse_evidence_url: https://github.com/runpod/runpod-mcp/blob/465872464c4f157a2e87afcd855c60a607954c26/test.md
+  note: RunPod REST API v2 is live in production at the canonical api.runpod.io/v2 origin, but RunPod's official MCP validation at the pinned revision above records GET /v2/pods/{id}/logs as dev-only and returning HTTP 422 path-not-found in production. gpu-control must therefore not wire authenticated production result collection to that endpoint. Live calls remain disabled, and the complete current official contract must be revalidated immediately before any activation.
 
 submission:
   approved_plan_required: true
@@ -74,10 +82,12 @@ completion_evidence:
     - workload_source_sha
     - image_digest
     - result_sha256
-  provider_job_id_binding: submission_receipt_and_exact_pod_log_endpoint
+  provider_job_id_binding: submission_receipt_and_provider_specific_collection_transport
   result_marker: "GPU_CONTROL_RESULT_JSON_V1:"
   completion_marker: "GPU_CONTROL_COMPLETION_JSON_V2:"
   max_marker_bytes: 16384
+  offline_marker_authentication_allowed: true
+  production_collection_transport_status: blocked_pending_supported_provider_transport
   live_injection_enabled: false
   live_collection_enabled: false
 
@@ -99,6 +109,7 @@ cleanup:
 results:
   enabled: false
   requires_authenticated_workload_completion_evidence: true
+  production_transport_must_be_currently_supported: true
 
 catalog:
   endpoint: GET /catalog/gpus
@@ -128,7 +139,7 @@ forbidden:
   - catalog_gpu_below_profile_vram
   - catalog_gpu_without_one_gpu_capacity
   - create_without_account_occupancy_evidence
-  - create_while_another_non_terminated_pod_exists
+  - create_while_another_non_terminated_pods_exists
   - losing_account_exclusivity_after_create
   - automatic_retry_after_ambiguous_create
   - ambiguous_create_without_reconciliation
@@ -144,4 +155,6 @@ forbidden:
   - treating_exited_as_success_without_completion_evidence
   - treating_unknown_provider_status_as_success
   - collecting_results_without_authenticated_completion_evidence
+  - collecting_live_results_through_unavailable_prod_pod_log_sse
+  - treating_dev_only_provider_operation_as_production_contract
   - treating_cleanup_404_as_success_without_reconciliation_policy
