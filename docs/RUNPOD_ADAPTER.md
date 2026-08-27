@@ -2,7 +2,7 @@
 
 `src/gpu_control/providers/runpod_adapter.py` connects the existing provider-neutral controller contract to the RunPod REST API v2 codecs.
 
-The adapter is **mock-tested only**. `policies/runpod-v2-policy.yaml` keeps live adapter construction, public CLI wiring, and GitHub Actions workflow wiring disabled.
+The adapter is **mock-tested only**. `policies/runpod-v2-policy.yaml` keeps live adapter construction, public CLI wiring, GitHub Actions workflow wiring, and live result collection disabled.
 
 ## Trusted construction inputs
 
@@ -64,22 +64,29 @@ Each `GET /pods/{id}` response is revalidated against the same image and catalog
 
 For a trusted terminal observation, `cleanup(...)` calls the RunPod terminate endpoint and returns `CleanupState.COMPLETED` only after the HTTP operation succeeds.
 
-Cleanup failures remain visible through the existing lifecycle/recovery model.
+Cleanup failures remain visible through the existing lifecycle/recovery model. Result capture failure does not authorize leaving a billable Pod running.
 
-## Results remain disabled
+## Results remain disabled because the production transport is missing
 
-`collect_results(...)` currently rejects every request. A stopped RunPod container is not sufficient evidence that the workload completed successfully or that arbitrary result references are trustworthy.
+`collect_results(...)` currently rejects every request. This is no longer because the workload-completion protocol is undefined: the Orbitune workload emits the v2 HMAC completion envelope, the control plane authenticates it offline, and the workload-specific paid-canary acceptance layer is separately implemented.
 
-Before result collection can be enabled, the project still needs authenticated workload-completion evidence bound to:
+The remaining RunPod blocker is transport. The pinned official RunPod audit records the Pod-log SSE operation used by the earlier prototype as unavailable on the production surface. No alternative production-supported authenticated collection transport has yet been verified.
+
+The provider-neutral finalization contract supports both:
 
 ```text
-plan fingerprint
-+ provider Pod id
-+ workload exit outcome
-+ output/result manifest identity
+terminal -> cleanup -> post-cleanup collection
 ```
 
-The existing bounded `ResultManifest` policy will still apply after that evidence layer is implemented.
+for transports that survive resource deletion, and:
+
+```text
+terminal -> durable ProviderResultCapture -> cleanup -> finalized ResultManifest
+```
+
+for ephemeral transports that must be read before cleanup. Neither path changes the RunPod blocker: `RunPodV2Adapter.collect_results(...)` remains fail-closed until a production-supported authenticated transport is verified and wired.
+
+When that transport exists, it must preserve the existing completion/result identity bindings, including approved plan, exact execution identity, source/image identity, authenticated result digest, provider-job correlation, bounded result policy, and cleanup lifecycle correlation.
 
 ## No live resource path yet
 
@@ -88,6 +95,7 @@ This adapter class existing in the package does not enable paid compute by itsel
 - reads `RUNPOD_API_KEY`;
 - constructs `RunPodV2HttpClient` with the real network opener;
 - constructs `RunPodV2Adapter` for a public CLI request;
-- invokes it from a GitHub Actions paid workflow.
+- invokes it from a GitHub Actions paid workflow;
+- collects live authenticated results through a verified production transport.
 
 Those remain separately gated future changes.
