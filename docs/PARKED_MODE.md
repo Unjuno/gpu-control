@@ -1,6 +1,6 @@
 # Parked repository mode
 
-`gpu-control` is currently intentionally parked even though an active workload has now been selected. The frozen workload candidate is Orbitune commit `8c19af0e7d091a1ead928cecfdeecf177f7e32f8`, recorded in `policies/repository-state.yaml`.
+`gpu-control` is currently intentionally parked even though an active workload has now been selected. The frozen workload candidate is Orbitune commit `38594057d1b118a7acf6c843e39d7d8a25571316`, recorded in `policies/repository-state.yaml`.
 
 Parked mode is not a degraded state. It is a deliberate safety posture: the control-plane contracts, tests, and provider boundaries remain available, while all billable and generic external-execution paths stay disabled until the remaining activation prerequisites are satisfied.
 
@@ -38,7 +38,7 @@ The current workload is the Orbitune RunPod training canary:
 
 ```text
 repository       Unjuno/orbitune
-source SHA       8c19af0e7d091a1ead928cecfdeecf177f7e32f8
+source SHA       38594057d1b118a7acf6c843e39d7d8a25571316
 Dockerfile       workloads/runpod-training-canary/Dockerfile
 workload id      orbitune-runpod-training-canary-v1
 GPU profile      cheap-24gb
@@ -47,7 +47,11 @@ max cost         $0.30
 training tokens  512,000
 ```
 
-Orbitune's full pytest workflow, RunPod canary CPU contract smoke, and authenticated completion-envelope smoke are green on that exact SHA. The workload now supports `gpu-control-hmac-sha256-v1` completion envelopes. The control plane has an offline verifier for the same protocol, but live per-run secret injection and provider result collection remain disabled.
+That exact **main-branch SHA** has green Orbitune pytest and RunPod canary smoke runs (`33117645383` and `33117645387`). The smoke covers the authenticated completion envelope and the root-signer/non-root-training isolation boundary. The workload protocol is `gpu-control-hmac-sha256-v2`: completion binds to a pre-create execution identity derived from the approved-plan fingerprint and a per-run nonce, while the provider Pod id remains correlated separately by the control-plane submission receipt.
+
+The workload emits bounded `GPU_CONTROL_RESULT_JSON_V1:` and `GPU_CONTROL_COMPLETION_JSON_V2:` markers with a 16 KiB complete-marker ceiling. Its completion wrapper keeps the signer at UID 0, launches training as the fixed UID/GID 10001 identity, and verifies in CI that the training identity cannot read the signer's `/proc/$PPID/environ`.
+
+The control plane has the matching v2 completion verifier and typed create-environment contract offline. Live per-run secret injection and provider result collection remain disabled.
 
 The immutable GHCR image has not yet been published, and this source-level readiness does not authorize paid execution.
 
@@ -59,7 +63,7 @@ Read-only repository inspection currently shows `gpu-control/main` is not protec
 
 The protected `paid-runpod` Environment and its environment-scoped RunPod secret are activation prerequisites and are not assumed to exist merely because code support is present.
 
-The current RunPod provider implementation is a legacy v2-beta mock contract. Current official API behavior must be revalidated and the adapter migrated or proven equivalent before live use. Ambiguous-create reconciliation, live account occupancy evidence, idempotent cleanup reconciliation, live completion-secret injection, and live result collection also remain explicit prerequisites.
+The current RunPod transport targets the documented REST API v2 public beta, but live use remains disabled. The current official contract must still be revalidated immediately before activation, and ambiguous-create reconciliation, live account occupancy evidence, idempotent cleanup reconciliation, live completion-secret injection, and live result collection remain explicit prerequisites.
 
 Current human authorization must eventually be represented as structured evidence bound to the exact DecisionRecord, control-plane commit, and execution-plan fingerprint. Owner identity or a bare authorization boolean is not sufficient for live activation.
 
