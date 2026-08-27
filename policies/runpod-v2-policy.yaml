@@ -139,7 +139,7 @@ forbidden:
   - catalog_gpu_below_profile_vram
   - catalog_gpu_without_one_gpu_capacity
   - create_without_account_occupancy_evidence
-  - create_while_another_non_terminated_pods_exists
+  - create_while_another_non_terminated_pod_exists
   - losing_account_exclusivity_after_create
   - automatic_retry_after_ambiguous_create
   - ambiguous_create_without_reconciliation
