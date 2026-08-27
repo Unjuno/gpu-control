@@ -32,6 +32,7 @@ from .controller import ProviderContractError
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PROVIDER_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+_MAX_CAPTURE_JSON_BYTES = 256 * 1024
 _CAPTURE_KEYS = {
     "provider",
     "provider_job_id",
@@ -99,6 +100,18 @@ def _require_exact_keys(payload: Mapping[str, Any], expected: set[str], label: s
 def _load_json_object(value: str, label: str) -> dict[str, Any]:
     if not isinstance(value, str) or not value.strip():
         raise ResultContractError(f"{label} JSON is required")
+    # A persisted capture is bounded by policy, so restoration must reject an
+    # unbounded serialized representation before the JSON decoder allocates a
+    # large object graph. The preliminary code-point check avoids encoding an
+    # obviously oversized string; the UTF-8 byte check defines the actual bound.
+    if len(value) > _MAX_CAPTURE_JSON_BYTES:
+        raise ResultContractError(f"{label} JSON exceeds bounded input size")
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ResultContractError(f"{label} JSON must be valid UTF-8 text") from exc
+    if len(encoded) > _MAX_CAPTURE_JSON_BYTES:
+        raise ResultContractError(f"{label} JSON exceeds bounded input size")
 
     def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -271,6 +284,9 @@ class ProviderResultCapture:
         if not isinstance(raw_artifacts, list):
             raise ResultContractError("provider result capture artifacts must be a JSON array")
         effective_policy = policy or load_result_policy()
+        effective_policy.validate_shape()
+        if len(raw_artifacts) > effective_policy.max_artifact_entries:
+            raise ResultContractError("captured artifact count exceeds result policy")
         artifacts = tuple(OutputArtifact.from_dict(item, effective_policy) for item in raw_artifacts)
         capture = cls(
             provider=payload["provider"],  # type: ignore[arg-type]
