@@ -44,6 +44,8 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
         "workload_signer_boundary": "root_signer_uid_0_training_uid_10001",
         "workload_protocol_status": "implemented_and_smoke_tested",
         "control_plane_verifier": "implemented_offline",
+        "production_collection_transport": "blocked_pending_supported_provider_transport",
+        "production_pod_log_sse": "unavailable_http_422_path_not_found",
         "live_secret_injection": False,
         "live_result_collection": False,
     }
@@ -66,8 +68,11 @@ def test_parked_mode_cross_checks_all_live_provider_flags() -> None:
     assert runpod["results"]["enabled"] is False
     assert runpod["completion_evidence"]["implementation_status"] == "pre_create_identity_and_env_contract_offline"
     assert runpod["completion_evidence"]["protocol"] == "hmac-sha256-v2"
+    assert runpod["completion_evidence"]["production_collection_transport_status"] == "blocked_pending_supported_provider_transport"
     assert runpod["completion_evidence"]["live_injection_enabled"] is False
     assert runpod["completion_evidence"]["live_collection_enabled"] is False
+    assert runpod["api_contract_audit"]["pod_container_log_sse_prod_verified"] is False
+    assert runpod["api_contract_audit"]["pod_container_log_sse_live_collection_allowed"] is False
     assert agent["provider_adapter"]["live_implementation_enabled"] is False
     assert container["build"]["generic_execution_enabled"] is False
     assert container["runtime"]["generic_execution_enabled"] is False
@@ -95,6 +100,8 @@ def test_parked_mode_activation_prerequisites_remain_explicit() -> None:
         "environment_scoped_runpod_secret_configured",
         "immutable_published_image_path_available",
         "authenticated_workload_completion_evidence_available",
+        "supported_production_completion_transport_available",
+        "live_completion_result_collection_verified",
         "reliable_cleanup_path_available",
     } <= prerequisites
     assert state["resume_rule"]["keep_paid_compute_disabled_until_external_github_gates_are_verified"] is True

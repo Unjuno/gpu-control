@@ -28,6 +28,29 @@ def test_live_runpod_calls_are_disabled_by_default() -> None:
     assert api["workflow_enabled"] is False
 
 
+def test_current_api_audit_does_not_overstate_production_log_support() -> None:
+    audit = load_policy()["api_contract_audit"]
+
+    assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
+    assert audit["current_official_contract_revalidation_required"] is True
+    assert audit["implementation_may_not_be_enabled_live_until_revalidated"] is True
+    assert audit["live_enablement_by_flag_only_forbidden"] is True
+    assert audit["create_env_contract_observed"] is True
+    assert audit["pod_container_log_sse_status"] == "dev_only_prod_unavailable"
+    assert audit["pod_container_log_sse_prod_verified"] is False
+    assert audit["pod_container_log_sse_prod_failure"] == "http_422_path_not_found"
+    assert audit["pod_container_log_sse_live_collection_allowed"] is False
+
+    upstream_sha = "465872464c4f157a2e87afcd855c60a607954c26"
+    assert audit["pod_container_log_sse_evidence_repository"] == "runpod/runpod-mcp"
+    assert audit["pod_container_log_sse_evidence_commit"] == upstream_sha
+    assert audit["pod_container_log_sse_evidence_path"] == "test.md"
+    assert audit["pod_container_log_sse_evidence_section"] == "K — Dev-only tools, currently DISABLED (not registered)"
+    assert audit["pod_container_log_sse_evidence_url"] == (
+        f"https://github.com/runpod/runpod-mcp/blob/{upstream_sha}/test.md"
+    )
+
+
 def test_submission_is_bound_to_plan_image_gpu_cloud_and_price() -> None:
     submission = load_policy()["submission"]
 
@@ -51,6 +74,23 @@ def test_submission_is_bound_to_plan_image_gpu_cloud_and_price() -> None:
     assert submission["post_create_price_must_not_exceed_verified_price"] is True
     assert submission["post_create_validation_failure_terminates_known_pod"] is True
     assert submission["compensating_termination_failure_is_visible"] is True
+
+
+def test_completion_offline_verification_does_not_imply_live_collection() -> None:
+    policy = load_policy()
+    completion = policy["completion_evidence"]
+    results = policy["results"]
+
+    assert completion["protocol"] == "hmac-sha256-v2"
+    assert completion["provider_job_id_binding"] == "submission_receipt_and_provider_specific_collection_transport"
+    assert completion["max_marker_bytes"] == 16384
+    assert completion["offline_marker_authentication_allowed"] is True
+    assert completion["production_collection_transport_status"] == "blocked_pending_supported_provider_transport"
+    assert completion["live_injection_enabled"] is False
+    assert completion["live_collection_enabled"] is False
+    assert results["enabled"] is False
+    assert results["requires_authenticated_workload_completion_evidence"] is True
+    assert results["production_transport_must_be_currently_supported"] is True
 
 
 def test_catalog_evidence_is_short_lived_and_capacity_checked() -> None:
@@ -80,7 +120,6 @@ def test_ambiguous_or_future_provider_states_fail_closed() -> None:
     assert status["exited"] == "ambiguous_requires_workload_completion_evidence"
     assert status["unknown"] == "reject"
     assert policy["results"]["enabled"] is False
-    assert policy["results"]["requires_authenticated_workload_completion_evidence"] is True
 
 
 def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
@@ -89,6 +128,8 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
     assert "live_runpod_call_from_ci" in forbidden
     assert "live_runpod_call_from_public_cli" in forbidden
     assert "live_adapter_from_public_cli" in forbidden
+    assert "live_enablement_without_current_official_api_contract_revalidation" in forbidden
+    assert "live_enablement_by_policy_flag_only" in forbidden
     assert "arbitrary_api_origin" in forbidden
     assert "api_key_in_query_string" in forbidden
     assert "api_key_in_logs_or_errors" in forbidden
@@ -107,3 +148,5 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
     assert "treating_exited_as_success_without_completion_evidence" in forbidden
     assert "treating_unknown_provider_status_as_success" in forbidden
     assert "collecting_results_without_authenticated_completion_evidence" in forbidden
+    assert "collecting_live_results_through_unavailable_prod_pod_log_sse" in forbidden
+    assert "treating_dev_only_provider_operation_as_production_contract" in forbidden
