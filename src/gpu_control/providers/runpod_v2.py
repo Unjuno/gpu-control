@@ -18,6 +18,7 @@ _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _IMAGE_REFERENCE_RE = re.compile(
     r"^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$"
 )
+_EXECUTION_NAME_RE = re.compile(r"^gpu-control-[0-9a-f]{12}-[0-9a-f]{12}$")
 _ALLOWED_CLOUDS = {"SECURE", "COMMUNITY"}
 
 
@@ -64,7 +65,7 @@ class PublishedImageEvidence:
         if not isinstance(self.image_digest, str) or not _SHA256_RE.fullmatch(self.image_digest):
             raise RunPodV2Error("published image digest must be a lowercase sha256 digest")
         if self.image_digest != plan.image_digest:
-            raise RunPodV2Error("published image digest does not match the approved plan")
+            raise RunPodV2Error("published image digest does not match approved plan")
         if not isinstance(self.image_reference, str) or not _IMAGE_REFERENCE_RE.fullmatch(self.image_reference):
             raise RunPodV2Error("image_reference must be an explicit registry/repository@sha256:digest reference")
         if not self.image_reference.endswith(f"@{self.image_digest}"):
@@ -76,10 +77,16 @@ class PublishedImageEvidence:
 
 
 def pod_name_for_plan(plan: ApprovedExecutionPlan) -> str:
-    """Return the deterministic provider name used for create reconciliation."""
+    """Return the legacy deterministic plan-only name used by offline fixtures."""
 
     plan.validate_shape()
     return f"gpu-control-{plan.fingerprint()[7:19]}"
+
+
+def validate_execution_name(value: str) -> str:
+    if not isinstance(value, str) or not _EXECUTION_NAME_RE.fullmatch(value):
+        raise RunPodV2Error("execution_name must be a gpu-control plan/nonce identity")
+    return value
 
 
 def build_create_pod_payload(
@@ -88,12 +95,13 @@ def build_create_pod_payload(
     *,
     disk_gb: int = 20,
     cloud: str = "SECURE",
+    execution_name: str | None = None,
     system_env: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """Build the minimal RunPod v2 create-pod body from trusted inputs only.
 
-    ``system_env`` is reserved for control-plane-generated values. Raw workload
-    or workflow inputs must never be forwarded through it.
+    ``execution_name`` and ``system_env`` are control-plane-generated values.
+    Raw workload or workflow inputs must never be forwarded through either field.
     """
 
     try:
@@ -108,8 +116,9 @@ def build_create_pod_payload(
     if cloud not in _ALLOWED_CLOUDS:
         raise RunPodV2Error("cloud must be SECURE or COMMUNITY")
 
+    name = pod_name_for_plan(plan) if execution_name is None else validate_execution_name(execution_name)
     payload: dict[str, object] = {
-        "name": pod_name_for_plan(plan),
+        "name": name,
         "image": image.image_reference,
         "gpu": {
             "id": plan.provider_resource_id,
@@ -155,6 +164,8 @@ def validate_created_pod(
     plan: ApprovedExecutionPlan,
     image: PublishedImageEvidence,
     pod: Mapping[str, Any],
+    *,
+    expected_name: str | None = None,
 ) -> str:
     """Validate RunPod's create/list/get response before it becomes lifecycle identity."""
 
@@ -162,8 +173,12 @@ def validate_created_pod(
     pod_id = pod.get("id")
     if not isinstance(pod_id, str) or not pod_id.strip():
         raise RunPodV2Error("RunPod create response is missing pod id")
-    if pod.get("name") not in {None, pod_name_for_plan(plan)}:
-        raise RunPodV2Error("RunPod Pod name does not match approved plan identity")
+    if expected_name is None:
+        allowed_names = {None, pod_name_for_plan(plan)}
+    else:
+        allowed_names = {validate_execution_name(expected_name)}
+    if pod.get("name") not in allowed_names:
+        raise RunPodV2Error("RunPod Pod name does not match approved execution identity")
     if pod.get("image") != image.image_reference:
         raise RunPodV2Error("RunPod create response image does not match published image")
     gpu = _require_mapping(pod.get("gpu"), "RunPod create response gpu")
