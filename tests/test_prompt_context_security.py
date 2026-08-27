@@ -208,18 +208,25 @@ def test_live_activation_is_blocked_on_new_prompt_authorization_and_provider_pre
     assert state["resume_rule"]["keep_paid_compute_disabled_until_provider_contract_is_current"] is True
 
 
-def test_legacy_runpod_contract_is_explicitly_blocked_from_live_enablement() -> None:
+def test_runpod_v2_beta_contract_is_current_but_still_blocked_from_live_enablement() -> None:
     runpod = load(RUNPOD_POLICY)
     audit = runpod["api_contract_audit"]
+    completion = runpod["completion_evidence"]
 
     assert runpod["api"]["live_calls_enabled"] is False
     assert runpod["api"]["live_adapter_enabled"] is False
     assert runpod["api"]["workflow_enabled"] is False
-    assert audit["implementation_contract"] == "legacy_v2_beta"
-    assert audit["current_official_rest_base_observed"] == "https://rest.runpod.io/v1"
+    assert audit["implementation_contract"] == "rest_v2_public_beta_offline"
+    assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
+    assert audit["create_env_contract_observed"] is True
+    assert audit["container_log_sse_contract_observed"] is True
     assert audit["current_official_contract_revalidation_required"] is True
     assert audit["implementation_may_not_be_enabled_live_until_revalidated"] is True
     assert audit["live_enablement_by_flag_only_forbidden"] is True
+    assert completion["protocol"] == "hmac-sha256-v2"
+    assert completion["pre_create_execution_name_required"] is True
+    assert completion["live_injection_enabled"] is False
+    assert completion["live_collection_enabled"] is False
 
 
 def test_agent_contexts_explicitly_demote_external_instructions_to_data() -> None:
