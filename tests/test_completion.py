@@ -60,6 +60,29 @@ def test_completion_evidence_from_dict_is_exact_schema() -> None:
         CompletionEvidence.from_dict({**evidence.to_dict(), "provider_job_id": "pod-123"})
 
 
+@pytest.mark.parametrize("schema_version", [True, False, 2.0, "2", 1, 3])
+def test_completion_evidence_requires_actual_integer_schema_version(schema_version: object) -> None:
+    evidence = sign_completion(challenge(), result_sha256=RESULT, secret_key=SECRET)
+    payload = {**evidence.to_dict(), "schema_version": schema_version}
+    with pytest.raises(CompletionEvidenceError, match="schema_version"):
+        CompletionEvidence.from_dict(payload)
+
+
+@pytest.mark.parametrize("schema_version", [True, False, 2.0, "2", 1, 3])
+def test_completion_challenge_requires_actual_integer_schema_version(schema_version: object) -> None:
+    c = CompletionChallenge(
+        key_id="paid-runpod-v2",
+        nonce=NONCE,
+        plan_fingerprint=PLAN,
+        execution_name=EXECUTION_NAME,
+        source_sha="d" * 40,
+        image_digest=IMAGE,
+        schema_version=schema_version,  # type: ignore[arg-type]
+    )
+    with pytest.raises(CompletionEvidenceError, match="schema_version"):
+        c.validate_shape()
+
+
 def test_completion_evidence_rejects_modified_result() -> None:
     c = challenge()
     evidence = sign_completion(c, result_sha256=RESULT, secret_key=SECRET)
