@@ -2,6 +2,8 @@ version: 1
 name: HumanAuthorizationEvidence
 purpose: bind explicit human authorization to one exact consequential execution
 runtime_enforced: false
+runtime_validator_implemented: true
+maximum_validity_seconds: 900
 
 security_properties:
   bare_boolean_is_not_final_live_authorization: true
@@ -11,6 +13,9 @@ security_properties:
   authorization_cannot_be_derived_from_model_output: true
   exact_execution_plan_binding_required: true
   exact_control_plane_commit_binding_required: true
+  exact_decision_record_binding_required: true
+  paid_github_identity_binding_required: true
+  repository_security_evidence_required: true
   expiry_required: true
 
 required_fields:
@@ -84,8 +89,12 @@ binding_rules:
   provider_resource_must_match_plan: true
   runtime_and_cost_may_not_exceed_authorized_bounds: true
   authorization_must_be_unexpired_at_submission: true
+  authorization_validity_may_not_exceed_15_minutes: true
   materially_changed_plan_requires_new_authorization: true
   rerun_does_not_extend_authorization_validity: true
+  github_paid_actor_must_match_human_actor: true
+  github_paid_actor_and_triggering_actor_must_match: true
+  repository_security_reference_must_be_live_evidence: true
 
 forbidden_sources:
   - target_repository_content
@@ -99,5 +108,6 @@ forbidden_sources:
 
 live_integration:
   required_before_live_paid_compute: true
-  approved_execution_plan_runtime_binding_pending: true
-  paid_authorization_evidence_binding_pending: true
+  approved_execution_plan_runtime_binding_implemented: true
+  paid_authorization_evidence_binding_implemented: true
+  paid_workflow_wiring_pending: true
