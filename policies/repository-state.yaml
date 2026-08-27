@@ -28,6 +28,8 @@ active_workload:
     workload_signer_boundary: root_signer_uid_0_training_uid_10001
     workload_protocol_status: implemented_and_smoke_tested
     control_plane_verifier: implemented_offline
+    production_collection_transport: blocked_pending_supported_provider_transport
+    production_pod_log_sse: unavailable_http_422_path_not_found
     live_secret_injection: false
     live_result_collection: false
 
@@ -66,6 +68,7 @@ activation_prerequisites:
   - live_account_occupancy_probe_available
   - ambiguous_create_reconciliation_available
   - authenticated_workload_completion_evidence_available
+  - supported_production_completion_transport_available
   - live_completion_secret_injection_verified
   - live_completion_result_collection_verified
   - cleanup_idempotency_reconciliation_available
