@@ -58,7 +58,8 @@ def test_parked_mode_cross_checks_all_live_provider_flags() -> None:
     assert runpod["api"]["cli_enabled"] is False
     assert runpod["api"]["workflow_enabled"] is False
     assert runpod["results"]["enabled"] is False
-    assert runpod["completion_evidence"]["implementation_status"] == "offline_contract_only"
+    assert runpod["completion_evidence"]["implementation_status"] == "pre_create_identity_and_env_contract_offline"
+    assert runpod["completion_evidence"]["protocol"] == "hmac-sha256-v2"
     assert runpod["completion_evidence"]["live_injection_enabled"] is False
     assert runpod["completion_evidence"]["live_collection_enabled"] is False
     assert agent["provider_adapter"]["live_implementation_enabled"] is False
