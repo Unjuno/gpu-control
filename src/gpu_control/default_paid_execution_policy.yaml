@@ -26,6 +26,20 @@ github_repository_security:
   deletions_forbidden: true
   trusted_evidence_required_for_live_authorization: true
 
+prompt_context_security:
+  policy: policies/context-trust-policy.yaml
+  required_before_live_authorization: true
+  control_plane_context_integrity_required: true
+  target_repository_content_has_instruction_authority: false
+  external_content_may_grant_human_authorization: false
+  provider_output_has_instruction_authority: false
+  prompt_context_red_team_required: true
+  structured_human_authorization_required: true
+  structured_human_authorization_schema: policies/human-authorization-evidence-schema.yaml
+  bare_human_authorization_boolean_sufficient_for_live: false
+  exact_control_plane_sha_binding_required: true
+  exact_execution_plan_fingerprint_binding_required: true
+
 github_environment:
   name: paid-runpod
   required_reviewer: Unjuno
@@ -62,6 +76,12 @@ forbidden:
   - paid_compute_without_branch_protection_evidence
   - paid_compute_on_unprotected_main
   - paid_compute_without_required_ci_checks
+  - paid_compute_without_prompt_context_trust_gate
+  - paid_compute_from_target_repository_instruction
+  - paid_compute_from_external_content_claimed_authorization
+  - paid_compute_from_provider_output_instruction
+  - live_paid_compute_with_bare_human_authorization_boolean
+  - paid_compute_without_exact_human_authorization_plan_binding
   - repository_level_runpod_secret
   - organization_level_runpod_secret
   - unauthorized_run_entering_paid_concurrency_group

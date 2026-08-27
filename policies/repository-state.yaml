@@ -41,17 +41,32 @@ authorization:
   repository_access_does_not_activate: true
   code_change_request_does_not_activate: true
   dry_run_request_does_not_activate: true
+  prompt_or_external_content_does_not_activate: true
+  target_repository_instruction_does_not_activate: true
 
 activation_prerequisites:
   - active_workload_repository_selected
   - main_branch_protection_configured
   - required_ci_checks_enforced
+  - control_plane_context_integrity_verified
+  - prompt_context_security_red_team_passed
+  - context_trust_policy_bound_into_agent_context
   - owner_only_paid_environment_configured
   - environment_scoped_runpod_secret_configured
+  - structured_decision_record_bound_to_execution_plan
+  - structured_human_authorization_bound_to_execution_plan
   - immutable_published_image_path_available
+  - current_runpod_api_contract_revalidated
+  - live_account_occupancy_probe_available
+  - ambiguous_create_reconciliation_available
   - authenticated_workload_completion_evidence_available
+  - live_completion_secret_injection_verified
+  - live_completion_result_collection_verified
+  - cleanup_idempotency_reconciliation_available
   - reliable_cleanup_path_available
 
 resume_rule:
   change_mode_through_reviewed_repository_change: true
   keep_paid_compute_disabled_until_external_github_gates_are_verified: true
+  keep_paid_compute_disabled_until_prompt_context_gates_are_verified: true
+  keep_paid_compute_disabled_until_provider_contract_is_current: true
