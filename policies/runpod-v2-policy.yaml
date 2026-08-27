@@ -18,7 +18,7 @@ api_contract_audit:
   implementation_may_not_be_enabled_live_until_revalidated: true
   migration_or_equivalence_review_required: true
   live_enablement_by_flag_only_forbidden: true
-  note: The current adapter remains mock-only until its request, response, pricing, occupancy, status, and cleanup contracts are revalidated against current official RunPod documentation.
+  note: The current adapter remains mock-only until its request, response, pricing, occupancy, status, completion, and cleanup contracts are revalidated against current official RunPod documentation.
 
 submission:
   approved_plan_required: true
@@ -47,6 +47,33 @@ submission:
   post_create_validation_failure_terminates_known_pod: true
   post_create_exclusivity_failure_terminates_new_pod: true
   compensating_termination_failure_is_visible: true
+
+completion_evidence:
+  protocol: hmac-sha256-v1
+  implementation_status: offline_contract_only
+  per_run_nonce_required: true
+  minimum_secret_bytes: 32
+  secret_persistence: forbidden
+  secret_logging: forbidden
+  user_override: forbidden
+  system_environment_owner: gpu-control
+  system_environment:
+    - GPU_CONTROL_COMPLETION_KEY_B64
+    - GPU_CONTROL_COMPLETION_KEY_ID
+    - GPU_CONTROL_COMPLETION_NONCE
+    - GPU_CONTROL_PLAN_FINGERPRINT
+    - GPU_CONTROL_PROVIDER_JOB_ID
+    - GPU_CONTROL_IMAGE_DIGEST
+  binds:
+    - key_id
+    - nonce
+    - approved_plan_fingerprint
+    - provider_job_id
+    - workload_source_sha
+    - image_digest
+    - result_sha256
+  live_injection_enabled: false
+  live_collection_enabled: false
 
 status:
   provisioning: submitted
@@ -104,6 +131,10 @@ forbidden:
   - accepting_price_above_verified_price
   - leaving_known_invalid_created_pod_running
   - hiding_compensating_termination_failure
+  - forwarding_user_environment_to_provider
+  - allowing_user_override_of_completion_system_environment
+  - persisting_completion_secret_in_lifecycle_json
+  - logging_completion_secret
   - treating_exited_as_success_without_completion_evidence
   - treating_unknown_provider_status_as_success
   - collecting_results_without_authenticated_completion_evidence
