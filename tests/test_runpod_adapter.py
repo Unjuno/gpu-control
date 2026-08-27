@@ -11,7 +11,13 @@ from gpu_control.providers.controller import cleanup_provider_job, observe_provi
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
 from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
-from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodV2Error
+from gpu_control.providers.runpod_v2 import (
+    PublishedImageEvidence,
+    RunPodV2Error,
+    RunPodV2HttpError,
+    RunPodV2TransportError,
+    pod_name_for_plan,
+)
 
 
 DIGEST = "sha256:" + "a" * 64
@@ -69,6 +75,7 @@ def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
 def pod_payload(value: ApprovedExecutionPlan, *, status: str = "PROVISIONING", cost: float = 0.44):
     return {
         "id": "pod-123",
+        "name": pod_name_for_plan(value),
         "image": image(value).image_reference,
         "gpu": {"id": value.provider_resource_id, "count": 1},
         "cloud": "SECURE",
@@ -82,9 +89,11 @@ class FakeClient:
         self.value = value
         self.create_calls = 0
         self.get_calls = 0
+        self.list_calls = 0
         self.terminate_calls: list[str] = []
         self.create_response = pod_payload(value)
         self.status_responses = [pod_payload(value, status="RUNNING")]
+        self.list_responses: list[dict[str, object]] = []
         self.create_error: Exception | None = None
         self.terminate_error: Exception | None = None
 
@@ -99,6 +108,12 @@ class FakeClient:
         response = self.status_responses.pop(0)
         assert response["id"] == pod_id
         return response
+
+    def list_pods(self):  # type: ignore[no-untyped-def]
+        self.list_calls += 1
+        if not self.list_responses:
+            raise AssertionError("unexpected List Pods call")
+        return self.list_responses.pop(0)
 
     def terminate_pod(self, pod_id):  # type: ignore[no-untyped-def]
         self.terminate_calls.append(pod_id)
@@ -255,17 +270,107 @@ def test_compensating_termination_failure_is_visible() -> None:
     assert client.terminate_calls == ["pod-123"]
 
 
-def test_ambiguous_create_transport_failure_is_not_retried() -> None:
+def test_ambiguous_create_is_reconciled_without_second_post() -> None:
     value = plan()
     runpod, client, occupancy = adapter(value)
-    client.create_error = RunPodV2Error("RunPod API could not be reached")
+    client.create_error = RunPodV2TransportError("ambiguous")
+    client.list_responses = [{"pods": [pod_payload(value)]}]
 
-    with pytest.raises(RunPodV2Error, match="could not be reached"):
+    submission = runpod.submit(value)
+
+    assert submission.provider_job_id == "pod-123"
+    assert occupancy.calls == 2
+    assert client.create_calls == 1
+    assert client.list_calls == 1
+    assert client.terminate_calls == []
+
+
+def test_ambiguous_create_with_no_unique_match_fails_closed_without_retry() -> None:
+    value = plan()
+    runpod, client, occupancy = adapter(value)
+    client.create_error = RunPodV2TransportError("ambiguous")
+    client.list_responses = [{"pods": []}]
+
+    with pytest.raises(RunPodV2AdapterError, match="exactly one plan-named Pod"):
         runpod.submit(value)
 
     assert occupancy.calls == 1
     assert client.create_calls == 1
+    assert client.list_calls == 1
     assert client.terminate_calls == []
+
+
+def test_ambiguous_create_with_multiple_named_matches_fails_closed() -> None:
+    value = plan()
+    runpod, client, _ = adapter(value)
+    client.create_error = RunPodV2TransportError("ambiguous")
+    second = dict(pod_payload(value), id="pod-456")
+    client.list_responses = [{"pods": [pod_payload(value), second]}]
+
+    with pytest.raises(RunPodV2AdapterError, match="exactly one plan-named Pod"):
+        runpod.submit(value)
+
+    assert client.create_calls == 1
+    assert client.list_calls == 1
+
+
+def test_cleanup_404_requires_account_absence_reconciliation() -> None:
+    value = plan()
+    runpod, client, _ = adapter(value)
+    submitted = submit_approved_plan(
+        runpod,
+        value,
+        expected_plan_fingerprint=value.fingerprint(),
+        submitted_at_utc=SUBMITTED_AT,
+    )
+    client.status_responses = [pod_payload(value, status="ERROR")]
+    failed = observe_provider_job(
+        runpod,
+        submitted.receipt,
+        observed_at_utc=SUBMITTED_AT + timedelta(seconds=10),
+        previous_observation=submitted.initial_observation,
+    )
+    client.terminate_error = RunPodV2HttpError(404)
+    client.list_responses = [{"pods": []}]
+
+    finalized = cleanup_provider_job(
+        runpod,
+        submitted.receipt,
+        failed,
+        observed_at_utc=SUBMITTED_AT + timedelta(seconds=20),
+    )
+
+    assert finalized.finalized is True
+    assert "already-absent-reconciled" in finalized.cleanup_reference
+    assert client.list_calls == 1
+
+
+def test_cleanup_404_is_not_success_when_pod_still_exists() -> None:
+    value = plan()
+    runpod, client, _ = adapter(value)
+    submitted = submit_approved_plan(
+        runpod,
+        value,
+        expected_plan_fingerprint=value.fingerprint(),
+        submitted_at_utc=SUBMITTED_AT,
+    )
+    client.status_responses = [pod_payload(value, status="ERROR")]
+    failed = observe_provider_job(
+        runpod,
+        submitted.receipt,
+        observed_at_utc=SUBMITTED_AT + timedelta(seconds=10),
+        previous_observation=submitted.initial_observation,
+    )
+    client.terminate_error = RunPodV2HttpError(404)
+    client.list_responses = [{"pods": [pod_payload(value, status="ERROR")]}]
+
+    with pytest.raises(RunPodV2AdapterError, match="still present"):
+        cleanup_provider_job(
+            runpod,
+            submitted.receipt,
+            failed,
+            observed_at_utc=SUBMITTED_AT + timedelta(seconds=20),
+        )
 
 
 def test_different_plan_is_rejected_before_occupancy_or_create() -> None:
