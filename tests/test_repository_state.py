@@ -25,12 +25,22 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
     assert state["reason"] == "activation_prerequisites_incomplete"
     workload = state["active_workload"]
     assert workload["repository"] == "Unjuno/orbitune"
-    assert workload["source_sha"] == "dfb878b91f258e8ca496fac5e457dfbc4216ba89"
+    assert workload["source_sha"] == "8c19af0e7d091a1ead928cecfdeecf177f7e32f8"
     assert workload["dockerfile_path"] == "workloads/runpod-training-canary/Dockerfile"
     assert workload["workload_id"] == "orbitune-runpod-training-canary-v1"
     assert workload["training_tokens"] == 512000
-    assert workload["source_ci"] == {"full_pytest": "passed", "runpod_canary_smoke": "passed"}
+    assert workload["source_ci"] == {
+        "full_pytest": "passed",
+        "runpod_canary_smoke": "passed",
+        "authenticated_completion_envelope": "passed",
+    }
     assert workload["immutable_image"] == {"published": False, "digest": None}
+    assert workload["completion_evidence"] == {
+        "workload_protocol": "implemented_and_smoke_tested",
+        "control_plane_verifier": "implemented_offline",
+        "live_secret_injection": False,
+        "live_result_collection": False,
+    }
     parked = state["while_parked"]
     assert all(value is False for value in parked.values())
     assert state["authorization"]["activation_requires_explicit_human_request"] is True
@@ -48,6 +58,9 @@ def test_parked_mode_cross_checks_all_live_provider_flags() -> None:
     assert runpod["api"]["cli_enabled"] is False
     assert runpod["api"]["workflow_enabled"] is False
     assert runpod["results"]["enabled"] is False
+    assert runpod["completion_evidence"]["implementation_status"] == "offline_contract_only"
+    assert runpod["completion_evidence"]["live_injection_enabled"] is False
+    assert runpod["completion_evidence"]["live_collection_enabled"] is False
     assert agent["provider_adapter"]["live_implementation_enabled"] is False
     assert container["build"]["generic_execution_enabled"] is False
     assert container["runtime"]["generic_execution_enabled"] is False
