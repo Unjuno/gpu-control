@@ -13,6 +13,7 @@ from .base import (
     ProviderStatusSnapshot,
     ProviderSubmission,
 )
+from .runpod_log_results import AuthenticatedRunPodLogResult, authenticate_runpod_log_result
 from .runpod_occupancy import RunPodAccountOccupancyEvidence
 from .runpod_pricing import (
     RunPodCatalogPricingEvidence,
@@ -137,6 +138,17 @@ class RunPodV2Adapter:
             "RunPod post-create validation failed; the returned Pod was terminated"
         ) from cause
 
+    def _authenticated_log_result(self, provider_job_id: str) -> AuthenticatedRunPodLogResult:
+        try:
+            lines = self.client.read_container_log_lines(provider_job_id)
+            return authenticate_runpod_log_result(
+                lines,
+                challenge=self.completion_challenge,
+                secret_key=self.completion_secret_key,
+            )
+        except RunPodV2Error as exc:
+            raise RunPodV2AdapterError(str(exc)) from exc
+
     def _reconcile_ambiguous_create(self, plan: ApprovedExecutionPlan) -> Mapping[str, object]:
         """Recover a possibly accepted POST without issuing a second create."""
 
@@ -234,14 +246,21 @@ class RunPodV2Adapter:
                 self.catalog_pricing,
                 pod,
                 expected_name=self.execution_name,
+                allow_exited=True,
             )
-            state = translate_pod_status(pod)
+            if pod.get("status") == "EXITED":
+                authenticated = self._authenticated_log_result(receipt.provider_job_id)
+                state = authenticated.state
+                reference = f"runpod-v2:pod:{receipt.provider_job_id}:authenticated-completion"
+            else:
+                state = translate_pod_status(pod)
+                reference = f"runpod-v2:pod:{receipt.provider_job_id}:status"
         except RunPodV2Error as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         return ProviderStatusSnapshot(
             provider_job_id=receipt.provider_job_id,
             state=state,
-            status_reference=f"runpod-v2:pod:{receipt.provider_job_id}:status",
+            status_reference=reference,
         )
 
     def cleanup(
@@ -292,9 +311,27 @@ class RunPodV2Adapter:
     def collect_results(
         self,
         receipt: SubmissionReceipt,
-        final_observation: JobObservation,
+        terminal_observation: JobObservation,
     ) -> ProviderResultSnapshot:
+        """Collect only the authenticated bounded JSON markers before cleanup."""
+
         self._require_receipt_identity(receipt)
-        raise RunPodV2AdapterError(
-            "RunPod result collection is disabled until authenticated bounded log collection is implemented"
+        if terminal_observation.provider_job_id != receipt.provider_job_id:
+            raise RunPodV2AdapterError("RunPod result observation job id mismatch")
+        if terminal_observation.plan_fingerprint != receipt.plan_fingerprint:
+            raise RunPodV2AdapterError("RunPod result observation plan fingerprint mismatch")
+        if not terminal_observation.terminal:
+            raise RunPodV2AdapterError("RunPod result collection requires a terminal observation")
+        if terminal_observation.cleanup_state is not CleanupState.NOT_STARTED:
+            raise RunPodV2AdapterError("RunPod result collection must occur before cleanup")
+
+        authenticated = self._authenticated_log_result(receipt.provider_job_id)
+        if authenticated.state is not terminal_observation.state:
+            raise RunPodV2AdapterError("authenticated result state does not match terminal observation")
+        retained = len(authenticated.result_bytes) + len(authenticated.completion_bytes)
+        return ProviderResultSnapshot(
+            provider_job_id=receipt.provider_job_id,
+            log_bytes_retained=retained,
+            logs_truncated=True,
+            artifacts=authenticated.artifacts(provider_job_id=receipt.provider_job_id),
         )
