@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -200,6 +201,22 @@ class CompletionEvidence:
         )
         value.validate_shape()
         return value
+
+
+def completion_system_env(challenge: CompletionChallenge, *, secret_key: bytes) -> dict[str, str]:
+    """Return the reserved environment injected into the approved workload only."""
+
+    challenge.validate_shape()
+    if not isinstance(secret_key, bytes) or len(secret_key) < 32:
+        raise CompletionEvidenceError("completion secret key must contain at least 32 bytes")
+    return {
+        "GPU_CONTROL_COMPLETION_KEY_B64": base64.b64encode(secret_key).decode("ascii"),
+        "GPU_CONTROL_COMPLETION_KEY_ID": challenge.key_id,
+        "GPU_CONTROL_COMPLETION_NONCE": challenge.nonce,
+        "GPU_CONTROL_EXECUTION_NAME": challenge.execution_name,
+        "GPU_CONTROL_PLAN_FINGERPRINT": challenge.plan_fingerprint,
+        "GPU_CONTROL_IMAGE_DIGEST": challenge.image_digest,
+    }
 
 
 def sign_completion(
