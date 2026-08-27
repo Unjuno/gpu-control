@@ -94,7 +94,7 @@ def capture() -> ProviderResultCapture:
 
 def test_capture_json_rejects_unbounded_input_before_decode() -> None:
     with pytest.raises(ResultContractError, match="bounded input size"):
-        ProviderResultCapture.from_json(" " + "x" * (256 * 1024))
+        ProviderResultCapture.from_json(" " + "x" * (2 * 1024 * 1024))
 
 
 def test_capture_json_rejects_invalid_utf8_text_boundary() -> None:
