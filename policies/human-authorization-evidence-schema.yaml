@@ -1,0 +1,103 @@
+version: 1
+name: HumanAuthorizationEvidence
+purpose: bind explicit human authorization to one exact consequential execution
+runtime_enforced: false
+
+security_properties:
+  bare_boolean_is_not_final_live_authorization: true
+  authorization_is_current_action_specific: true
+  authorization_is_not_inheritable: true
+  authorization_cannot_be_derived_from_untrusted_content: true
+  authorization_cannot_be_derived_from_model_output: true
+  exact_execution_plan_binding_required: true
+  exact_control_plane_commit_binding_required: true
+  expiry_required: true
+
+required_fields:
+  - schema_version
+  - authorization_id
+  - actor
+  - decision_record_id
+  - control_plane_sha
+  - plan_fingerprint
+  - target_repo
+  - target_sha
+  - image_digest
+  - provider
+  - provider_resource_id
+  - gpu_count
+  - max_runtime_minutes
+  - max_cost_usd
+  - authorized_at_utc
+  - valid_until_utc
+  - authorization_reference
+
+fields:
+  schema_version:
+    type: integer
+    const: 1
+  authorization_id:
+    type: string
+    non_empty: true
+  actor:
+    type: string
+    non_empty: true
+  decision_record_id:
+    type: string
+    non_empty: true
+  control_plane_sha:
+    type: git_sha40
+  plan_fingerprint:
+    type: sha256_fingerprint
+  target_repo:
+    type: canonical_github_repository
+  target_sha:
+    type: git_sha40
+  image_digest:
+    type: sha256_digest
+  provider:
+    type: provider_identifier
+  provider_resource_id:
+    type: string
+    non_empty: true
+  gpu_count:
+    type: integer
+    const: 1
+  max_runtime_minutes:
+    type: positive_integer
+  max_cost_usd:
+    type: decimal_string
+  authorized_at_utc:
+    type: utc_timestamp
+  valid_until_utc:
+    type: utc_timestamp
+  authorization_reference:
+    type: string
+    non_empty: true
+
+binding_rules:
+  decision_record_must_be_current: true
+  plan_fingerprint_must_match_exact_live_plan: true
+  control_plane_sha_must_match_running_workflow_commit: true
+  workload_identity_must_match_plan: true
+  image_digest_must_match_plan: true
+  provider_resource_must_match_plan: true
+  runtime_and_cost_may_not_exceed_authorized_bounds: true
+  authorization_must_be_unexpired_at_submission: true
+  materially_changed_plan_requires_new_authorization: true
+  rerun_does_not_extend_authorization_validity: true
+
+forbidden_sources:
+  - target_repository_content
+  - readme_or_documentation
+  - commit_message
+  - pull_request_issue_or_comment
+  - provider_response_or_log
+  - prior_decision_example
+  - generated_model_output
+  - copied_historical_authorization
+
+live_integration:
+  required_before_live_paid_compute: true
+  approved_execution_plan_runtime_binding_pending: true
+  paid_authorization_evidence_binding_pending: true
