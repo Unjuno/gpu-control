@@ -219,11 +219,20 @@ def build_priced_create_pod_payload(
     pricing: RunPodCatalogPricingEvidence,
     *,
     disk_gb: int = 20,
+    execution_name: str | None = None,
+    system_env: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
-    """Build a create request whose cloud is bound to the approved catalog price."""
+    """Build a create request whose cloud is bound to approved catalog evidence."""
 
     pricing.validate_against_plan(plan)
-    return build_create_pod_payload(plan, image, disk_gb=disk_gb, cloud=pricing.cloud)
+    return build_create_pod_payload(
+        plan,
+        image,
+        disk_gb=disk_gb,
+        cloud=pricing.cloud,
+        execution_name=execution_name,
+        system_env=system_env,
+    )
 
 
 def validate_created_pod_with_pricing(
@@ -231,8 +240,10 @@ def validate_created_pod_with_pricing(
     image: PublishedImageEvidence,
     pricing: RunPodCatalogPricingEvidence,
     pod: Mapping[str, Any],
+    *,
+    expected_name: str | None = None,
 ) -> str:
     pricing.validate_against_plan(plan)
     if pod.get("cloud") != pricing.cloud:
         raise RunPodV2Error("RunPod create response cloud does not match approved catalog evidence")
-    return validate_created_pod(plan, image, pod)
+    return validate_created_pod(plan, image, pod, expected_name=expected_name)
