@@ -18,7 +18,18 @@ from .runpod_pricing import (
     build_priced_create_pod_payload,
     validate_created_pod_with_pricing,
 )
-from .runpod_v2 import PublishedImageEvidence, RunPodV2Error, RunPodV2HttpClient, translate_pod_status
+from .runpod_reconciliation import (
+    RunPodPodInventoryEvidence,
+    cleanup_reconciled,
+    reconcile_ambiguous_create,
+)
+from .runpod_v2 import (
+    PublishedImageEvidence,
+    RunPodCompletionLaunch,
+    RunPodV2Error,
+    RunPodV2HttpClient,
+    translate_pod_status,
+)
 
 
 class RunPodV2AdapterError(RuntimeError):
@@ -34,10 +45,10 @@ class RunPodV2Adapter:
     """RunPod ProviderAdapter implementation with live wiring intentionally disabled.
 
     In addition to plan/image/pricing identity, submission requires an account-wide
-    occupancy probe. The probe must show zero active Pods immediately before create
-    and exactly the newly created Pod immediately after create. This prevents an
-    unauthorized or out-of-band Pod from silently sharing the account's paid GPU
-    execution capacity with gpu-control.
+    occupancy probe. Optional reconciliation wiring can recover one ambiguous create
+    only when a per-execution completion identity and a fresh full Pod inventory are
+    both available. Cleanup can use the same inventory to confirm that an ambiguous
+    terminate request nevertheless released the exact Pod.
     """
 
     client: RunPodV2HttpClient
@@ -45,6 +56,8 @@ class RunPodV2Adapter:
     published_image: PublishedImageEvidence
     catalog_pricing: RunPodCatalogPricingEvidence
     occupancy_probe: Callable[[ApprovedExecutionPlan], RunPodAccountOccupancyEvidence]
+    inventory_probe: Callable[[ApprovedExecutionPlan], RunPodPodInventoryEvidence] | None = None
+    completion_launch: RunPodCompletionLaunch | None = None
     disk_gb: int = 20
     clock: Callable[[], datetime] = _utc_now
 
@@ -53,12 +66,16 @@ class RunPodV2Adapter:
             self.approved_plan.validate_shape()
             self.published_image.validate_against_plan(self.approved_plan)
             self.catalog_pricing.validate_against_plan(self.approved_plan)
+            if self.completion_launch is not None:
+                self.completion_launch.validate_against_plan(self.approved_plan)
         except (ValueError, RunPodV2Error) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if self.approved_plan.provider != "runpod":
             raise RunPodV2AdapterError("RunPod adapter requires a runpod approved plan")
         if not callable(self.occupancy_probe):
             raise RunPodV2AdapterError("RunPod adapter requires an account occupancy probe")
+        if self.inventory_probe is not None and not callable(self.inventory_probe):
+            raise RunPodV2AdapterError("RunPod inventory_probe must be callable when configured")
         if not callable(self.clock):
             raise RunPodV2AdapterError("RunPod adapter clock must be callable")
         if isinstance(self.disk_gb, bool) or not isinstance(self.disk_gb, int) or self.disk_gb < 1:
@@ -105,6 +122,18 @@ class RunPodV2Adapter:
             raise RunPodV2Error("RunPod occupancy probe returned an invalid evidence type")
         evidence.validate_after_create(plan, expected_pod_id=pod_id, now_utc=self.clock())
 
+    def _probe_inventory(self, plan: ApprovedExecutionPlan) -> RunPodPodInventoryEvidence:
+        if self.inventory_probe is None:
+            raise RunPodV2AdapterError("RunPod reconciliation inventory is not configured")
+        try:
+            evidence = self.inventory_probe(plan)
+            if not isinstance(evidence, RunPodPodInventoryEvidence):
+                raise RunPodV2Error("RunPod inventory probe returned an invalid evidence type")
+            evidence.validate_against_plan(plan, now_utc=self.clock())
+            return evidence
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV2AdapterError(str(exc)) from exc
+
     def _terminate_invalid_created_pod(self, pod_id: str, cause: Exception) -> None:
         try:
             self.client.terminate_pod(pod_id)
@@ -116,6 +145,36 @@ class RunPodV2Adapter:
             "RunPod post-create validation failed; the returned Pod was terminated"
         ) from cause
 
+    def _reconcile_create_failure(self, plan: ApprovedExecutionPlan, create_error: RunPodV2Error) -> ProviderSubmission:
+        if self.completion_launch is None or self.inventory_probe is None:
+            raise create_error
+        try:
+            evidence = self._probe_inventory(plan)
+            candidate_id = reconcile_ambiguous_create(
+                evidence,
+                plan,
+                self.completion_launch.challenge,
+                now_utc=self.clock(),
+            )
+            candidate = self.client.get_pod(candidate_id)
+            validated_id = validate_created_pod_with_pricing(
+                plan,
+                self.published_image,
+                self.catalog_pricing,
+                candidate,
+                completion=self.completion_launch,
+            )
+            if validated_id != candidate_id:
+                raise RunPodV2Error("RunPod reconciled Pod id changed during validation")
+            self._probe_after_create(plan, validated_id)
+        except RunPodV2AdapterError:
+            raise
+        except (RunPodV2Error, ValueError) as reconciliation_error:
+            raise RunPodV2AdapterError(
+                "RunPod create outcome is ambiguous and could not be reconciled to one trusted execution"
+            ) from reconciliation_error
+        return ProviderSubmission(provider_job_id=validated_id)
+
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
         """Submit exactly once after owner/account exclusivity checks pass."""
 
@@ -126,11 +185,16 @@ class RunPodV2Adapter:
             self.published_image,
             self.catalog_pricing,
             disk_gb=self.disk_gb,
+            completion=self.completion_launch,
         )
 
-        # Deliberately one request. A transport failure after the server may have
-        # accepted POST /pods is ambiguous and must be reconciled, not blindly retried.
-        pod = self.client.create_pod(payload)
+        # Deliberately one create request. A failed transport may be reconciled
+        # by exact pre-create execution identity, but create itself is never retried.
+        try:
+            pod = self.client.create_pod(payload)
+        except RunPodV2Error as create_error:
+            return self._reconcile_create_failure(plan, create_error)
+
         pod_id = pod.get("id") if isinstance(pod, dict) else None
         try:
             validated_id = validate_created_pod_with_pricing(
@@ -138,6 +202,7 @@ class RunPodV2Adapter:
                 self.published_image,
                 self.catalog_pricing,
                 pod,
+                completion=self.completion_launch,
             )
         except RunPodV2Error as validation_error:
             if isinstance(pod_id, str) and pod_id.strip():
@@ -164,6 +229,7 @@ class RunPodV2Adapter:
                 self.published_image,
                 self.catalog_pricing,
                 pod,
+                completion=self.completion_launch,
             )
             state = translate_pod_status(pod)
         except RunPodV2Error as exc:
@@ -186,11 +252,30 @@ class RunPodV2Adapter:
             raise RunPodV2AdapterError("RunPod cleanup observation plan fingerprint mismatch")
         if not terminal_observation.terminal:
             raise RunPodV2AdapterError("RunPod cleanup requires a terminal observation")
-        self.client.terminate_pod(receipt.provider_job_id)
+        try:
+            self.client.terminate_pod(receipt.provider_job_id)
+            cleanup_reference = f"runpod-v2:pod:{receipt.provider_job_id}:terminated"
+        except RunPodV2Error as cleanup_error:
+            if self.inventory_probe is None:
+                raise cleanup_error
+            try:
+                evidence = self._probe_inventory(self.approved_plan)
+                if not cleanup_reconciled(
+                    evidence,
+                    self.approved_plan,
+                    receipt.provider_job_id,
+                    now_utc=self.clock(),
+                ):
+                    raise RunPodV2Error("RunPod Pod remains active after ambiguous terminate request")
+            except (RunPodV2Error, ValueError) as reconciliation_error:
+                raise RunPodV2AdapterError(
+                    "RunPod cleanup failed and the exact Pod could not be proven released"
+                ) from reconciliation_error
+            cleanup_reference = f"runpod-v2:pod:{receipt.provider_job_id}:reconciled-released"
         return ProviderCleanupSnapshot(
             provider_job_id=receipt.provider_job_id,
             cleanup_state=CleanupState.COMPLETED,
-            cleanup_reference=f"runpod-v2:pod:{receipt.provider_job_id}:terminated",
+            cleanup_reference=cleanup_reference,
         )
 
     def collect_results(
