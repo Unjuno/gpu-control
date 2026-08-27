@@ -229,6 +229,18 @@ def test_log_scan_has_explicit_line_and_byte_bounds() -> None:
         authenticate((oversized_ordinary_line, lines[1], lines[2]))
 
 
+def test_oversized_line_is_rejected_before_utf8_copy() -> None:
+    lines, _, _ = authenticated_lines()
+
+    class EncodeBomb(str):
+        def encode(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("oversized line must be rejected before encode")
+
+    oversized = EncodeBomb("x" * (MAX_SCAN_BYTES + 1))
+    with pytest.raises(RunPodV2Error, match="bounded byte count"):
+        authenticate((oversized, lines[1], lines[2]))
+
+
 def test_non_string_log_line_is_rejected() -> None:
     lines, _, _ = authenticated_lines()
     with pytest.raises(RunPodV2Error, match="must be a string"):
@@ -305,6 +317,30 @@ def test_nested_result_schema_is_strict_and_self_consistent() -> None:
 def test_nonfinite_numeric_result_fields_are_rejected() -> None:
     lines, _, _ = authenticated_lines(training_payload(final_training_loss=float("nan")))
     with pytest.raises(RunPodV2Error, match="final_training_loss"):
+        authenticate(lines)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["elapsed_seconds", "tokens_per_second", "first_training_loss", "final_training_loss"],
+)
+def test_oversized_numeric_result_fields_fail_closed(field: str) -> None:
+    lines, _, _ = authenticated_lines(training_payload(**{field: 10**400}))
+    with pytest.raises(RunPodV2Error, match=field):
+        authenticate(lines)
+
+
+@pytest.mark.parametrize("status", [[], {}])
+def test_unhashable_status_is_rejected_as_schema_data(status: object) -> None:
+    lines, _, _ = authenticated_lines(training_payload(status=status))
+    with pytest.raises(RunPodV2Error, match="status"):
+        authenticate(lines)
+
+
+@pytest.mark.parametrize("device_type", [[], {}])
+def test_unhashable_device_type_is_rejected_as_schema_data(device_type: object) -> None:
+    lines, _, _ = authenticated_lines(training_payload(device_type=device_type))
+    with pytest.raises(RunPodV2Error, match="device_type"):
         authenticate(lines)
 
 
