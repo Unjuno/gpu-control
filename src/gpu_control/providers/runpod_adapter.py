@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, Mapping
 
 from ..execution import ApprovedExecutionPlan
 from ..lifecycle import CleanupState, JobObservation, SubmissionReceipt
@@ -18,7 +18,15 @@ from .runpod_pricing import (
     build_priced_create_pod_payload,
     validate_created_pod_with_pricing,
 )
-from .runpod_v2 import PublishedImageEvidence, RunPodV2Error, RunPodV2HttpClient, translate_pod_status
+from .runpod_v2 import (
+    PublishedImageEvidence,
+    RunPodV2Error,
+    RunPodV2HttpClient,
+    RunPodV2HttpError,
+    RunPodV2TransportError,
+    pod_name_for_plan,
+    translate_pod_status,
+)
 
 
 class RunPodV2AdapterError(RuntimeError):
@@ -31,13 +39,12 @@ def _utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class RunPodV2Adapter:
-    """RunPod ProviderAdapter implementation with live wiring intentionally disabled.
+    """RunPod ProviderAdapter with account exclusivity and reconciliation.
 
-    In addition to plan/image/pricing identity, submission requires an account-wide
-    occupancy probe. The probe must show zero active Pods immediately before create
-    and exactly the newly created Pod immediately after create. This prevents an
-    unauthorized or out-of-band Pod from silently sharing the account's paid GPU
-    execution capacity with gpu-control.
+    Submission requires account-wide occupancy evidence immediately before and
+    after create. A transport failure after POST /pods is never blindly retried:
+    the adapter lists the account and accepts only one Pod with the deterministic
+    plan-derived name that also passes full plan/image/pricing validation.
     """
 
     client: RunPodV2HttpClient
@@ -116,6 +123,46 @@ class RunPodV2Adapter:
             "RunPod post-create validation failed; the returned Pod was terminated"
         ) from cause
 
+    def _reconcile_ambiguous_create(self, plan: ApprovedExecutionPlan) -> Mapping[str, object]:
+        """Recover a possibly accepted POST without issuing a second create."""
+
+        expected_name = pod_name_for_plan(plan)
+        try:
+            payload = self.client.list_pods()
+        except Exception as exc:
+            raise RunPodV2AdapterError(
+                "RunPod create outcome is ambiguous and account reconciliation failed; do not retry create"
+            ) from exc
+        pods = payload.get("pods")
+        if not isinstance(pods, list):
+            raise RunPodV2AdapterError(
+                "RunPod create outcome is ambiguous and List Pods response is invalid; do not retry create"
+            )
+        matches = [
+            pod for pod in pods
+            if isinstance(pod, Mapping) and pod.get("name") == expected_name
+        ]
+        if len(matches) != 1:
+            raise RunPodV2AdapterError(
+                "RunPod create outcome remains ambiguous; expected exactly one plan-named Pod and will not retry create"
+            )
+        candidate = matches[0]
+        try:
+            validate_created_pod_with_pricing(
+                plan,
+                self.published_image,
+                self.catalog_pricing,
+                candidate,
+            )
+        except RunPodV2Error as exc:
+            candidate_id = candidate.get("id")
+            if isinstance(candidate_id, str) and candidate_id.strip():
+                self._terminate_invalid_created_pod(candidate_id.strip(), exc)
+            raise RunPodV2AdapterError(
+                "RunPod reconciled Pod failed validation before a trustworthy Pod id was available"
+            ) from exc
+        return candidate
+
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
         """Submit exactly once after owner/account exclusivity checks pass."""
 
@@ -128,10 +175,12 @@ class RunPodV2Adapter:
             disk_gb=self.disk_gb,
         )
 
-        # Deliberately one request. A transport failure after the server may have
-        # accepted POST /pods is ambiguous and must be reconciled, not blindly retried.
-        pod = self.client.create_pod(payload)
-        pod_id = pod.get("id") if isinstance(pod, dict) else None
+        try:
+            pod = self.client.create_pod(payload)
+        except RunPodV2TransportError:
+            pod = self._reconcile_ambiguous_create(plan)
+
+        pod_id = pod.get("id") if isinstance(pod, Mapping) else None
         try:
             validated_id = validate_created_pod_with_pricing(
                 plan,
@@ -186,11 +235,37 @@ class RunPodV2Adapter:
             raise RunPodV2AdapterError("RunPod cleanup observation plan fingerprint mismatch")
         if not terminal_observation.terminal:
             raise RunPodV2AdapterError("RunPod cleanup requires a terminal observation")
-        self.client.terminate_pod(receipt.provider_job_id)
+
+        cleanup_reference = f"runpod-v2:pod:{receipt.provider_job_id}:terminated"
+        try:
+            self.client.terminate_pod(receipt.provider_job_id)
+        except RunPodV2HttpError as exc:
+            if exc.status_code != 404:
+                raise RunPodV2AdapterError(str(exc)) from exc
+            try:
+                payload = self.client.list_pods()
+            except Exception as reconcile_error:
+                raise RunPodV2AdapterError(
+                    "RunPod cleanup returned 404 and absence reconciliation failed"
+                ) from reconcile_error
+            pods = payload.get("pods")
+            if not isinstance(pods, list):
+                raise RunPodV2AdapterError("RunPod cleanup absence reconciliation returned invalid List Pods data")
+            if any(
+                isinstance(pod, Mapping) and pod.get("id") == receipt.provider_job_id
+                for pod in pods
+            ):
+                raise RunPodV2AdapterError(
+                    "RunPod cleanup returned 404 but the Pod is still present in List Pods"
+                )
+            cleanup_reference = f"runpod-v2:pod:{receipt.provider_job_id}:already-absent-reconciled"
+        except RunPodV2Error as exc:
+            raise RunPodV2AdapterError(str(exc)) from exc
+
         return ProviderCleanupSnapshot(
             provider_job_id=receipt.provider_job_id,
             cleanup_state=CleanupState.COMPLETED,
-            cleanup_reference=f"runpod-v2:pod:{receipt.provider_job_id}:terminated",
+            cleanup_reference=cleanup_reference,
         )
 
     def collect_results(
