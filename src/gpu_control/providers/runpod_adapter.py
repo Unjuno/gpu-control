@@ -196,9 +196,9 @@ class RunPodV2Adapter:
     def collect_results(
         self,
         receipt: SubmissionReceipt,
-        final_observation: JobObservation,
+        lifecycle_observation: JobObservation,
     ) -> ProviderResultSnapshot:
         self._require_receipt_identity(receipt)
         raise RunPodV2AdapterError(
-            "RunPod result collection is disabled until authenticated workload-completion evidence is implemented"
+            "RunPod result collection is disabled until a production-supported authenticated collection transport is verified"
         )
