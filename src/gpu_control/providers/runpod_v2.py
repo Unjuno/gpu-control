@@ -25,14 +25,27 @@ class RunPodV2Error(RuntimeError):
     """Raised when the RunPod API v2 boundary is malformed or unsafe."""
 
 
+class RunPodV2TransportError(RunPodV2Error):
+    """Raised when a request has an ambiguous transport outcome.
+
+    A transport failure during POST /pods may happen after RunPod accepted the
+    request. Callers must reconcile account state and must not blindly retry.
+    """
+
+
+class RunPodV2HttpError(RunPodV2Error):
+    """RunPod returned a definite HTTP error response."""
+
+    def __init__(self, status_code: int, detail: str = "") -> None:
+        self.status_code = status_code
+        self.detail = detail
+        suffix = f": {detail}" if detail else ""
+        super().__init__(f"RunPod API returned HTTP {status_code}{suffix}")
+
+
 @dataclass(frozen=True)
 class PublishedImageEvidence:
-    """Trusted publication evidence for the immutable image submitted to RunPod.
-
-    The approved plan binds the image content by digest. This evidence adds the
-    pullable registry location and binds it back to the exact approved-plan
-    fingerprint. It is intentionally not accepted as arbitrary workflow input.
-    """
+    """Trusted publication evidence for the immutable image submitted to RunPod."""
 
     plan_fingerprint: str
     image_reference: str
@@ -62,14 +75,26 @@ class PublishedImageEvidence:
             raise RunPodV2Error("published image verification_reference must not contain surrounding whitespace")
 
 
+def pod_name_for_plan(plan: ApprovedExecutionPlan) -> str:
+    """Return the deterministic provider name used for create reconciliation."""
+
+    plan.validate_shape()
+    return f"gpu-control-{plan.fingerprint()[7:19]}"
+
+
 def build_create_pod_payload(
     plan: ApprovedExecutionPlan,
     image: PublishedImageEvidence,
     *,
     disk_gb: int = 20,
     cloud: str = "SECURE",
+    system_env: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
-    """Build the minimal RunPod v2 create-pod body from trusted inputs only."""
+    """Build the minimal RunPod v2 create-pod body from trusted inputs only.
+
+    ``system_env`` is reserved for control-plane-generated values. Raw workload
+    or workflow inputs must never be forwarded through it.
+    """
 
     try:
         plan.validate_shape()
@@ -83,8 +108,8 @@ def build_create_pod_payload(
     if cloud not in _ALLOWED_CLOUDS:
         raise RunPodV2Error("cloud must be SECURE or COMMUNITY")
 
-    return {
-        "name": f"gpu-control-{plan.fingerprint()[7:19]}",
+    payload: dict[str, object] = {
+        "name": pod_name_for_plan(plan),
         "image": image.image_reference,
         "gpu": {
             "id": plan.provider_resource_id,
@@ -94,6 +119,20 @@ def build_create_pod_payload(
         "cloud": cloud,
         "globalNetworking": False,
     }
+    if system_env is not None:
+        if not isinstance(system_env, Mapping) or not system_env:
+            raise RunPodV2Error("system_env must be a non-empty mapping when supplied")
+        normalized: dict[str, str] = {}
+        for key, value in system_env.items():
+            if not isinstance(key, str) or not re.fullmatch(r"GPU_CONTROL_[A-Z0-9_]+", key):
+                raise RunPodV2Error("system_env keys must be GPU_CONTROL_* identifiers")
+            if not isinstance(value, str) or not value or value != value.strip():
+                raise RunPodV2Error("system_env values must be non-empty trimmed strings")
+            if any(ord(character) < 32 or ord(character) == 127 for character in value):
+                raise RunPodV2Error("system_env values must not contain control characters")
+            normalized[key] = value
+        payload["env"] = normalized
+    return payload
 
 
 def _require_mapping(payload: object, label: str) -> Mapping[str, Any]:
@@ -117,12 +156,14 @@ def validate_created_pod(
     image: PublishedImageEvidence,
     pod: Mapping[str, Any],
 ) -> str:
-    """Validate RunPod's create response before it becomes lifecycle identity."""
+    """Validate RunPod's create/list/get response before it becomes lifecycle identity."""
 
     image.validate_against_plan(plan)
     pod_id = pod.get("id")
     if not isinstance(pod_id, str) or not pod_id.strip():
         raise RunPodV2Error("RunPod create response is missing pod id")
+    if pod.get("name") not in {None, pod_name_for_plan(plan)}:
+        raise RunPodV2Error("RunPod Pod name does not match approved plan identity")
     if pod.get("image") != image.image_reference:
         raise RunPodV2Error("RunPod create response image does not match published image")
     gpu = _require_mapping(pod.get("gpu"), "RunPod create response gpu")
@@ -155,12 +196,7 @@ def translate_pod_status(pod: Mapping[str, Any]) -> JobState:
 
 
 class RunPodV2HttpClient:
-    """Small fixed-origin HTTP client for RunPod REST API v2.
-
-    The class is not wired to any CLI or workflow. Tests inject an opener so CI
-    never contacts RunPod. The production default origin is fixed to prevent an
-    API key from being redirected to an arbitrary host.
-    """
+    """Small fixed-origin HTTP client for the current RunPod REST API v2 beta."""
 
     def __init__(
         self,
@@ -208,12 +244,12 @@ class RunPodV2HttpClient:
             try:
                 payload = json.loads(exc.read().decode("utf-8"))
                 if isinstance(payload, dict) and isinstance(payload.get("detail"), str):
-                    detail = f": {payload['detail']}"
+                    detail = payload["detail"]
             except Exception:
                 pass
-            raise RunPodV2Error(f"RunPod API returned HTTP {exc.code}{detail}") from exc
-        except URLError as exc:
-            raise RunPodV2Error("RunPod API could not be reached") from exc
+            raise RunPodV2HttpError(exc.code, detail) from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise RunPodV2TransportError("RunPod API transport outcome is ambiguous") from exc
 
         if status != expected_status:
             raise RunPodV2Error(f"RunPod API returned unexpected HTTP status {status}")
@@ -227,6 +263,13 @@ class RunPodV2HttpClient:
             raise RunPodV2Error("RunPod API returned invalid JSON") from exc
         if not isinstance(payload, dict):
             raise RunPodV2Error("RunPod API returned a non-object JSON response")
+        return payload
+
+    def list_pods(self) -> dict[str, Any]:
+        payload = self._request("GET", "/pods", expected_status=200)
+        assert payload is not None
+        if not isinstance(payload.get("pods"), list):
+            raise RunPodV2Error("RunPod List Pods response is missing pods")
         return payload
 
     def list_gpu_types(self, *, cloud: str = "SECURE", count: int = 1) -> dict[str, Any]:
