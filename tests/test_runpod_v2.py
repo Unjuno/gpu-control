@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import io
 import json
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -15,7 +15,10 @@ from gpu_control.providers.runpod_v2 import (
     PublishedImageEvidence,
     RunPodV2Error,
     RunPodV2HttpClient,
+    RunPodV2HttpError,
+    RunPodV2TransportError,
     build_create_pod_payload,
+    pod_name_for_plan,
     translate_pod_status,
     validate_created_pod,
 )
@@ -67,7 +70,7 @@ def test_create_payload_is_minimal_and_digest_pinned() -> None:
     payload = build_create_pod_payload(plan, make_image(plan))
 
     assert payload == {
-        "name": f"gpu-control-{plan.fingerprint()[7:19]}",
+        "name": pod_name_for_plan(plan),
         "image": f"ghcr.io/example/model@{DIGEST}",
         "gpu": {"id": "NVIDIA GeForce RTX 4090", "count": 1},
         "disk": 20,
@@ -77,6 +80,25 @@ def test_create_payload_is_minimal_and_digest_pinned() -> None:
     assert "env" not in payload
     assert "ports" not in payload
     assert "mounts" not in payload
+
+
+def test_create_payload_accepts_only_control_plane_system_environment() -> None:
+    plan = make_plan()
+    payload = build_create_pod_payload(
+        plan,
+        make_image(plan),
+        system_env={
+            "GPU_CONTROL_COMPLETION_KEY_ID": "canary-v2",
+            "GPU_CONTROL_COMPLETION_NONCE": "a" * 64,
+        },
+    )
+    assert payload["env"] == {
+        "GPU_CONTROL_COMPLETION_KEY_ID": "canary-v2",
+        "GPU_CONTROL_COMPLETION_NONCE": "a" * 64,
+    }
+
+    with pytest.raises(RunPodV2Error, match="GPU_CONTROL"):
+        build_create_pod_payload(plan, make_image(plan), system_env={"USER_VALUE": "no"})
 
 
 def test_create_payload_rejects_untrusted_or_mutable_image_binding() -> None:
@@ -115,6 +137,7 @@ def test_created_pod_is_revalidated_against_plan() -> None:
     image = make_image(plan)
     pod = {
         "id": "pod-123",
+        "name": pod_name_for_plan(plan),
         "image": image.image_reference,
         "gpu": {"id": plan.provider_resource_id, "count": 1},
         "cost": 0.44,
@@ -130,6 +153,10 @@ def test_created_pod_is_revalidated_against_plan() -> None:
     wrong_gpu = dict(pod, gpu={"id": "NVIDIA A100", "count": 1})
     with pytest.raises(RunPodV2Error, match="GPU identity"):
         validate_created_pod(plan, image, wrong_gpu)
+
+    wrong_name = dict(pod, name="someone-else")
+    with pytest.raises(RunPodV2Error, match="Pod name"):
+        validate_created_pod(plan, image, wrong_name)
 
 
 def test_runpod_status_translation_is_fail_closed() -> None:
@@ -164,6 +191,7 @@ def test_http_client_uses_fixed_origin_bearer_auth_and_v2_paths() -> None:
     calls = []
     responses = iter(
         [
+            FakeResponse(200, {"pods": []}),
             FakeResponse(200, {"gpus": []}),
             FakeResponse(201, {"id": "pod-123"}),
             FakeResponse(200, {"id": "pod-123", "status": "RUNNING"}),
@@ -177,6 +205,7 @@ def test_http_client_uses_fixed_origin_bearer_auth_and_v2_paths() -> None:
         return next(responses)
 
     client = RunPodV2HttpClient("secret-token", timeout=3.0, opener=opener)
+    client.list_pods()
     client.list_gpu_types()
     client.create_pod({"name": "test"})
     client.get_pod("pod-123")
@@ -185,33 +214,44 @@ def test_http_client_uses_fixed_origin_bearer_auth_and_v2_paths() -> None:
 
     urls = [request.full_url for request, _ in calls]
     assert urls == [
+        f"{RUNPOD_V2_BASE_URL}/pods",
         f"{RUNPOD_V2_BASE_URL}/catalog/gpus?include=AVAILABILITY&product=POD&count=1&cloud=SECURE",
         f"{RUNPOD_V2_BASE_URL}/pods",
         f"{RUNPOD_V2_BASE_URL}/pods/pod-123",
         f"{RUNPOD_V2_BASE_URL}/pods/pod-123/action",
         f"{RUNPOD_V2_BASE_URL}/pods/pod-123",
     ]
-    assert [request.get_method() for request, _ in calls] == ["GET", "POST", "GET", "POST", "DELETE"]
+    assert [request.get_method() for request, _ in calls] == ["GET", "GET", "POST", "GET", "POST", "DELETE"]
     assert all(timeout == 3.0 for _, timeout in calls)
     assert all(request.get_header("Authorization") == "Bearer secret-token" for request, _ in calls)
-    stop_body = json.loads(calls[3][0].data.decode("utf-8"))
+    stop_body = json.loads(calls[4][0].data.decode("utf-8"))
     assert stop_body == {"action": "stop"}
 
 
-def test_http_errors_do_not_leak_api_key() -> None:
+def test_http_errors_do_not_leak_api_key_and_preserve_status() -> None:
     body = io.BytesIO(json.dumps({"detail": "access denied"}).encode("utf-8"))
 
     def opener(request, timeout):  # type: ignore[no-untyped-def]
         raise HTTPError(request.full_url, 403, "Forbidden", {}, body)
 
     client = RunPodV2HttpClient("super-secret-api-key", opener=opener)
-    with pytest.raises(RunPodV2Error) as exc_info:
+    with pytest.raises(RunPodV2HttpError) as exc_info:
         client.get_pod("pod-123")
 
+    assert exc_info.value.status_code == 403
     message = str(exc_info.value)
     assert "HTTP 403" in message
     assert "access denied" in message
     assert "super-secret-api-key" not in message
+
+
+def test_transport_failure_is_classified_as_ambiguous() -> None:
+    def opener(request, timeout):  # type: ignore[no-untyped-def]
+        raise URLError("connection reset")
+
+    client = RunPodV2HttpClient("secret", opener=opener)
+    with pytest.raises(RunPodV2TransportError, match="ambiguous"):
+        client.create_pod({"name": "test"})
 
 
 def test_client_rejects_arbitrary_actions_and_bad_identifiers_without_network() -> None:
