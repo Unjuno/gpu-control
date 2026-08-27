@@ -6,16 +6,19 @@ The adapter is **mock-tested only**. `policies/runpod-v2-policy.yaml` keeps live
 
 ## Trusted construction inputs
 
-A `RunPodV2Adapter` is constructed from four already-established inputs:
+A `RunPodV2Adapter` is constructed from already-established control-plane inputs:
 
 ```text
 RunPodV2HttpClient
 ApprovedExecutionPlan
 PublishedImageEvidence
 RunPodCatalogPricingEvidence
+account occupancy probe
+optional Pod inventory probe
+optional RunPodCompletionLaunch
 ```
 
-The adapter constructor revalidates the plan, immutable published image, exact plan fingerprint, RunPod GPU type, cloud-specific catalog price, and pricing validity metadata. The adapter does not accept a raw `WorkloadRequest`.
+The adapter constructor revalidates the plan, immutable published image, exact plan fingerprint, RunPod GPU type, cloud-specific catalog price, pricing validity metadata, and—when present—the per-execution completion launch. The adapter does not accept a raw `WorkloadRequest`.
 
 The existing `submit_approved_plan(...)` controller remains the outer paid-compute boundary. It still validates the trusted expected plan fingerprint and pricing freshness before invoking `adapter.submit(...)`.
 
@@ -25,15 +28,39 @@ The existing `submit_approved_plan(...)` controller remains the outer paid-compu
 
 A transport failure is ambiguous: the server may have accepted the Pod even if the client did not receive the response. Blindly retrying the POST could therefore allocate a second billable Pod.
 
-Until an explicit reconciliation mechanism exists, an ambiguous create failure is surfaced for operator/recovery handling rather than retried automatically.
+The adapter can now reconcile that ambiguity, but only when both of these are configured:
 
-The deterministic Pod name derived from the approved-plan fingerprint is useful correlation metadata, but it is not assumed to be an API-level idempotency key.
+1. a `RunPodCompletionLaunch` carrying the unique pre-create `CompletionChallenge.execution_name`;
+2. a fresh bounded full-account Pod inventory.
+
+The reconciliation contract follows the pinned official RunPod v2 List Pods behavior: `GET /v2/pods` returns a `{pods: [...]}` envelope and v2 does not provide server-side name filtering. The control plane therefore validates the full bounded inventory locally and requires exactly one Pod whose name equals the execution identity.
+
+```text
+POST /pods
+   |
+   +-- response received ------------------------> validate normally
+   |
+   +-- transport/API error
+          -> fresh full-account inventory
+          -> exact execution-name match
+             +-- zero matches -------------------> fail closed
+             +-- multiple matches ---------------> fail closed
+             +-- TERMINATED-only match ----------> fail closed
+             +-- exactly one live candidate
+                    -> GET /pods/{id}
+                    -> revalidate name/image/GPU/cloud/price/status
+                    -> re-check account exclusivity
+                    -> persist provider job id
+```
+
+The create request itself is never retried. A plan-level deterministic name is not sufficient for recovery because separate executions of the same plan need independent identities; ambiguous-create reconciliation therefore requires the per-execution completion challenge.
 
 ## Compensating termination after known bad creation
 
 A 201 response is not sufficient to trust the allocation. The adapter revalidates the returned:
 
 - Pod id;
+- per-execution name when completion launch is configured;
 - digest-pinned image reference;
 - GPU type and count;
 - cloud;
@@ -42,29 +69,44 @@ A 201 response is not sufficient to trust the allocation. The adapter revalidate
 
 If this validation fails **and the response contains a usable Pod id**, the adapter immediately calls the irreversible terminate endpoint before returning an error.
 
-```text
-POST /pods
-   |
-   +-- response valid -----------------> persist provider job id
-   |
-   +-- response invalid + known id ----> DELETE /pods/{id} -> error
-   |
-   +-- response invalid + no id -------> error / reconciliation required
-```
-
 A failure of the compensating termination is itself surfaced as a stronger error. It is never hidden as ordinary validation failure because an invalid billable resource may still exist.
 
 ## Observation
 
 `observe(...)` requires the persisted receipt to remain bound to the same approved plan, GPU resource identity, and image digest.
 
-Each `GET /pods/{id}` response is revalidated against the same image and catalog pricing evidence before status translation. Unknown states fail closed. `EXITED` remains ambiguous and is not translated to success.
+Each `GET /pods/{id}` response is revalidated against the same image and catalog pricing evidence before status translation. When a completion launch is configured, the Pod name must also remain the exact pre-create execution identity. Unknown states fail closed. `EXITED` remains ambiguous and is not translated to success.
 
-## Cleanup
+## Cleanup and idempotency reconciliation
 
-For a trusted terminal observation, `cleanup(...)` calls the RunPod terminate endpoint and returns `CleanupState.COMPLETED` only after the HTTP operation succeeds.
+For a trusted terminal observation, `cleanup(...)` performs one terminate request. A successful terminate response records cleanup as completed.
 
-Cleanup failures remain visible through the existing lifecycle/recovery model. Result capture failure does not authorize leaving a billable Pod running.
+If the terminate request itself errors, the adapter does **not** blindly report success and does not need to issue a second terminate immediately. When a fresh bounded inventory probe is configured, it rechecks the exact provider Pod id:
+
+```text
+terminate error
+   -> fresh full-account inventory
+      +-- exact Pod id absent ----------> cleanup completed (reconciled)
+      +-- exact Pod status TERMINATED --> cleanup completed (reconciled)
+      +-- exact Pod still active -------> cleanup failure remains visible
+      +-- invalid/ambiguous inventory --> cleanup failure remains visible
+```
+
+This supports retries after an ambiguous delete without turning an active Pod into false cleanup success. Result capture failure never authorizes leaving a billable Pod running.
+
+## Inventory evidence bounds
+
+`runpod_reconciliation.py` normalizes one List Pods response into short-lived `RunPodPodInventoryEvidence`:
+
+- at most 256 Pod entries;
+- unique Pod ids;
+- bounded, trimmed id/name/status fields;
+- canonical uppercase status;
+- deterministic SHA-256 content reference;
+- exact approved-plan fingerprint binding;
+- at most 60 seconds validity.
+
+Reconstructed evidence recomputes the content digest and revalidates every entry before use.
 
 ## Results remain disabled because the production transport is missing
 
