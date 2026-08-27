@@ -168,8 +168,14 @@ def validate_created_pod(
     pod: Mapping[str, Any],
     *,
     expected_name: str | None = None,
+    allow_exited: bool = False,
 ) -> str:
-    """Validate RunPod's create/list/get response before it becomes lifecycle identity."""
+    """Validate RunPod Pod identity and provider-returned allocation fields.
+
+    ``EXITED`` remains unusable as a terminal outcome by itself. ``allow_exited``
+    only permits identity validation to finish so a caller can authenticate the
+    workload's signed completion evidence before assigning SUCCEEDED or FAILED.
+    """
 
     image.validate_against_plan(plan)
     pod_id = pod.get("id")
@@ -189,6 +195,8 @@ def validate_created_pod(
     hourly_cost = _parse_positive_decimal(pod.get("cost"), "RunPod create response cost")
     if hourly_cost > plan.verified_hourly_price_usd:
         raise RunPodV2Error("RunPod create response cost exceeds verified approved price")
+    if allow_exited and pod.get("status") == "EXITED":
+        return pod_id.strip()
     translate_pod_status(pod)
     return pod_id.strip()
 
