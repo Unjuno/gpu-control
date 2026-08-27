@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from types import MappingProxyType
 
 import pytest
@@ -9,26 +10,34 @@ from gpu_control.lifecycle import JobState
 from gpu_control.providers.runpod_log_results import AuthenticatedRunPodLogResult
 from gpu_control.workload_contracts.orbitune_canary import (
     MAX_CHECKPOINT_BYTES,
+    SELECTED_SOURCE_SHA,
     WorkloadAcceptanceError,
     validate_orbitune_canary_result,
 )
 
 
-SOURCE = "38594057d1b118a7acf6c843e39d7d8a25571316"
+SOURCE = SELECTED_SOURCE_SHA
 PLAN = "sha256:" + "1" * 64
 IMAGE = "sha256:" + "2" * 64
 NONCE = "a" * 64
+RESULT_BYTES = b"authenticated-result"
 
 
-def completion_evidence() -> CompletionEvidence:
+def completion_evidence(
+    *,
+    source_sha: str = SOURCE,
+    plan_fingerprint: str = PLAN,
+    image_digest: str = IMAGE,
+    result_bytes: bytes = RESULT_BYTES,
+) -> CompletionEvidence:
     return CompletionEvidence(
         key_id="paid-runpod-v2",
         nonce=NONCE,
-        plan_fingerprint=PLAN,
-        execution_name=execution_name_for(PLAN, NONCE),
-        source_sha=SOURCE,
-        image_digest=IMAGE,
-        result_sha256="sha256:" + "3" * 64,
+        plan_fingerprint=plan_fingerprint,
+        execution_name=execution_name_for(plan_fingerprint, NONCE),
+        source_sha=source_sha,
+        image_digest=image_digest,
+        result_sha256="sha256:" + hashlib.sha256(result_bytes).hexdigest(),
         mac_sha256="4" * 64,
     )
 
@@ -80,24 +89,43 @@ def accepted_payload(**overrides: object) -> MappingProxyType:
     return MappingProxyType(payload)
 
 
-def authenticated_result(**payload_overrides: object) -> AuthenticatedRunPodLogResult:
+def authenticated_result(
+    *,
+    evidence: CompletionEvidence | None = None,
+    result_bytes: bytes = RESULT_BYTES,
+    **payload_overrides: object,
+) -> AuthenticatedRunPodLogResult:
     return AuthenticatedRunPodLogResult(
         state=JobState.SUCCEEDED,
         process_exit_code=0,
-        result_bytes=b"authenticated-result",
+        result_bytes=result_bytes,
         completion_bytes=b"authenticated-completion",
         result_payload=accepted_payload(**payload_overrides),
-        completion_evidence=completion_evidence(),
+        completion_evidence=evidence or completion_evidence(result_bytes=result_bytes),
+    )
+
+
+def accept(
+    authenticated: AuthenticatedRunPodLogResult | None = None,
+    *,
+    expected_source_sha: str = SOURCE,
+    expected_plan_fingerprint: str = PLAN,
+    expected_image_digest: str = IMAGE,
+):
+    return validate_orbitune_canary_result(
+        authenticated or authenticated_result(),
+        expected_source_sha=expected_source_sha,
+        expected_plan_fingerprint=expected_plan_fingerprint,
+        expected_image_digest=expected_image_digest,
     )
 
 
 def test_exact_gpu_canary_result_is_accepted_but_not_provider_finalized() -> None:
-    evidence = validate_orbitune_canary_result(
-        authenticated_result(), expected_source_sha=SOURCE
-    )
+    evidence = accept()
 
     assert evidence.schema_version == 1
     assert evidence.source_sha == SOURCE
+    assert evidence.plan_fingerprint == PLAN
     assert evidence.image_digest == IMAGE
     assert evidence.workload_id == "orbitune-runpod-training-canary-v1"
     assert evidence.parameters == 10_200_960
@@ -109,15 +137,14 @@ def test_exact_gpu_canary_result_is_accepted_but_not_provider_finalized() -> Non
 
 def test_cpu_smoke_pass_is_not_paid_canary_acceptance() -> None:
     with pytest.raises(WorkloadAcceptanceError, match="requires CUDA"):
-        validate_orbitune_canary_result(
+        accept(
             authenticated_result(
                 device_type="cpu",
                 cuda_available=False,
                 gpu_name=None,
                 cuda_version=None,
                 peak_vram_bytes=0,
-            ),
-            expected_source_sha=SOURCE,
+            )
         )
 
 
@@ -137,9 +164,7 @@ def test_scaled_or_different_workload_result_is_not_canary_acceptance(
     field: str, value: object, message: str
 ) -> None:
     with pytest.raises(WorkloadAcceptanceError, match=message):
-        validate_orbitune_canary_result(
-            authenticated_result(**{field: value}), expected_source_sha=SOURCE
-        )
+        accept(authenticated_result(**{field: value}))
 
 
 def test_validation_schedule_and_improvement_are_acceptance_gates() -> None:
@@ -151,10 +176,7 @@ def test_validation_schedule_and_improvement_are_acceptance_gates() -> None:
         MappingProxyType({"step": 249, "loss": 2.0}),
     )
     with pytest.raises(WorkloadAcceptanceError, match="validation schedule"):
-        validate_orbitune_canary_result(
-            authenticated_result(validation_history=wrong_schedule),
-            expected_source_sha=SOURCE,
-        )
+        accept(authenticated_result(validation_history=wrong_schedule))
 
     not_improved = (
         MappingProxyType({"step": 50, "loss": 2.0}),
@@ -164,10 +186,19 @@ def test_validation_schedule_and_improvement_are_acceptance_gates() -> None:
         MappingProxyType({"step": 250, "loss": 2.4}),
     )
     with pytest.raises(WorkloadAcceptanceError, match="did not improve"):
-        validate_orbitune_canary_result(
-            authenticated_result(validation_history=not_improved),
-            expected_source_sha=SOURCE,
-        )
+        accept(authenticated_result(validation_history=not_improved))
+
+
+def test_validation_numeric_overflow_fails_closed() -> None:
+    oversized = (
+        MappingProxyType({"step": 50, "loss": 10**400}),
+        MappingProxyType({"step": 100, "loss": 3.5}),
+        MappingProxyType({"step": 150, "loss": 3.0}),
+        MappingProxyType({"step": 200, "loss": 2.5}),
+        MappingProxyType({"step": 250, "loss": 2.0}),
+    )
+    with pytest.raises(WorkloadAcceptanceError, match="validation loss"):
+        accept(authenticated_result(validation_history=oversized))
 
 
 def test_checkpoint_metadata_remains_bounded_and_container_local() -> None:
@@ -183,9 +214,7 @@ def test_checkpoint_metadata_remains_bounded_and_container_local() -> None:
         ),
     )
     with pytest.raises(WorkloadAcceptanceError, match="checkpoint size"):
-        validate_orbitune_canary_result(
-            authenticated_result(artifacts=oversized), expected_source_sha=SOURCE
-        )
+        accept(authenticated_result(artifacts=oversized))
 
     falsely_collected = (
         MappingProxyType(
@@ -199,24 +228,55 @@ def test_checkpoint_metadata_remains_bounded_and_container_local() -> None:
         ),
     )
     with pytest.raises(WorkloadAcceptanceError, match="transport boundary"):
-        validate_orbitune_canary_result(
-            authenticated_result(artifacts=falsely_collected), expected_source_sha=SOURCE
-        )
+        accept(authenticated_result(artifacts=falsely_collected))
 
 
-def test_source_sha_and_process_success_are_trusted_acceptance_inputs() -> None:
+def test_selected_source_sha_is_frozen_and_payload_must_match_it() -> None:
+    with pytest.raises(WorkloadAcceptanceError, match="not the selected"):
+        accept(expected_source_sha="e" * 40)
+
     with pytest.raises(WorkloadAcceptanceError, match="source_sha mismatch"):
-        validate_orbitune_canary_result(
-            authenticated_result(), expected_source_sha="e" * 40
-        )
+        accept(authenticated_result(source_sha="e" * 40))
 
+    wrong_completion = completion_evidence(source_sha="e" * 40)
+    with pytest.raises(WorkloadAcceptanceError, match="completion source_sha"):
+        accept(authenticated_result(evidence=wrong_completion))
+
+
+def test_approved_plan_and_image_identity_are_acceptance_inputs() -> None:
+    with pytest.raises(WorkloadAcceptanceError, match="plan_fingerprint mismatch"):
+        accept(expected_plan_fingerprint="sha256:" + "9" * 64)
+    with pytest.raises(WorkloadAcceptanceError, match="image_digest mismatch"):
+        accept(expected_image_digest="sha256:" + "8" * 64)
+
+    wrong_plan = completion_evidence(plan_fingerprint="sha256:" + "9" * 64)
+    with pytest.raises(WorkloadAcceptanceError, match="plan_fingerprint mismatch"):
+        accept(authenticated_result(evidence=wrong_plan))
+
+    wrong_image = completion_evidence(image_digest="sha256:" + "8" * 64)
+    with pytest.raises(WorkloadAcceptanceError, match="image_digest mismatch"):
+        accept(authenticated_result(evidence=wrong_image))
+
+
+def test_result_bytes_remain_bound_to_completion_digest() -> None:
+    wrong_digest = completion_evidence(result_bytes=b"other-result")
+    with pytest.raises(WorkloadAcceptanceError, match="result_sha256"):
+        accept(authenticated_result(evidence=wrong_digest))
+
+
+def test_schema_version_must_be_actual_integer() -> None:
+    with pytest.raises(WorkloadAcceptanceError, match="schema_version"):
+        accept(authenticated_result(schema_version=1.0))
+
+
+def test_process_success_is_required_before_workload_acceptance() -> None:
     failed = AuthenticatedRunPodLogResult(
         state=JobState.FAILED,
         process_exit_code=2,
-        result_bytes=b"authenticated-result",
+        result_bytes=RESULT_BYTES,
         completion_bytes=b"authenticated-completion",
         result_payload=accepted_payload(status="fail"),
         completion_evidence=completion_evidence(),
     )
     with pytest.raises(WorkloadAcceptanceError, match="process success"):
-        validate_orbitune_canary_result(failed, expected_source_sha=SOURCE)
+        accept(failed)
