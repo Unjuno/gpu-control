@@ -184,7 +184,8 @@ def build_catalog_pricing_evidence(
         raise RunPodV2Error("RunPod GPU has no HIGH-availability data center")
 
     verified_at = _format_utc(verified_at_utc)
-    valid_until = _format_utc(verified_at_utc + timedelta(seconds=validity_seconds))
+    valid_until = _format_utc(verified_at_utc + timedelta(seconds=validity_seconds)
+    )
     normalized = {
         "gpu_profile": request.gpu_profile,
         "gpu_type_id": gpu_type_id,
@@ -242,8 +243,15 @@ def validate_created_pod_with_pricing(
     pod: Mapping[str, Any],
     *,
     expected_name: str | None = None,
+    allow_exited: bool = False,
 ) -> str:
     pricing.validate_against_plan(plan)
     if pod.get("cloud") != pricing.cloud:
         raise RunPodV2Error("RunPod create response cloud does not match approved catalog evidence")
-    return validate_created_pod(plan, image, pod, expected_name=expected_name)
+    return validate_created_pod(
+        plan,
+        image,
+        pod,
+        expected_name=expected_name,
+        allow_exited=allow_exited,
+    )
