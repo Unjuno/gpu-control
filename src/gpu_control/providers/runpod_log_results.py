@@ -62,6 +62,7 @@ _VALIDATION_POINT_KEYS = frozenset({"step", "loss"})
 _ARTIFACT_KEYS = frozenset({"name", "bytes", "sha256", "media_type", "transport"})
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _WORKLOAD_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+_BASE64URL_RE = re.compile(r"^[A-Za-z0-9_-]+={0,2}$")
 
 
 @dataclass(frozen=True)
@@ -128,10 +129,15 @@ def _decode_marker(line: str, marker: str) -> bytes:
     encoded = line[len(marker):]
     if not encoded:
         raise RunPodV2Error(f"{marker[:-1]} log marker payload is empty")
+    if not _BASE64URL_RE.fullmatch(encoded):
+        raise RunPodV2Error(f"{marker[:-1]} log marker is not canonical base64url")
     try:
-        return base64.b64decode(encoded.encode("ascii"), altchars=b"-_", validate=True)
+        raw = base64.b64decode(encoded.encode("ascii"), altchars=b"-_", validate=True)
     except Exception as exc:
         raise RunPodV2Error(f"{marker[:-1]} log marker is not valid base64url") from exc
+    if base64.urlsafe_b64encode(raw).decode("ascii") != encoded:
+        raise RunPodV2Error(f"{marker[:-1]} log marker is not canonical base64url")
+    return raw
 
 
 def _json_object(raw: bytes, label: str) -> dict[str, Any]:
@@ -147,8 +153,8 @@ def _json_object(raw: bytes, label: str) -> dict[str, Any]:
         payload = json.loads(raw.decode("utf-8"), object_pairs_hook=reject_duplicate_keys)
     except RunPodV2Error:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RunPodV2Error(f"{label} marker is not valid UTF-8 JSON") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RunPodV2Error(f"{label} marker is not valid bounded UTF-8 JSON") from exc
     if not isinstance(payload, dict):
         raise RunPodV2Error(f"{label} marker must contain a JSON object")
     return payload
@@ -252,8 +258,7 @@ def _validate_training_result(payload: Mapping[str, Any]) -> None:
     _require_trimmed_string(payload.get("tokenizer"), "tokenizer")
     _require_trimmed_string(payload.get("torch_version"), "torch_version")
 
-    parameters = _require_actual_int(payload.get("parameters"), "parameters", minimum=1)
-    del parameters
+    _require_actual_int(payload.get("parameters"), "parameters", minimum=1)
     steps = _require_actual_int(payload.get("steps"), "steps", minimum=1)
     batch_size = _require_actual_int(payload.get("batch_size"), "batch_size", minimum=1)
     seq_len = _require_actual_int(payload.get("seq_len"), "seq_len", minimum=2)
@@ -330,10 +335,10 @@ def authenticate_runpod_log_result(
     """Authenticate one exact bounded Orbitune result/completion marker pair.
 
     This function performs no network or provider calls. The caller must supply
-    complete bounded container-log lines from the exact Pod correlated by a trusted
-    SubmissionReceipt, a trusted process exit code for that same execution, and the
-    workload id from trusted control-plane state. An authenticated result marker
-    alone can never establish successful execution.
+    complete bounded container-log lines from the exact provider execution,
+    a trusted process exit code for that same execution, and the workload id from
+    trusted control-plane state. An authenticated result marker alone can never
+    establish successful execution.
     """
 
     challenge.validate_shape()
