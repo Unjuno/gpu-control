@@ -72,7 +72,7 @@ def test_standard_base64_alphabet_is_not_accepted_as_base64url() -> None:
     raw = b"\xfb\xff"
     standard = base64.b64encode(raw).decode("ascii")
     assert "+" in standard or "/" in standard
-    with pytest.raises(RunPodV2Error, match="canonical base64url"):
+    with pytest.raises(RunPodV2Error, match="not valid base64url"):
         authenticate(RESULT_MARKER + standard, completion_marker_for(raw))
 
 
@@ -81,5 +81,5 @@ def test_noncanonical_base64url_padding_is_rejected() -> None:
     canonical = base64.urlsafe_b64encode(raw).decode("ascii")
     assert canonical.endswith("=")
     without_padding = canonical.rstrip("=")
-    with pytest.raises(RunPodV2Error, match="canonical base64url"):
+    with pytest.raises(RunPodV2Error, match="not valid base64url"):
         authenticate(RESULT_MARKER + without_padding, completion_marker_for(raw))
