@@ -3,10 +3,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import sys
 
 import pytest
 
 from gpu_control.completion import CompletionChallenge, execution_name_for, sign_completion
+from gpu_control.providers import runpod_log_results
 from gpu_control.providers.runpod_log_results import (
     COMPLETION_MARKER,
     RESULT_MARKER,
@@ -66,12 +68,22 @@ def test_json_integer_digit_limit_is_normalized_to_runpod_error() -> None:
         authenticate(marker(RESULT_MARKER, raw), completion_marker_for(raw))
 
 
-def test_excessive_json_nesting_is_normalized_to_runpod_error() -> None:
-    raw = b'{"nested":' + (b"[" * 5000) + b"0" + (b"]" * 5000) + b"}"
+@pytest.mark.skipif(sys.version_info[:2] != (3, 11), reason="real decoder recursion reproducer is Python 3.11-specific")
+def test_python311_excessive_json_nesting_is_normalized_to_runpod_error() -> None:
+    raw = b'{"nested":' + (b"[" * 1100) + b"0" + (b"]" * 1100) + b"}"
     encoded_marker = marker(RESULT_MARKER, raw)
     assert len(encoded_marker.encode("ascii")) < 16 * 1024
     with pytest.raises(RunPodV2Error, match="bounded UTF-8 JSON"):
         authenticate(encoded_marker, completion_marker_for(raw))
+
+
+def test_json_recursion_error_is_normalized_on_every_supported_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    def raise_recursion(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise RecursionError("synthetic decoder recursion")
+
+    monkeypatch.setattr(runpod_log_results.json, "loads", raise_recursion)
+    with pytest.raises(RunPodV2Error, match="bounded UTF-8 JSON"):
+        authenticate(RESULT_MARKER + "e30=", COMPLETION_MARKER + "e30=")
 
 
 def test_unencodable_provider_log_text_is_normalized_to_runpod_error() -> None:
