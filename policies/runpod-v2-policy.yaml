@@ -18,6 +18,13 @@ api_contract_audit:
   implementation_may_not_be_enabled_live_until_revalidated: true
   live_enablement_by_flag_only_forbidden: true
   create_env_contract_observed: true
+  list_pods_contract_observed: true
+  list_pods_endpoint: GET /pods
+  list_pods_response_envelope: pods
+  list_pods_server_side_name_filter_supported: false
+  list_pods_evidence_repository: runpod/runpod-mcp
+  list_pods_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
+  list_pods_evidence_path: src/tools/pods.ts
   pod_container_log_sse_status: dev_only_prod_unavailable
   pod_container_log_sse_prod_verified: false
   pod_container_log_sse_prod_failure: http_422_path_not_found
@@ -27,7 +34,7 @@ api_contract_audit:
   pod_container_log_sse_evidence_path: test.md
   pod_container_log_sse_evidence_section: "K — Dev-only tools, currently DISABLED (not registered)"
   pod_container_log_sse_evidence_url: https://github.com/runpod/runpod-mcp/blob/465872464c4f157a2e87afcd855c60a607954c26/test.md
-  note: RunPod REST API v2 is live in production at the canonical api.runpod.io/v2 origin, but RunPod's official MCP validation at the pinned revision above records GET /v2/pods/{id}/logs as dev-only and returning HTTP 422 path-not-found in production. gpu-control must therefore not wire authenticated production result collection to that endpoint. Live calls remain disabled, and the complete current official contract must be revalidated immediately before any activation.
+  note: RunPod REST API v2 is live in production at the canonical api.runpod.io/v2 origin. The pinned official MCP implementation confirms full-account GET /v2/pods with local filtering semantics, while its validation records GET /v2/pods/{id}/logs as dev-only and returning HTTP 422 path-not-found in production. gpu-control may model bounded create/cleanup reconciliation against List Pods offline, but must not wire authenticated production result collection to the unavailable logs endpoint. Live calls remain disabled, and the complete current official contract must be revalidated immediately before any activation.
 
 submission:
   approved_plan_required: true
@@ -46,6 +53,16 @@ submission:
   user_mounts_forwarded: false
   automatic_create_retry: false
   ambiguous_create_requires_reconciliation: true
+  ambiguous_create_reconciliation_status: implemented_offline_mock_tested
+  ambiguous_create_reconciliation_live_verified: false
+  ambiguous_create_reconciliation_requires_per_execution_identity: true
+  ambiguous_create_reconciliation_inventory_endpoint: GET /pods
+  ambiguous_create_reconciliation_inventory_max_entries: 256
+  ambiguous_create_reconciliation_inventory_max_ttl_seconds: 60
+  ambiguous_create_zero_match: reject
+  ambiguous_create_multiple_match: reject
+  ambiguous_create_terminated_only_match: reject
+  ambiguous_create_candidate_requires_full_get_revalidation: true
   pre_create_account_must_have_zero_non_terminated_pods: true
   post_create_account_must_contain_only_new_pod: true
   occupancy_evidence_max_ttl_seconds: 60
@@ -105,6 +122,13 @@ cleanup:
   terminate_is_irreversible: true
   cleanup_failure_visible: true
   idempotent_already_absent_reconciliation_required_before_live: true
+  idempotent_reconciliation_status: implemented_offline_mock_tested
+  idempotent_reconciliation_live_verified: false
+  reconciliation_inventory_endpoint: GET /pods
+  reconciliation_accept_absent_exact_pod: true
+  reconciliation_accept_explicit_terminated_exact_pod: true
+  reconciliation_reject_active_exact_pod: true
+  reconciliation_invalid_inventory_is_failure: true
 
 results:
   enabled: false
@@ -143,6 +167,9 @@ forbidden:
   - losing_account_exclusivity_after_create
   - automatic_retry_after_ambiguous_create
   - ambiguous_create_without_reconciliation
+  - ambiguous_create_reconciliation_without_per_execution_identity
+  - accepting_zero_or_multiple_ambiguous_create_matches
+  - accepting_reconciled_candidate_without_full_identity_revalidation
   - unverified_post_create_gpu_identity
   - create_response_cloud_mismatch
   - accepting_price_above_verified_price
@@ -158,3 +185,4 @@ forbidden:
   - collecting_live_results_through_unavailable_prod_pod_log_sse
   - treating_dev_only_provider_operation_as_production_contract
   - treating_cleanup_404_as_success_without_reconciliation_policy
+  - treating_active_pod_as_cleanup_success_after_terminate_error
