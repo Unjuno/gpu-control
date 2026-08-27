@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from ..completion import CompletionChallenge, CompletionEvidenceError
 from ..execution import ApprovedExecutionPlan
@@ -14,65 +14,6 @@ from .runpod_v2 import RunPodV2Error
 _MAX_INVENTORY_ENTRIES = 256
 _MAX_EVIDENCE_TTL_SECONDS = 60
 _TERMINATED = "TERMINATED"
-
-
-@dataclass(frozen=True)
-class RunPodPodInventoryEntry:
-    """Minimal Pod identity needed for create/cleanup reconciliation."""
-
-    provider_job_id: str
-    name: str
-    status: str
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "provider_job_id": self.provider_job_id,
-            "name": self.name,
-            "status": self.status,
-        }
-
-
-@dataclass(frozen=True)
-class RunPodPodInventoryEvidence:
-    """Short-lived account-wide Pod inventory derived from one v2 List Pods response."""
-
-    plan_fingerprint: str
-    pods: tuple[RunPodPodInventoryEntry, ...]
-    checked_at_utc: str
-    valid_until_utc: str
-    verification_reference: str
-    schema_version: int = 1
-
-    def validate_against_plan(self, plan: ApprovedExecutionPlan, *, now_utc: datetime) -> None:
-        plan.validate_shape()
-        if self.schema_version != 1:
-            raise RunPodV2Error("unsupported RunPod inventory evidence schema_version")
-        if self.plan_fingerprint != plan.fingerprint():
-            raise RunPodV2Error("RunPod inventory evidence does not match approved plan fingerprint")
-        if not isinstance(self.pods, tuple):
-            raise RunPodV2Error("RunPod inventory pods must be a tuple")
-        if len(self.pods) > _MAX_INVENTORY_ENTRIES:
-            raise RunPodV2Error("RunPod inventory exceeds bounded Pod count")
-        seen_ids: set[str] = set()
-        for entry in self.pods:
-            if not isinstance(entry, RunPodPodInventoryEntry):
-                raise RunPodV2Error("RunPod inventory contains an invalid entry")
-            if entry.provider_job_id in seen_ids:
-                raise RunPodV2Error("RunPod inventory contains duplicate Pod ids")
-            seen_ids.add(entry.provider_job_id)
-        if not isinstance(self.verification_reference, str) or not self.verification_reference.strip():
-            raise RunPodV2Error("RunPod inventory verification_reference is required")
-        checked = _parse_utc(self.checked_at_utc, "checked_at_utc")
-        valid_until = _parse_utc(self.valid_until_utc, "valid_until_utc")
-        now = _require_utc(now_utc, "now_utc")
-        if valid_until <= checked:
-            raise RunPodV2Error("RunPod inventory validity window is invalid")
-        if valid_until - checked > timedelta(seconds=_MAX_EVIDENCE_TTL_SECONDS):
-            raise RunPodV2Error("RunPod inventory evidence may be valid for at most 60 seconds")
-        if now < checked:
-            raise RunPodV2Error("RunPod inventory evidence is newer than reconciliation time")
-        if now >= valid_until:
-            raise RunPodV2Error("RunPod inventory evidence expired before reconciliation")
 
 
 def _require_utc(value: datetime, field: str) -> datetime:
@@ -108,6 +49,81 @@ def _require_text(value: object, field: str, *, max_length: int) -> str:
     if any(ord(character) < 32 or ord(character) == 127 for character in value):
         raise RunPodV2Error(f"{field} must not contain control characters")
     return value
+
+
+@dataclass(frozen=True)
+class RunPodPodInventoryEntry:
+    """Minimal Pod identity needed for create/cleanup reconciliation."""
+
+    provider_job_id: str
+    name: str
+    status: str
+
+    def validate_shape(self) -> None:
+        _require_text(self.provider_job_id, "RunPod inventory provider_job_id", max_length=512)
+        _require_text(self.name, "RunPod inventory name", max_length=256)
+        status = _require_text(self.status, "RunPod inventory status", max_length=64)
+        if status != status.upper():
+            raise RunPodV2Error("RunPod inventory status must be canonical uppercase")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "provider_job_id": self.provider_job_id,
+            "name": self.name,
+            "status": self.status,
+        }
+
+
+def _inventory_digest(entries: tuple[RunPodPodInventoryEntry, ...]) -> str:
+    normalized = [entry.to_dict() for entry in entries]
+    return hashlib.sha256(
+        json.dumps(normalized, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+@dataclass(frozen=True)
+class RunPodPodInventoryEvidence:
+    """Short-lived account-wide Pod inventory derived from one v2 List Pods response."""
+
+    plan_fingerprint: str
+    pods: tuple[RunPodPodInventoryEntry, ...]
+    checked_at_utc: str
+    valid_until_utc: str
+    verification_reference: str
+    schema_version: int = 1
+
+    def validate_against_plan(self, plan: ApprovedExecutionPlan, *, now_utc: datetime) -> None:
+        plan.validate_shape()
+        if self.schema_version != 1:
+            raise RunPodV2Error("unsupported RunPod inventory evidence schema_version")
+        if self.plan_fingerprint != plan.fingerprint():
+            raise RunPodV2Error("RunPod inventory evidence does not match approved plan fingerprint")
+        if not isinstance(self.pods, tuple):
+            raise RunPodV2Error("RunPod inventory pods must be a tuple")
+        if len(self.pods) > _MAX_INVENTORY_ENTRIES:
+            raise RunPodV2Error("RunPod inventory exceeds bounded Pod count")
+        seen_ids: set[str] = set()
+        for entry in self.pods:
+            if not isinstance(entry, RunPodPodInventoryEntry):
+                raise RunPodV2Error("RunPod inventory contains an invalid entry")
+            entry.validate_shape()
+            if entry.provider_job_id in seen_ids:
+                raise RunPodV2Error("RunPod inventory contains duplicate Pod ids")
+            seen_ids.add(entry.provider_job_id)
+        expected_reference = f"runpod-v2-pods:sha256:{_inventory_digest(self.pods)}"
+        if self.verification_reference != expected_reference:
+            raise RunPodV2Error("RunPod inventory verification_reference does not match Pod contents")
+        checked = _parse_utc(self.checked_at_utc, "checked_at_utc")
+        valid_until = _parse_utc(self.valid_until_utc, "valid_until_utc")
+        now = _require_utc(now_utc, "now_utc")
+        if valid_until <= checked:
+            raise RunPodV2Error("RunPod inventory validity window is invalid")
+        if valid_until - checked > timedelta(seconds=_MAX_EVIDENCE_TTL_SECONDS):
+            raise RunPodV2Error("RunPod inventory evidence may be valid for at most 60 seconds")
+        if now < checked:
+            raise RunPodV2Error("RunPod inventory evidence is newer than reconciliation time")
+        if now >= valid_until:
+            raise RunPodV2Error("RunPod inventory evidence expired before reconciliation")
 
 
 def build_pod_inventory_evidence(
@@ -147,20 +163,19 @@ def build_pod_inventory_evidence(
         seen_ids.add(pod_id)
         name = _require_text(raw.get("name"), "RunPod List Pods name", max_length=256)
         status = _require_text(raw.get("status"), "RunPod List Pods status", max_length=64).upper()
-        entries.append(RunPodPodInventoryEntry(provider_job_id=pod_id, name=name, status=status))
+        entry = RunPodPodInventoryEntry(provider_job_id=pod_id, name=name, status=status)
+        entry.validate_shape()
+        entries.append(entry)
 
     entries.sort(key=lambda item: (item.provider_job_id, item.name, item.status))
-    normalized = [entry.to_dict() for entry in entries]
-    digest = hashlib.sha256(
-        json.dumps(normalized, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    pods = tuple(entries)
     valid_until = checked + timedelta(seconds=ttl_seconds)
     evidence = RunPodPodInventoryEvidence(
         plan_fingerprint=plan.fingerprint(),
-        pods=tuple(entries),
+        pods=pods,
         checked_at_utc=_format_utc(checked),
         valid_until_utc=_format_utc(valid_until),
-        verification_reference=f"runpod-v2-pods:sha256:{digest}",
+        verification_reference=f"runpod-v2-pods:sha256:{_inventory_digest(pods)}",
     )
     evidence.validate_against_plan(plan, now_utc=checked)
     return evidence
