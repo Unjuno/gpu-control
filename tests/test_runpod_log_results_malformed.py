@@ -67,10 +67,11 @@ def test_json_integer_digit_limit_is_normalized_to_runpod_error() -> None:
 
 
 def test_excessive_json_nesting_is_normalized_to_runpod_error() -> None:
-    raw = b'{"nested":' + (b"[" * 1100) + b"0" + (b"]" * 1100) + b"}"
-    assert len(raw) < 16 * 1024
+    raw = b'{"nested":' + (b"[" * 5000) + b"0" + (b"]" * 5000) + b"}"
+    encoded_marker = marker(RESULT_MARKER, raw)
+    assert len(encoded_marker.encode("ascii")) < 16 * 1024
     with pytest.raises(RunPodV2Error, match="bounded UTF-8 JSON"):
-        authenticate(marker(RESULT_MARKER, raw), completion_marker_for(raw))
+        authenticate(encoded_marker, completion_marker_for(raw))
 
 
 def test_unencodable_provider_log_text_is_normalized_to_runpod_error() -> None:
