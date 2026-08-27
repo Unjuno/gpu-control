@@ -77,7 +77,7 @@ completion_evidence:
   provider_job_id_binding: submission_receipt_and_exact_pod_log_endpoint
   result_marker: "GPU_CONTROL_RESULT_JSON_V1:"
   completion_marker: "GPU_CONTROL_COMPLETION_JSON_V2:"
-  max_marker_bytes: 131072
+  max_marker_bytes: 16384
   live_injection_enabled: false
   live_collection_enabled: false
 
