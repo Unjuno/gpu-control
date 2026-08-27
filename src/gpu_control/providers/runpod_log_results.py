@@ -102,7 +102,10 @@ def _select_markers(lines: Iterable[str]) -> tuple[str, str]:
         # oversized provider line before materializing an encoded copy.
         if len(line) > remaining_bytes:
             raise RunPodV2Error("RunPod container log scan exceeded bounded byte count")
-        encoded_line = line.encode("utf-8")
+        try:
+            encoded_line = line.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise RunPodV2Error("RunPod container log line is not valid UTF-8 text") from exc
         if len(encoded_line) > remaining_bytes:
             raise RunPodV2Error("RunPod container log scan exceeded bounded byte count")
         scanned_bytes += len(encoded_line)
@@ -160,7 +163,7 @@ def _json_object(raw: bytes, label: str) -> dict[str, Any]:
         payload = json.loads(raw.decode("utf-8"), object_pairs_hook=reject_duplicate_keys)
     except RunPodV2Error:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         raise RunPodV2Error(f"{label} marker is not valid bounded UTF-8 JSON") from exc
     if not isinstance(payload, dict):
         raise RunPodV2Error(f"{label} marker must contain a JSON object")
