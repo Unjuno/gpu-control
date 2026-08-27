@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Mapping
 
+from ..completion import CompletionChallenge, CompletionEvidenceError, completion_system_env
 from ..execution import ApprovedExecutionPlan
 from ..lifecycle import CleanupState, JobObservation, SubmissionReceipt
 from .base import (
@@ -24,7 +25,6 @@ from .runpod_v2 import (
     RunPodV2HttpClient,
     RunPodV2HttpError,
     RunPodV2TransportError,
-    pod_name_for_plan,
     translate_pod_status,
 )
 
@@ -39,18 +39,20 @@ def _utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class RunPodV2Adapter:
-    """RunPod ProviderAdapter with account exclusivity and reconciliation.
+    """RunPod ProviderAdapter with account exclusivity and exact execution identity.
 
-    Submission requires account-wide occupancy evidence immediately before and
-    after create. A transport failure after POST /pods is never blindly retried:
-    the adapter lists the account and accepts only one Pod with the deterministic
-    plan-derived name that also passes full plan/image/pricing validation.
+    The completion challenge is created before POST /pods. Its unique execution
+    name is used as the provider Pod name, ambiguous-create reconciliation key,
+    and authenticated workload-completion identity. RunPod's provider job id is
+    learned only after create and remains correlated separately by the receipt.
     """
 
     client: RunPodV2HttpClient
     approved_plan: ApprovedExecutionPlan
     published_image: PublishedImageEvidence
     catalog_pricing: RunPodCatalogPricingEvidence
+    completion_challenge: CompletionChallenge
+    completion_secret_key: bytes
     occupancy_probe: Callable[[ApprovedExecutionPlan], RunPodAccountOccupancyEvidence]
     disk_gb: int = 20
     clock: Callable[[], datetime] = _utc_now
@@ -60,10 +62,18 @@ class RunPodV2Adapter:
             self.approved_plan.validate_shape()
             self.published_image.validate_against_plan(self.approved_plan)
             self.catalog_pricing.validate_against_plan(self.approved_plan)
-        except (ValueError, RunPodV2Error) as exc:
+            self.completion_challenge.validate_shape()
+            completion_system_env(self.completion_challenge, secret_key=self.completion_secret_key)
+        except (ValueError, CompletionEvidenceError, RunPodV2Error) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if self.approved_plan.provider != "runpod":
             raise RunPodV2AdapterError("RunPod adapter requires a runpod approved plan")
+        if self.completion_challenge.plan_fingerprint != self.approved_plan.fingerprint():
+            raise RunPodV2AdapterError("completion challenge does not match approved plan fingerprint")
+        if self.completion_challenge.source_sha != self.approved_plan.target_sha:
+            raise RunPodV2AdapterError("completion challenge source SHA does not match approved plan")
+        if self.completion_challenge.image_digest != self.approved_plan.image_digest:
+            raise RunPodV2AdapterError("completion challenge image digest does not match approved plan")
         if not callable(self.occupancy_probe):
             raise RunPodV2AdapterError("RunPod adapter requires an account occupancy probe")
         if not callable(self.clock):
@@ -74,6 +84,10 @@ class RunPodV2Adapter:
     @property
     def provider_name(self) -> str:
         return "runpod"
+
+    @property
+    def execution_name(self) -> str:
+        return self.completion_challenge.execution_name
 
     def _require_plan_identity(self, plan: ApprovedExecutionPlan) -> None:
         try:
@@ -126,7 +140,6 @@ class RunPodV2Adapter:
     def _reconcile_ambiguous_create(self, plan: ApprovedExecutionPlan) -> Mapping[str, object]:
         """Recover a possibly accepted POST without issuing a second create."""
 
-        expected_name = pod_name_for_plan(plan)
         try:
             payload = self.client.list_pods()
         except Exception as exc:
@@ -140,11 +153,11 @@ class RunPodV2Adapter:
             )
         matches = [
             pod for pod in pods
-            if isinstance(pod, Mapping) and pod.get("name") == expected_name
+            if isinstance(pod, Mapping) and pod.get("name") == self.execution_name
         ]
         if len(matches) != 1:
             raise RunPodV2AdapterError(
-                "RunPod create outcome remains ambiguous; expected exactly one plan-named Pod and will not retry create"
+                "RunPod create outcome remains ambiguous; expected exactly one execution-named Pod and will not retry create"
             )
         candidate = matches[0]
         try:
@@ -153,6 +166,7 @@ class RunPodV2Adapter:
                 self.published_image,
                 self.catalog_pricing,
                 candidate,
+                expected_name=self.execution_name,
             )
         except RunPodV2Error as exc:
             candidate_id = candidate.get("id")
@@ -173,6 +187,11 @@ class RunPodV2Adapter:
             self.published_image,
             self.catalog_pricing,
             disk_gb=self.disk_gb,
+            execution_name=self.execution_name,
+            system_env=completion_system_env(
+                self.completion_challenge,
+                secret_key=self.completion_secret_key,
+            ),
         )
 
         try:
@@ -187,6 +206,7 @@ class RunPodV2Adapter:
                 self.published_image,
                 self.catalog_pricing,
                 pod,
+                expected_name=self.execution_name,
             )
         except RunPodV2Error as validation_error:
             if isinstance(pod_id, str) and pod_id.strip():
@@ -213,6 +233,7 @@ class RunPodV2Adapter:
                 self.published_image,
                 self.catalog_pricing,
                 pod,
+                expected_name=self.execution_name,
             )
             state = translate_pod_status(pod)
         except RunPodV2Error as exc:
@@ -275,5 +296,5 @@ class RunPodV2Adapter:
     ) -> ProviderResultSnapshot:
         self._require_receipt_identity(receipt)
         raise RunPodV2AdapterError(
-            "RunPod result collection is disabled until authenticated workload-completion evidence is implemented"
+            "RunPod result collection is disabled until authenticated bounded log collection is implemented"
         )
