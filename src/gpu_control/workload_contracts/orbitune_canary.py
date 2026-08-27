@@ -9,7 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from ..completion import CompletionEvidenceError
 from ..lifecycle import JobState
-from ..providers.runpod_log_results import AuthenticatedRunPodLogResult, MAX_MARKER_BYTES
+from ..providers.runpod_log_results import AuthenticatedRunPodLogResult, MAX_MARKER_BYTES, RESULT_MARKER
 
 
 WORKLOAD_ID = "orbitune-runpod-training-canary-v1"
@@ -117,7 +117,10 @@ def _plain_json(value: object) -> object:
 
 
 def _strict_result_object(raw: bytes) -> dict[str, Any]:
-    if len(raw) > MAX_MARKER_BYTES:
+    # The provider boundary limits the complete ASCII marker, not merely decoded
+    # JSON bytes. Mirror that exact length contract without allocating a base64 copy.
+    encoded_payload_bytes = 4 * ((len(raw) + 2) // 3)
+    if len(RESULT_MARKER) + encoded_payload_bytes > MAX_MARKER_BYTES:
         raise WorkloadAcceptanceError("Orbitune authenticated result bytes exceed the bounded marker contract")
 
     def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
