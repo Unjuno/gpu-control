@@ -4,7 +4,10 @@ from decimal import Decimal
 import pytest
 
 from gpu_control.execution import ApprovedExecutionPlan
-from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
+from gpu_control.providers.runpod_occupancy import (
+    RunPodV2AccountOccupancyProbe,
+    build_account_occupancy_evidence,
+)
 from gpu_control.providers.runpod_v2 import RunPodV2Error
 
 
@@ -107,3 +110,40 @@ def test_occupancy_evidence_is_bound_to_exact_plan() -> None:
     changed = ApprovedExecutionPlan.from_dict({**value.to_dict(), "authorization_reference": "other"})
     with pytest.raises(RunPodV2Error, match="fingerprint"):
         evidence.validate_before_create(changed, now_utc=NOW + timedelta(seconds=1))
+
+
+class FakeListPodsClient:
+    def __init__(self, pods: list[dict[str, str]]) -> None:
+        self.pods = pods
+        self.calls = 0
+
+    def list_pods(self):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        return {"pods": self.pods}
+
+
+def test_live_occupancy_probe_reads_account_list_and_binds_evidence() -> None:
+    value = plan()
+    client = FakeListPodsClient([{"id": "old", "status": "TERMINATED"}])
+    probe = RunPodV2AccountOccupancyProbe(
+        client=client,  # type: ignore[arg-type]
+        clock=lambda: NOW,
+        ttl_seconds=30,
+    )
+    evidence = probe(value)
+    assert client.calls == 1
+    assert evidence.active_pod_ids == ()
+    evidence.validate_before_create(value, now_utc=NOW + timedelta(seconds=1))
+
+
+def test_live_occupancy_probe_fails_closed_on_invalid_list_shape() -> None:
+    class BadClient:
+        def list_pods(self):  # type: ignore[no-untyped-def]
+            return {"pods": "not-a-list"}
+
+    probe = RunPodV2AccountOccupancyProbe(
+        client=BadClient(),  # type: ignore[arg-type]
+        clock=lambda: NOW,
+    )
+    with pytest.raises(RunPodV2Error, match="missing pods"):
+        probe(plan())
