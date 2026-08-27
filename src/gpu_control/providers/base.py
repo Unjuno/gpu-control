@@ -35,7 +35,7 @@ class ProviderCleanupSnapshot:
 
 @dataclass(frozen=True)
 class ProviderResultSnapshot:
-    """Provider-translated result metadata before result-policy validation."""
+    """Provider-translated bounded result metadata before result-policy validation."""
 
     provider_job_id: str
     log_bytes_retained: int
@@ -77,7 +77,12 @@ class ProviderAdapter(Protocol):
     def collect_results(
         self,
         receipt: SubmissionReceipt,
-        final_observation: JobObservation,
+        lifecycle_observation: JobObservation,
     ) -> ProviderResultSnapshot:
-        """Translate bounded provider result metadata after cleanup completes."""
+        """Translate bounded provider result metadata without mutating provider state.
+
+        The controller may call this either against a terminal pre-cleanup observation
+        when provider evidence is ephemeral, or against a cleanup-finalized observation
+        for providers whose result transport survives resource deletion.
+        """
         ...
