@@ -20,6 +20,8 @@ _IMAGE_REFERENCE_RE = re.compile(
 )
 _EXECUTION_NAME_RE = re.compile(r"^gpu-control-[0-9a-f]{12}-[0-9a-f]{12}$")
 _ALLOWED_CLOUDS = {"SECURE", "COMMUNITY"}
+_RESULT_MARKER = "GPU_CONTROL_RESULT_JSON_V1:"
+_COMPLETION_MARKER = "GPU_CONTROL_COMPLETION_JSON_V2:"
 
 
 class RunPodV2Error(RuntimeError):
@@ -230,6 +232,16 @@ class RunPodV2HttpClient:
         self._timeout = timeout
         self._opener = opener
 
+    def _http_error(self, exc: HTTPError) -> RunPodV2HttpError:
+        detail = ""
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+            if isinstance(payload, dict) and isinstance(payload.get("detail"), str):
+                detail = payload["detail"]
+        except Exception:
+            pass
+        return RunPodV2HttpError(exc.code, detail)
+
     def _request(
         self,
         method: str,
@@ -255,14 +267,7 @@ class RunPodV2HttpClient:
                 status = getattr(response, "status", None)
                 raw = response.read()
         except HTTPError as exc:
-            detail = ""
-            try:
-                payload = json.loads(exc.read().decode("utf-8"))
-                if isinstance(payload, dict) and isinstance(payload.get("detail"), str):
-                    detail = payload["detail"]
-            except Exception:
-                pass
-            raise RunPodV2HttpError(exc.code, detail) from exc
+            raise self._http_error(exc) from exc
         except (URLError, TimeoutError, OSError) as exc:
             raise RunPodV2TransportError("RunPod API transport outcome is ambiguous") from exc
 
@@ -309,6 +314,74 @@ class RunPodV2HttpClient:
         result = self._request("GET", f"/pods/{encoded}", expected_status=200)
         assert result is not None
         return result
+
+    def read_container_log_lines(
+        self,
+        pod_id: str,
+        *,
+        tail: int = 5000,
+        max_bytes: int = 512 * 1024,
+    ) -> tuple[str, ...]:
+        """Read bounded container SSE events and stop once both result markers appear."""
+
+        if isinstance(tail, bool) or not isinstance(tail, int) or not 1 <= tail <= 5000:
+            raise RunPodV2Error("RunPod log tail must be between 1 and 5000")
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+            raise RunPodV2Error("RunPod log max_bytes must be positive")
+        encoded = self._pod_id(pod_id)
+        path = f"/pods/{encoded}/logs?source=container&tail={tail}"
+        request = Request(
+            f"{RUNPOD_V2_BASE_URL}{path}",
+            headers={
+                "Accept": "text/event-stream",
+                "Authorization": f"Bearer {self._api_key}",
+                "User-Agent": "gpu-control",
+            },
+            method="GET",
+        )
+        lines: list[str] = []
+        total_bytes = 0
+        found_result = False
+        found_completion = False
+        try:
+            with self._opener(request, timeout=self._timeout) as response:
+                status = getattr(response, "status", None)
+                if status != 200:
+                    raise RunPodV2Error(f"RunPod API returned unexpected HTTP status {status}")
+                for raw_line in response:
+                    if not isinstance(raw_line, (bytes, bytearray)):
+                        raise RunPodV2Error("RunPod log stream yielded a non-bytes line")
+                    total_bytes += len(raw_line)
+                    if total_bytes > max_bytes:
+                        raise RunPodV2Error("RunPod log stream exceeded bounded byte limit")
+                    try:
+                        text = bytes(raw_line).decode("utf-8").rstrip("\r\n")
+                    except UnicodeDecodeError as exc:
+                        raise RunPodV2Error("RunPod log stream contained invalid UTF-8") from exc
+                    if not text.startswith("data:"):
+                        continue
+                    raw_data = text[5:].lstrip()
+                    try:
+                        event = json.loads(raw_data)
+                    except json.JSONDecodeError as exc:
+                        raise RunPodV2Error("RunPod log SSE data is not valid JSON") from exc
+                    if not isinstance(event, Mapping):
+                        raise RunPodV2Error("RunPod log SSE data must be an object")
+                    if event.get("source") != "container":
+                        continue
+                    value = event.get("line")
+                    if not isinstance(value, str):
+                        raise RunPodV2Error("RunPod container log event is missing line")
+                    lines.append(value)
+                    found_result = found_result or value.startswith(_RESULT_MARKER)
+                    found_completion = found_completion or value.startswith(_COMPLETION_MARKER)
+                    if found_result and found_completion:
+                        break
+        except HTTPError as exc:
+            raise self._http_error(exc) from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise RunPodV2TransportError("RunPod log stream could not be read reliably") from exc
+        return tuple(lines)
 
     def terminate_pod(self, pod_id: str) -> None:
         encoded = self._pod_id(pod_id)
