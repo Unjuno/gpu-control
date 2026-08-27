@@ -8,11 +8,13 @@ from urllib.error import HTTPError
 
 import pytest
 
+from gpu_control.completion import CompletionChallenge, execution_name_for
 from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.lifecycle import JobState
 from gpu_control.providers.runpod_v2 import (
     RUNPOD_V2_BASE_URL,
     PublishedImageEvidence,
+    RunPodCompletionLaunch,
     RunPodV2Error,
     RunPodV2HttpClient,
     build_create_pod_payload,
@@ -22,6 +24,7 @@ from gpu_control.providers.runpod_v2 import (
 
 
 DIGEST = "sha256:" + "a" * 64
+SECRET = bytes(range(32))
 
 
 def make_plan(**overrides) -> ApprovedExecutionPlan:  # type: ignore[no-untyped-def]
@@ -62,6 +65,20 @@ def make_image(plan: ApprovedExecutionPlan | None = None, **overrides) -> Publis
     return PublishedImageEvidence(**values)
 
 
+def make_completion(plan: ApprovedExecutionPlan | None = None, *, secret_key: bytes = SECRET) -> RunPodCompletionLaunch:
+    plan = plan or make_plan()
+    nonce = "b" * 64
+    challenge = CompletionChallenge(
+        key_id="paid-runpod-v2",
+        nonce=nonce,
+        plan_fingerprint=plan.fingerprint(),
+        execution_name=execution_name_for(plan.fingerprint(), nonce),
+        source_sha=plan.target_sha,
+        image_digest=plan.image_digest,
+    )
+    return RunPodCompletionLaunch(challenge=challenge, secret_key=secret_key)
+
+
 def test_create_payload_is_minimal_and_digest_pinned() -> None:
     plan = make_plan()
     payload = build_create_pod_payload(plan, make_image(plan))
@@ -77,6 +94,37 @@ def test_create_payload_is_minimal_and_digest_pinned() -> None:
     assert "env" not in payload
     assert "ports" not in payload
     assert "mounts" not in payload
+
+
+def test_authenticated_create_payload_injects_only_control_plane_completion_env() -> None:
+    plan = make_plan()
+    completion = make_completion(plan)
+    payload = build_create_pod_payload(plan, make_image(plan), completion=completion)
+
+    assert payload["name"] == completion.challenge.execution_name
+    assert payload["env"] == {
+        "GPU_CONTROL_COMPLETION_KEY_B64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+        "GPU_CONTROL_COMPLETION_KEY_ID": "paid-runpod-v2",
+        "GPU_CONTROL_COMPLETION_NONCE": "b" * 64,
+        "GPU_CONTROL_EXECUTION_NAME": completion.challenge.execution_name,
+        "GPU_CONTROL_PLAN_FINGERPRINT": plan.fingerprint(),
+        "GPU_CONTROL_IMAGE_DIGEST": DIGEST,
+    }
+    assert "ports" not in payload
+    assert "mounts" not in payload
+
+
+def test_completion_launch_must_match_exact_approved_plan() -> None:
+    plan = make_plan()
+    other = make_plan(target_sha="f" * 40)
+    with pytest.raises(RunPodV2Error, match="source_sha"):
+        build_create_pod_payload(plan, make_image(plan), completion=make_completion(other))
+
+
+def test_completion_launch_rejects_short_secret_before_create() -> None:
+    plan = make_plan()
+    with pytest.raises(RunPodV2Error, match="at least 32 bytes"):
+        build_create_pod_payload(plan, make_image(plan), completion=make_completion(plan, secret_key=b"short"))
 
 
 def test_create_payload_rejects_untrusted_or_mutable_image_binding() -> None:
