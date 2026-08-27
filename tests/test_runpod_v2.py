@@ -115,6 +115,14 @@ def test_authenticated_create_payload_injects_only_control_plane_completion_env(
     assert "mounts" not in payload
 
 
+def test_completion_launch_repr_does_not_expose_secret() -> None:
+    completion = make_completion()
+    rendered = repr(completion)
+    assert repr(SECRET) not in rendered
+    assert "secret_key=" not in rendered
+    assert "CompletionChallenge" in rendered
+
+
 def test_completion_launch_must_match_exact_approved_plan() -> None:
     plan = make_plan()
     other = make_plan(target_sha="f" * 40)
@@ -190,6 +198,27 @@ def test_created_pod_is_revalidated_against_plan() -> None:
     wrong_gpu = dict(pod, gpu={"id": "NVIDIA A100", "count": 1})
     with pytest.raises(RunPodV2Error, match="GPU identity"):
         validate_created_pod(plan, image, wrong_gpu)
+
+
+def test_authenticated_created_pod_name_must_match_precreate_identity() -> None:
+    plan = make_plan()
+    image = make_image(plan)
+    completion = make_completion(plan)
+    pod = {
+        "id": "pod-123",
+        "name": completion.challenge.execution_name,
+        "image": image.image_reference,
+        "gpu": {"id": plan.provider_resource_id, "count": 1},
+        "cost": 0.44,
+        "status": "PROVISIONING",
+    }
+
+    assert validate_created_pod(plan, image, pod, completion=completion) == "pod-123"
+    with pytest.raises(RunPodV2Error, match="pre-create execution identity"):
+        validate_created_pod(plan, image, dict(pod, name="wrong-name"), completion=completion)
+    without_name = {key: value for key, value in pod.items() if key != "name"}
+    with pytest.raises(RunPodV2Error, match="pre-create execution identity"):
+        validate_created_pod(plan, image, without_name, completion=completion)
 
 
 def test_runpod_status_translation_is_fail_closed() -> None:
