@@ -37,6 +37,11 @@ def _require_secret_key(secret_key: bytes) -> None:
         raise CompletionEvidenceError("completion secret key must contain at least 32 bytes")
 
 
+def _require_schema_version(value: object, *, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value != 2:
+        raise CompletionEvidenceError(f"unsupported {label} schema_version")
+
+
 def execution_name_for(plan_fingerprint: str, nonce: str) -> str:
     fingerprint = _require_sha256(plan_fingerprint, "plan_fingerprint")
     if not isinstance(nonce, str) or not _HEX_64_RE.fullmatch(nonce):
@@ -72,7 +77,7 @@ class CompletionChallenge:
 
     The provider-assigned Pod id is deliberately absent because it does not exist
     when the container environment is fixed. Provider identity is correlated later
-    through the submission receipt and the exact Pod log endpoint.
+    through the submission receipt and a separately validated collection transport.
 
     The HMAC key is deliberately absent. It must be supplied from a protected
     control-plane secret at issue/verify time and must never be serialized into
@@ -88,8 +93,7 @@ class CompletionChallenge:
     schema_version: int = 2
 
     def validate_shape(self) -> None:
-        if self.schema_version != 2:
-            raise CompletionEvidenceError("unsupported completion challenge schema_version")
+        _require_schema_version(self.schema_version, label="completion challenge")
         if not isinstance(self.key_id, str) or not _KEY_ID_RE.fullmatch(self.key_id):
             raise CompletionEvidenceError("key_id is invalid")
         if not isinstance(self.nonce, str) or not _HEX_64_RE.fullmatch(self.nonce):
@@ -153,8 +157,7 @@ class CompletionEvidence:
     schema_version: int = 2
 
     def validate_shape(self) -> None:
-        if self.schema_version != 2:
-            raise CompletionEvidenceError("unsupported completion evidence schema_version")
+        _require_schema_version(self.schema_version, label="completion evidence")
         if not isinstance(self.key_id, str) or not _KEY_ID_RE.fullmatch(self.key_id):
             raise CompletionEvidenceError("key_id is invalid")
         if not isinstance(self.nonce, str) or not _HEX_64_RE.fullmatch(self.nonce):
@@ -193,6 +196,7 @@ class CompletionEvidence:
         }
         if set(payload) != expected:
             raise CompletionEvidenceError("completion evidence fields do not match schema")
+        _require_schema_version(payload["schema_version"], label="completion evidence")
         value = cls(
             key_id=payload["key_id"],  # type: ignore[arg-type]
             nonce=payload["nonce"],  # type: ignore[arg-type]
