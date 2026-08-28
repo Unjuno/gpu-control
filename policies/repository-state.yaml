@@ -33,6 +33,27 @@ active_workload:
     live_secret_injection: false
     live_result_collection: false
 
+local_validation:
+  selected: true
+  execution_target: local
+  host_label: VLab16
+  expected_gpu_name_substring: RTX 3080
+  repository: Unjuno/orbitune
+  candidate_pr: 14
+  candidate_source_sha: d94846a6e115ab08e4fb7eb0fff975ef8183f4f6
+  merge_required_before_canonical_run: true
+  dockerfile_path: workloads/local-gpu-canary/Dockerfile
+  launcher_path: workloads/local-gpu-canary/run-local.sh
+  workload_id: orbitune-local-gpu-canary-v1
+  steps: 250
+  batch_size: 4
+  sequence_length: 256
+  training_tokens: 256000
+  provider_cost_usd: 0
+  runpod_required: false
+  runpod_credentials_required: false
+  state: pending_orbitune_merge_and_local_execution
+
 while_parked:
   paid_workflow_allowed: false
   provider_secret_reference_allowed: false
