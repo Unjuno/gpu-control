@@ -1,39 +1,37 @@
 # Human Authorization Binding
 
-`gpu-control` must distinguish **who is authenticated** from **what the human actually authorized**.
+`gpu-control` distinguishes **who is authenticated** from **what the human actually authorized**.
 
 An agent may act using the repository owner's GitHub identity while having been influenced by indirect prompt injection or poisoned context. Therefore `github.actor == owner` is necessary for the future paid path but is not sufficient evidence that the owner intended the exact paid action.
 
 ## Current state
 
-The current `ApprovedExecutionPlan` contains `explicit_human_authorization: bool` and an `authorization_reference`. Those fields are adequate for offline contract development but are not the final live authorization design.
+The repository now has a strict runtime `HumanAuthorizationEvidence` validator in `src/gpu_control/human_authorization.py`.
 
-Live paid execution remains disabled until structured human authorization evidence is bound into the execution plan and paid-authorization path.
+It binds one short-lived human approval to:
 
-## Required binding
-
-`policies/human-authorization-evidence-schema.yaml` defines the intended evidence shape. Authorization must be tied to one exact consequential action, including:
-
-- current decision-record identity;
-- exact control-plane commit SHA;
-- exact execution-plan fingerprint;
+- the current DecisionRecord id;
+- the exact control-plane commit SHA;
+- the exact `ApprovedExecutionPlan` fingerprint;
 - workload repository and immutable commit;
 - immutable image digest;
 - provider and provider resource;
 - GPU count;
-- maximum runtime;
-- maximum justified cost ceiling;
-- authorization actor;
-- authorization time and expiration;
-- trusted authorization reference.
+- maximum runtime and cost;
+- the authorized GitHub actor;
+- authorization time, expiry, and trusted authorization reference.
 
-A materially changed plan requires new authorization.
+The maximum validity window is 15 minutes. A materially changed plan, control-plane commit, DecisionRecord, actor, workload, image, resource, runtime, cost, or authorization reference requires new authorization.
+
+`authorize_live_plan(...)` combines that evidence with `PaidAuthorizationEvidence` and trusted repository-security evidence to produce a `LiveExecutionPermit`.
+
+**Live paid execution is still disabled.** Provider submission does not yet require the `LiveExecutionPermit`, and the paid workflow is not present. `runtime_enforced: false` therefore remains accurate in the machine schema.
 
 ## Why exact plan binding matters
 
 Without exact binding, an approval for a small canary could be reused for a larger runtime, a different GPU, a different workload commit, or a different image. It could also be replayed after the control-plane code changed.
 
-Authorization evidence therefore must not behave like a reusable permission token for a class of actions. It authorizes one bounded execution identity.
+Authorization evidence must not behave like a reusable permission token for a class of actions. It authorizes one bounded execution identity.
 
 ## Prompt-injection boundary
 
@@ -53,7 +51,7 @@ Those sources may describe or request an action, but they do not prove current h
 
 ## Relationship to GitHub authorization
 
-`PaidAuthorizationEvidence` establishes that the GitHub workflow identity is allowed to approach the paid boundary. Future `HumanAuthorizationEvidence` establishes that the human approved the exact execution identity.
+`PaidAuthorizationEvidence` establishes that the GitHub workflow identity is allowed to approach the paid boundary. `HumanAuthorizationEvidence` establishes that the human approved the exact execution identity.
 
 Both are required. Neither substitutes for:
 
@@ -64,14 +62,12 @@ Both are required. Neither substitutes for:
 - current pricing and provider evidence;
 - cleanup and completion guarantees.
 
-## Live migration rule
+## Remaining live migration rule
 
 Before enabling live paid compute:
 
-1. implement a strict runtime `HumanAuthorizationEvidence` type;
-2. validate it independently of model-generated text;
-3. bind it to the exact `ApprovedExecutionPlan` fingerprint and control-plane SHA;
-4. make the paid provider path require that structured evidence instead of relying on a bare authorization boolean;
-5. add negative tests for stale, copied, mismatched, expired, and prompt-injected authorization evidence.
-
-Until that migration is complete, live paid compute must remain disabled.
+1. keep validating structured human authorization independently of model-generated text;
+2. require a valid `LiveExecutionPermit` at the provider-submission boundary;
+3. wire the protected paid workflow so the running control-plane SHA and current DecisionRecord are the values actually validated;
+4. keep negative tests for stale, copied, mismatched, expired, and prompt-injected authorization evidence;
+5. keep all provider/live flags disabled until the remaining provider, GitHub, image, completion, and cleanup prerequisites are verified.
