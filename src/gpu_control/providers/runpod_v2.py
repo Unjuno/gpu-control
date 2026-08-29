@@ -300,6 +300,19 @@ class RunPodV2HttpClient:
             raise RunPodV2Error("RunPod GPU catalog response is missing gpus")
         return payload
 
+    def list_pods(self) -> dict[str, Any]:
+        """Return the official v2 full-account Pod list envelope.
+
+        The pinned v2 contract exposes no list query filters. Callers that need
+        reconciliation must validate and filter the returned ``pods`` array locally.
+        """
+
+        payload = self._request("GET", "/pods", expected_status=200)
+        assert payload is not None
+        if not isinstance(payload.get("pods"), list):
+            raise RunPodV2Error("RunPod List Pods response is missing pods")
+        return payload
+
     def create_pod(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         result = self._request("POST", "/pods", expected_status=201, body=payload)
         assert result is not None

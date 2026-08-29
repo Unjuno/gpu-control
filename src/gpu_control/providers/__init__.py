@@ -33,6 +33,13 @@ from .runpod_pricing import (
     build_priced_create_pod_payload,
     validate_created_pod_with_pricing,
 )
+from .runpod_reconciliation import (
+    RunPodPodInventoryEntry,
+    RunPodPodInventoryEvidence,
+    build_pod_inventory_evidence,
+    cleanup_reconciled,
+    reconcile_ambiguous_create,
+)
 from .runpod_v2 import (
     RUNPOD_V2_BASE_URL,
     PublishedImageEvidence,
@@ -57,6 +64,8 @@ __all__ = [
     "RUNPOD_V2_BASE_URL",
     "RunPodAccountOccupancyEvidence",
     "RunPodCatalogPricingEvidence",
+    "RunPodPodInventoryEntry",
+    "RunPodPodInventoryEvidence",
     "RunPodV2Adapter",
     "RunPodV2AdapterError",
     "RunPodV2Error",
@@ -66,12 +75,15 @@ __all__ = [
     "build_account_occupancy_evidence",
     "build_catalog_pricing_evidence",
     "build_create_pod_payload",
+    "build_pod_inventory_evidence",
     "build_priced_create_pod_payload",
     "capture_provider_results_before_cleanup",
     "cleanup_provider_job",
+    "cleanup_reconciled",
     "collect_provider_results",
     "finalize_captured_provider_results",
     "observe_provider_job",
+    "reconcile_ambiguous_create",
     "submit_approved_plan",
     "translate_pod_status",
     "validate_created_pod",
