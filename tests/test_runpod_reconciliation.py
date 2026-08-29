@@ -8,6 +8,7 @@ import pytest
 
 from gpu_control.completion import CompletionChallenge, execution_name_for
 from gpu_control.execution import ApprovedExecutionPlan
+from gpu_control.human_authorization import LiveExecutionPermit
 from gpu_control.lifecycle import CleanupState, JobObservation, JobState, build_submission_receipt
 from gpu_control.providers.controller import cleanup_provider_job, submit_approved_plan
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
@@ -64,6 +65,20 @@ def plan() -> ApprovedExecutionPlan:
     )
     value.validate_shape()
     return value
+
+
+def permit(value: ApprovedExecutionPlan) -> LiveExecutionPermit:
+    return LiveExecutionPermit(
+        plan_fingerprint=value.fingerprint(),
+        actor="Unjuno",
+        decision_record_id="decision-reconciliation",
+        human_authorization_id="auth-reconciliation",
+        human_authorization_reference=value.authorization_reference,
+        paid_authorization_reference="github-actions:reconciliation",
+        repository_security_reference="github:main-protection:sha256:" + "d" * 64,
+        control_plane_sha="e" * 40,
+        valid_until_utc="2026-08-28T01:10:00Z",
+    )
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -273,6 +288,7 @@ def make_adapter(*, with_completion: bool = True):  # type: ignore[no-untyped-de
         published_image=image(value),
         catalog_pricing=pricing(),
         occupancy_probe=occupancy,
+        live_permit=permit(value),
         inventory_probe=inventory_probe,
         completion_launch=launch if with_completion else None,
         clock=lambda: NOW + timedelta(seconds=1),
