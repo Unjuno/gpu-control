@@ -96,6 +96,25 @@ def test_exact_current_human_intent_and_paid_identity_issue_live_permit() -> Non
     assert permit.actor == "Unjuno"
     assert permit.human_authorization_id == "auth-1"
     assert permit.repository_security_reference.startswith("github:main-protection")
+    assert permit.valid_until_utc == "2026-08-28T00:10:00Z"
+    permit.validate_for_plan(value, now_utc=NOW)
+
+
+def test_live_permit_cannot_be_reused_after_human_authorization_expiry() -> None:
+    value = plan()
+    permit = authorize_live_plan(
+        value,
+        human(value),
+        paid(),
+        expected_control_plane_sha=CONTROL_SHA,
+        expected_decision_record_id=DECISION_ID,
+        now_utc=NOW,
+    )
+    with pytest.raises(HumanAuthorizationError, match="expired before provider submission"):
+        permit.validate_for_plan(
+            value,
+            now_utc=datetime(2026, 8, 28, 0, 10, tzinfo=timezone.utc),
+        )
 
 
 def test_human_authorization_round_trip_is_strict() -> None:
