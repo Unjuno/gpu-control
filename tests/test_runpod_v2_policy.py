@@ -58,10 +58,15 @@ def test_current_api_audit_does_not_overstate_production_log_support() -> None:
     )
 
 
-def test_submission_is_bound_to_plan_image_gpu_cloud_price_and_reconciliation() -> None:
+def test_submission_is_bound_to_permit_plan_image_gpu_cloud_price_and_reconciliation() -> None:
     submission = load_policy()["submission"]
 
     assert submission["approved_plan_required"] is True
+    assert submission["structured_live_execution_permit_required"] is True
+    assert submission["live_permit_plan_fingerprint_must_match"] is True
+    assert submission["live_permit_human_authorization_reference_must_match_plan"] is True
+    assert submission["live_permit_repository_security_evidence_required"] is True
+    assert submission["live_permit_expiry_rechecked_immediately_before_create"] is True
     assert submission["published_image_evidence_required"] is True
     assert submission["catalog_pricing_evidence_required"] is True
     assert submission["image_reference_must_be_digest_pinned"] is True
@@ -163,6 +168,9 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
     assert "live_adapter_from_public_cli" in forbidden
     assert "live_enablement_without_current_official_api_contract_revalidation" in forbidden
     assert "live_enablement_by_policy_flag_only" in forbidden
+    assert "create_without_structured_live_execution_permit" in forbidden
+    assert "create_with_expired_live_execution_permit" in forbidden
+    assert "create_with_live_permit_for_different_plan" in forbidden
     assert "arbitrary_api_origin" in forbidden
     assert "api_key_in_query_string" in forbidden
     assert "api_key_in_logs_or_errors" in forbidden
