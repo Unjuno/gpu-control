@@ -172,7 +172,13 @@ The project separates four concerns that are often conflated:
 
 External text is treated as data rather than instruction authority. Prompt injection and context poisoning are handled as a source-to-sink trust problem, backed by deterministic policy/tests rather than prompt wording alone.
 
-The highest-level behavioral rules are in [ACTION_CONSTITUTION.md](ACTION_CONSTITUTION.md). Security boundaries are documented in [SECURITY.md](SECURITY.md) and [docs/PROMPT_CONTEXT_SECURITY.md](docs/PROMPT_CONTEXT_SECURITY.md).
+## Action constitution
+
+[ACTION_CONSTITUTION.md](ACTION_CONSTITUTION.md) is the repository's highest-level behavioral norm. It governs how an already-authorized objective should be pursued; it does not create credentials, grant spending authority, or weaken hard security/legal/external-authorization boundaries.
+
+Its practical priority is to preserve human control and prevent unacceptable irreversible or unauthorized action while still preserving useful progress toward the active objective when a safe path remains. Lower-level policies may be stricter for concrete risk, but denying one high-impact action must not silently become abandonment of an otherwise achievable goal.
+
+Security boundaries are documented in [SECURITY.md](SECURITY.md) and [docs/PROMPT_CONTEXT_SECURITY.md](docs/PROMPT_CONTEXT_SECURITY.md).
 
 ## Repository state and paid path
 
