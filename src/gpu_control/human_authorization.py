@@ -62,6 +62,12 @@ def _utc(value: object, field: str) -> datetime:
     return parsed
 
 
+def _require_now_utc(value: datetime) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(value):
+        raise HumanAuthorizationError("now_utc must be timezone-aware UTC")
+    return value
+
+
 def _cost(value: object) -> Decimal:
     text = _text(value, "max_cost_usd")
     try:
@@ -144,15 +150,10 @@ class HumanAuthorizationEvidence:
         except ExecutionGateError as exc:
             raise HumanAuthorizationError(str(exc)) from exc
         authorized, valid_until, authorized_cost = self.validate_shape()
-        if (
-            not isinstance(now_utc, datetime)
-            or now_utc.tzinfo is None
-            or now_utc.utcoffset() != timezone.utc.utcoffset(now_utc)
-        ):
-            raise HumanAuthorizationError("now_utc must be timezone-aware UTC")
-        if now_utc < authorized:
+        now = _require_now_utc(now_utc)
+        if now < authorized:
             raise HumanAuthorizationError("human authorization is not valid yet")
-        if now_utc >= valid_until:
+        if now >= valid_until:
             raise HumanAuthorizationError("human authorization expired before live submission")
         if self.actor != _text(expected_actor, "expected_actor"):
             raise HumanAuthorizationError("human authorization actor does not match current authorized actor")
@@ -220,6 +221,35 @@ class LiveExecutionPermit:
     paid_authorization_reference: str
     repository_security_reference: str
     control_plane_sha: str
+    valid_until_utc: str
+
+    def validate_for_plan(self, plan: ApprovedExecutionPlan, *, now_utc: datetime) -> None:
+        try:
+            plan.validate_shape()
+        except ExecutionGateError as exc:
+            raise HumanAuthorizationError(str(exc)) from exc
+        if not _SHA256_RE.fullmatch(self.plan_fingerprint):
+            raise HumanAuthorizationError("live execution permit plan_fingerprint is invalid")
+        if self.plan_fingerprint != plan.fingerprint():
+            raise HumanAuthorizationError("live execution permit does not match the exact execution plan")
+        _text(self.actor, "live execution permit actor")
+        _text(self.decision_record_id, "live execution permit decision_record_id")
+        _text(self.human_authorization_id, "live execution permit human_authorization_id")
+        if self.human_authorization_reference != plan.authorization_reference:
+            raise HumanAuthorizationError("live execution permit human authorization reference does not match plan")
+        _text(self.paid_authorization_reference, "live execution permit paid_authorization_reference")
+        repository_reference = _text(
+            self.repository_security_reference,
+            "live execution permit repository_security_reference",
+        )
+        if repository_reference == "not-live":
+            raise HumanAuthorizationError("live execution permit requires repository security evidence")
+        if not _SHA40_RE.fullmatch(self.control_plane_sha):
+            raise HumanAuthorizationError("live execution permit control_plane_sha is invalid")
+        valid_until = _utc(self.valid_until_utc, "live execution permit valid_until_utc")
+        now = _require_now_utc(now_utc)
+        if now >= valid_until:
+            raise HumanAuthorizationError("live execution permit expired before provider submission")
 
 
 def authorize_live_plan(
@@ -244,7 +274,7 @@ def authorize_live_plan(
         raise HumanAuthorizationError("paid authorization actor and triggering actor must match")
     if not paid.repository_security_reference or paid.repository_security_reference == "not-live":
         raise HumanAuthorizationError("live execution requires repository security evidence")
-    return LiveExecutionPermit(
+    permit = LiveExecutionPermit(
         plan_fingerprint=plan.fingerprint(),
         actor=paid.actor,
         decision_record_id=human.decision_record_id,
@@ -253,4 +283,7 @@ def authorize_live_plan(
         paid_authorization_reference=paid.authorization_reference,
         repository_security_reference=paid.repository_security_reference,
         control_plane_sha=human.control_plane_sha,
+        valid_until_utc=human.valid_until_utc,
     )
+    permit.validate_for_plan(plan, now_utc=now_utc)
+    return permit
