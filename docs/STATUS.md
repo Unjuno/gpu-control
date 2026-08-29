@@ -14,8 +14,9 @@ This document describes what `gpu-control` on `main` can do today. It deliberate
 | Generic external workload container execution | Not enabled | External Dockerfiles are not generally executed by this repository yet. |
 | Decision/context security policy | Ready at policy/CI level | Action constitution, source-to-sink trust policy, failure catalog, and adversarial fixtures are present. |
 | Approved execution plan contracts | Ready offline | Immutable/fingerprinted plans, pricing evidence, durable lifecycle state, cleanup state, and bounded result manifests are implemented. |
-| Structured exact human authorization | Partial | Schema/policy exists; complete live runtime binding is still an activation prerequisite. |
+| Structured exact human authorization | Partial | Runtime validator and `LiveExecutionPermit` exist; provider submission does not yet require the permit. |
 | RunPod REST v2 control-plane contract | Offline/mock only | Provider-facing contracts are tested without credentials or live paid calls. |
+| RunPod ambiguous create/cleanup reconciliation | Ready offline | Fresh bounded List Pods inventory can reconcile one exact execution identity and prove cleanup absence/termination. Live verification is still pending. |
 | Authenticated Orbitune completion parsing | Ready offline | Bounded completion/result markers are authenticated and validated offline. |
 | Orbitune paid-canary result acceptance | Ready offline | Workload-specific result acceptance is separate from provider-finalized success. |
 | Pre-cleanup result capture/finalization | Ready offline | Provider-neutral ephemeral-result capture is durable and bounded. |
@@ -45,10 +46,10 @@ Its source CI and authenticated completion contract are green. That does **not**
 - protected `main` with required CI checks;
 - control-plane context integrity and prompt/context gates;
 - an owner-only protected paid environment and environment-scoped provider credential;
-- structured DecisionRecord and exact human-authorization binding to the live plan;
+- require the structured `LiveExecutionPermit` at provider submission;
 - immutable published-image identity;
-- current provider API revalidation;
-- live account-occupancy evidence and ambiguous-create reconciliation;
+- current provider API revalidation and live account-occupancy verification;
+- live verification of ambiguous-create and cleanup reconciliation;
 - a production-supported authenticated completion/result transport;
 - verified live completion-secret injection and result collection;
 - idempotent/reliable cleanup.
