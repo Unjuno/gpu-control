@@ -6,7 +6,7 @@ An agent may act using the repository owner's GitHub identity while having been 
 
 ## Current state
 
-The repository now has a strict runtime `HumanAuthorizationEvidence` validator in `src/gpu_control/human_authorization.py`.
+The repository has a strict runtime `HumanAuthorizationEvidence` validator in `src/gpu_control/human_authorization.py`.
 
 It binds one short-lived human approval to:
 
@@ -25,7 +25,9 @@ The maximum validity window is 15 minutes. A materially changed plan, control-pl
 
 `authorize_live_plan(...)` combines that evidence with `PaidAuthorizationEvidence` and trusted repository-security evidence to produce a `LiveExecutionPermit`.
 
-**Live paid execution is still disabled.** Provider submission does not yet require the `LiveExecutionPermit`, and the paid workflow is not present. `runtime_enforced: false` therefore remains accurate in the machine schema.
+The RunPod adapter now requires that permit and revalidates its exact plan binding and expiry immediately before submission. A bare `ApprovedExecutionPlan` or an expired permit cannot reach the RunPod occupancy/create path.
+
+**Live paid execution is still disabled.** The paid workflow and provider credentials are not present, the repository remains parked, provider reconciliation is not live-verified, and the selected canary still lacks a verified production-supported authenticated result transport. `runtime_enforced: false` therefore remains accurate for the complete end-to-end live path.
 
 ## Why exact plan binding matters
 
@@ -66,8 +68,8 @@ Both are required. Neither substitutes for:
 
 Before enabling live paid compute:
 
-1. keep validating structured human authorization independently of model-generated text;
-2. require a valid `LiveExecutionPermit` at the provider-submission boundary;
-3. wire the protected paid workflow so the running control-plane SHA and current DecisionRecord are the values actually validated;
-4. keep negative tests for stale, copied, mismatched, expired, and prompt-injected authorization evidence;
-5. keep all provider/live flags disabled until the remaining provider, GitHub, image, completion, and cleanup prerequisites are verified.
+1. preserve the current RunPod `LiveExecutionPermit` requirement and submission-time expiry check;
+2. wire the protected paid workflow so the running control-plane SHA and current DecisionRecord are the values actually validated;
+3. keep negative tests for stale, copied, mismatched, expired, and prompt-injected authorization evidence;
+4. verify live provider occupancy, reconciliation, image identity, completion transport, and cleanup behavior;
+5. keep all provider/live flags disabled until those remaining GitHub/provider prerequisites are verified.

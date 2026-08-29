@@ -17,6 +17,7 @@ security_properties:
   paid_github_identity_binding_required: true
   repository_security_evidence_required: true
   expiry_required: true
+  permit_expiry_rechecked_at_provider_submission: true
 
 required_fields:
   - schema_version
@@ -110,5 +111,7 @@ live_integration:
   required_before_live_paid_compute: true
   approved_execution_plan_runtime_binding_implemented: true
   paid_authorization_evidence_binding_implemented: true
-  provider_submission_requires_live_permit_pending: true
+  runpod_provider_submission_requires_live_permit: true
+  runpod_provider_submission_rechecks_permit_expiry: true
   paid_workflow_wiring_pending: true
+  complete_live_runtime_enforcement_pending: true

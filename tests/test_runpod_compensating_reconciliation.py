@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from gpu_control.execution import ApprovedExecutionPlan
+from gpu_control.human_authorization import LiveExecutionPermit
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
 from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
@@ -54,6 +55,20 @@ def plan() -> ApprovedExecutionPlan:
     )
     value.validate_shape()
     return value
+
+
+def permit(value: ApprovedExecutionPlan) -> LiveExecutionPermit:
+    return LiveExecutionPermit(
+        plan_fingerprint=value.fingerprint(),
+        actor="Unjuno",
+        decision_record_id="decision-compensating",
+        human_authorization_id="auth-compensating",
+        human_authorization_reference=value.authorization_reference,
+        paid_authorization_reference="github-actions:compensating",
+        repository_security_reference="github:main-protection:sha256:" + "d" * 64,
+        control_plane_sha="e" * 40,
+        valid_until_utc="2026-08-28T01:40:00Z",
+    )
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -136,6 +151,7 @@ def adapter_with_inventory(pods: list[dict[str, object]]):  # type: ignore[no-un
         published_image=image(value),
         catalog_pricing=pricing(),
         occupancy_probe=occupancy,
+        live_permit=permit(value),
         inventory_probe=inventory,
         clock=lambda: NOW + timedelta(seconds=1),
     )

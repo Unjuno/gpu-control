@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from gpu_control.execution import ApprovedExecutionPlan
+from gpu_control.human_authorization import LiveExecutionPermit
 from gpu_control.lifecycle import JobState
 from gpu_control.providers.controller import cleanup_provider_job, observe_provider_job, submit_approved_plan
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
@@ -55,6 +56,20 @@ def plan() -> ApprovedExecutionPlan:
     )
     result.validate_shape()
     return result
+
+
+def permit(value: ApprovedExecutionPlan, *, valid_until_utc: str = "2026-08-22T16:10:00Z") -> LiveExecutionPermit:
+    return LiveExecutionPermit(
+        plan_fingerprint=value.fingerprint(),
+        actor="Unjuno",
+        decision_record_id="decision-test",
+        human_authorization_id="auth-test",
+        human_authorization_reference=value.authorization_reference,
+        paid_authorization_reference="github-actions:test",
+        repository_security_reference="github:main-protection:sha256:" + "b" * 64,
+        control_plane_sha="c" * 40,
+        valid_until_utc=valid_until_utc,
+    )
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -138,11 +153,51 @@ def adapter(value: ApprovedExecutionPlan | None = None) -> tuple[RunPodV2Adapter
             published_image=image(value),
             catalog_pricing=pricing(),
             occupancy_probe=occupancy,
+            live_permit=permit(value),
             clock=lambda: SUBMITTED_AT + timedelta(seconds=1),
         ),
         client,
         occupancy,
     )
+
+
+def test_adapter_requires_live_execution_permit_before_any_provider_work() -> None:
+    value = plan()
+    client = FakeClient(value)
+    occupancy = FakeOccupancyProbe(value)
+    with pytest.raises(RunPodV2AdapterError, match="requires a validated live execution permit"):
+        RunPodV2Adapter(
+            client=client,  # type: ignore[arg-type]
+            approved_plan=value,
+            published_image=image(value),
+            catalog_pricing=pricing(),
+            occupancy_probe=occupancy,
+            live_permit=None,  # type: ignore[arg-type]
+            clock=lambda: SUBMITTED_AT + timedelta(seconds=1),
+        )
+    assert occupancy.calls == 0
+    assert client.create_calls == 0
+
+
+def test_live_execution_permit_is_rechecked_at_submit_time() -> None:
+    value = plan()
+    client = FakeClient(value)
+    occupancy = FakeOccupancyProbe(value)
+    now = [SUBMITTED_AT + timedelta(seconds=1)]
+    runpod = RunPodV2Adapter(
+        client=client,  # type: ignore[arg-type]
+        approved_plan=value,
+        published_image=image(value),
+        catalog_pricing=pricing(),
+        occupancy_probe=occupancy,
+        live_permit=permit(value, valid_until_utc="2026-08-22T16:02:00Z"),
+        clock=lambda: now[0],
+    )
+    now[0] = datetime(2026, 8, 22, 16, 2, tzinfo=timezone.utc)
+    with pytest.raises(RunPodV2AdapterError, match="expired before provider submission"):
+        runpod.submit(value)
+    assert occupancy.calls == 0
+    assert client.create_calls == 0
 
 
 def test_adapter_crosses_existing_trusted_controller_and_cleans_up_failure() -> None:
@@ -275,7 +330,7 @@ def test_different_plan_is_rejected_before_occupancy_or_create() -> None:
         {**value.to_dict(), "authorization_reference": "workflow_dispatch:other"}
     )
 
-    with pytest.raises(RunPodV2AdapterError, match="different approved plan"):
+    with pytest.raises(RunPodV2AdapterError, match="live execution permit"):
         runpod.submit(changed)
 
     assert occupancy.calls == 0

@@ -38,6 +38,11 @@ api_contract_audit:
 
 submission:
   approved_plan_required: true
+  structured_live_execution_permit_required: true
+  live_permit_plan_fingerprint_must_match: true
+  live_permit_human_authorization_reference_must_match_plan: true
+  live_permit_repository_security_evidence_required: true
+  live_permit_expiry_rechecked_immediately_before_create: true
   published_image_evidence_required: true
   catalog_pricing_evidence_required: true
   account_occupancy_evidence_required: true
@@ -153,6 +158,9 @@ forbidden:
   - live_adapter_from_public_cli
   - live_enablement_without_current_official_api_contract_revalidation
   - live_enablement_by_policy_flag_only
+  - create_without_structured_live_execution_permit
+  - create_with_expired_live_execution_permit
+  - create_with_live_permit_for_different_plan
   - arbitrary_api_origin
   - api_key_in_query_string
   - api_key_in_logs_or_errors
