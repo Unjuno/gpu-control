@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from ..execution import ApprovedExecutionPlan
+from ..human_authorization import HumanAuthorizationError, LiveExecutionPermit
 from ..lifecycle import CleanupState, JobObservation, SubmissionReceipt
 from .base import (
     ProviderCleanupSnapshot,
@@ -42,13 +43,17 @@ def _utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class RunPodV2Adapter:
-    """RunPod ProviderAdapter implementation with live wiring intentionally disabled.
+    """RunPod ProviderAdapter with paid submission guarded by an exact live permit.
 
-    In addition to plan/image/pricing identity, submission requires an account-wide
-    occupancy probe. Optional reconciliation wiring can recover one ambiguous create
-    only when a per-execution completion identity and a fresh full Pod inventory are
-    both available. The same inventory contract can prove release after an ambiguous
-    normal or compensating termination without converting an active Pod to success.
+    In addition to plan/image/pricing identity, construction and every submission
+    require a non-expired ``LiveExecutionPermit`` for the exact approved plan.
+    Account occupancy is checked before and after create. Optional reconciliation
+    wiring can recover one ambiguous create only when a per-execution completion
+    identity and a fresh full Pod inventory are both available. The same inventory
+    contract can prove release after an ambiguous normal or compensating termination
+    without converting an active Pod to cleanup success.
+
+    Live workflow/credential wiring remains disabled elsewhere by repository policy.
     """
 
     client: RunPodV2HttpClient
@@ -56,19 +61,25 @@ class RunPodV2Adapter:
     published_image: PublishedImageEvidence
     catalog_pricing: RunPodCatalogPricingEvidence
     occupancy_probe: Callable[[ApprovedExecutionPlan], RunPodAccountOccupancyEvidence]
+    live_permit: LiveExecutionPermit
     inventory_probe: Callable[[ApprovedExecutionPlan], RunPodPodInventoryEvidence] | None = None
     completion_launch: RunPodCompletionLaunch | None = None
     disk_gb: int = 20
     clock: Callable[[], datetime] = _utc_now
 
     def __post_init__(self) -> None:
+        if not callable(self.clock):
+            raise RunPodV2AdapterError("RunPod adapter clock must be callable")
+        if not isinstance(self.live_permit, LiveExecutionPermit):
+            raise RunPodV2AdapterError("RunPod adapter requires a validated live execution permit")
         try:
             self.approved_plan.validate_shape()
             self.published_image.validate_against_plan(self.approved_plan)
             self.catalog_pricing.validate_against_plan(self.approved_plan)
+            self.live_permit.validate_for_plan(self.approved_plan, now_utc=self.clock())
             if self.completion_launch is not None:
                 self.completion_launch.validate_against_plan(self.approved_plan)
-        except (ValueError, RunPodV2Error) as exc:
+        except (ValueError, RunPodV2Error, HumanAuthorizationError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if self.approved_plan.provider != "runpod":
             raise RunPodV2AdapterError("RunPod adapter requires a runpod approved plan")
@@ -76,8 +87,6 @@ class RunPodV2Adapter:
             raise RunPodV2AdapterError("RunPod adapter requires an account occupancy probe")
         if self.inventory_probe is not None and not callable(self.inventory_probe):
             raise RunPodV2AdapterError("RunPod inventory_probe must be callable when configured")
-        if not callable(self.clock):
-            raise RunPodV2AdapterError("RunPod adapter clock must be callable")
         if isinstance(self.disk_gb, bool) or not isinstance(self.disk_gb, int) or self.disk_gb < 1:
             raise RunPodV2AdapterError("RunPod adapter disk_gb must be a positive integer")
 
@@ -88,7 +97,8 @@ class RunPodV2Adapter:
     def _require_plan_identity(self, plan: ApprovedExecutionPlan) -> None:
         try:
             plan.validate_shape()
-        except ValueError as exc:
+            self.live_permit.validate_for_plan(plan, now_utc=self.clock())
+        except (ValueError, HumanAuthorizationError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if plan.fingerprint() != self.approved_plan.fingerprint():
             raise RunPodV2AdapterError("RunPod adapter received a different approved plan")
@@ -202,7 +212,7 @@ class RunPodV2Adapter:
         return ProviderSubmission(provider_job_id=validated_id)
 
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
-        """Submit exactly once after owner/account exclusivity checks pass."""
+        """Submit exactly once after exact authorization and account checks pass."""
 
         self._require_plan_identity(plan)
         self._probe_before_create(plan)
