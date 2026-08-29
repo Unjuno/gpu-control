@@ -174,7 +174,7 @@ External text is treated as data rather than instruction authority. Prompt injec
 
 ## Action constitution
 
-[ACTION_CONSTITUTION.md](ACTION_CONSTITUTION.md) is the repository's highest-level behavioral norm. It governs how an already-authorized objective should be pursued; it does not create credentials, grant spending authority, or weaken hard security/legal/external-authorization boundaries.
+[ACTION_CONSTITUTION.md](ACTION_CONSTITUTION.md) is the repository's highest-level behavioral norm. Its machine-readable counterpart is [`policies/action-constitution.yaml`](policies/action-constitution.yaml). It governs how an already-authorized objective should be pursued; it does not create credentials, grant spending authority, or weaken hard security/legal/external-authorization boundaries.
 
 Its practical priority is to preserve human control and prevent unacceptable irreversible or unauthorized action while still preserving useful progress toward the active objective when a safe path remains. Lower-level policies may be stricter for concrete risk, but denying one high-impact action must not silently become abandonment of an otherwise achievable goal.
 
