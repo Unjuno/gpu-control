@@ -11,7 +11,7 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-08-27T21:34:00Z
+  audited_at_utc: 2026-08-30T13:30:00Z
   implementation_contract: rest_v2_public_beta_offline
   current_official_rest_base_observed: https://api.runpod.io/v2
   current_official_contract_revalidation_required: true
@@ -34,7 +34,16 @@ api_contract_audit:
   pod_container_log_sse_evidence_path: test.md
   pod_container_log_sse_evidence_section: "K — Dev-only tools, currently DISABLED (not registered)"
   pod_container_log_sse_evidence_url: https://github.com/runpod/runpod-mcp/blob/465872464c4f157a2e87afcd855c60a607954c26/test.md
-  note: RunPod REST API v2 is live in production at the canonical api.runpod.io/v2 origin. The pinned official MCP implementation confirms full-account GET /v2/pods with local filtering semantics, while its validation records GET /v2/pods/{id}/logs as dev-only and returning HTTP 422 path-not-found in production. gpu-control may model bounded create/cleanup reconciliation against List Pods offline, but must not wire authenticated production result collection to the unavailable logs endpoint. Live calls remain disabled, and the complete current official contract must be revalidated immediately before any activation.
+  network_volume_storage_docs_observed: true
+  network_volume_s3_api_observed: true
+  network_volume_docs_repository: runpod/docs
+  network_volume_docs_commit: d5b565dc68874e747a5e0476e70b10e8c05c447e
+  network_volume_docs_path: storage/network-volumes.mdx
+  network_volume_s3_docs_path: storage/s3-api.mdx
+  network_volume_attach_contract_repository: runpod/runpodctl
+  network_volume_attach_contract_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
+  network_volume_attach_contract_path: cmd/pod/create.go
+  note: RunPod REST API v2 and Network Volume S3 access have current official public contracts. Production Pod-log SSE remains unavailable, so gpu-control uses a separate persistent Network Volume result transport candidate. The volume/S3 path is implemented and mock-tested but not live-verified. All live calls remain disabled and the complete official contract must be revalidated immediately before activation.
 
 submission:
   approved_plan_required: true
@@ -57,6 +66,12 @@ submission:
   user_env_forwarded: false
   user_mounts_forwarded: false
   automatic_create_retry: false
+  trusted_network_volume_required_for_live_canary: true
+  network_volume_must_preexist: true
+  network_volume_auto_create_or_resize: false
+  network_volume_mount_path: /outputs
+  network_volume_from_trusted_control_plane_only: true
+  network_volume_s3_supported_datacenter_required: true
   ambiguous_create_requires_reconciliation: true
   ambiguous_create_reconciliation_status: implemented_offline_mock_tested
   ambiguous_create_reconciliation_live_verified: false
@@ -80,8 +95,9 @@ submission:
   compensating_termination_failure_is_visible: true
 
 completion_evidence:
-  protocol: hmac-sha256-v2
-  implementation_status: pre_create_identity_and_env_contract_offline
+  protocol: hmac-sha256-v3
+  legacy_v2_compatibility_status: temporary_offline_migration_only
+  implementation_status: v3_signed_exit_code_and_volume_transport_offline_mock_tested
   per_run_nonce_required: true
   pre_create_execution_name_required: true
   minimum_secret_bytes: 32
@@ -104,14 +120,50 @@ completion_evidence:
     - workload_source_sha
     - image_digest
     - result_sha256
+    - process_exit_code
   provider_job_id_binding: submission_receipt_and_provider_specific_collection_transport
   result_marker: "GPU_CONTROL_RESULT_JSON_V1:"
-  completion_marker: "GPU_CONTROL_COMPLETION_JSON_V2:"
+  legacy_completion_marker: "GPU_CONTROL_COMPLETION_JSON_V2:"
+  completion_marker: "GPU_CONTROL_COMPLETION_JSON_V3:"
   max_marker_bytes: 16384
   offline_marker_authentication_allowed: true
-  production_collection_transport_status: blocked_pending_supported_provider_transport
+  production_collection_transport_status: network_volume_s3_implemented_offline_mock_tested
+  production_collection_transport_live_verified: false
   live_injection_enabled: false
   live_collection_enabled: false
+
+network_volume_results:
+  implementation_status: implemented_offline_mock_tested
+  live_verified: false
+  live_enabled: false
+  secure_cloud_required: true
+  mount_path: /outputs
+  persistent_after_pod_termination: true
+  object_keys:
+    - result.json
+    - completion-v3.json
+  max_object_bytes: 16384
+  fixed_runpod_s3_origin_required: true
+  s3_endpoint_derived_from_datacenter: true
+  s3_credentials_separate_from_runpod_api_key: true
+  s3_credentials_forwarded_to_workload: false
+  auto_create_or_resize_volume: false
+  supported_datacenters:
+    - EU-CZ-1
+    - EU-RO-1
+    - EUR-IS-1
+    - EUR-NO-1
+    - US-CA-2
+    - US-GA-2
+    - US-IL-1
+    - US-KS-2
+    - US-MD-1
+    - US-MO-1
+    - US-MO-2
+    - US-NC-1
+    - US-NC-2
+    - US-NE-1
+    - US-WA-1
 
 status:
   provisioning: submitted
@@ -119,7 +171,7 @@ status:
   running: running
   error: failed
   terminated: cancelled
-  exited: ambiguous_requires_workload_completion_evidence
+  exited: authenticated_v3_network_volume_evidence_required
   unknown: reject
 
 cleanup:
@@ -139,6 +191,9 @@ results:
   enabled: false
   requires_authenticated_workload_completion_evidence: true
   production_transport_must_be_currently_supported: true
+  network_volume_s3_transport_implemented: true
+  network_volume_s3_live_verified: false
+  durable_after_pod_cleanup: true
 
 catalog:
   endpoint: GET /catalog/gpus
@@ -188,9 +243,17 @@ forbidden:
   - persisting_completion_secret_in_lifecycle_json
   - logging_completion_secret
   - treating_exited_as_success_without_completion_evidence
+  - treating_exited_as_success_without_v3_signed_exit_code
   - treating_unknown_provider_status_as_success
   - collecting_results_without_authenticated_completion_evidence
   - collecting_live_results_through_unavailable_prod_pod_log_sse
   - treating_dev_only_provider_operation_as_production_contract
+  - arbitrary_network_volume_id_from_workload
+  - user_controlled_volume_mount_path
+  - network_volume_auto_create_or_resize_in_paid_workflow
+  - runpod_s3_credentials_forwarded_to_workload
+  - runpod_s3_secret_in_logs_or_errors
+  - unbounded_s3_result_read
+  - s3_endpoint_not_derived_from_supported_datacenter
   - treating_cleanup_404_as_success_without_reconciliation_policy
   - treating_active_pod_as_cleanup_success_after_terminate_error
