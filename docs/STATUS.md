@@ -15,8 +15,9 @@ This document describes what `gpu-control` on `main` can do today. It deliberate
 | Decision/context security policy | Ready at policy/CI level | Action constitution, source-to-sink trust policy, failure catalog, and adversarial fixtures are present. |
 | Approved execution plan contracts | Ready offline | Immutable/fingerprinted plans, pricing evidence, durable lifecycle state, cleanup state, and bounded result manifests are implemented. |
 | Structured exact human authorization | Ready for RunPod adapter boundary | Runtime validator and expiring `LiveExecutionPermit` exist; RunPod adapter construction/submission requires the exact unexpired permit. End-to-end paid workflow wiring remains absent. |
-| RunPod Pod-control transport | Migration required | The checked-in client still implements the older public REST v2 beta shape at `api.runpod.io/v2`. Current official stable Pod REST is v1 at `rest.runpod.io/v1`; live use is forbidden until the client/adapter and tests are migrated and revalidated. |
-| RunPod ambiguous create/cleanup reconciliation | Ready offline on legacy contract | Fresh bounded Pod inventory can reconcile one exact execution identity and prove cleanup absence/termination. It must be adapted to the current v1 List Pods array shape before live use. |
+| Current RunPod REST v1 transport layer | Ready offline | Fixed `rest.runpod.io/v1` client, current create field names, List Pods array normalization, `desiredStatus`, `costPerHr`, machine cloud evidence, Network Volume identity, GET, and DELETE 204 are mock-tested. |
+| RunPod provider adapter | Migration pending | Higher-level adapter still imports the legacy v2 compatibility client/builder. It will be switched to the new v1 transport in the next focused change; live use remains forbidden. |
+| RunPod ambiguous create/cleanup reconciliation | Ready offline on canonical evidence | Existing bounded occupancy/reconciliation logic can consume the v1-normalized internal Pod envelope; direct adapter wiring is the remaining migration step. |
 | Authenticated Orbitune completion v3 | Ready offline | Root signer binds exact result bytes and the observed process exit code into HMAC-SHA256 evidence; legacy v2 remains only during migration. |
 | RunPod Network Volume/S3 result transport | Ready offline | Fixed RunPod S3 origin, trusted `/outputs` mount, exact two-object bounded collection, and v3 authentication are mock-tested. Live verification and real credentials/volume are pending. |
 | Orbitune paid-canary result acceptance | Ready offline | Workload-specific acceptance accepts authenticated log-v2 or durable volume-v3 evidence and remains separate from provider cleanup/finalization. |
@@ -55,19 +56,17 @@ The old production-result blocker was the absence of a supported Pod-log API. Th
 
 This transport is implemented and mock-tested, but not yet live-verified. Network Volume creation/resizing is deliberately not automated because it is a persistent billable resource.
 
-## Provider-control migration blocker
+## Provider-control migration
 
-The durable result transport and the Pod-control API are separate contracts. The result transport can be developed offline while Pod control remains disabled.
+The current official stable Pod REST contract is v1 at `https://rest.runpod.io/v1`. `gpu-control` now has a separate offline v1 transport layer that implements and tests:
 
-The checked-in provider client currently targets the older public REST v2 beta origin `https://api.runpod.io/v2`. The current official stable Pod REST contract is v1 at `https://rest.runpod.io/v1`. The current v1 contract differs materially from the implementation, including request/response field names and the List Pods response shape.
+- `POST /pods` with `imageName`, `gpuTypeIds`, `gpuCount`, `containerDiskInGb`, `cloudType`, trusted completion `env`, and trusted Network Volume fields;
+- `GET /pods` as an array normalized into the existing bounded occupancy/reconciliation envelope;
+- `GET /pods/{id}` with machine and Network Volume evidence requested for post-create/status validation;
+- `DELETE /pods/{id}` with HTTP 204 success;
+- response normalization from `desiredStatus`, `costPerHr`, `gpu`, `machine.secureCloud`, `machine.dataCenterId`, and `networkVolume`.
 
-Therefore:
-
-- the existing v2 client is an offline compatibility implementation, not the current live contract;
-- policy explicitly records `implementation_matches_current_official_rest_contract: false`;
-- live enablement while the adapter still targets legacy v2 beta is forbidden;
-- the next provider-control implementation step is migration to current REST v1 with offline/mock tests;
-- pricing/catalog must also be revalidated against current supported APIs before live use.
+The higher-level provider adapter still uses the older v2 compatibility imports. That remaining switch is intentionally isolated as the next change. Pricing/catalog is also still a separate current-contract blocker and must be revalidated before live use.
 
 ## Why live paid execution is still disabled
 
@@ -79,7 +78,7 @@ Therefore:
 - Environment-scoped `RUNPOD_API_KEY` plus separate RunPod S3 credentials;
 - a pre-existing Network Volume in a supported S3 datacenter;
 - immutable published canary-image identity;
-- migration/revalidation of Pod control to the current official RunPod REST v1 contract;
+- switch the RunPod adapter/occupancy/reconciliation wiring to the current REST v1 transport;
 - current provider pricing/catalog revalidation and live account-occupancy verification;
 - live verification of ambiguous-create, result collection, and cleanup reconciliation;
 - protected paid-workflow wiring that constructs the exact current `LiveExecutionPermit` from trusted runtime evidence.
@@ -100,5 +99,6 @@ When documentation and machine state differ, prefer:
 
 1. `policies/repository-state.yaml` for current activation state;
 2. `policies/paid-execution-policy.yaml` for paid-path identity/security requirements;
-3. `policies/runpod-v2-policy.yaml` for the legacy implementation contract plus current-provider migration blockers;
-4. tests and current `main` implementation for executable behavior.
+3. `policies/runpod-rest-v1-policy.yaml` for the current official Pod transport migration contract;
+4. `policies/runpod-v2-policy.yaml` for legacy compatibility state and durable-result constraints;
+5. tests and current `main` implementation for executable behavior.
