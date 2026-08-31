@@ -132,18 +132,31 @@ def normalize_v1_pod(
             raise RunPodV2Error("RunPod REST v1 Pod machine.secureCloud must be a boolean")
         cloud = "SECURE" if secure else "COMMUNITY"
         candidate_dc = machine_map.get("dataCenterId")
-        if candidate_dc is not None and not isinstance(candidate_dc, str):
-            raise RunPodV2Error("RunPod REST v1 Pod machine.dataCenterId must be a string")
-        data_center_id = candidate_dc
+        if candidate_dc is not None:
+            if not isinstance(candidate_dc, str) or not candidate_dc.strip():
+                raise RunPodV2Error("RunPod REST v1 Pod machine.dataCenterId must be a non-empty string")
+            data_center_id = candidate_dc.strip()
     elif require_machine:
         raise RunPodV2Error("RunPod REST v1 Pod machine evidence is required")
 
+    volume_id: str | None = None
+    volume_data_center: str | None = None
+    if pod.get("networkVolume") is not None:
+        volume = _require_mapping(pod.get("networkVolume"), "RunPod REST v1 Pod networkVolume")
+        raw_volume_id = volume.get("id")
+        raw_volume_dc = volume.get("dataCenterId")
+        if not isinstance(raw_volume_id, str) or not raw_volume_id.strip():
+            raise RunPodV2Error("RunPod REST v1 Pod network volume id is invalid")
+        if not isinstance(raw_volume_dc, str) or not raw_volume_dc.strip():
+            raise RunPodV2Error("RunPod REST v1 Pod network volume data center is invalid")
+        volume_id = raw_volume_id.strip()
+        volume_data_center = raw_volume_dc.strip()
+
     if expected_network_volume is not None:
         expected_network_volume.validate_shape()
-        volume = _require_mapping(pod.get("networkVolume"), "RunPod REST v1 Pod networkVolume")
-        if volume.get("id") != expected_network_volume.network_volume_id:
+        if volume_id != expected_network_volume.network_volume_id:
             raise RunPodV2Error("RunPod REST v1 Pod network volume id mismatch")
-        if volume.get("dataCenterId") != expected_network_volume.data_center_id:
+        if volume_data_center != expected_network_volume.data_center_id:
             raise RunPodV2Error("RunPod REST v1 Pod network volume data center mismatch")
         if pod.get("volumeMountPath") != expected_network_volume.mount_path:
             raise RunPodV2Error("RunPod REST v1 Pod network volume mount path mismatch")
@@ -162,9 +175,14 @@ def normalize_v1_pod(
         result["cloud"] = cloud
     if data_center_id is not None:
         result["dataCenterId"] = data_center_id
-    if expected_network_volume is not None:
-        result["networkVolumeId"] = expected_network_volume.network_volume_id
-        result["volumeMountPath"] = expected_network_volume.mount_path
+    if volume_id is not None:
+        result["networkVolumeId"] = volume_id
+        result["networkVolumeDataCenterId"] = volume_data_center
+        mount_path = pod.get("volumeMountPath")
+        if mount_path is not None:
+            if not isinstance(mount_path, str) or not mount_path.strip():
+                raise RunPodV2Error("RunPod REST v1 Pod volumeMountPath is invalid")
+            result["volumeMountPath"] = mount_path.strip()
     return result
 
 
@@ -195,12 +213,18 @@ def normalize_v1_inventory(payload: object) -> dict[str, list[dict[str, str]]]:
 
 
 class RunPodV1HttpClient:
-    """Fixed-origin client for the current stable RunPod Pod REST API v1."""
+    """Fixed-origin client for the current stable RunPod Pod REST API v1.
+
+    Pod object responses are normalized to the existing internal provider view so
+    the higher-level authorization, pricing, reconciliation, and lifecycle gates do
+    not need to trust provider-version-specific field names.
+    """
 
     def __init__(
         self,
         api_key: str,
         *,
+        network_volume: RunPodNetworkVolumeEvidence | None = None,
         timeout: float = 10.0,
         opener: Callable[..., Any] = urlopen,
     ) -> None:
@@ -212,7 +236,10 @@ class RunPodV1HttpClient:
             raise RunPodV2Error("RunPod HTTP timeout must be positive")
         if not callable(opener):
             raise RunPodV2Error("RunPod HTTP opener must be callable")
+        if network_volume is not None:
+            network_volume.validate_shape()
         self._api_key = api_key
+        self._network_volume = network_volume
         self._timeout = timeout
         self._opener = opener
 
@@ -271,17 +298,34 @@ class RunPodV1HttpClient:
         raw = self._request("GET", "/pods", expected_status=200)
         return normalize_v1_inventory(raw)
 
-    def create_pod(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    def create_pod(self, payload: Mapping[str, Any]) -> dict[str, object]:
         if not isinstance(payload, Mapping):
             raise RunPodV2Error("RunPod REST v1 create payload must be a mapping")
         result = self._request("POST", "/pods", expected_status=201, body=payload)
-        return _require_mapping(result, "RunPod REST v1 create response")
+        raw = _require_mapping(result, "RunPod REST v1 create response")
+        normalized = normalize_v1_pod(
+            raw,
+            require_machine=True,
+            expected_network_volume=self._network_volume,
+        )
+        expected_volume_id = payload.get("networkVolumeId")
+        if expected_volume_id is not None and normalized.get("networkVolumeId") != expected_volume_id:
+            raise RunPodV2Error("RunPod REST v1 create response network volume does not match request")
+        expected_mount = payload.get("volumeMountPath")
+        if expected_mount is not None and normalized.get("volumeMountPath") != expected_mount:
+            raise RunPodV2Error("RunPod REST v1 create response volume mount does not match request")
+        return normalized
 
-    def get_pod(self, pod_id: str) -> Mapping[str, Any]:
+    def get_pod(self, pod_id: str) -> dict[str, object]:
         encoded = self._pod_id(pod_id)
         query = urlencode({"includeMachine": "true", "includeNetworkVolume": "true"})
         result = self._request("GET", f"/pods/{encoded}?{query}", expected_status=200)
-        return _require_mapping(result, "RunPod REST v1 get response")
+        raw = _require_mapping(result, "RunPod REST v1 get response")
+        return normalize_v1_pod(
+            raw,
+            require_machine=True,
+            expected_network_volume=self._network_volume,
+        )
 
     def terminate_pod(self, pod_id: str) -> None:
         encoded = self._pod_id(pod_id)
