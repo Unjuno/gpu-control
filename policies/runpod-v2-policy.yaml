@@ -11,20 +11,32 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-08-30T13:30:00Z
+  audited_at_utc: 2026-08-31T12:25:00Z
   implementation_contract: rest_v2_public_beta_offline
-  current_official_rest_base_observed: https://api.runpod.io/v2
+  implementation_matches_current_official_rest_contract: false
+  current_official_rest_version_observed: v1
+  current_official_rest_base_observed: https://rest.runpod.io/v1
+  current_official_openapi_endpoint: GET /openapi.json
+  current_official_create_pod_endpoint: POST /pods
+  current_official_list_pods_endpoint: GET /pods
+  current_official_list_pods_response_shape: array
+  current_official_delete_pod_endpoint: DELETE /pods/{id}
+  current_official_network_volume_attach_fields_observed: true
+  current_official_network_volume_fields:
+    - networkVolumeId
+    - volumeMountPath
+  migration_to_current_official_rest_contract_required: true
   current_official_contract_revalidation_required: true
   implementation_may_not_be_enabled_live_until_revalidated: true
   live_enablement_by_flag_only_forbidden: true
   create_env_contract_observed: true
   list_pods_contract_observed: true
-  list_pods_endpoint: GET /pods
-  list_pods_response_envelope: pods
-  list_pods_server_side_name_filter_supported: false
-  list_pods_evidence_repository: runpod/runpod-mcp
-  list_pods_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
-  list_pods_evidence_path: src/tools/pods.ts
+  implementation_list_pods_endpoint: GET /pods
+  implementation_list_pods_response_envelope: pods
+  implementation_list_pods_server_side_name_filter_supported: false
+  legacy_v2_list_pods_evidence_repository: runpod/runpod-mcp
+  legacy_v2_list_pods_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
+  legacy_v2_list_pods_evidence_path: src/tools/pods.ts
   pod_container_log_sse_status: dev_only_prod_unavailable
   pod_container_log_sse_prod_verified: false
   pod_container_log_sse_prod_failure: http_422_path_not_found
@@ -43,7 +55,7 @@ api_contract_audit:
   network_volume_attach_contract_repository: runpod/runpodctl
   network_volume_attach_contract_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
   network_volume_attach_contract_path: cmd/pod/create.go
-  note: RunPod REST API v2 and Network Volume S3 access have current official public contracts. Production Pod-log SSE remains unavailable, so gpu-control uses a separate persistent Network Volume result transport candidate. The volume/S3 path is implemented and mock-tested but not live-verified. All live calls remain disabled and the complete official contract must be revalidated immediately before activation.
+  note: The checked-in Pod control client still implements the older public v2 beta contract, while current official RunPod documentation exposes the stable REST API at rest.runpod.io/v1 with different Pod request/response shapes. The durable Network Volume S3 result path remains a valid offline candidate, but live Pod control is blocked until the adapter/client is migrated and revalidated against current v1. Production Pod-log SSE remains unavailable and is not used as the result path. All live calls remain disabled.
 
 submission:
   approved_plan_required: true
@@ -212,6 +224,7 @@ forbidden:
   - live_runpod_call_from_public_cli
   - live_adapter_from_public_cli
   - live_enablement_without_current_official_api_contract_revalidation
+  - live_enablement_while_provider_adapter_targets_legacy_v2_beta
   - live_enablement_by_policy_flag_only
   - create_without_structured_live_execution_permit
   - create_with_expired_live_execution_permit
