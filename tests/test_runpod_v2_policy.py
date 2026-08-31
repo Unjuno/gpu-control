@@ -28,27 +28,38 @@ def test_live_runpod_calls_are_disabled_by_default() -> None:
     assert api["workflow_enabled"] is False
 
 
-def test_current_api_audit_records_log_blocker_and_volume_alternative() -> None:
+def test_current_api_audit_records_v1_migration_blocker_log_blocker_and_volume_alternative() -> None:
     audit = load_policy()["api_contract_audit"]
 
-    assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
+    assert audit["implementation_contract"] == "rest_v2_public_beta_offline"
+    assert audit["implementation_matches_current_official_rest_contract"] is False
+    assert audit["current_official_rest_version_observed"] == "v1"
+    assert audit["current_official_rest_base_observed"] == "https://rest.runpod.io/v1"
+    assert audit["current_official_openapi_endpoint"] == "GET /openapi.json"
+    assert audit["current_official_create_pod_endpoint"] == "POST /pods"
+    assert audit["current_official_list_pods_endpoint"] == "GET /pods"
+    assert audit["current_official_list_pods_response_shape"] == "array"
+    assert audit["current_official_delete_pod_endpoint"] == "DELETE /pods/{id}"
+    assert audit["current_official_network_volume_attach_fields_observed"] is True
+    assert audit["current_official_network_volume_fields"] == ["networkVolumeId", "volumeMountPath"]
+    assert audit["migration_to_current_official_rest_contract_required"] is True
     assert audit["current_official_contract_revalidation_required"] is True
     assert audit["implementation_may_not_be_enabled_live_until_revalidated"] is True
     assert audit["live_enablement_by_flag_only_forbidden"] is True
     assert audit["create_env_contract_observed"] is True
     assert audit["list_pods_contract_observed"] is True
-    assert audit["list_pods_endpoint"] == "GET /pods"
-    assert audit["list_pods_response_envelope"] == "pods"
-    assert audit["list_pods_server_side_name_filter_supported"] is False
+    assert audit["implementation_list_pods_endpoint"] == "GET /pods"
+    assert audit["implementation_list_pods_response_envelope"] == "pods"
+    assert audit["implementation_list_pods_server_side_name_filter_supported"] is False
     assert audit["pod_container_log_sse_status"] == "dev_only_prod_unavailable"
     assert audit["pod_container_log_sse_prod_verified"] is False
     assert audit["pod_container_log_sse_prod_failure"] == "http_422_path_not_found"
     assert audit["pod_container_log_sse_live_collection_allowed"] is False
 
     upstream_sha = "465872464c4f157a2e87afcd855c60a607954c26"
-    assert audit["list_pods_evidence_repository"] == "runpod/runpod-mcp"
-    assert audit["list_pods_evidence_commit"] == upstream_sha
-    assert audit["list_pods_evidence_path"] == "src/tools/pods.ts"
+    assert audit["legacy_v2_list_pods_evidence_repository"] == "runpod/runpod-mcp"
+    assert audit["legacy_v2_list_pods_evidence_commit"] == upstream_sha
+    assert audit["legacy_v2_list_pods_evidence_path"] == "src/tools/pods.ts"
     assert audit["pod_container_log_sse_evidence_repository"] == "runpod/runpod-mcp"
     assert audit["pod_container_log_sse_evidence_commit"] == upstream_sha
 
@@ -205,6 +216,7 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
         "live_runpod_call_from_public_cli",
         "live_adapter_from_public_cli",
         "live_enablement_without_current_official_api_contract_revalidation",
+        "live_enablement_while_provider_adapter_targets_legacy_v2_beta",
         "live_enablement_by_policy_flag_only",
         "create_without_structured_live_execution_permit",
         "create_with_expired_live_execution_permit",
