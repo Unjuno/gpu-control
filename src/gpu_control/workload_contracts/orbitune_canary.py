@@ -10,10 +10,11 @@ from typing import Any, Mapping, Sequence
 from ..completion import CompletionEvidenceError
 from ..lifecycle import JobState
 from ..providers.runpod_log_results import AuthenticatedRunPodLogResult, MAX_MARKER_BYTES, RESULT_MARKER
+from ..providers.runpod_network_volume import AuthenticatedRunPodVolumeResult
 
 
 WORKLOAD_ID = "orbitune-runpod-training-canary-v1"
-SELECTED_SOURCE_SHA = "38594057d1b118a7acf6c843e39d7d8a25571316"
+SELECTED_SOURCE_SHA = "fc131174a9b529a9825f54fccf1a7df4c63c9a1a"
 ARCHITECTURE = "orbitune-midi-gpt-v0"
 TOKENIZER = "theory-remi-v0"
 PARAMETERS = 10_200_960
@@ -40,8 +41,8 @@ class OrbituneCanaryResultAcceptance:
     final lifecycle completion. Those remain independent control-plane gates.
 
     The completion execution identity and exact result digest are retained so a
-    future provider-finalization layer can bind this result to one concrete run,
-    even when the same approved plan is submitted more than once.
+    provider-finalization layer can bind this result to one concrete run, even when
+    the same approved plan is submitted more than once.
     """
 
     source_sha: str
@@ -117,8 +118,6 @@ def _plain_json(value: object) -> object:
 
 
 def _strict_result_object(raw: bytes) -> dict[str, Any]:
-    # The provider boundary limits the complete ASCII marker, not merely decoded
-    # JSON bytes. Mirror that exact length contract without allocating a base64 copy.
     encoded_payload_bytes = 4 * ((len(raw) + 2) // 3)
     if len(RESULT_MARKER) + encoded_payload_bytes > MAX_MARKER_BYTES:
         raise WorkloadAcceptanceError("Orbitune authenticated result bytes exceed the bounded marker contract")
@@ -142,8 +141,11 @@ def _strict_result_object(raw: bytes) -> dict[str, Any]:
     return payload
 
 
+AuthenticatedOrbituneResult = AuthenticatedRunPodLogResult | AuthenticatedRunPodVolumeResult
+
+
 def validate_orbitune_canary_result(
-    authenticated: AuthenticatedRunPodLogResult,
+    authenticated: AuthenticatedOrbituneResult,
     *,
     expected_source_sha: str,
     expected_plan_fingerprint: str,
@@ -151,13 +153,13 @@ def validate_orbitune_canary_result(
 ) -> OrbituneCanaryResultAcceptance:
     """Apply frozen paid-canary criteria to one authenticated workload result.
 
-    ``authenticated`` must come from the completion-verifying provider boundary.
-    The caller additionally supplies the current trusted source, approved-plan
-    fingerprint, and approved immutable image digest. Provider cleanup remains a
-    separate finalization gate and is intentionally not certified here.
+    The input may come from the legacy bounded log verifier or the durable
+    Network Volume/S3 verifier. In both cases the provider boundary must already
+    have authenticated the exact result bytes and completion identity before this
+    workload-specific scientific acceptance layer runs.
     """
 
-    if not isinstance(authenticated, AuthenticatedRunPodLogResult):
+    if not isinstance(authenticated, (AuthenticatedRunPodLogResult, AuthenticatedRunPodVolumeResult)):
         raise WorkloadAcceptanceError("authenticated RunPod result is required")
     trusted_source_sha = _require_selected_source_sha(expected_source_sha)
     trusted_plan_fingerprint = _require_sha256(expected_plan_fingerprint, "expected_plan_fingerprint")

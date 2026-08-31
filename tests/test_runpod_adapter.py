@@ -240,7 +240,7 @@ def test_adapter_crosses_existing_trusted_controller_and_cleans_up_failure() -> 
     assert finalized.finalized is True
     assert client.terminate_calls == ["pod-123"]
 
-    with pytest.raises(RunPodV2AdapterError, match="result collection is disabled"):
+    with pytest.raises(RunPodV2AdapterError, match="network-volume result transport"):
         runpod.collect_results(submitted.receipt, finalized)
 
 
@@ -348,5 +348,5 @@ def test_exited_status_remains_ambiguous_and_does_not_fake_success() -> None:
     )
     client.status_responses = [pod_payload(value, status="EXITED")]
 
-    with pytest.raises(RunPodV2AdapterError, match="EXITED is ambiguous"):
+    with pytest.raises(RunPodV2AdapterError, match="EXITED remains ambiguous"):
         runpod.observe(submitted.receipt)

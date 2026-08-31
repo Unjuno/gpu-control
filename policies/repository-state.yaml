@@ -5,7 +5,7 @@ reason: activation_prerequisites_incomplete
 
 active_workload:
   repository: Unjuno/orbitune
-  source_sha: 38594057d1b118a7acf6c843e39d7d8a25571316
+  source_sha: fc131174a9b529a9825f54fccf1a7df4c63c9a1a
   dockerfile_path: workloads/runpod-training-canary/Dockerfile
   workload_id: orbitune-runpod-training-canary-v1
   gpu_profile: cheap-24gb
@@ -15,20 +15,23 @@ active_workload:
   source_ci:
     evidence_scope: exact_main_sha
     full_pytest: passed
-    full_pytest_run_id: 33117645383
+    full_pytest_run_id: 33313993621
     runpod_canary_smoke: passed
-    runpod_canary_smoke_run_id: 33117645387
+    runpod_canary_smoke_run_id: 33313993623
     authenticated_completion_envelope: passed
-    completion_protocol: gpu-control-hmac-sha256-v2
+    completion_protocol: gpu-control-hmac-sha256-v3
   immutable_image:
     published: false
     digest: null
   completion_evidence:
-    workload_protocol: gpu-control-hmac-sha256-v2
+    workload_protocol: gpu-control-hmac-sha256-v3
+    legacy_v2_compatibility: temporary_migration_only
     workload_signer_boundary: root_signer_uid_0_training_uid_10001
     workload_protocol_status: implemented_and_smoke_tested
+    signed_process_exit_code: true
     control_plane_verifier: implemented_offline
-    production_collection_transport: blocked_pending_supported_provider_transport
+    production_collection_transport: network_volume_s3_implemented_offline_mock_tested
+    production_collection_transport_live_verified: false
     production_pod_log_sse: unavailable_http_422_path_not_found
     live_secret_injection: false
     live_result_collection: false
@@ -61,12 +64,15 @@ activation_prerequisites:
   - context_trust_policy_bound_into_agent_context
   - owner_only_paid_environment_configured
   - environment_scoped_runpod_secret_configured
+  - environment_scoped_runpod_s3_secrets_configured
   - structured_decision_record_bound_to_execution_plan
   - structured_human_authorization_bound_to_execution_plan
   - immutable_published_image_path_available
   - current_runpod_api_contract_revalidated
   - live_account_occupancy_probe_available
   - ambiguous_create_reconciliation_available
+  - preexisting_runpod_network_volume_available
+  - network_volume_in_s3_supported_datacenter
   - authenticated_workload_completion_evidence_available
   - supported_production_completion_transport_available
   - live_completion_secret_injection_verified

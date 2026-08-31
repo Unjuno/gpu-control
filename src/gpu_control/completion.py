@@ -42,6 +42,17 @@ def _require_schema_version(value: object, *, label: str) -> None:
         raise CompletionEvidenceError(f"unsupported {label} schema_version")
 
 
+def _require_schema_version_v3(value: object, *, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value != 3:
+        raise CompletionEvidenceError(f"unsupported {label} schema_version")
+
+
+def _require_process_exit_code(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 255:
+        raise CompletionEvidenceError("process_exit_code must be an integer between 0 and 255")
+    return value
+
+
 def execution_name_for(plan_fingerprint: str, nonce: str) -> str:
     fingerprint = _require_sha256(plan_fingerprint, "plan_fingerprint")
     if not isinstance(nonce, str) or not _HEX_64_RE.fullmatch(nonce):
@@ -71,18 +82,33 @@ def _canonical_payload(
     return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def _canonical_payload_v3(
+    *,
+    key_id: str,
+    nonce: str,
+    plan_fingerprint: str,
+    execution_name: str,
+    source_sha: str,
+    image_digest: str,
+    result_sha256: str,
+    process_exit_code: int,
+) -> bytes:
+    payload = {
+        "execution_name": execution_name,
+        "image_digest": image_digest,
+        "key_id": key_id,
+        "nonce": nonce,
+        "plan_fingerprint": plan_fingerprint,
+        "process_exit_code": process_exit_code,
+        "result_sha256": result_sha256,
+        "source_sha": source_sha,
+    }
+    return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
 @dataclass(frozen=True)
 class CompletionChallenge:
-    """Persistable pre-create identity for one approved workload execution.
-
-    The provider-assigned Pod id is deliberately absent because it does not exist
-    when the container environment is fixed. Provider identity is correlated later
-    through the submission receipt and a separately validated collection transport.
-
-    The HMAC key is deliberately absent. It must be supplied from a protected
-    control-plane secret at issue/verify time and must never be serialized into
-    durable lifecycle JSON.
-    """
+    """Persistable pre-create identity for one approved workload execution."""
 
     key_id: str
     nonce: str
@@ -144,7 +170,7 @@ class CompletionChallenge:
 
 @dataclass(frozen=True)
 class CompletionEvidence:
-    """Authenticated statement that the approved workload finalized result bytes."""
+    """Authenticated v2 statement that the approved workload finalized result bytes."""
 
     key_id: str
     nonce: str
@@ -212,6 +238,79 @@ class CompletionEvidence:
         return value
 
 
+@dataclass(frozen=True)
+class CompletionEvidenceV3:
+    """Authenticated completion that also binds the root-observed process exit code."""
+
+    key_id: str
+    nonce: str
+    plan_fingerprint: str
+    execution_name: str
+    source_sha: str
+    image_digest: str
+    result_sha256: str
+    process_exit_code: int
+    mac_sha256: str
+    schema_version: int = 3
+
+    def validate_shape(self) -> None:
+        _require_schema_version_v3(self.schema_version, label="completion v3 evidence")
+        if not isinstance(self.key_id, str) or not _KEY_ID_RE.fullmatch(self.key_id):
+            raise CompletionEvidenceError("key_id is invalid")
+        if not isinstance(self.nonce, str) or not _HEX_64_RE.fullmatch(self.nonce):
+            raise CompletionEvidenceError("nonce is invalid")
+        _require_sha256(self.plan_fingerprint, "plan_fingerprint")
+        if not isinstance(self.execution_name, str) or not _EXECUTION_NAME_RE.fullmatch(self.execution_name):
+            raise CompletionEvidenceError("execution_name is invalid")
+        if self.execution_name != execution_name_for(self.plan_fingerprint, self.nonce):
+            raise CompletionEvidenceError("execution_name does not match plan_fingerprint and nonce")
+        if not isinstance(self.source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", self.source_sha):
+            raise CompletionEvidenceError("source_sha must be a lowercase 40-character commit SHA")
+        _require_sha256(self.image_digest, "image_digest")
+        _require_sha256(self.result_sha256, "result_sha256")
+        _require_process_exit_code(self.process_exit_code)
+        if not isinstance(self.mac_sha256, str) or not _HEX_64_RE.fullmatch(self.mac_sha256):
+            raise CompletionEvidenceError("mac_sha256 must be lowercase HMAC-SHA256 hex")
+
+    def to_dict(self) -> dict[str, object]:
+        self.validate_shape()
+        return {
+            "key_id": self.key_id,
+            "nonce": self.nonce,
+            "plan_fingerprint": self.plan_fingerprint,
+            "execution_name": self.execution_name,
+            "source_sha": self.source_sha,
+            "image_digest": self.image_digest,
+            "result_sha256": self.result_sha256,
+            "process_exit_code": self.process_exit_code,
+            "mac_sha256": self.mac_sha256,
+            "schema_version": self.schema_version,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "CompletionEvidenceV3":
+        expected = {
+            "key_id", "nonce", "plan_fingerprint", "execution_name", "source_sha",
+            "image_digest", "result_sha256", "process_exit_code", "mac_sha256", "schema_version",
+        }
+        if set(payload) != expected:
+            raise CompletionEvidenceError("completion v3 evidence fields do not match schema")
+        value = cls(
+            key_id=payload["key_id"],  # type: ignore[arg-type]
+            nonce=payload["nonce"],  # type: ignore[arg-type]
+            plan_fingerprint=payload["plan_fingerprint"],  # type: ignore[arg-type]
+            execution_name=payload["execution_name"],  # type: ignore[arg-type]
+            source_sha=payload["source_sha"],  # type: ignore[arg-type]
+            image_digest=payload["image_digest"],  # type: ignore[arg-type]
+            result_sha256=payload["result_sha256"],  # type: ignore[arg-type]
+            process_exit_code=payload["process_exit_code"],  # type: ignore[arg-type]
+            mac_sha256=payload["mac_sha256"],  # type: ignore[arg-type]
+            schema_version=payload["schema_version"],  # type: ignore[arg-type]
+        )
+        value.validate_shape()
+        return value
+
+
 def sign_completion(
     challenge: CompletionChallenge,
     *,
@@ -243,6 +342,41 @@ def sign_completion(
     )
 
 
+def sign_completion_v3(
+    challenge: CompletionChallenge,
+    *,
+    result_sha256: str,
+    process_exit_code: int,
+    secret_key: bytes,
+) -> CompletionEvidenceV3:
+    challenge.validate_shape()
+    result_digest = _require_sha256(result_sha256, "result_sha256")
+    exit_code = _require_process_exit_code(process_exit_code)
+    _require_secret_key(secret_key)
+    message = _canonical_payload_v3(
+        key_id=challenge.key_id,
+        nonce=challenge.nonce,
+        plan_fingerprint=challenge.plan_fingerprint,
+        execution_name=challenge.execution_name,
+        source_sha=challenge.source_sha,
+        image_digest=challenge.image_digest,
+        result_sha256=result_digest,
+        process_exit_code=exit_code,
+    )
+    mac = hmac.new(secret_key, message, hashlib.sha256).hexdigest()
+    return CompletionEvidenceV3(
+        key_id=challenge.key_id,
+        nonce=challenge.nonce,
+        plan_fingerprint=challenge.plan_fingerprint,
+        execution_name=challenge.execution_name,
+        source_sha=challenge.source_sha,
+        image_digest=challenge.image_digest,
+        result_sha256=result_digest,
+        process_exit_code=exit_code,
+        mac_sha256=mac,
+    )
+
+
 def verify_completion(
     challenge: CompletionChallenge,
     evidence: CompletionEvidence,
@@ -264,3 +398,31 @@ def verify_completion(
     expected = sign_completion(challenge, result_sha256=expected_result, secret_key=secret_key)
     if not hmac.compare_digest(evidence.mac_sha256, expected.mac_sha256):
         raise CompletionEvidenceError("completion evidence authentication failed")
+
+
+def verify_completion_v3(
+    challenge: CompletionChallenge,
+    evidence: CompletionEvidenceV3,
+    *,
+    secret_key: bytes,
+    expected_result_sha256: str,
+) -> None:
+    challenge.validate_shape()
+    evidence.validate_shape()
+    expected_result = _require_sha256(expected_result_sha256, "expected_result_sha256")
+    _require_secret_key(secret_key)
+
+    for field in ("key_id", "nonce", "plan_fingerprint", "execution_name", "source_sha", "image_digest"):
+        if getattr(evidence, field) != getattr(challenge, field):
+            raise CompletionEvidenceError(f"completion v3 evidence {field} does not match challenge")
+    if evidence.result_sha256 != expected_result:
+        raise CompletionEvidenceError("completion v3 evidence result_sha256 does not match collected result bytes")
+
+    expected = sign_completion_v3(
+        challenge,
+        result_sha256=expected_result,
+        process_exit_code=evidence.process_exit_code,
+        secret_key=secret_key,
+    )
+    if not hmac.compare_digest(evidence.mac_sha256, expected.mac_sha256):
+        raise CompletionEvidenceError("completion v3 evidence authentication failed")

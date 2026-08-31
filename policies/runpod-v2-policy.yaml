@@ -11,20 +11,32 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-08-27T21:34:00Z
+  audited_at_utc: 2026-08-31T12:25:00Z
   implementation_contract: rest_v2_public_beta_offline
-  current_official_rest_base_observed: https://api.runpod.io/v2
+  implementation_matches_current_official_rest_contract: false
+  current_official_rest_version_observed: v1
+  current_official_rest_base_observed: https://rest.runpod.io/v1
+  current_official_openapi_endpoint: GET /openapi.json
+  current_official_create_pod_endpoint: POST /pods
+  current_official_list_pods_endpoint: GET /pods
+  current_official_list_pods_response_shape: array
+  current_official_delete_pod_endpoint: DELETE /pods/{id}
+  current_official_network_volume_attach_fields_observed: true
+  current_official_network_volume_fields:
+    - networkVolumeId
+    - volumeMountPath
+  migration_to_current_official_rest_contract_required: true
   current_official_contract_revalidation_required: true
   implementation_may_not_be_enabled_live_until_revalidated: true
   live_enablement_by_flag_only_forbidden: true
   create_env_contract_observed: true
   list_pods_contract_observed: true
-  list_pods_endpoint: GET /pods
-  list_pods_response_envelope: pods
-  list_pods_server_side_name_filter_supported: false
-  list_pods_evidence_repository: runpod/runpod-mcp
-  list_pods_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
-  list_pods_evidence_path: src/tools/pods.ts
+  implementation_list_pods_endpoint: GET /pods
+  implementation_list_pods_response_envelope: pods
+  implementation_list_pods_server_side_name_filter_supported: false
+  legacy_v2_list_pods_evidence_repository: runpod/runpod-mcp
+  legacy_v2_list_pods_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
+  legacy_v2_list_pods_evidence_path: src/tools/pods.ts
   pod_container_log_sse_status: dev_only_prod_unavailable
   pod_container_log_sse_prod_verified: false
   pod_container_log_sse_prod_failure: http_422_path_not_found
@@ -34,7 +46,16 @@ api_contract_audit:
   pod_container_log_sse_evidence_path: test.md
   pod_container_log_sse_evidence_section: "K — Dev-only tools, currently DISABLED (not registered)"
   pod_container_log_sse_evidence_url: https://github.com/runpod/runpod-mcp/blob/465872464c4f157a2e87afcd855c60a607954c26/test.md
-  note: RunPod REST API v2 is live in production at the canonical api.runpod.io/v2 origin. The pinned official MCP implementation confirms full-account GET /v2/pods with local filtering semantics, while its validation records GET /v2/pods/{id}/logs as dev-only and returning HTTP 422 path-not-found in production. gpu-control may model bounded create/cleanup reconciliation against List Pods offline, but must not wire authenticated production result collection to the unavailable logs endpoint. Live calls remain disabled, and the complete current official contract must be revalidated immediately before any activation.
+  network_volume_storage_docs_observed: true
+  network_volume_s3_api_observed: true
+  network_volume_docs_repository: runpod/docs
+  network_volume_docs_commit: d5b565dc68874e747a5e0476e70b10e8c05c447e
+  network_volume_docs_path: storage/network-volumes.mdx
+  network_volume_s3_docs_path: storage/s3-api.mdx
+  network_volume_attach_contract_repository: runpod/runpodctl
+  network_volume_attach_contract_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
+  network_volume_attach_contract_path: cmd/pod/create.go
+  note: The checked-in Pod control client still implements the older public v2 beta contract, while current official RunPod documentation exposes the stable REST API at rest.runpod.io/v1 with different Pod request/response shapes. The durable Network Volume S3 result path remains a valid offline candidate, but live Pod control is blocked until the adapter/client is migrated and revalidated against current v1. Production Pod-log SSE remains unavailable and is not used as the result path. All live calls remain disabled.
 
 submission:
   approved_plan_required: true
@@ -57,6 +78,12 @@ submission:
   user_env_forwarded: false
   user_mounts_forwarded: false
   automatic_create_retry: false
+  trusted_network_volume_required_for_live_canary: true
+  network_volume_must_preexist: true
+  network_volume_auto_create_or_resize: false
+  network_volume_mount_path: /outputs
+  network_volume_from_trusted_control_plane_only: true
+  network_volume_s3_supported_datacenter_required: true
   ambiguous_create_requires_reconciliation: true
   ambiguous_create_reconciliation_status: implemented_offline_mock_tested
   ambiguous_create_reconciliation_live_verified: false
@@ -80,8 +107,9 @@ submission:
   compensating_termination_failure_is_visible: true
 
 completion_evidence:
-  protocol: hmac-sha256-v2
-  implementation_status: pre_create_identity_and_env_contract_offline
+  protocol: hmac-sha256-v3
+  legacy_v2_compatibility_status: temporary_offline_migration_only
+  implementation_status: v3_signed_exit_code_and_volume_transport_offline_mock_tested
   per_run_nonce_required: true
   pre_create_execution_name_required: true
   minimum_secret_bytes: 32
@@ -104,14 +132,50 @@ completion_evidence:
     - workload_source_sha
     - image_digest
     - result_sha256
+    - process_exit_code
   provider_job_id_binding: submission_receipt_and_provider_specific_collection_transport
   result_marker: "GPU_CONTROL_RESULT_JSON_V1:"
-  completion_marker: "GPU_CONTROL_COMPLETION_JSON_V2:"
+  legacy_completion_marker: "GPU_CONTROL_COMPLETION_JSON_V2:"
+  completion_marker: "GPU_CONTROL_COMPLETION_JSON_V3:"
   max_marker_bytes: 16384
   offline_marker_authentication_allowed: true
-  production_collection_transport_status: blocked_pending_supported_provider_transport
+  production_collection_transport_status: network_volume_s3_implemented_offline_mock_tested
+  production_collection_transport_live_verified: false
   live_injection_enabled: false
   live_collection_enabled: false
+
+network_volume_results:
+  implementation_status: implemented_offline_mock_tested
+  live_verified: false
+  live_enabled: false
+  secure_cloud_required: true
+  mount_path: /outputs
+  persistent_after_pod_termination: true
+  object_keys:
+    - result.json
+    - completion-v3.json
+  max_object_bytes: 16384
+  fixed_runpod_s3_origin_required: true
+  s3_endpoint_derived_from_datacenter: true
+  s3_credentials_separate_from_runpod_api_key: true
+  s3_credentials_forwarded_to_workload: false
+  auto_create_or_resize_volume: false
+  supported_datacenters:
+    - EU-CZ-1
+    - EU-RO-1
+    - EUR-IS-1
+    - EUR-NO-1
+    - US-CA-2
+    - US-GA-2
+    - US-IL-1
+    - US-KS-2
+    - US-MD-1
+    - US-MO-1
+    - US-MO-2
+    - US-NC-1
+    - US-NC-2
+    - US-NE-1
+    - US-WA-1
 
 status:
   provisioning: submitted
@@ -119,7 +183,7 @@ status:
   running: running
   error: failed
   terminated: cancelled
-  exited: ambiguous_requires_workload_completion_evidence
+  exited: authenticated_v3_network_volume_evidence_required
   unknown: reject
 
 cleanup:
@@ -139,6 +203,9 @@ results:
   enabled: false
   requires_authenticated_workload_completion_evidence: true
   production_transport_must_be_currently_supported: true
+  network_volume_s3_transport_implemented: true
+  network_volume_s3_live_verified: false
+  durable_after_pod_cleanup: true
 
 catalog:
   endpoint: GET /catalog/gpus
@@ -157,6 +224,7 @@ forbidden:
   - live_runpod_call_from_public_cli
   - live_adapter_from_public_cli
   - live_enablement_without_current_official_api_contract_revalidation
+  - live_enablement_while_provider_adapter_targets_legacy_v2_beta
   - live_enablement_by_policy_flag_only
   - create_without_structured_live_execution_permit
   - create_with_expired_live_execution_permit
@@ -188,9 +256,17 @@ forbidden:
   - persisting_completion_secret_in_lifecycle_json
   - logging_completion_secret
   - treating_exited_as_success_without_completion_evidence
+  - treating_exited_as_success_without_v3_signed_exit_code
   - treating_unknown_provider_status_as_success
   - collecting_results_without_authenticated_completion_evidence
   - collecting_live_results_through_unavailable_prod_pod_log_sse
   - treating_dev_only_provider_operation_as_production_contract
+  - arbitrary_network_volume_id_from_workload
+  - user_controlled_volume_mount_path
+  - network_volume_auto_create_or_resize_in_paid_workflow
+  - runpod_s3_credentials_forwarded_to_workload
+  - runpod_s3_secret_in_logs_or_errors
+  - unbounded_s3_result_read
+  - s3_endpoint_not_derived_from_supported_datacenter
   - treating_cleanup_404_as_success_without_reconciliation_policy
   - treating_active_pod_as_cleanup_success_after_terminate_error

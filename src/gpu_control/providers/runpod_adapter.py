@@ -2,17 +2,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 from typing import Callable
 
 from ..execution import ApprovedExecutionPlan
 from ..human_authorization import HumanAuthorizationError, LiveExecutionPermit
-from ..lifecycle import CleanupState, JobObservation, SubmissionReceipt
+from ..lifecycle import CleanupState, JobObservation, JobState, SubmissionReceipt
+from ..results import ArtifactDisposition, OutputArtifact
 from .base import (
     ProviderCleanupSnapshot,
     ProviderResultSnapshot,
     ProviderStatusSnapshot,
     ProviderSubmission,
 )
+from .runpod_network_volume import (
+    AuthenticatedRunPodVolumeResult,
+    RunPodNetworkVolumeEvidence,
+    RunPodNetworkVolumeS3Client,
+    collect_runpod_network_volume_result,
+)
+from .runpod_network_volume_payload import bind_network_volume_to_create_payload
 from .runpod_occupancy import RunPodAccountOccupancyEvidence
 from .runpod_pricing import (
     RunPodCatalogPricingEvidence,
@@ -43,17 +52,13 @@ def _utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class RunPodV2Adapter:
-    """RunPod ProviderAdapter with paid submission guarded by an exact live permit.
+    """RunPod adapter with exact authorization and optional durable result transport.
 
-    In addition to plan/image/pricing identity, construction and every submission
-    require a non-expired ``LiveExecutionPermit`` for the exact approved plan.
-    Account occupancy is checked before and after create. Optional reconciliation
-    wiring can recover one ambiguous create only when a per-execution completion
-    identity and a fresh full Pod inventory are both available. The same inventory
-    contract can prove release after an ambiguous normal or compensating termination
-    without converting an active Pod to cleanup success.
-
-    Live workflow/credential wiring remains disabled elsewhere by repository policy.
+    A configured network volume is injected only from trusted control-plane evidence.
+    When RunPod reports ``EXITED``, the provider status is deliberately insufficient:
+    the adapter authenticates result/completion-v3 files from the fixed-origin volume
+    S3 transport and derives terminal success/failure from the signed process exit code.
+    Without that transport, EXITED remains rejected.
     """
 
     client: RunPodV2HttpClient
@@ -64,6 +69,9 @@ class RunPodV2Adapter:
     live_permit: LiveExecutionPermit
     inventory_probe: Callable[[ApprovedExecutionPlan], RunPodPodInventoryEvidence] | None = None
     completion_launch: RunPodCompletionLaunch | None = None
+    network_volume: RunPodNetworkVolumeEvidence | None = None
+    result_client: RunPodNetworkVolumeS3Client | None = None
+    expected_workload_id: str | None = None
     disk_gb: int = 20
     clock: Callable[[], datetime] = _utc_now
 
@@ -79,6 +87,8 @@ class RunPodV2Adapter:
             self.live_permit.validate_for_plan(self.approved_plan, now_utc=self.clock())
             if self.completion_launch is not None:
                 self.completion_launch.validate_against_plan(self.approved_plan)
+            if self.network_volume is not None:
+                self.network_volume.validate_shape()
         except (ValueError, RunPodV2Error, HumanAuthorizationError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if self.approved_plan.provider != "runpod":
@@ -89,6 +99,17 @@ class RunPodV2Adapter:
             raise RunPodV2AdapterError("RunPod inventory_probe must be callable when configured")
         if isinstance(self.disk_gb, bool) or not isinstance(self.disk_gb, int) or self.disk_gb < 1:
             raise RunPodV2AdapterError("RunPod adapter disk_gb must be a positive integer")
+        if self.result_client is not None:
+            if self.network_volume is None:
+                raise RunPodV2AdapterError("RunPod result client requires trusted network-volume evidence")
+            if self.result_client._evidence != self.network_volume:
+                raise RunPodV2AdapterError("RunPod result client is bound to a different network volume")
+            if self.completion_launch is None:
+                raise RunPodV2AdapterError("RunPod result client requires an authenticated completion launch")
+            if not isinstance(self.expected_workload_id, str) or not self.expected_workload_id.strip():
+                raise RunPodV2AdapterError("RunPod result client requires a trusted workload id")
+        elif self.expected_workload_id is not None:
+            raise RunPodV2AdapterError("RunPod expected_workload_id requires a result client")
 
     @property
     def provider_name(self) -> str:
@@ -144,9 +165,22 @@ class RunPodV2Adapter:
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
 
-    def _prove_pod_released(self, pod_id: str) -> None:
-        """Fail unless fresh inventory proves the exact Pod absent or TERMINATED."""
+    def _collect_authenticated_volume_result(self) -> AuthenticatedRunPodVolumeResult:
+        if self.result_client is None or self.completion_launch is None or self.expected_workload_id is None:
+            raise RunPodV2AdapterError(
+                "RunPod EXITED remains ambiguous without configured authenticated network-volume result transport"
+            )
+        try:
+            return collect_runpod_network_volume_result(
+                self.result_client,
+                challenge=self.completion_launch.challenge,
+                secret_key=self.completion_launch.secret_key,
+                expected_workload_id=self.expected_workload_id,
+            )
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV2AdapterError(str(exc)) from exc
 
+    def _prove_pod_released(self, pod_id: str) -> None:
         evidence = self._probe_inventory(self.approved_plan)
         try:
             released = cleanup_reconciled(
@@ -223,9 +257,9 @@ class RunPodV2Adapter:
             disk_gb=self.disk_gb,
             completion=self.completion_launch,
         )
+        if self.network_volume is not None:
+            payload = bind_network_volume_to_create_payload(payload, self.network_volume)
 
-        # Deliberately one create request. A failed transport may be reconciled
-        # by exact pre-create execution identity, but create itself is never retried.
         try:
             pod = self.client.create_pod(payload)
         except RunPodV2Error as create_error:
@@ -260,20 +294,41 @@ class RunPodV2Adapter:
         if pod_id != receipt.provider_job_id:
             raise RunPodV2AdapterError("RunPod status response Pod id does not match submission receipt")
         try:
-            validate_created_pod_with_pricing(
-                self.approved_plan,
-                self.published_image,
-                self.catalog_pricing,
-                pod,
-                completion=self.completion_launch,
-            )
-            state = translate_pod_status(pod)
+            if pod.get("status") == "EXITED":
+                # Reuse the ordinary identity/cloud/price validator without claiming
+                # that EXITED itself is RUNNING. Status interpretation happens only
+                # after exact durable completion evidence is authenticated below.
+                identity_view = dict(pod)
+                identity_view["status"] = "RUNNING"
+                validate_created_pod_with_pricing(
+                    self.approved_plan,
+                    self.published_image,
+                    self.catalog_pricing,
+                    identity_view,
+                    completion=self.completion_launch,
+                )
+                authenticated = self._collect_authenticated_volume_result()
+                state = authenticated.state
+                status_reference = (
+                    f"runpod-v2:pod:{receipt.provider_job_id}:authenticated-volume:"
+                    f"{authenticated.completion_evidence.result_sha256}"
+                )
+            else:
+                validate_created_pod_with_pricing(
+                    self.approved_plan,
+                    self.published_image,
+                    self.catalog_pricing,
+                    pod,
+                    completion=self.completion_launch,
+                )
+                state = translate_pod_status(pod)
+                status_reference = f"runpod-v2:pod:{receipt.provider_job_id}:status"
         except RunPodV2Error as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         return ProviderStatusSnapshot(
             provider_job_id=receipt.provider_job_id,
             state=state,
-            status_reference=f"runpod-v2:pod:{receipt.provider_job_id}:status",
+            status_reference=status_reference,
         )
 
     def cleanup(
@@ -313,6 +368,36 @@ class RunPodV2Adapter:
         lifecycle_observation: JobObservation,
     ) -> ProviderResultSnapshot:
         self._require_receipt_identity(receipt)
-        raise RunPodV2AdapterError(
-            "RunPod result collection is disabled until a production-supported authenticated collection transport is verified"
+        if not lifecycle_observation.finalized:
+            raise RunPodV2AdapterError("RunPod result collection requires finalized lifecycle state")
+        if lifecycle_observation.state not in {JobState.SUCCEEDED, JobState.FAILED}:
+            raise RunPodV2AdapterError("RunPod authenticated result collection requires succeeded or failed state")
+        authenticated = self._collect_authenticated_volume_result()
+        if authenticated.state is not lifecycle_observation.state:
+            raise RunPodV2AdapterError("RunPod collected result state does not match finalized lifecycle state")
+        result_digest = "sha256:" + hashlib.sha256(authenticated.result_bytes).hexdigest()
+        completion_digest = "sha256:" + hashlib.sha256(authenticated.completion_bytes).hexdigest()
+        artifacts = (
+            OutputArtifact(
+                name="result.json",
+                sha256=result_digest,
+                size_bytes=len(authenticated.result_bytes),
+                media_type="application/json",
+                reference=f"{authenticated.collection_reference}:result.json",
+                disposition=ArtifactDisposition.COLLECTED,
+            ),
+            OutputArtifact(
+                name="completion-v3.json",
+                sha256=completion_digest,
+                size_bytes=len(authenticated.completion_bytes),
+                media_type="application/json",
+                reference=f"{authenticated.collection_reference}:completion-v3.json",
+                disposition=ArtifactDisposition.COLLECTED,
+            ),
+        )
+        return ProviderResultSnapshot(
+            provider_job_id=receipt.provider_job_id,
+            log_bytes_retained=0,
+            logs_truncated=False,
+            artifacts=artifacts,
         )
