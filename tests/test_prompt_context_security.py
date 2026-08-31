@@ -209,7 +209,7 @@ def test_live_activation_is_blocked_on_new_prompt_authorization_and_provider_pre
     assert state["resume_rule"]["keep_paid_compute_disabled_until_provider_contract_is_current"] is True
 
 
-def test_runpod_v2_beta_contract_is_current_but_still_blocked_from_live_enablement() -> None:
+def test_runpod_legacy_v2_contract_is_blocked_until_current_v1_migration() -> None:
     runpod = load(RUNPOD_POLICY)
     audit = runpod["api_contract_audit"]
     completion = runpod["completion_evidence"]
@@ -218,7 +218,11 @@ def test_runpod_v2_beta_contract_is_current_but_still_blocked_from_live_enableme
     assert runpod["api"]["live_adapter_enabled"] is False
     assert runpod["api"]["workflow_enabled"] is False
     assert audit["implementation_contract"] == "rest_v2_public_beta_offline"
-    assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
+    assert audit["implementation_matches_current_official_rest_contract"] is False
+    assert audit["current_official_rest_version_observed"] == "v1"
+    assert audit["current_official_rest_base_observed"] == "https://rest.runpod.io/v1"
+    assert audit["current_official_list_pods_response_shape"] == "array"
+    assert audit["migration_to_current_official_rest_contract_required"] is True
     assert audit["create_env_contract_observed"] is True
     assert audit["pod_container_log_sse_status"] == "dev_only_prod_unavailable"
     assert audit["pod_container_log_sse_prod_verified"] is False
@@ -227,9 +231,9 @@ def test_runpod_v2_beta_contract_is_current_but_still_blocked_from_live_enableme
     assert audit["current_official_contract_revalidation_required"] is True
     assert audit["implementation_may_not_be_enabled_live_until_revalidated"] is True
     assert audit["live_enablement_by_flag_only_forbidden"] is True
-    assert completion["protocol"] == "hmac-sha256-v2"
+    assert completion["protocol"] == "hmac-sha256-v3"
     assert completion["pre_create_execution_name_required"] is True
-    assert completion["production_collection_transport_status"] == "blocked_pending_supported_provider_transport"
+    assert completion["production_collection_transport_status"] == "network_volume_s3_implemented_offline_mock_tested"
     assert completion["live_injection_enabled"] is False
     assert completion["live_collection_enabled"] is False
 
