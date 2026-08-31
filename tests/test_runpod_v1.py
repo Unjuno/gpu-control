@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from decimal import Decimal
 import io
 import json
@@ -174,6 +173,7 @@ def test_v1_pod_normalization_revalidates_machine_price_and_volume_identity() ->
         "cloud": "SECURE",
         "dataCenterId": "US-KS-2",
         "networkVolumeId": "vol_123",
+        "networkVolumeDataCenterId": "US-KS-2",
         "volumeMountPath": "/outputs",
     }
 
@@ -245,10 +245,15 @@ def test_v1_http_client_uses_fixed_origin_array_list_and_delete_204() -> None:
         calls.append((request, timeout))
         return next(responses)
 
-    client = RunPodV1HttpClient("secret-token", timeout=3.0, opener=opener)
+    client = RunPodV1HttpClient("secret-token", network_volume=volume(), timeout=3.0, opener=opener)
     assert client.list_pods()["pods"][0]["status"] == "RUNNING"
-    assert client.create_pod({"name": "test"})["id"] == "pod-123"
-    assert client.get_pod("pod-123")["desiredStatus"] == "EXITED"
+    created = client.create_pod({"name": "test", "networkVolumeId": "vol_123", "volumeMountPath": "/outputs"})
+    assert created["id"] == "pod-123"
+    assert created["status"] == "RUNNING"
+    assert created["cloud"] == "SECURE"
+    observed = client.get_pod("pod-123")
+    assert observed["status"] == "EXITED"
+    assert observed["networkVolumeId"] == "vol_123"
     client.terminate_pod("pod-123")
 
     assert [request.full_url for request, _ in calls] == [
