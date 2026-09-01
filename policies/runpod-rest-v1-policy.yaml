@@ -2,14 +2,14 @@ version: 1
 
 provider: runpod
 contract: rest_v1_current_official
-status: transport_layer_implemented_offline_mock_tested
+status: adapter_wiring_implemented_offline_mock_tested
 
 api:
   base_url: https://rest.runpod.io/v1
   authentication: bearer_header
   openapi_endpoint: GET /openapi.json
   live_calls_enabled: false
-  adapter_migrated: false
+  adapter_migrated: true
   workflow_enabled: false
 
 pod_endpoints:
@@ -67,15 +67,18 @@ migration:
   current_v1_response_normalizer_implemented: true
   current_v1_list_array_normalizer_implemented: true
   current_v1_fixed_origin_tests_implemented: true
-  provider_adapter_migration_pending: true
-  occupancy_probe_migration_pending: true
-  reconciliation_probe_migration_pending: true
+  current_v1_provider_adapter_implemented: true
+  current_v1_occupancy_probe_implemented: true
+  current_v1_reconciliation_probe_implemented: true
+  provider_adapter_migration_pending: false
+  occupancy_probe_migration_pending: false
+  reconciliation_probe_migration_pending: false
   current_pricing_catalog_revalidation_pending: true
   live_provider_verification_pending: true
 
 forbidden:
-  - live_calls_before_adapter_migration
   - live_calls_before_current_pricing_revalidation
+  - live_calls_before_live_provider_verification
   - arbitrary_api_origin
   - api_key_in_query_string
   - api_key_in_logs_or_errors
