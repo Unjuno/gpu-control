@@ -26,6 +26,13 @@ from .finalization import (
     validate_result_capture_against_lifecycle,
 )
 from .runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
+from .runpod_current_pricing import (
+    RUNPOD_GRAPHQL_URL,
+    RUNPOD_PRICING_CONTRACT_COMMIT,
+    RunPodCurrentPricingEvidence,
+    RunPodPricingGraphQLClient,
+    build_current_pricing_evidence,
+)
 from .runpod_occupancy import RunPodAccountOccupancyEvidence, build_account_occupancy_evidence
 from .runpod_pricing import (
     RunPodCatalogPricingEvidence,
@@ -68,12 +75,16 @@ __all__ = [
     "ProviderStatusSnapshot",
     "ProviderSubmission",
     "PublishedImageEvidence",
+    "RUNPOD_GRAPHQL_URL",
+    "RUNPOD_PRICING_CONTRACT_COMMIT",
     "RUNPOD_V1_BASE_URL",
     "RUNPOD_V2_BASE_URL",
     "RunPodAccountOccupancyEvidence",
     "RunPodCatalogPricingEvidence",
+    "RunPodCurrentPricingEvidence",
     "RunPodPodInventoryEntry",
     "RunPodPodInventoryEvidence",
+    "RunPodPricingGraphQLClient",
     "RunPodV1Adapter",
     "RunPodV1AdapterError",
     "RunPodV1HttpClient",
@@ -89,6 +100,7 @@ __all__ = [
     "build_catalog_pricing_evidence",
     "build_create_pod_payload",
     "build_create_pod_payload_v1",
+    "build_current_pricing_evidence",
     "build_pod_inventory_evidence",
     "build_priced_create_pod_payload",
     "capture_provider_results_before_cleanup",
