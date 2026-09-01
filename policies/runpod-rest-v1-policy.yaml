@@ -2,7 +2,7 @@ version: 1
 
 provider: runpod
 contract: rest_v1_current_official
-status: adapter_wiring_implemented_offline_mock_tested
+status: control_and_pricing_paths_implemented_offline_mock_tested
 
 api:
   base_url: https://rest.runpod.io/v1
@@ -61,6 +61,43 @@ response_normalization:
   machine_evidence_required_for_adapter_identity_validation: true
   network_volume_identity_revalidated_when_configured: true
 
+pricing_and_availability:
+  status: implemented_offline_mock_tested
+  graphql_url: https://api.runpod.io/graphql
+  authentication: bearer_header
+  live_calls_enabled: false
+  source_repository: runpod/runpodctl
+  source_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
+  gpu_query_source_path: internal/api/gpu.go
+  authentication_source_path: internal/api/client.go
+  gpu_fields:
+    - id
+    - displayName
+    - memoryInGb
+    - secureCloud
+    - communityCloud
+    - securePrice
+    - communityPrice
+  datacenter_fields:
+    - id
+    - name
+    - location
+    - gpuAvailability
+  availability_fields:
+    - gpuTypeId
+    - displayName
+    - stockStatus
+  selected_cloud: SECURE
+  price_field: securePrice
+  exact_network_volume_datacenter_required: true
+  exact_gpu_availability_row_required: true
+  required_stock_status: HIGH
+  evidence_max_ttl_seconds: 300
+  evidence_content_digest_required: true
+  evidence_must_match_plan: true
+  evidence_must_match_network_volume_datacenter: true
+  adapter_rechecks_evidence_before_submit: true
+
 migration:
   current_v1_http_client_implemented: true
   current_v1_payload_builder_implemented: true
@@ -70,15 +107,20 @@ migration:
   current_v1_provider_adapter_implemented: true
   current_v1_occupancy_probe_implemented: true
   current_v1_reconciliation_probe_implemented: true
+  current_pricing_graphql_client_implemented: true
+  current_pricing_evidence_implemented: true
+  exact_datacenter_stock_binding_implemented: true
   provider_adapter_migration_pending: false
   occupancy_probe_migration_pending: false
   reconciliation_probe_migration_pending: false
-  current_pricing_catalog_revalidation_pending: true
+  current_pricing_catalog_revalidation_pending: false
   live_provider_verification_pending: true
 
 forbidden:
-  - live_calls_before_current_pricing_revalidation
   - live_calls_before_live_provider_verification
+  - live_submission_without_fresh_current_pricing_evidence
+  - live_submission_with_pricing_for_different_datacenter
+  - live_submission_without_high_exact_datacenter_stock
   - arbitrary_api_origin
   - api_key_in_query_string
   - api_key_in_logs_or_errors
