@@ -40,6 +40,13 @@ from .runpod_reconciliation import (
     cleanup_reconciled,
     reconcile_ambiguous_create,
 )
+from .runpod_v1 import RUNPOD_V1_BASE_URL, RunPodV1HttpClient, build_create_pod_payload_v1
+from .runpod_v1_adapter import (
+    RunPodV1Adapter,
+    RunPodV1AdapterError,
+    RunPodV1InventoryProbe,
+    RunPodV1OccupancyProbe,
+)
 from .runpod_v2 import (
     RUNPOD_V2_BASE_URL,
     PublishedImageEvidence,
@@ -61,11 +68,17 @@ __all__ = [
     "ProviderStatusSnapshot",
     "ProviderSubmission",
     "PublishedImageEvidence",
+    "RUNPOD_V1_BASE_URL",
     "RUNPOD_V2_BASE_URL",
     "RunPodAccountOccupancyEvidence",
     "RunPodCatalogPricingEvidence",
     "RunPodPodInventoryEntry",
     "RunPodPodInventoryEvidence",
+    "RunPodV1Adapter",
+    "RunPodV1AdapterError",
+    "RunPodV1HttpClient",
+    "RunPodV1InventoryProbe",
+    "RunPodV1OccupancyProbe",
     "RunPodV2Adapter",
     "RunPodV2AdapterError",
     "RunPodV2Error",
@@ -75,6 +88,7 @@ __all__ = [
     "build_account_occupancy_evidence",
     "build_catalog_pricing_evidence",
     "build_create_pod_payload",
+    "build_create_pod_payload_v1",
     "build_pod_inventory_evidence",
     "build_priced_create_pod_payload",
     "capture_provider_results_before_cleanup",
