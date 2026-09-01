@@ -16,14 +16,15 @@ This document describes what `gpu-control` on `main` can do today. It deliberate
 | Approved execution plan contracts | Ready offline | Immutable/fingerprinted plans, pricing evidence, durable lifecycle state, cleanup state, and bounded result manifests are implemented. |
 | Structured exact human authorization | Ready for RunPod adapter boundary | Runtime validator and expiring `LiveExecutionPermit` exist; RunPod adapter construction/submission requires the exact unexpired permit. End-to-end paid workflow wiring remains absent. |
 | Current RunPod REST v1 transport layer | Ready offline | Fixed `rest.runpod.io/v1` client, current create field names, List Pods array normalization, `desiredStatus`, `costPerHr`, machine cloud evidence, Network Volume identity, GET, and DELETE 204 are mock-tested. |
-| RunPod REST v1 provider adapter | Ready offline | Canonical adapter and v1-backed occupancy/reconciliation probes use the current REST v1 payload/normalization layer while preserving live-permit, price, lifecycle, cleanup, and result gates. |
+| Current RunPod pricing/availability evidence | Ready offline | Fixed GraphQL origin and Bearer auth, `securePrice`, VRAM, exact Network Volume datacenter, HIGH stock, 300-second maximum TTL, and content-digest binding are mock-tested. |
+| RunPod REST v1 provider adapter | Ready offline for selected canary | Canonical adapter requires current pricing evidence, exact Network Volume DC, unexpired live permit, and v1-backed occupancy/reconciliation before create. |
 | RunPod ambiguous create/cleanup reconciliation | Ready offline on current v1 transport | Bounded occupancy/reconciliation logic consumes the v1-normalized account inventory and remains fail-closed. Live verification is still pending. |
 | Authenticated Orbitune completion v3 | Ready offline | Root signer binds exact result bytes and the observed process exit code into HMAC-SHA256 evidence; legacy v2 remains only during migration. |
 | RunPod Network Volume/S3 result transport | Ready offline | Fixed RunPod S3 origin, trusted `/outputs` mount, exact two-object bounded collection, and v3 authentication are mock-tested. Live verification and real credentials/volume are pending. |
 | Orbitune paid-canary result acceptance | Ready offline | Workload-specific acceptance accepts authenticated log-v2 or durable volume-v3 evidence and remains separate from provider cleanup/finalization. |
 | Pre-cleanup result capture/finalization | Ready offline | Provider-neutral ephemeral-result capture is durable and bounded. |
 | Production Pod-log SSE | Unavailable | Current RunPod evidence records the Pod-log SSE operation as dev-only/unavailable in production; it is not used as the live result path. |
-| Paid GitHub Actions workflow | Not present yet | `main` contains CI and dry-run workflows only. It must not be added/enabled until current pricing and external GitHub gates are complete. |
+| Paid GitHub Actions workflow | Not present yet | `main` contains CI and dry-run workflows only. It must not be added/enabled until external GitHub gates and initial live provider verification are complete. |
 | Live paid GPU execution | Disabled | Repository state is `parked`; paid/provider/result live flags remain off. |
 
 ## Current selected canary
@@ -41,7 +42,7 @@ The repository currently records this canary workload:
 - exact-main full pytest run: `33313993621` — passed
 - exact-main RunPod canary smoke run: `33313993623` — passed
 
-The source CI, root/non-root signer isolation, v3 signed exit-code envelope, current REST v1 adapter contract, and central offline volume-transport tests are green. That does **not** mean the control plane is authorized to spend money today.
+The source CI, root/non-root signer isolation, v3 signed exit-code envelope, current REST v1 adapter contract, current price/DC-stock contract, and central offline volume-transport tests are green. That does **not** mean the control plane is authorized to spend money today.
 
 ## Durable result transport
 
@@ -56,18 +57,20 @@ The old production-result blocker was the absence of a supported Pod-log API. Th
 
 This transport is implemented and mock-tested, but not yet live-verified. Network Volume creation/resizing is deliberately not automated because it is a persistent billable resource.
 
-## Provider-control migration
+## Provider-control and pricing path
 
-The current stable Pod REST contract used by this repository is v1 at `https://rest.runpod.io/v1`. The control plane now implements and tests:
+The selected RunPod path is now complete at offline/mock level from price selection through result collection:
 
-- `POST /pods` with `imageName`, `gpuTypeIds`, `gpuCount`, `containerDiskInGb`, `cloudType`, trusted completion `env`, and trusted Network Volume fields;
-- `GET /pods` as an array normalized into the bounded occupancy/reconciliation envelope;
-- `GET /pods/{id}` with machine and Network Volume evidence requested for post-create/status validation;
-- `DELETE /pods/{id}` with HTTP 204 success;
-- response normalization from `desiredStatus`, `costPerHr`, `gpu`, `machine.secureCloud`, `machine.dataCenterId`, and `networkVolume`;
-- a canonical `RunPodV1Adapter` plus v1-backed occupancy and reconciliation probes.
+- current GPU price and VRAM come from a fixed-origin Bearer-authenticated GraphQL query;
+- exact per-datacenter stock is checked for the Network Volume datacenter;
+- current price/DC evidence is short-lived and content-digest bound;
+- the approved plan carries the exact price/reference/time window;
+- `RunPodV1Adapter` rechecks that evidence and the Network Volume DC immediately before submission;
+- current REST v1 creates the Pod and v1 List Pods backs account occupancy/reconciliation;
+- durable Network Volume/S3 result collection authenticates completion v3 after exit;
+- cleanup remains explicit and reconciliation-backed.
 
-The Pod-control adapter migration is therefore complete at offline/mock level. The remaining provider-control code blocker is current pricing/availability evidence, including exact datacenter availability for the Network Volume path. Real provider calls remain disabled until that evidence path and live verification are complete.
+No live provider call is enabled by these implementations. The remaining provider work is **live verification with real account evidence**, not another speculative API model.
 
 ## Why live paid execution is still disabled
 
@@ -79,8 +82,7 @@ The Pod-control adapter migration is therefore complete at offline/mock level. T
 - Environment-scoped `RUNPOD_API_KEY` plus separate RunPod S3 credentials;
 - a pre-existing Network Volume in a supported S3 datacenter;
 - immutable published canary-image identity;
-- current provider pricing/availability revalidation, bound to the selected GPU and Network Volume datacenter;
-- live account-occupancy verification;
+- live read-only verification of current pricing, exact-datacenter stock, and account occupancy;
 - live verification of ambiguous-create, result collection, and cleanup reconciliation;
 - protected paid-workflow wiring that constructs the exact current `LiveExecutionPermit` from trusted runtime evidence.
 
@@ -100,6 +102,6 @@ When documentation and machine state differ, prefer:
 
 1. `policies/repository-state.yaml` for current activation state;
 2. `policies/paid-execution-policy.yaml` for paid-path identity/security requirements;
-3. `policies/runpod-rest-v1-policy.yaml` for the current Pod transport contract;
+3. `policies/runpod-rest-v1-policy.yaml` for the current Pod-control and pricing contract;
 4. `policies/runpod-v2-policy.yaml` for legacy compatibility state and durable-result constraints;
 5. tests and current `main` implementation for executable behavior.
