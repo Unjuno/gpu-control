@@ -13,19 +13,19 @@ def load_policy() -> dict:
     return value
 
 
-def test_current_v1_transport_contract_is_offline_only() -> None:
+def test_current_v1_adapter_contract_is_offline_only() -> None:
     policy = load_policy()
     api = policy["api"]
     migration = policy["migration"]
 
     assert policy["provider"] == "runpod"
     assert policy["contract"] == "rest_v1_current_official"
-    assert policy["status"] == "transport_layer_implemented_offline_mock_tested"
+    assert policy["status"] == "adapter_wiring_implemented_offline_mock_tested"
     assert api["base_url"] == "https://rest.runpod.io/v1"
     assert api["authentication"] == "bearer_header"
     assert api["openapi_endpoint"] == "GET /openapi.json"
     assert api["live_calls_enabled"] is False
-    assert api["adapter_migrated"] is False
+    assert api["adapter_migrated"] is True
     assert api["workflow_enabled"] is False
 
     assert migration["current_v1_http_client_implemented"] is True
@@ -33,7 +33,12 @@ def test_current_v1_transport_contract_is_offline_only() -> None:
     assert migration["current_v1_response_normalizer_implemented"] is True
     assert migration["current_v1_list_array_normalizer_implemented"] is True
     assert migration["current_v1_fixed_origin_tests_implemented"] is True
-    assert migration["provider_adapter_migration_pending"] is True
+    assert migration["current_v1_provider_adapter_implemented"] is True
+    assert migration["current_v1_occupancy_probe_implemented"] is True
+    assert migration["current_v1_reconciliation_probe_implemented"] is True
+    assert migration["provider_adapter_migration_pending"] is False
+    assert migration["occupancy_probe_migration_pending"] is False
+    assert migration["reconciliation_probe_migration_pending"] is False
     assert migration["current_pricing_catalog_revalidation_pending"] is True
     assert migration["live_provider_verification_pending"] is True
 
@@ -76,11 +81,12 @@ def test_v1_pod_contract_matches_current_field_shapes() -> None:
     assert response["machine_evidence_required_for_adapter_identity_validation"] is True
 
 
-def test_v1_forbidden_boundaries_fail_closed() -> None:
+def test_v1_forbidden_boundaries_fail_closed_after_adapter_migration() -> None:
     forbidden = set(load_policy()["forbidden"])
+    assert "live_calls_before_adapter_migration" not in forbidden
     assert {
-        "live_calls_before_adapter_migration",
         "live_calls_before_current_pricing_revalidation",
+        "live_calls_before_live_provider_verification",
         "arbitrary_api_origin",
         "api_key_in_query_string",
         "api_key_in_logs_or_errors",
