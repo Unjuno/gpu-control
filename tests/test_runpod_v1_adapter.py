@@ -3,38 +3,78 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
+
 from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.human_authorization import LiveExecutionPermit
 from gpu_control.providers.controller import submit_approved_plan
-from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
+from gpu_control.providers.runpod_current_pricing import build_current_pricing_evidence
+from gpu_control.providers.runpod_network_volume import RunPodNetworkVolumeEvidence
 from gpu_control.providers.runpod_v1_adapter import (
     RunPodV1Adapter,
+    RunPodV1AdapterError,
     RunPodV1InventoryProbe,
     RunPodV1OccupancyProbe,
 )
 from gpu_control.providers.runpod_v2 import PublishedImageEvidence
+from gpu_control.validation import WorkloadRequest
 
 
 NOW = datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc)
 DIGEST = "sha256:" + "a" * 64
+GPU_ID = "NVIDIA GeForce RTX 4090"
 
 
-def pricing() -> RunPodCatalogPricingEvidence:
-    return RunPodCatalogPricingEvidence(
+def volume() -> RunPodNetworkVolumeEvidence:
+    return RunPodNetworkVolumeEvidence(
+        network_volume_id="volume-123",
+        data_center_id="US-KS-2",
+        verification_reference="runpod-volume:test",
+    )
+
+
+def current_pricing():  # type: ignore[no-untyped-def]
+    request = WorkloadRequest(
+        target_repo="Unjuno/orbitune",
+        target_sha="d" * 40,
+        dockerfile_path="workloads/runpod-training-canary/Dockerfile",
         gpu_profile="cheap-24gb",
-        gpu_type_id="NVIDIA GeForce RTX 4090",
-        cloud="SECURE",
-        memory_gb=24,
-        hourly_price_usd=Decimal("0.44"),
-        availability="HIGH",
-        verification_reference="runpod-current-pricing:sha256:" + "c" * 64,
-        verified_at_utc="2026-09-01T08:59:00Z",
-        valid_until_utc="2026-09-01T09:04:00Z",
+        max_runtime_minutes=15,
+        max_cost_usd=Decimal("0.20"),
+    )
+    return build_current_pricing_evidence(
+        [
+            {
+                "id": GPU_ID,
+                "displayName": "RTX 4090",
+                "memoryInGb": 24,
+                "secureCloud": True,
+                "communityCloud": True,
+                "securePrice": 0.44,
+                "communityPrice": 0.34,
+            }
+        ],
+        [
+            {
+                "id": "US-KS-2",
+                "name": "Kansas",
+                "location": "US",
+                "gpuAvailability": [
+                    {"gpuTypeId": GPU_ID, "displayName": "RTX 4090", "stockStatus": "High"}
+                ],
+            }
+        ],
+        request,
+        {"profile": "cheap-24gb", "gpu_count": 1, "min_vram_gb": 24},
+        volume(),
+        gpu_type_id=GPU_ID,
+        verified_at_utc=NOW,
+        validity_seconds=120,
     )
 
 
 def plan() -> ApprovedExecutionPlan:
-    evidence = pricing()
+    evidence = current_pricing()
     value = ApprovedExecutionPlan(
         provider="runpod",
         provider_resource_id=evidence.gpu_type_id,
@@ -121,23 +161,30 @@ class FakeV1Client:
         assert pod_id == "pod-123"
 
 
+def adapter(value: ApprovedExecutionPlan, client: FakeV1Client, clock):  # type: ignore[no-untyped-def]
+    pricing = current_pricing()
+    return RunPodV1Adapter(
+        client=client,  # type: ignore[arg-type]
+        approved_plan=value,
+        published_image=image(value),
+        catalog_pricing=pricing.to_catalog_evidence(),
+        occupancy_probe=RunPodV1OccupancyProbe(client=client, clock=clock),  # type: ignore[arg-type]
+        inventory_probe=RunPodV1InventoryProbe(client=client, clock=clock),  # type: ignore[arg-type]
+        live_permit=permit(value),
+        network_volume=volume(),
+        current_pricing=pricing,
+        clock=clock,
+    )
+
+
 def test_current_v1_adapter_builds_only_current_create_fields() -> None:
     value = plan()
     client = FakeV1Client(value)
     clock = lambda: NOW + timedelta(seconds=1)
-    adapter = RunPodV1Adapter(
-        client=client,  # type: ignore[arg-type]
-        approved_plan=value,
-        published_image=image(value),
-        catalog_pricing=pricing(),
-        occupancy_probe=RunPodV1OccupancyProbe(client=client, clock=clock),  # type: ignore[arg-type]
-        inventory_probe=RunPodV1InventoryProbe(client=client, clock=clock),  # type: ignore[arg-type]
-        live_permit=permit(value),
-        clock=clock,
-    )
+    runpod = adapter(value, client, clock)
 
     submitted = submit_approved_plan(
-        adapter,
+        runpod,
         value,
         expected_plan_fingerprint=value.fingerprint(),
         submitted_at_utc=NOW,
@@ -155,10 +202,32 @@ def test_current_v1_adapter_builds_only_current_create_fields() -> None:
     assert payload["interruptible"] is False
     assert payload["supportPublicIp"] is False
     assert payload["ports"] == []
+    assert payload["networkVolumeId"] == "volume-123"
+    assert payload["volumeMountPath"] == "/outputs"
+    assert payload["dataCenterIds"] == ["US-KS-2"]
     assert "image" not in payload
     assert "gpu" not in payload
     assert "disk" not in payload
     assert "cloud" not in payload
+
+
+def test_v1_adapter_rejects_missing_current_pricing_before_provider_work() -> None:
+    value = plan()
+    client = FakeV1Client(value)
+    pricing = current_pricing()
+    with pytest.raises(RunPodV1AdapterError, match="requires current pricing evidence"):
+        RunPodV1Adapter(
+            client=client,  # type: ignore[arg-type]
+            approved_plan=value,
+            published_image=image(value),
+            catalog_pricing=pricing.to_catalog_evidence(),
+            occupancy_probe=RunPodV1OccupancyProbe(client=client, clock=lambda: NOW),  # type: ignore[arg-type]
+            live_permit=permit(value),
+            network_volume=volume(),
+            current_pricing=None,
+            clock=lambda: NOW,
+        )
+    assert client.create_payloads == []
 
 
 def test_v1_list_pods_probes_preserve_fail_closed_occupancy_and_inventory() -> None:
