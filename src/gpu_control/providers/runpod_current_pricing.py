@@ -93,6 +93,34 @@ def _list(value: object, field: str) -> list[Any]:
     return value
 
 
+def _evidence_digest(
+    *,
+    gpu_profile: str,
+    gpu_type_id: str,
+    data_center_id: str,
+    memory_gb: int,
+    hourly_price_usd: Decimal,
+    stock_status: str,
+    verified_at_utc: str,
+    valid_until_utc: str,
+    contract_commit: str,
+) -> str:
+    normalized = {
+        "contract_commit": contract_commit,
+        "data_center_id": data_center_id,
+        "gpu_profile": gpu_profile,
+        "gpu_type_id": gpu_type_id,
+        "hourly_price_usd": format(hourly_price_usd, "f"),
+        "memory_gb": memory_gb,
+        "stock_status": stock_status,
+        "valid_until_utc": valid_until_utc,
+        "verified_at_utc": verified_at_utc,
+    }
+    return hashlib.sha256(
+        json.dumps(normalized, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
 @dataclass(frozen=True)
 class RunPodCurrentPricingEvidence:
     """Short-lived price and exact-datacenter availability evidence for one GPU."""
@@ -126,14 +154,25 @@ class RunPodCurrentPricingEvidence:
             raise RunPodV2Error("current RunPod pricing requires HIGH stock in the exact datacenter")
         if self.contract_commit != RUNPOD_PRICING_CONTRACT_COMMIT:
             raise RunPodV2Error("current RunPod pricing contract commit is not the pinned reviewed contract")
-        if not isinstance(self.verification_reference, str) or not self.verification_reference.startswith("runpod-current-pricing:sha256:"):
-            raise RunPodV2Error("current RunPod pricing verification_reference is invalid")
         checked = _parse_utc(self.verified_at_utc, "verified_at_utc")
         valid_until = _parse_utc(self.valid_until_utc, "valid_until_utc")
         if valid_until <= checked:
             raise RunPodV2Error("current RunPod pricing validity window is invalid")
         if valid_until - checked > timedelta(seconds=_MAX_EVIDENCE_TTL_SECONDS):
             raise RunPodV2Error("current RunPod pricing evidence TTL exceeds 300 seconds")
+        expected = "runpod-current-pricing:sha256:" + _evidence_digest(
+            gpu_profile=self.gpu_profile,
+            gpu_type_id=self.gpu_type_id,
+            data_center_id=self.data_center_id,
+            memory_gb=self.memory_gb,
+            hourly_price_usd=self.hourly_price_usd,
+            stock_status=self.stock_status,
+            verified_at_utc=self.verified_at_utc,
+            valid_until_utc=self.valid_until_utc,
+            contract_commit=self.contract_commit,
+        )
+        if self.verification_reference != expected:
+            raise RunPodV2Error("current RunPod pricing verification_reference does not match evidence contents")
 
     def to_catalog_evidence(self) -> RunPodCatalogPricingEvidence:
         self.validate_shape()
@@ -227,7 +266,7 @@ class RunPodPricingGraphQLClient:
             raise RunPodV2Error("RunPod pricing API returned invalid JSON") from exc
         root = _mapping(payload, "RunPod pricing response")
         errors = root.get("errors")
-        if errors not in {None, []}:
+        if errors is not None and errors != []:
             raise RunPodV2Error("RunPod pricing GraphQL response contained errors")
         return _mapping(root.get("data"), "RunPod pricing response data")
 
@@ -251,7 +290,6 @@ def build_current_pricing_evidence(
 ) -> RunPodCurrentPricingEvidence:
     """Bind exact GPU price and exact Network Volume datacenter stock into evidence."""
 
-    request.validate_shape()
     network_volume.validate_shape()
     checked = _utc(verified_at_utc, "verified_at_utc")
     if isinstance(validity_seconds, bool) or not isinstance(validity_seconds, int) or not 1 <= validity_seconds <= _MAX_EVIDENCE_TTL_SECONDS:
@@ -293,20 +331,17 @@ def build_current_pricing_evidence(
 
     verified = _format_utc(checked)
     valid_until = _format_utc(checked + timedelta(seconds=validity_seconds))
-    normalized = {
-        "contract_commit": RUNPOD_PRICING_CONTRACT_COMMIT,
-        "data_center_id": network_volume.data_center_id,
-        "gpu_profile": request.gpu_profile,
-        "gpu_type_id": gpu_type_id,
-        "hourly_price_usd": format(price, "f"),
-        "memory_gb": memory,
-        "stock_status": "HIGH",
-        "valid_until_utc": valid_until,
-        "verified_at_utc": verified,
-    }
-    digest = hashlib.sha256(
-        json.dumps(normalized, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    digest = _evidence_digest(
+        gpu_profile=request.gpu_profile,
+        gpu_type_id=gpu_type_id,
+        data_center_id=network_volume.data_center_id,
+        memory_gb=memory,
+        hourly_price_usd=price,
+        stock_status="HIGH",
+        verified_at_utc=verified,
+        valid_until_utc=valid_until,
+        contract_commit=RUNPOD_PRICING_CONTRACT_COMMIT,
+    )
     evidence = RunPodCurrentPricingEvidence(
         gpu_profile=request.gpu_profile,
         gpu_type_id=gpu_type_id,
