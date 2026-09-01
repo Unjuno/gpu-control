@@ -7,6 +7,7 @@ from typing import Callable
 from ..execution import ApprovedExecutionPlan
 from .base import ProviderSubmission
 from .runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
+from .runpod_current_pricing import RunPodCurrentPricingEvidence
 from .runpod_occupancy import RunPodAccountOccupancyEvidence, build_account_occupancy_evidence
 from .runpod_pricing import validate_created_pod_with_pricing
 from .runpod_reconciliation import RunPodPodInventoryEvidence, build_pod_inventory_evidence
@@ -60,21 +61,51 @@ class RunPodV1InventoryProbe:
         )
 
 
+@dataclass(frozen=True)
 class RunPodV1Adapter(RunPodV2Adapter):
-    """Canonical RunPod adapter using the current stable REST v1 control transport.
+    """Canonical paid-canary adapter on current REST v1 and current pricing evidence.
 
-    The parent class retains the provider-neutral authorization, lifecycle,
-    reconciliation, durable result, and cleanup invariants. This subclass replaces
-    only the provider-version-specific create transport. The v1 HTTP client already
-    normalizes create/get/list responses into the canonical internal Pod envelope,
-    so the existing identity, price, occupancy, reconciliation, and result gates can
-    continue to operate without trusting legacy provider field names.
+    The parent class retains authorization, lifecycle, reconciliation, durable-result,
+    and cleanup invariants. This class replaces provider-version-specific create/list
+    wiring and additionally requires short-lived current price/stock evidence for the
+    exact GPU and the exact datacenter of the trusted Network Volume.
     """
 
     client: RunPodV1HttpClient
+    current_pricing: RunPodCurrentPricingEvidence | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.current_pricing is None:
+            raise RunPodV1AdapterError("RunPod REST v1 adapter requires current pricing evidence")
+        if self.network_volume is None:
+            raise RunPodV1AdapterError("RunPod REST v1 paid-canary adapter requires trusted network-volume evidence")
+        try:
+            self.current_pricing.validate_against_plan(
+                self.approved_plan,
+                network_volume=self.network_volume,
+                now_utc=self.clock(),
+            )
+            if self.catalog_pricing != self.current_pricing.to_catalog_evidence():
+                raise RunPodV2Error("legacy pricing view does not exactly match current RunPod pricing evidence")
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV1AdapterError(str(exc)) from exc
+
+    def _require_plan_identity(self, plan: ApprovedExecutionPlan) -> None:
+        super()._require_plan_identity(plan)
+        assert self.current_pricing is not None
+        assert self.network_volume is not None
+        try:
+            self.current_pricing.validate_against_plan(
+                plan,
+                network_volume=self.network_volume,
+                now_utc=self.clock(),
+            )
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV1AdapterError(str(exc)) from exc
 
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
-        """Submit exactly once through the current REST v1 create contract."""
+        """Submit exactly once through current REST v1 after fresh price/stock checks."""
 
         self._require_plan_identity(plan)
         self._probe_before_create(plan)
