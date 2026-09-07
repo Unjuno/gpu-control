@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 from typing import Callable
 
 from ..execution import ApprovedExecutionPlan
 from ..human_authorization import HumanAuthorizationError, LiveExecutionPermit
-from ..lifecycle import CleanupState, JobObservation, JobState, SubmissionReceipt
+from ..lifecycle import (
+    CleanupState, JobObservation, JobState, SubmissionReceipt,
+    validate_plan_for_submission,
+)
 from ..results import ArtifactDisposition, OutputArtifact
 from .base import (
     ProviderCleanupSnapshot,
@@ -74,6 +77,8 @@ class RunPodV2Adapter:
     expected_workload_id: str | None = None
     disk_gb: int = 20
     clock: Callable[[], datetime] = _utc_now
+    recovery_receipt: SubmissionReceipt | None = None
+    expected_recovery_receipt_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if not callable(self.clock):
@@ -84,7 +89,7 @@ class RunPodV2Adapter:
             self.approved_plan.validate_shape()
             self.published_image.validate_against_plan(self.approved_plan)
             self.catalog_pricing.validate_against_plan(self.approved_plan)
-            self.live_permit.validate_for_plan(self.approved_plan, now_utc=self.clock())
+            self.live_permit.validate_for_plan(self.approved_plan, now_utc=self._evidence_validation_time())
             if self.completion_launch is not None:
                 self.completion_launch.validate_against_plan(self.approved_plan)
             if self.network_volume is not None:
@@ -111,14 +116,48 @@ class RunPodV2Adapter:
         elif self.expected_workload_id is not None:
             raise RunPodV2AdapterError("RunPod expected_workload_id requires a result client")
 
+    def _evidence_validation_time(self) -> datetime:
+        """Validate historic allocation evidence only for an exact recovery receipt.
+
+        The trusted caller must obtain the receipt and its expected fingerprint from
+        independently trusted durable state. This is correlation, not authentication
+        or permission to access credentials. A recovery adapter can never allocate.
+        """
+        now = self.clock()
+        if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() != timedelta(0):
+            raise RunPodV2AdapterError("RunPod adapter clock must return timezone-aware UTC")
+        receipt = self.recovery_receipt
+        if receipt is None:
+            if self.expected_recovery_receipt_fingerprint is not None:
+                raise RunPodV2AdapterError("recovery fingerprint requires a recovery receipt")
+            return now
+        if not isinstance(receipt, SubmissionReceipt):
+            raise RunPodV2AdapterError("recovery receipt must be a SubmissionReceipt")
+        submitted_at = receipt.validate_shape()
+        if receipt.fingerprint() != self.expected_recovery_receipt_fingerprint:
+            raise RunPodV2AdapterError("recovery receipt fingerprint does not match trusted durable state")
+        self._require_receipt_identity(receipt)
+        if receipt.max_runtime_minutes != self.approved_plan.max_runtime_minutes:
+            raise RunPodV2AdapterError("recovery receipt runtime mismatch")
+        if receipt.max_cost_usd != self.approved_plan.max_cost_usd:
+            raise RunPodV2AdapterError("recovery receipt cost mismatch")
+        if submitted_at > now:
+            raise RunPodV2AdapterError("recovery receipt submission time is in the future")
+        validate_plan_for_submission(self.approved_plan, submitted_at)
+        return submitted_at
+
     @property
     def provider_name(self) -> str:
         return "runpod"
 
     def _require_plan_identity(self, plan: ApprovedExecutionPlan) -> None:
+        if self.recovery_receipt is not None:
+            raise RunPodV2AdapterError("recovery-only adapter cannot submit new resources")
         try:
             plan.validate_shape()
-            self.live_permit.validate_for_plan(plan, now_utc=self.clock())
+            now = self.clock()
+            self.live_permit.validate_for_plan(plan, now_utc=now)
+            validate_plan_for_submission(plan, now)
         except (ValueError, HumanAuthorizationError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if plan.fingerprint() != self.approved_plan.fingerprint():
@@ -129,6 +168,8 @@ class RunPodV2Adapter:
             receipt.validate_shape()
         except ValueError as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
+        if self.recovery_receipt is not None and receipt.fingerprint() != self.expected_recovery_receipt_fingerprint:
+            raise RunPodV2AdapterError("receipt does not match the exact recovery receipt")
         if receipt.provider != self.provider_name:
             raise RunPodV2AdapterError("RunPod receipt provider mismatch")
         if receipt.plan_fingerprint != self.approved_plan.fingerprint():
@@ -227,16 +268,30 @@ class RunPodV2Adapter:
                 now_utc=self.clock(),
             )
             candidate = self.client.get_pod(candidate_id)
-            validated_id = validate_created_pod_with_pricing(
-                plan,
-                self.published_image,
-                self.catalog_pricing,
-                candidate,
-                completion=self.completion_launch,
+            # The inventory selected one execution-specific candidate. Never delete
+            # an unrelated ID from an inconsistent GET response. Once ID/name/image
+            # agree, compensate validation/occupancy failure just as on normal create.
+            owned_candidate = (
+                isinstance(candidate, dict)
+                and candidate.get("id") == candidate_id
+                and candidate.get("name") == self.completion_launch.challenge.execution_name
+                and candidate.get("image") == self.published_image.image_reference
             )
-            if validated_id != candidate_id:
-                raise RunPodV2Error("RunPod reconciled Pod id changed during validation")
-            self._probe_after_create(plan, validated_id)
+            try:
+                validated_id = validate_created_pod_with_pricing(
+                    plan,
+                    self.published_image,
+                    self.catalog_pricing,
+                    candidate,
+                    completion=self.completion_launch,
+                )
+                if validated_id != candidate_id:
+                    raise RunPodV2Error("RunPod reconciled Pod id changed during validation")
+                self._probe_after_create(plan, validated_id)
+            except (RunPodV2Error, ValueError, RuntimeError) as validation_error:
+                if owned_candidate:
+                    self._terminate_invalid_created_pod(candidate_id, validation_error)
+                raise
         except RunPodV2AdapterError:
             raise
         except (RunPodV2Error, ValueError) as reconciliation_error:
@@ -260,6 +315,9 @@ class RunPodV2Adapter:
         if self.network_volume is not None:
             payload = bind_network_volume_to_create_payload(payload, self.network_volume)
 
+        # Occupancy probing can consume the remaining authorization/price TTL.
+        # Expiry must deny allocation, but must never prevent cleanup of an existing Pod.
+        self._require_plan_identity(plan)
         try:
             pod = self.client.create_pod(payload)
         except RunPodV2Error as create_error:

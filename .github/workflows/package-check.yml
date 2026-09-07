@@ -1,0 +1,126 @@
+name: Package check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  distribution:
+    name: Package distribution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.10.0"
+
+      - name: Record public source and tool versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          git rev-parse HEAD > audit/source-sha.txt
+          git archive --format=tar.gz HEAD > audit/source.tar.gz
+          python --version > audit/python-version.txt
+          uv --version > audit/uv-version.txt
+          git diff --exit-code
+
+      - name: Build distributions
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --locked --extra dev
+          uv run --locked pytest --junitxml=audit/pytest.xml
+          uv build --out-dir dist 2>&1 | tee audit/build.log
+
+      - name: Install wheel outside source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv export --locked --no-dev --no-emit-project --output-file audit/runtime-requirements.txt
+          uv venv "$RUNNER_TEMP/gpu-control-wheel"
+          uv pip sync --python "$RUNNER_TEMP/gpu-control-wheel/bin/python" --require-hashes audit/runtime-requirements.txt
+          uv pip install --python "$RUNNER_TEMP/gpu-control-wheel/bin/python" --no-deps dist/*.whl
+          python scripts/check_distribution.py "$RUNNER_TEMP/gpu-control-wheel/bin/gpu-control" > audit/wheel-acceptance.json
+          cd "$RUNNER_TEMP"
+          env -u PYTHONPATH "$RUNNER_TEMP/gpu-control-wheel/bin/gpu-control" self-test > "$GITHUB_WORKSPACE/audit/wheel-self-test.json"
+          env -u PYTHONPATH "$RUNNER_TEMP/gpu-control-wheel/bin/gpu-control" provider-self-test > "$GITHUB_WORKSPACE/audit/wheel-provider-self-test.json"
+          env -u PYTHONPATH "$RUNNER_TEMP/gpu-control-wheel/bin/python" - <<'PY'
+          import importlib
+          import pkgutil
+          import gpu_control
+          for module in pkgutil.walk_packages(gpu_control.__path__, gpu_control.__name__ + "."):
+              if not module.name.endswith(".__main__"):
+                  importlib.import_module(module.name)
+          PY
+
+      - name: Require a self-contained source distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import tarfile
+          archive, = Path("dist").glob("*.tar.gz")
+          with tarfile.open(archive) as source:
+              names = {name.split("/", 1)[1] for name in source.getnames() if "/" in name}
+          required = {
+              "uv.lock", "README.md", "SECURITY.md", "AGENTS.md", "ACTION_CONSTITUTION.md",
+              "policies/repository-state.yaml", "policies/gpu-policy.yaml", "docs/STATUS.md",
+              "examples/reference-workload/Dockerfile", ".github/workflows/ci.yml",
+              ".github/workflows/dry-run.yml", "tests/test_cli.py",
+          }
+          missing = sorted(required - names)
+          assert not missing, f"Source distribution is missing release/test inputs: {missing}"
+          PY
+
+      - name: Retest the extracted source distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gpu-control-sdist"
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP/gpu-control-sdist"
+          cd "$RUNNER_TEMP/gpu-control-sdist"/gpu_control-*
+          uv sync --locked --extra dev
+          uv run --locked pytest --junitxml="$GITHUB_WORKSPACE/audit/sdist-pytest.xml"
+          uv build --wheel --out-dir "$GITHUB_WORKSPACE/audit/rebuilt"
+
+      - name: Check selected static errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          uvx --from ruff==0.15.0 ruff check --select E9,F821,F822,F823 src tests scripts > audit/static-checks.txt
+
+      - name: Audit locked dependencies against current advisory data
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv export --locked --extra dev --no-emit-project --output-file audit/audit-requirements.txt
+          uvx --from pip-audit==2.10.0 pip-audit --disable-pip --require-hashes --no-deps \
+            --progress-spinner off -r audit/audit-requirements.txt --format json --output audit/dependency-audit.json
+
+      - name: Retain bounded public release evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            audit/
+            dist/
+          retention-days: 7
+          if-no-files-found: error

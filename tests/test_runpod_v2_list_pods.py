@@ -18,7 +18,7 @@ class FakeResponse:
     def __exit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
         return False
 
-    def read(self) -> bytes:
+    def read(self, size: int = -1) -> bytes:
         return self._raw
 
 

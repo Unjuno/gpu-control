@@ -166,7 +166,7 @@ class Response:
     def __exit__(self, *args):  # type: ignore[no-untyped-def]
         return False
 
-    def read(self) -> bytes:
+    def read(self, size: int = -1) -> bytes:
         return self._payload
 
 

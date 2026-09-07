@@ -12,7 +12,7 @@ provider-finalized canary acceptance
 
 ## 1. Authenticated process success
 
-`authenticate_runpod_log_result(...)` establishes that bounded result bytes and completion evidence belong to the same completion challenge and agree with the trusted process exit outcome. A `pass` result plus exit code 0 becomes `JobState.SUCCEEDED`.
+The selected v3 path uses `collect_runpod_network_volume_result(...)`; legacy log-v2 compatibility uses `authenticate_runpod_log_result(...)`. Each establishes that bounded result bytes and completion evidence belong to the same completion challenge and agree with the trusted process exit outcome. A `pass` result plus exit code 0 becomes `JobState.SUCCEEDED`.
 
 That state does **not** prove that the paid GPU canary met its experiment criteria. A local CPU smoke can legitimately complete successfully and must still fail the paid-canary acceptance gate.
 
@@ -22,7 +22,7 @@ That state does **not** prove that the paid GPU canary met its experiment criter
 
 ```text
 repository  Unjuno/orbitune
-source SHA  38594057d1b118a7acf6c843e39d7d8a25571316
+source SHA  fc131174a9b529a9825f54fccf1a7df4c63c9a1a
 workload    orbitune-runpod-training-canary-v1
 ```
 

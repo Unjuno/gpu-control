@@ -223,7 +223,7 @@ Record enough context to reproduce a result: repository, commit SHA, container d
 
 RunPod is the first intended paid GPU provider. Provider-specific implementation must remain behind the control-plane policy and execution-plan layers. The public interface should describe resource requirements, not expose unrestricted provider operations.
 
-The existing RunPod adapter is a legacy `v2-beta` mock-tested contract. `policies/runpod-v2-policy.yaml` records that current official RunPod REST documentation must be revalidated and the adapter migrated or proven equivalent before live use. Do not enable it live by changing flags alone.
+The canonical selected-canary adapter is `RunPodV1Adapter`, with current REST v1, price/datacenter evidence, and Network Volume/S3 completion v3 implemented offline. See `policies/runpod-rest-v1-policy.yaml`. Legacy `v2-beta` compatibility remains separately documented in `policies/runpod-v2-policy.yaml`. All provider contracts still need live verification before live use. Do not enable them live by changing flags alone.
 
 A future live provider adapter must accept an `ApprovedExecutionPlan`. It must not create resources from a raw user request merely because credentials are available.
 
