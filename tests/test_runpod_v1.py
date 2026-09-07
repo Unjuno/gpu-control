@@ -225,7 +225,7 @@ class FakeResponse:
     def __exit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
         return False
 
-    def read(self) -> bytes:
+    def read(self, size: int = -1) -> bytes:
         return self._raw
 
 
@@ -279,7 +279,7 @@ def test_v1_http_errors_do_not_leak_api_key() -> None:
 
     message = str(exc_info.value)
     assert "HTTP 403" in message
-    assert "access denied" in message
+    assert "access denied" not in message  # Untrusted error detail must not be echoed.
     assert "super-secret-api-key" not in message
 
 

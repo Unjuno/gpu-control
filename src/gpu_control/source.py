@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import os
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+from .http_security import (
+    ResponseBoundaryError, decode_json_body, read_bounded_body,
+    urlopen_no_redirects as urlopen, validate_timeout,
+)
 
 from .validation import WorkloadRequest
 
@@ -29,6 +33,10 @@ class SourceVerificationResult:
 
 
 def _get_json(url: str, *, token: str | None, timeout: float) -> Any:
+    try:
+        timeout = validate_timeout(timeout)
+    except ResponseBoundaryError as exc:
+        raise SourceVerificationError(str(exc)) from exc
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -40,14 +48,14 @@ def _get_json(url: str, *, token: str | None, timeout: float) -> Any:
     request = Request(url, headers=headers, method="GET")
     try:
         with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed HTTPS API origin
-            return json.load(response)
+            return decode_json_body(read_bounded_body(response))
     except HTTPError as exc:
         if exc.code == 404:
-            raise SourceVerificationError("GitHub source object was not found") from exc
-        raise SourceVerificationError(f"GitHub API returned HTTP {exc.code}") from exc
-    except URLError as exc:
-        raise SourceVerificationError("GitHub API could not be reached") from exc
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise SourceVerificationError("GitHub source object was not found") from None
+        raise SourceVerificationError(f"GitHub API returned HTTP {exc.code}") from None
+    except (URLError, OSError):
+        raise SourceVerificationError("GitHub API could not be reached") from None
+    except ResponseBoundaryError as exc:
         raise SourceVerificationError("GitHub API returned an invalid response") from exc
 
 

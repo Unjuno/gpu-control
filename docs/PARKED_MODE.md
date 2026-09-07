@@ -1,6 +1,6 @@
 # Parked repository mode
 
-`gpu-control` is currently intentionally parked even though an active workload has now been selected. The frozen workload candidate is Orbitune commit `38594057d1b118a7acf6c843e39d7d8a25571316`, recorded in `policies/repository-state.yaml`.
+`gpu-control` is currently intentionally parked even though an active workload has now been selected. The frozen workload candidate is Orbitune commit `fc131174a9b529a9825f54fccf1a7df4c63c9a1a`, recorded in `policies/repository-state.yaml`.
 
 Parked mode is not a degraded state. It is a deliberate safety posture: the control-plane contracts, tests, and provider boundaries remain available, while all billable and generic external-execution paths stay disabled until the remaining activation prerequisites are satisfied.
 
@@ -40,7 +40,7 @@ The current workload is the Orbitune RunPod training canary:
 
 ```text
 repository       Unjuno/orbitune
-source SHA       38594057d1b118a7acf6c843e39d7d8a25571316
+source SHA       fc131174a9b529a9825f54fccf1a7df4c63c9a1a
 Dockerfile       workloads/runpod-training-canary/Dockerfile
 workload id      orbitune-runpod-training-canary-v1
 GPU profile      cheap-24gb
@@ -49,11 +49,12 @@ max cost         $0.30
 training tokens  512,000
 ```
 
-That exact **main-branch SHA** has green Orbitune pytest and RunPod canary smoke runs (`33117645383` and `33117645387`). The smoke covers the authenticated completion envelope and the root-signer/non-root-training isolation boundary. The workload protocol is `gpu-control-hmac-sha256-v2`: completion binds to a pre-create execution identity derived from the approved-plan fingerprint and a per-run nonce, while the provider Pod id remains correlated separately by the control-plane submission receipt.
-
-The workload emits bounded `GPU_CONTROL_RESULT_JSON_V1:` and `GPU_CONTROL_COMPLETION_JSON_V2:` markers with a 16 KiB complete-marker ceiling. Its completion wrapper keeps the signer at UID 0, launches training as the fixed UID/GID 10001 identity, and verifies in CI that the training identity cannot read the signer's `/proc/$PPID/environ`.
-
-The control plane has the matching v2 completion verifier and typed create-environment contract offline. This proves the workload/authentication protocol, not the availability of a production transport that can retrieve those marker bytes. Live per-run secret injection and provider result collection remain disabled.
+The repository state records full pytest and canary smoke runs `33313993621` and
+`33313993623` for this exact source SHA. This is source-CI evidence, not evidence of
+a paid GPU run. The selected protocol is `gpu-control-hmac-sha256-v3`: a root signer
+binds exact result bytes and the wrapper-observed process exit code. The control
+plane implements bounded two-object Network Volume/S3 collection offline. Actual
+secret injection, volume credentials, and result collection remain live-unverified.
 
 The immutable GHCR image has not yet been published, and this source-level readiness does not authorize paid execution.
 
@@ -65,13 +66,16 @@ Read-only repository inspection currently shows `gpu-control/main` is not protec
 
 The protected `paid-runpod` Environment and its environment-scoped RunPod secret are activation prerequisites and are not assumed to exist merely because code support is present.
 
-The current RunPod transport targets the production REST API v2 public beta, and the canonical production base is live. However, provider operations must be validated individually rather than inferred from the base API being live. The 2026-08-27 UTC audit of RunPod's official `runpod/runpod-mcp` validation records `GET /v2/pods/{id}/logs` as development-only and returning HTTP 422 `path not found` in production. The official MCP keeps its Pod-log tool disabled for production until RunPod ships that operation.
-
-This creates an explicit live-completion blocker: the Orbitune marker/HMAC protocol can be verified offline, but `gpu-control` must not wire production result collection to the unavailable Pod-log SSE endpoint. Activation requires either fresh evidence that the production operation has shipped and its exact contract has been revalidated, or a different provider-supported authenticated transport with equivalent boundedness, correlation, isolation, and cleanup properties. SSH, exposed public ports, unrestricted runtime networking, or an unverified volume-transfer path are not implicit fallbacks.
+The canonical adapter now uses current REST v1 and exact price/datacenter evidence.
+The selected production-result design uses an existing trusted Network Volume and
+bounded S3 reads of `result.json` and `completion-v3.json`. This code is mock-tested,
+not proof of a working live account integration. Legacy Pod-log SSE is not the
+selected result path. SSH, exposed public ports, unrestricted runtime networking,
+and unverified transfer mechanisms are not implicit fallbacks.
 
 Ambiguous-create reconciliation, live account occupancy evidence, idempotent cleanup reconciliation, live completion-secret injection, and live result collection also remain explicit prerequisites.
 
-Current human authorization must eventually be represented as structured evidence bound to the exact DecisionRecord, control-plane commit, and execution-plan fingerprint. Owner identity or a bare authorization boolean is not sufficient for live activation.
+Current human authorization has a structured validator bound to the exact DecisionRecord, control-plane commit, and execution-plan fingerprint; a trusted end-to-end live workflow must still supply that evidence. Owner identity or a bare authorization boolean is not sufficient for live activation.
 
 ## Resume criteria
 

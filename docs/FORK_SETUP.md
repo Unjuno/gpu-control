@@ -120,7 +120,7 @@ The machine-readable activation list is in `policies/repository-state.yaml`.
 
 ## Current provider limitation
 
-The current upstream RunPod integration is not a ready-to-run production paid path. Offline contracts exist, but the selected canary still lacks a verified production-supported authenticated result/completion collection transport. Do not replace that blocker with SSH, public ports, unrestricted networking, or an unverified volume mechanism merely to make the demo run.
+The current upstream RunPod integration is not a ready-to-run production paid path. Current REST v1 and Network Volume/S3 completion-v3 contracts exist and are mock-tested, but actual account behavior and production collection have not been live-verified. Do not replace that blocker with SSH, public ports, unrestricted networking, or an unverified volume mechanism merely to make the demo run.
 
 ## Recommended fork adoption sequence
 

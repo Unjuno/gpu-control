@@ -10,7 +10,12 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+from ..http_security import (
+    ResponseBoundaryError,
+    urlopen_no_redirects as urlopen, validate_timeout,
+)
 
 from ..completion import (
     CompletionChallenge,
@@ -160,8 +165,10 @@ class RunPodNetworkVolumeS3Client:
     ) -> None:
         evidence.validate_shape()
         credentials.validate_shape()
-        if timeout <= 0:
-            raise RunPodV2Error("RunPod S3 timeout must be positive")
+        try:
+            timeout = validate_timeout(timeout)
+        except ResponseBoundaryError as exc:
+            raise RunPodV2Error(str(exc)) from exc
         if not callable(opener) or not callable(clock):
             raise RunPodV2Error("RunPod S3 opener and clock must be callable")
         self._evidence = evidence
@@ -243,10 +250,10 @@ class RunPodNetworkVolumeS3Client:
                 payload = response.read(max_bytes + 1)
         except HTTPError as exc:
             if exc.code == 404:
-                raise RunPodV2Error("RunPod S3 result object is missing") from exc
-            raise RunPodV2Error(f"RunPod S3 object read failed with HTTP {exc.code}") from exc
-        except URLError as exc:
-            raise RunPodV2Error("RunPod S3 API could not be reached") from exc
+                raise RunPodV2Error("RunPod S3 result object is missing") from None
+            raise RunPodV2Error(f"RunPod S3 object read failed with HTTP {exc.code}") from None
+        except (URLError, OSError):
+            raise RunPodV2Error("RunPod S3 API could not be reached") from None
         if not isinstance(payload, bytes):
             raise RunPodV2Error("RunPod S3 object body must be bytes")
         if len(payload) > max_bytes:
