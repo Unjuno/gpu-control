@@ -1,0 +1,17 @@
+{
+  "demo": {"provider":"demo"},
+  "gpu-smoke": {
+    "provider":"modal",
+    "image_id":"im-REPLACE_WITH_PREBUILT_IMAGE_ID",
+    "source_revision":"REPLACE_WITH_EXACT_WORKLOAD_COMMIT",
+    "argv":["python", "/workload/gpu_smoke.py"],
+    "gpu":"T4", "cpu":1, "memory_mib":4096,
+    "max_runtime_seconds":120, "max_cost_usd":"0.10",
+    "quoted_usd_per_hour":null,
+    "quote_reference":"", "quote_expires_at":0,
+    "parameter_schema": {
+      "type":"object", "additionalProperties":false,
+      "properties":{"steps":{"type":"integer","minimum":1,"maximum":100}}
+    }
+  }
+}

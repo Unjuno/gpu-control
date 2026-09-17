@@ -1,0 +1,8 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt requirements-worker.txt ./
+RUN pip install --no-cache-dir -r requirements-worker.txt
+COPY gpu_gateway ./gpu_gateway
+RUN useradd --uid 10001 --create-home worker
+USER worker
+CMD ["python", "-m", "gpu_gateway.worker", "--poll-seconds", "3"]
