@@ -104,7 +104,7 @@ def dispatch(service: ExperimentService, principal: Principal, payload: dict, ve
         value = {"tools": tools(principal)}
     elif method == "tools/call":
         name, arguments = params.get("name"), params.get("arguments", {})
-        if name not in {row[0] for row in TOOL_DATA} or not isinstance(arguments, dict):
+        if not isinstance(name, str) or name not in {row[0] for row in TOOL_DATA} or not isinstance(arguments, dict):
             return error(identifier, -32602, "Unknown tool or invalid arguments"), 200
         try:
             result = service.invoke(principal, name, arguments)
