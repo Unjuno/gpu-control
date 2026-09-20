@@ -113,9 +113,21 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         e = os.environ
+
+        database_url = e.get("GATEWAY_DATABASE_URL") or e.get("DATABASE_URL") or "sqlite:///./gateway-local.db"
+        if database_url.startswith("postgresql://"):
+            database_url = "postgresql+psycopg://" + database_url[len("postgresql://"):]
+        elif database_url.startswith("postgres://"):
+            database_url = "postgresql+psycopg://" + database_url[len("postgres://"):]
+
+        public_url = e.get("GATEWAY_PUBLIC_URL")
+        if not public_url:
+            production_host = e.get("VERCEL_PROJECT_PRODUCTION_URL")
+            public_url = f"https://{production_host}" if production_host else "http://127.0.0.1:8000"
+
         value = cls(
-            database_url=e.get("GATEWAY_DATABASE_URL", "sqlite:///./gateway-local.db"),
-            public_url=e.get("GATEWAY_PUBLIC_URL", "http://127.0.0.1:8000").rstrip("/"),
+            database_url=database_url,
+            public_url=public_url.rstrip("/"),
             issuer=e.get("GATEWAY_OIDC_ISSUER", ""),
             jwks_url=e.get("GATEWAY_OIDC_JWKS_URL", ""),
             authorization_endpoint=e.get("GATEWAY_OIDC_AUTHORIZATION_ENDPOINT", ""),
