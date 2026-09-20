@@ -21,6 +21,13 @@ oauth_admin = Table(
     Column("password_hash_hex", String(128), nullable=False),
     Column("created_at", Integer, nullable=False),
 )
+oauth_login_guard = Table(
+    "gateway_oauth_login_guard_v1", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("failures", Integer, nullable=False),
+    Column("window_started", Integer, nullable=False),
+    Column("locked_until", Integer, nullable=False),
+)
 oauth_bootstrap = Table(
     "gateway_oauth_bootstrap_v1", metadata,
     Column("id", Integer, primary_key=True),
@@ -141,21 +148,44 @@ class LocalOAuth:
             c.execute(delete(oauth_bootstrap))
 
     def login(self, password: str) -> LocalSession:
-        with self.store.engine.connect() as c:
-            row = c.execute(select(oauth_admin).where(oauth_admin.c.id == 1)).mappings().first()
-        if row is None:
-            raise GatewayError("auth_not_configured", "Complete owner setup first", 503)
-        try:
-            actual = _password_digest(password, bytes.fromhex(row["salt_hex"])).hex()
-        except (ValueError, TypeError):
-            actual = ""
-        if not secrets.compare_digest(actual, row["password_hash_hex"]):
-            raise GatewayError("invalid_credentials", "Invalid credentials", 401)
+        now = int(time.time())
         raw = "gs_" + secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
-        now = int(time.time())
         expires = now + 12 * 3600
         with self.store.transaction() as c:
+            row = c.execute(select(oauth_admin).where(oauth_admin.c.id == 1)).mappings().first()
+            if row is None:
+                raise GatewayError("auth_not_configured", "Complete owner setup first", 503)
+            guard = c.execute(select(oauth_login_guard).where(
+                oauth_login_guard.c.id == 1
+            ).with_for_update()).mappings().first()
+            if guard is None:
+                c.execute(insert(oauth_login_guard).values(
+                    id=1, failures=0, window_started=now, locked_until=0
+                ))
+                guard = {"failures": 0, "window_started": now, "locked_until": 0}
+            if guard["locked_until"] > now:
+                raise GatewayError("login_rate_limited", "Too many failed sign-in attempts; try again later", 429)
+            try:
+                actual = _password_digest(password, bytes.fromhex(row["salt_hex"])).hex()
+            except (ValueError, TypeError):
+                actual = ""
+            if not secrets.compare_digest(actual, row["password_hash_hex"]):
+                failures = guard["failures"]
+                window_started = guard["window_started"]
+                if now - window_started >= 300:
+                    failures, window_started = 0, now
+                failures += 1
+                locked_until = now + 300 if failures >= 5 else 0
+                c.execute(update(oauth_login_guard).where(oauth_login_guard.c.id == 1).values(
+                    failures=failures, window_started=window_started, locked_until=locked_until
+                ))
+                if locked_until:
+                    raise GatewayError("login_rate_limited", "Too many failed sign-in attempts; try again later", 429)
+                raise GatewayError("invalid_credentials", "Invalid credentials", 401)
+            c.execute(update(oauth_login_guard).where(oauth_login_guard.c.id == 1).values(
+                failures=0, window_started=now, locked_until=0
+            ))
             c.execute(delete(oauth_sessions).where(oauth_sessions.c.expires_at <= now))
             c.execute(insert(oauth_sessions).values(
                 token_hash=_sha(raw), csrf=csrf, expires_at=expires, created_at=now
@@ -211,7 +241,7 @@ class LocalOAuth:
         if not isinstance(grants, list) or any(x not in {"authorization_code", "refresh_token"} for x in grants):
             raise GatewayError("invalid_client_metadata", "Unsupported grant type", 400)
         responses = payload.get("response_types", ["code"])
-        if responses != ["code"] and set(responses) != {"code"}:
+        if not isinstance(responses, list) or not responses or any(not isinstance(x, str) for x in responses) or set(responses) != {"code"}:
             raise GatewayError("invalid_client_metadata", "Only authorization code response type is supported", 400)
         name = payload.get("client_name", "MCP client")
         if not isinstance(name, str) or not name.strip():
