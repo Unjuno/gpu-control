@@ -1,0 +1,1 @@
+{"private":true,"type":"module","scripts":{"test:web":"node --test tests/webmcp.test.js"}}
