@@ -158,7 +158,10 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         ready()
         if auth.external or auth.local is None:
             raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
-        return auth.local.register_client(await body(request))
+        try:
+            return auth.local.register_client(await body(request))
+        except GatewayError as exc:
+            return JSONResponse({"error": exc.code, "error_description": exc.message}, exc.status, headers={"Cache-Control":"no-store"})
 
     @app.get("/oauth/authorize")
     def oauth_authorize(request: Request):
@@ -186,7 +189,10 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         ready()
         if auth.external or auth.local is None:
             raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
-        return JSONResponse(auth.local.token(await form(request)), headers={"Cache-Control": "no-store"})
+        try:
+            return JSONResponse(auth.local.token(await form(request)), headers={"Cache-Control": "no-store"})
+        except GatewayError as exc:
+            return JSONResponse({"error": exc.code, "error_description": exc.message}, exc.status, headers={"Cache-Control":"no-store"})
 
     @app.get("/api/session")
     def session(request: Request):
