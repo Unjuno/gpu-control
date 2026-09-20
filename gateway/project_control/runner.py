@@ -221,6 +221,58 @@ def execute(source, name, entry):
         subprocess.run(["docker", "rm", "-f", name], env=env, capture_output=True, timeout=15)
 
 
+
+def public_receipt(report, base, policy):
+    """Reconstruct a publishable receipt from a strict schema.
+
+    The execute job handles untrusted project code. Its artifact is therefore
+    treated as untrusted input by the separate reporter even when the artifact
+    came from the expected workflow.
+    """
+    require(isinstance(report, dict), "invalid_report")
+    require(all(report.get(k) == v for k, v in base.items()), "receipt_binding_failed")
+    state = report.get("state")
+    require(state in {"passed", "failed"}, "invalid_report_state")
+    base_keys = set(base)
+    if state == "failed":
+        require(set(report) == base_keys | {"state", "code"}, "unexpected_report_fields")
+        code = report.get("code")
+        require(isinstance(code, str) and re.fullmatch(r"[a-z_]{1,64}", code), "invalid_failure_code")
+        return dict(base, state="failed", code=code)
+
+    require(set(report) == base_keys | {"state", "source_blobs", "metrics"}, "unexpected_report_fields")
+    entry = policy["workloads"].get(base["workload"])
+    require(isinstance(entry, dict), "unregistered_workload")
+    blobs = report.get("source_blobs")
+    require(isinstance(blobs, dict) and set(blobs) == set(entry["files"]), "invalid_source_evidence")
+    clean_blobs = {}
+    for path, digest in blobs.items():
+        require(path in entry["files"] and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{40}", digest),
+                "invalid_source_evidence")
+        clean_blobs[path] = digest
+
+    metrics = report.get("metrics")
+    require(isinstance(metrics, dict) and set(metrics) == {"values", "image_id", "elapsed_seconds"},
+            "invalid_metrics")
+    image_id = metrics.get("image_id")
+    require(isinstance(image_id, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id),
+            "invalid_image_evidence")
+    elapsed = metrics.get("elapsed_seconds")
+    require(type(elapsed) in (int, float) and math.isfinite(elapsed) and 0 <= elapsed <= 300,
+            "invalid_elapsed_time")
+    values = metrics.get("values")
+    require(isinstance(values, dict) and len(values) <= 32, "invalid_metrics")
+    clean_values = {}
+    for key, value in values.items():
+        require(isinstance(key, str) and re.fullmatch(r"[a-zA-Z_][a-zA-Z_0-9]{0,31}", key),
+                "invalid_metric_name")
+        require(type(value) in (int, float) and math.isfinite(value) and abs(value) < 1e100,
+                "invalid_metric_value")
+        clean_values[key] = value
+    return dict(base, state="passed", source_blobs=clean_blobs,
+                metrics={"values": clean_values, "image_id": image_id, "elapsed_seconds": elapsed})
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("mode", choices=["validate", "execute", "publish"])
@@ -257,12 +309,11 @@ def main():
     if report_path.exists():
         raw = report_path.read_bytes()
         require(len(raw) <= 16384, "report_too_large")
-        report = load_json(raw)
-        require(isinstance(report, dict) and all(report.get(k) == v for k, v in base.items()), "receipt_binding_failed")
-        require(report.get("state") in {"passed", "failed"}, "invalid_report_state")
+        report = public_receipt(load_json(raw), base, policy)
     else:
-        report = dict(base, state="failed", code="check_runner_failed_or_cancelled")
-    # Public output is bounded and ASCII escaped; raw workload output is never uploaded.
+        report = public_receipt(dict(base, state="failed", code="check_runner_failed_or_cancelled"), base, policy)
+    # Public output is reconstructed from the strict receipt schema above. Raw
+    # workload output and arbitrary artifact fields are never published.
     text = json.dumps(report, ensure_ascii=True, sort_keys=True, indent=2)
     text = text.replace("`", "\\u0060").replace("@", "\\u0040").replace("<", "\\u003c")
     require(len(text) <= 20000, "report_too_large")
