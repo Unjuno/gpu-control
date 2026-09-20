@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import secrets
 import time
 import uuid
+from urllib.parse import quote
 from decimal import Decimal
 
 from sqlalchemy import select, update
@@ -155,7 +157,10 @@ class Worker:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--init-db", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--init-db", action="store_true")
+    mode.add_argument("--bootstrap-auth", action="store_true")
+    parser.add_argument("--bootstrap-auth-ttl", type=int, default=3600)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=3)
     args = parser.parse_args()
@@ -163,6 +168,20 @@ def main():
     store = Store(settings.database_url)
     if args.init_db:
         store.initialize()
+        return
+    if args.bootstrap_auth:
+        if settings.issuer:
+            parser.error("bootstrap-auth is only available for built-in OAuth mode")
+        if not 60 <= args.bootstrap_auth_ttl <= 86400:
+            parser.error("bootstrap-auth-ttl must be between 60 and 86400 seconds")
+        store.initialize()
+        from .local_oauth import LocalOAuth
+        oauth = LocalOAuth(settings, store)
+        if oauth.configured():
+            parser.error("owner authentication is already configured")
+        token = secrets.token_urlsafe(32)
+        oauth.seed_bootstrap(token, ttl_seconds=args.bootstrap_auth_ttl)
+        print(settings.public_url.rstrip("/") + "/auth/setup?token=" + quote(token, safe=""))
         return
     if args.poll_seconds < 0.5:
         parser.error("poll-seconds must be at least 0.5")
