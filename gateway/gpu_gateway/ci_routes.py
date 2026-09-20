@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .ci_bridge import (BridgeError, GitHubOIDC, Policy, positive_int, strict_json,
                         validate_remote_comment, owner_principal, public_summary)
+from .ci_submission import demo_submission_only
 
 
 class GitHubComments:
@@ -48,6 +49,7 @@ def install_ci_routes(app, *, policy=None, verifier=None, comments=None):
 
     No new database schema, provider credentials or browser-authorized principal.
     The existing service remains authoritative for approval, price and provider limits.
+    Non-demo submission is additionally denied until reviewed paid activation.
     """
     policy = policy or Policy.load()
     auth = app.state.auth
@@ -72,6 +74,10 @@ def install_ci_routes(app, *, policy=None, verifier=None, comments=None):
         if command.operation == "local":
             raise BridgeError("local_command_runs_in_ci")
         principal = owner_principal(policy.gateway_origin)
+        if command.operation == "submit":
+            run = service.get(principal, command.arguments["run_id"])
+            if not demo_submission_only(run):
+                raise BridgeError("paid_submission_parked", 409)
         result = service.invoke(principal, command.tool, command.arguments)
         report = public_summary(result, policy.gateway_origin)
         report.update(operation=command.operation, workflow_run_id=claims["run_id"],

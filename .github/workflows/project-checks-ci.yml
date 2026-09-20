@@ -1,0 +1,27 @@
+name: Project bridge tests
+on:
+  pull_request:
+    paths: ['gateway/project_control/**', '.github/workflows/project-checks*.yml']
+  push:
+    branches: [main]
+    paths: ['gateway/project_control/**', '.github/workflows/project-checks*.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Ownership, source identity, isolation and parser tests
+        run: python -m unittest discover -s gateway/project_control/tests -v
+      - name: Real Docker check with repository-owned test input
+        run: |
+          set -euo pipefail
+          trap 'docker rm -f project-contract-ci >/dev/null 2>&1 || true' EXIT
+          python gateway/project_control/tests/docker_smoke.py

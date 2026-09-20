@@ -22,7 +22,8 @@ jobs:
       github.event.issue.number == 48 &&
       !github.event.issue.pull_request &&
       github.run_attempt == 1 &&
-      startsWith(github.event.comment.body, '/gpu ')
+      startsWith(github.event.comment.body, '/gpu ') &&
+      !startsWith(github.event.comment.body, '/gpu check')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
