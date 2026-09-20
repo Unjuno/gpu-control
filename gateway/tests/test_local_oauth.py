@@ -56,7 +56,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
     })
-    assert registered.status_code == 200
+    assert registered.status_code == 201
     client_id = registered.json()["client_id"]
 
     verifier = secrets.token_urlsafe(48)
