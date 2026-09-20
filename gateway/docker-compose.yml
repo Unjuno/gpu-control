@@ -1,0 +1,45 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      GATEWAY_DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/gateway
+      GATEWAY_PUBLIC_URL: http://localhost:8000
+      GATEWAY_ENABLE_MODAL: "false"
+      GATEWAY_ENABLE_RUNPOD_BRIDGE: "false"
+      GATEWAY_WORKLOADS_JSON: '{"demo":{"provider":"demo"}}'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      GATEWAY_DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/gateway
+      GATEWAY_ENABLE_MODAL: "false"
+      GATEWAY_ENABLE_RUNPOD_BRIDGE: "false"
+      GATEWAY_WORKLOADS_JSON: '{"demo":{"provider":"demo"}}'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gateway
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - gateway-db:/var/lib/postgresql/data
+
+volumes:
+  gateway-db:
