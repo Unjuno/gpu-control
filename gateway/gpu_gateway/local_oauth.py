@@ -47,6 +47,7 @@ oauth_clients = Table(
     Column("redirect_uris", JSON, nullable=False),
     Column("client_name", String(160), nullable=False),
     Column("created_at", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=False),
 )
 oauth_codes = Table(
     "gateway_oauth_codes_v1", metadata,
@@ -247,15 +248,27 @@ class LocalOAuth:
         if not isinstance(name, str) or not name.strip():
             name = "MCP client"
         name = name.strip()[:160]
-        client_id = "mcp_" + secrets.token_urlsafe(24)
+        canonical = json.dumps(
+            {"redirect_uris": sorted(redirect_uris), "client_name": name},
+            sort_keys=True, separators=(",", ":"),
+        )
+        client_id = "mcp_" + hashlib.sha256(canonical.encode()).hexdigest()[:48]
         now = int(time.time())
+        expires_at = now + 3600
         with self.store.transaction() as c:
-            count = c.execute(select(oauth_clients.c.client_id)).fetchmany(101)
-            if len(count) >= 100:
-                raise GatewayError("registration_limit", "OAuth client registration limit reached", 429)
-            c.execute(insert(oauth_clients).values(
-                client_id=client_id, redirect_uris=redirect_uris, client_name=name, created_at=now
-            ))
+            c.execute(delete(oauth_clients).where(oauth_clients.c.expires_at <= now))
+            existing = c.execute(select(oauth_clients).where(
+                oauth_clients.c.client_id == client_id
+            ).with_for_update()).mappings().first()
+            if existing is None:
+                c.execute(insert(oauth_clients).values(
+                    client_id=client_id, redirect_uris=redirect_uris, client_name=name,
+                    created_at=now, expires_at=expires_at,
+                ))
+            else:
+                c.execute(update(oauth_clients).where(
+                    oauth_clients.c.client_id == client_id
+                ).values(expires_at=expires_at))
         return {
             "client_id": client_id,
             "client_id_issued_at": now,
@@ -267,10 +280,14 @@ class LocalOAuth:
         }
 
     def _client(self, client_id: str) -> dict:
+        now = int(time.time())
         with self.store.engine.connect() as c:
-            row = c.execute(select(oauth_clients).where(oauth_clients.c.client_id == client_id)).mappings().first()
+            row = c.execute(select(oauth_clients).where(
+                oauth_clients.c.client_id == client_id,
+                oauth_clients.c.expires_at > now,
+            )).mappings().first()
         if row is None:
-            raise GatewayError("invalid_client", "Unknown OAuth client", 400)
+            raise GatewayError("invalid_client", "Unknown or expired OAuth client", 400)
         return dict(row)
 
     def _scope(self, value: str | None) -> str:
@@ -299,6 +316,9 @@ class LocalOAuth:
         raw = "gc_" + secrets.token_urlsafe(32)
         now = int(time.time())
         with self.store.transaction() as c:
+            c.execute(update(oauth_clients).where(
+                oauth_clients.c.client_id == client_id
+            ).values(expires_at=now + 30 * 86400))
             c.execute(insert(oauth_codes).values(
                 code_hash=_sha(raw), client_id=client_id, redirect_uri=redirect_uri,
                 scope=scope, resource=self.resource, code_challenge=challenge,
