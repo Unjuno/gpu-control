@@ -45,6 +45,9 @@ class Store:
 
     def initialize(self) -> None:
         """Explicit schema bootstrap; never performed by an HTTP request."""
+        # Register optional gateway schemas before create_all. Import is local to
+        # avoid making the core store depend on auth during ordinary module import.
+        from . import local_oauth  # noqa: F401
         metadata.create_all(self.engine)
         with self.engine.begin() as connection:
             if connection.execute(select(control.c.id).where(control.c.id == 1)).first() is None:

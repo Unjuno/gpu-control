@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
@@ -23,8 +24,12 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
     try:
         settings = settings or Settings.from_env()
         settings.validate()
-        service = service or ExperimentService(Store(settings.database_url), settings, load_workloads())
-        auth = auth or Auth(settings)
+        if service is None:
+            store = Store(settings.database_url)
+            service = ExperimentService(store, settings, load_workloads())
+        else:
+            store = service.store
+        auth = auth or Auth(settings, store=store)
     except (ValueError, TypeError):
         # Health/UI can explain missing deployment configuration without exposing secrets.
         configuration_error = True
@@ -58,14 +63,18 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         if configuration_error or service is None or auth is None:
             raise GatewayError("configuration_required", "Configure durable database, OIDC and workload registry", 503)
 
-    async def body(request):
-        if not request.headers.get("content-type", "").startswith("application/json"):
-            raise GatewayError("content_type", "application/json is required", 415)
+    async def raw_body(request):
         data = bytearray()
         async for chunk in request.stream():
             data.extend(chunk)
             if len(data) > settings.max_request_bytes:
                 raise GatewayError("request_too_large", "Request exceeds size limit", 413)
+        return bytes(data)
+
+    async def body(request):
+        if not request.headers.get("content-type", "").startswith("application/json"):
+            raise GatewayError("content_type", "application/json is required", 415)
+        data = await raw_body(request)
         try:
             def reject_constant(_):
                 raise ValueError()
@@ -79,10 +88,22 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         except (ValueError, UnicodeDecodeError, RecursionError):
             raise GatewayError("invalid_json", "Valid JSON with unique keys is required", 400)
 
+    async def form(request):
+        if not request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
+            raise GatewayError("content_type", "application/x-www-form-urlencoded is required", 415)
+        try:
+            parsed = parse_qs((await raw_body(request)).decode("utf-8"), keep_blank_values=True, strict_parsing=True)
+        except (UnicodeDecodeError, ValueError):
+            raise GatewayError("invalid_form", "Valid form data is required", 400)
+        if any(len(values) != 1 for values in parsed.values()):
+            raise GatewayError("invalid_form", "Duplicate form fields are not allowed", 400)
+        return {key: values[0] for key, values in parsed.items()}
+
     @app.get("/healthz")
     def health():
         return {"service": "gpu-control-gateway", "configured": not configuration_error,
-                "auth_configured": bool(not configuration_error and settings.auth_ready),
+                "auth_configured": bool(not configuration_error and auth and auth.configured()),
+                "auth_mode": "external_oidc" if auth and auth.external else "local_oauth",
                 "gpu_started_by_health_check": False}
 
     @app.get("/")
@@ -95,20 +116,83 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
     @app.get("/.well-known/oauth-protected-resource/mcp")
     def metadata():
         ready()
-        if not settings.auth_ready:
-            raise GatewayError("auth_not_configured", "Configure an OAuth authorization server", 503)
-        return {"resource": settings.resource, "authorization_servers": [settings.issuer],
+        return {"resource": settings.resource, "authorization_servers": [auth.authorization_server],
                 "scopes_supported": list(SCOPES), "bearer_methods_supported": ["header"]}
 
     @app.get("/auth/login")
-    def login():
+    def login(request: Request):
         ready()
-        return auth.login()
+        return auth.login(request)
+
+    @app.post("/auth/login")
+    async def login_post(request: Request):
+        ready()
+        values = await form(request)
+        return auth.login_password(values.get("password", ""), values.get("next", "/"))
+
+    @app.get("/auth/setup")
+    def setup(token: str = ""):
+        ready()
+        return auth.setup(token)
+
+    @app.post("/auth/setup")
+    async def setup_post(request: Request):
+        ready()
+        values = await form(request)
+        return auth.setup(values.get("token", ""), values.get("password", ""))
 
     @app.get("/auth/callback")
     def callback(request: Request, code: str, state: str):
         ready()
         return auth.callback(request, code, state)
+
+    @app.get("/.well-known/oauth-authorization-server")
+    def oauth_discovery():
+        ready()
+        if auth.external or auth.local is None:
+            raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
+        return auth.local.discovery()
+
+    @app.post("/oauth/register")
+    async def oauth_register(request: Request):
+        ready()
+        if auth.external or auth.local is None:
+            raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
+        try:
+            return JSONResponse(auth.local.register_client(await body(request)), status_code=201, headers={"Cache-Control":"no-store"})
+        except GatewayError as exc:
+            return JSONResponse({"error": exc.code, "error_description": exc.message}, exc.status, headers={"Cache-Control":"no-store"})
+
+    @app.get("/oauth/authorize")
+    def oauth_authorize(request: Request):
+        ready()
+        if auth.external or auth.local is None:
+            raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
+        if not auth.configured():
+            raise GatewayError("auth_not_configured", "Complete owner authentication setup first", 503)
+        session_token = request.cookies.get(SESSION, "")
+        try:
+            auth.local.session(session_token)
+        except GatewayError:
+            next_path = request.url.path + ("?" + request.url.query if request.url.query else "")
+            return RedirectResponse("/auth/login?" + urlencode({"next": next_path}), 303)
+        params = dict(request.query_params)
+        code = auth.local.authorize(params, session_token)
+        query = {"code": code}
+        if params.get("state"):
+            query["state"] = params["state"]
+        separator = "&" if "?" in params["redirect_uri"] else "?"
+        return RedirectResponse(params["redirect_uri"] + separator + urlencode(query), 303)
+
+    @app.post("/oauth/token")
+    async def oauth_token(request: Request):
+        ready()
+        if auth.external or auth.local is None:
+            raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
+        try:
+            return JSONResponse(auth.local.token(await form(request)), headers={"Cache-Control": "no-store"})
+        except GatewayError as exc:
+            return JSONResponse({"error": exc.code, "error_description": exc.message}, exc.status, headers={"Cache-Control":"no-store"})
 
     @app.get("/api/session")
     def session(request: Request):
@@ -120,6 +204,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
     def logout(request: Request):
         ready()
         auth.authenticate(request, mutation=True, browser_only=True)
+        auth.logout(request)
         response = JSONResponse({"signed_out": True})
         response.delete_cookie(SESSION, path="/")
         return response
