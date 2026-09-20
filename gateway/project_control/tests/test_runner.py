@@ -128,15 +128,16 @@ class Tests(unittest.TestCase):
         with self.assertRaises(r.Rejected): r.verify_live_comment(self.event, self.policy, get, now)
 
     def test_docker_contract(self):
-        args = r.container_args("sha256:" + "a" * 64, "/tmp/source", "check-123")
+        args = r.container_args("sha256:" + "a" * 64, "check-123")
         for item in ("none", "--read-only", "ALL", "no-new-privileges", "10001:10001", "--pids-limit", "--memory", "--cpus"):
             self.assertIn(item, args)
         self.assertFalse(any("docker.sock" in a for a in args))
         self.assertNotIn("--privileged", args)
         self.assertNotIn("--gpus", args)
         self.assertNotIn("--env-file", args)
-        self.assertIn("readonly", args[-2])
-        with self.assertRaises(r.Rejected): r.container_args("image:latest", "/tmp/source", "check-123")
+        self.assertNotIn("--mount", args)
+        self.assertNotIn("--volume", args)
+        with self.assertRaises(r.Rejected): r.container_args("image:latest", "check-123")
 
     def test_no_credential_forwarding(self):
         with patch.dict(os.environ, {"GITHUB_TOKEN": "sentinel", "RUNPOD_API_KEY": "sentinel", "MODAL_TOKEN_SECRET": "sentinel"}):

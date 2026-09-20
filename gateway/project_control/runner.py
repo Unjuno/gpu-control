@@ -14,7 +14,9 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import selectors
+import shutil
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -149,13 +151,12 @@ def clean_environment():
     return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/tmp", "LANG": "C.UTF-8"}
 
 
-def container_args(image, source, name):
+def container_args(image, name):
     require(re.fullmatch(r"sha256:[a-f0-9]{64}", image), "resolved_image_required")
     return ["docker", "create", "--name", name, "--network", "none", "--read-only",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "10001:10001",
             "--pids-limit", "32", "--memory", "256m", "--cpus", "1", "--log-driver", "none",
-            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m", "--mount",
-            f"type=bind,src={Path(source).resolve()},dst=/source,readonly", image]
+            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m", image]
 
 
 def bounded_process(argv, seconds=30, limit=65536):
@@ -186,13 +187,26 @@ def bounded_process(argv, seconds=30, limit=65536):
 
 def execute(source, name, entry):
     env = clean_environment()
-    built = subprocess.run(["docker", "build", "--pull", "-q", "-t", name, str(ROOT / "container")],
-                           env=env, capture_output=True, text=True, timeout=180)
-    require(built.returncode == 0, "trusted_image_build_failed")
+    # Materialize only reviewed control files plus validated source into a fresh
+    # build context. COPY never executes target code and needs no host mount.
+    with tempfile.TemporaryDirectory(prefix="gpu-check-build-") as directory:
+        context = Path(directory)
+        for fixed in ("Dockerfile", "run.py"):
+            shutil.copyfile(ROOT / "container" / fixed, context / fixed)
+        source = Path(source)
+        require(source.is_dir() and not source.is_symlink(), "invalid_staging_directory")
+        entries = list(source.rglob("*"))
+        require(len(entries) <= 200, "too_many_source_entries")
+        require(all(not path.is_symlink() and (path.is_dir() or path.is_file()) for path in entries), "regular_source_only")
+        require(sum(path.stat().st_size for path in entries if path.is_file()) <= 1048576, "source_context_too_large")
+        shutil.copytree(source, context / "source")
+        built = subprocess.run(["docker", "build", "--pull", "-q", "-t", name, str(context)],
+                               env=env, capture_output=True, text=True, timeout=180)
+        require(built.returncode == 0, "trusted_image_build_failed")
     image = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", name], env=env, timeout=10, text=True).strip()
     started = time.monotonic()
     try:
-        subprocess.run(container_args(image, source, name), env=env, check=True, capture_output=True, timeout=10)
+        subprocess.run(container_args(image, name), env=env, check=True, capture_output=True, timeout=10)
         code, raw = bounded_process(["docker", "start", "--attach", name])
         require(code == 0, "project_check_failed")
         value = load_json(raw)

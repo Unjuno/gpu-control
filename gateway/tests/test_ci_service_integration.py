@@ -100,4 +100,7 @@ def test_new_provider_does_not_change_comment_schema(bridge):
     assert result.status_code == 200 and result.json()["state"] == "awaiting_approval"
     bridge.service.approve(replace(bridge.principal, browser=True), result.json()["run_id"], result.json()["fingerprint"])
     result = bridge.send("submit", {"run_id":result.json()["run_id"]}, comment_id=104)
-    assert result.status_code == 409 and result.json()["code"] == "provider_disabled"
+    # The ingress-level parked gate is deliberately stricter than provider enablement.
+    assert result.status_code == 409 and result.json()["code"] == "paid_submission_parked"
+    with bridge.store.engine.connect() as c:
+        assert c.execute(select(control.c.active_count)).scalar_one() == 0

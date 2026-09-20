@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-def run(source: Path) -> dict:
+def run(source: Path) -> dict | None:
     config = json.loads((source / ".execution.json").read_text())
     if config["profile"] == "python-script-v1":
         path = source / config["entrypoint"]

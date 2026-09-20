@@ -38,8 +38,9 @@ receipt never starts a GPU or counts as GPU spending authorization.
   control Dockerfile is built. The target Dockerfile/README/manifest cannot select
   host commands, secrets, images, policy or additional resources.
 - CPU execution has no network, no provider credentials, no Docker socket, no GPU,
-  non-root UID, read-only root/source, a 256 MiB memory limit, one CPU, 32 PIDs,
-  a 30-second execution deadline and a 64 KiB combined output limit. Container
+  non-root UID, read-only filesystem, a 256 MiB memory limit, one CPU, 32 PIDs,
+  a 30-second execution deadline and a 64 KiB combined output limit. Source is
+  COPY-ed into the trusted image; no host mounts are passed. Container
   removal is attempted both in Python finally and in workflow always cleanup.
 - The reporter runs in a separate job. Only it receives issues:write. The executor
   has contents:read, not issues:write, id-token:write or provider secrets.
