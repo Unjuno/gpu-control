@@ -140,3 +140,19 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
         "resource":settings.resource,
     })
     assert failed.status_code == 400
+
+
+def test_dcr_registration_is_idempotent_and_reclaimable(tmp_path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'dcr.db'}", public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    service = ExperimentService(store, settings, {"demo": Workload(provider="demo")})
+    auth = Auth(settings, store=store)
+    auth.local.seed_bootstrap("bootstrap-secret")
+    auth.local.bootstrap_admin("bootstrap-secret", "correct horse battery staple")
+    client = TestClient(create_app(settings, service=service, auth=auth))
+    payload = {"client_name":"ChatGPT","redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"]}
+    first = client.post("/oauth/register", json=payload)
+    second = client.post("/oauth/register", json=payload)
+    assert first.status_code == 201 and second.status_code == 201
+    assert first.json()["client_id"] == second.json()["client_id"]
