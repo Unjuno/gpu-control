@@ -1,0 +1,78 @@
+name: External project CPU checks
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+concurrency:
+  group: project-check-${{ github.event.comment.id }}
+  cancel-in-progress: false
+jobs:
+  authorize:
+    if: >-
+      github.repository == 'Unjuno/gpu-control' &&
+      github.event.repository.id == 1342703665 &&
+      github.event.repository.owner.id == 241447786 &&
+      github.event.sender.id == 241447786 &&
+      github.event.comment.user.id == 241447786 &&
+      github.actor_id == '241447786' &&
+      github.event.issue.number == 48 &&
+      !github.event.issue.pull_request &&
+      github.run_attempt == 1 &&
+      startsWith(github.event.comment.body, '/gpu check')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: python gateway/project_control/runner.py validate --report "$RUNNER_TEMP/project-result.json"
+  execute:
+    needs: authorize
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run registered project in credential-free CPU container
+        run: python gateway/project_control/runner.py execute --report "$RUNNER_TEMP/project-result.json"
+      - name: Remove workload container after timeout or cancellation
+        if: always()
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: docker rm -f "project-check-$RUN_ID" >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: project-check-receipt
+          path: ${{ runner.temp }}/project-result.json
+          if-no-files-found: warn
+          retention-days: 7
+  report:
+    needs: [authorize, execute]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        id: receipt
+        continue-on-error: true
+        with:
+          name: project-check-receipt
+          path: ${{ runner.temp }}/receipt
+      - name: Publish sanitized result from a separate runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python gateway/project_control/runner.py publish --report "$RUNNER_TEMP/receipt/project-result.json"

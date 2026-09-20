@@ -1,0 +1,17 @@
+{
+  "repository": "Unjuno/gpu-control",
+  "repository_id": 1342703665,
+  "owner_id": 241447786,
+  "issue_number": 48,
+  "workloads": {
+    "orbitune-tokenizer": {
+      "repository": "Unjuno/orbitune",
+      "repository_id": 1338946604,
+      "files": [
+        "orbitune/tokenizer/vocab.py"
+      ],
+      "check": "tokenizer-roundtrip-v1",
+      "profile": "orbitune-vocab-v1"
+    }
+  }
+}

@@ -1,0 +1,116 @@
+name: GPU comment bridge
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-comment-${{ github.event.comment.id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: >-
+      github.repository == 'Unjuno/gpu-control' &&
+      github.event.repository.id == 1342703665 &&
+      github.event.repository.owner.id == 241447786 &&
+      github.event.sender.id == 241447786 &&
+      github.event.comment.user.id == 241447786 &&
+      github.event.issue.number == 48 &&
+      !github.event.issue.pull_request &&
+      github.run_attempt == 1 &&
+      startsWith(github.event.comment.body, '/gpu ') &&
+      !startsWith(github.event.comment.body, '/gpu check')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      kind: ${{ steps.validate.outputs.kind }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: validate
+        run: python gateway/scripts/comment_bridge.py validate
+
+  local:
+    needs: validate
+    if: needs.validate.outputs.kind == 'local'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      CONTAINER_NAME: gateway-tiny-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Build trusted CPU-only fixture (no comment-selected source)
+        run: |
+          docker build --pull --tag gpu-control-tiny gateway/workloads/tiny-lm
+          docker image inspect --format '{{.Id}}' gpu-control-tiny > "$RUNNER_TEMP/image-id.txt"
+      - name: Run bounded experiment without network, secrets or host mounts
+        run: |
+          timeout --signal=TERM --kill-after=5s 30s docker run --rm \
+            --name "$CONTAINER_NAME" --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --user 10001:10001 --pids-limit 32 --memory 128m --cpus 1 \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            gpu-control-tiny > "$RUNNER_TEMP/metrics.json"
+          python gateway/scripts/comment_bridge.py local-report \
+            --metrics "$RUNNER_TEMP/metrics.json" --image-id "$RUNNER_TEMP/image-id.txt" \
+            --report "$RUNNER_TEMP/bridge-result.json"
+      - name: Cleanup even after failure
+        if: always()
+        run: docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+      - name: Archive sanitized result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gpu-comment-${{ github.run_id }}
+          path: ${{ runner.temp }}/bridge-result.json
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: false
+      - name: Publish bounded result (never raw stdout/stderr)
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python gateway/scripts/comment_bridge.py publish --report "$RUNNER_TEMP/bridge-result.json"
+
+  gateway:
+    needs: validate
+    if: needs.validate.outputs.kind == 'gateway'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Send verified comment reference with a short-lived Actions identity
+        run: python gateway/scripts/comment_bridge.py invoke --report "$RUNNER_TEMP/bridge-result.json"
+      - name: Archive sanitized result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gpu-comment-${{ github.run_id }}
+          path: ${{ runner.temp }}/bridge-result.json
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: false
+      - name: Publish bounded receipt (no provider keys or arbitrary workload logs)
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python gateway/scripts/comment_bridge.py publish --report "$RUNNER_TEMP/bridge-result.json"
