@@ -189,7 +189,8 @@ def http_system(policy, signing, event):
     def invoke(principal, name, arguments):
         calls.append((principal, name, arguments))
         return {"id": IDENTIFIER, "state": "queued", "result": {"stdout": "secret", "metrics": {"loss": 1.0}}}
-    service = SimpleNamespace(invoke=invoke, list=lambda _: {"worker_last_seen_at": 0})
+    service = SimpleNamespace(invoke=invoke, list=lambda _: {"worker_last_seen_at": 0},
+                              get=lambda principal, run_id: {"id": run_id, "plan": {"provider": "demo"}})
     auth = SimpleNamespace(external=False, settings=SimpleNamespace(public_url=policy.gateway_origin), configured=lambda: True)
     app.state.service, app.state.auth = service, auth
     reader = SimpleNamespace(read=lambda _: (event["comment"], event["issue"]))
@@ -208,6 +209,24 @@ def test_authenticated_ci_request_is_never_browser_approval(http_system, event, 
     assert response.json()["worker_recently_seen"] is False
     assert response.json()["gpu_execution_confirmed"] is False
     assert "secret" not in response.text
+
+
+@pytest.mark.parametrize("provider", ["modal", "runpod", "future-provider", None])
+def test_paid_submit_is_denied_before_queue_mutation(http_system, event, provider):
+    http_system.app.state.service.get = lambda principal, run_id: {"id": run_id, "plan": {"provider": provider}}
+    event["comment"]["body"] = '/gpu submit\n' + json.dumps({"run_id": IDENTIFIER})
+    response = http_system.client.post(http_system.path, headers=http_system.headers, json=envelope(event))
+    assert response.status_code == 409
+    assert response.json()["code"] == "paid_submission_parked"
+    assert not http_system.calls
+
+
+def test_cancel_remains_available_while_paid_submit_is_parked(http_system, event):
+    http_system.app.state.service.get = lambda *_: {"plan": {"provider": "modal"}}
+    event["comment"]["body"] = '/gpu cancel\n' + json.dumps({"run_id": IDENTIFIER})
+    response = http_system.client.post(http_system.path, headers=http_system.headers, json=envelope(event))
+    assert response.status_code == 200
+    assert http_system.calls[0][1] == "experiments_cancel"
 
 
 def test_ci_rejects_browser_and_missing_auth(http_system, event):
