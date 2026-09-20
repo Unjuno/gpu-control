@@ -159,7 +159,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         if auth.external or auth.local is None:
             raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
         try:
-            return auth.local.register_client(await body(request))
+            return JSONResponse(auth.local.register_client(await body(request)), status_code=201, headers={"Cache-Control":"no-store"})
         except GatewayError as exc:
             return JSONResponse({"error": exc.code, "error_description": exc.message}, exc.status, headers={"Cache-Control":"no-store"})
 
