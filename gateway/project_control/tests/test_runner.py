@@ -163,6 +163,36 @@ class Tests(unittest.TestCase):
                     {"plan": {"provider": "future-provider"}}, {}, {"plan": None}):
             self.assertFalse(module.demo_submission_only(run))
 
+    def test_public_receipt_revalidates_every_nested_field(self):
+        base = {"schema_version": 1, "repository": self.request["repository"], "source_sha": self.request["sha"],
+                "workload": self.request["workload"], "control_sha": self.env["GITHUB_SHA"],
+                "workflow_run_id": self.env["GITHUB_RUN_ID"], "comment_id": 25,
+                "gpu_used": False, "gpu_authorized": False}
+        source_path = self.policy["workloads"][self.request["workload"]]["files"][0]
+        good = dict(base, state="passed", source_blobs={source_path: "c" * 40},
+                    metrics={"values": {"checks": 6, "loss": 1.25},
+                             "image_id": "sha256:" + "d" * 64, "elapsed_seconds": 1.5})
+        self.assertEqual(r.public_receipt(good, base, self.policy), good)
+
+        forged = [
+            dict(good, stdout="attacker controlled"),
+            dict(good, source_blobs={source_path: "not-a-blob"}),
+            dict(good, source_blobs={"other.py": "c" * 40}),
+            dict(good, metrics=dict(good["metrics"], injected="value")),
+            dict(good, metrics={"values": {"secret": "text"}, "image_id": "sha256:" + "d" * 64, "elapsed_seconds": 1.5}),
+            dict(good, metrics={"values": {"loss": float("nan")}, "image_id": "sha256:" + "d" * 64, "elapsed_seconds": 1.5}),
+            dict(good, metrics={"values": {"loss": 1.0}, "image_id": "latest", "elapsed_seconds": 1.5}),
+            dict(good, metrics={"values": {"loss": 1.0}, "image_id": "sha256:" + "d" * 64, "elapsed_seconds": 999}),
+        ]
+        for report in forged:
+            with self.subTest(report=str(report)[:100]), self.assertRaises(r.Rejected):
+                r.public_receipt(report, base, self.policy)
+
+        failed = dict(base, state="failed", code="project_check_failed")
+        self.assertEqual(r.public_receipt(failed, base, self.policy), failed)
+        with self.assertRaises(r.Rejected):
+            r.public_receipt(dict(failed, stderr="forged"), base, self.policy)
+
     def test_fixed_api_no_untrusted_hosts(self):
         with self.assertRaises(r.Rejected): r.api("https://evil.example/")
         self.assertIsNone(r.NoRedirect().redirect_request(None, None, None, None, None, "https://example.org"))
