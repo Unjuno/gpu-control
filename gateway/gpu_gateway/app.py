@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
