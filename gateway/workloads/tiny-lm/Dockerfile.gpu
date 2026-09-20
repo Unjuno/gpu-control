@@ -1,0 +1,9 @@
+# Supply an operator-verified PyTorch/CUDA image pinned by sha256 digest.
+# This Dockerfile deliberately has no floating GPU base-image default.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+WORKDIR /work
+COPY tiny_lm.py /work/tiny_lm.py
+USER 10001:10001
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENTRYPOINT ["python", "-I", "/work/tiny_lm.py", "--backend", "torch", "--device", "cuda"]
