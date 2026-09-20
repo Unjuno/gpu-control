@@ -182,3 +182,17 @@ def test_hosted_sqlite_and_unsecured_origin_rejected():
         Settings(hosted=True, public_url="https://gateway.example").validate()
     with pytest.raises(ValueError):
         Settings(public_url="http://example.com").validate()
+
+
+def test_vercel_neon_standard_env_fallback(monkeypatch):
+    monkeypatch.delenv("GATEWAY_DATABASE_URL", raising=False)
+    monkeypatch.delenv("GATEWAY_PUBLIC_URL", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@example.neon.tech/db?sslmode=require")
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "gpu-control-gateway.vercel.app")
+
+    settings = Settings.from_env()
+
+    assert settings.database_url == "postgresql+psycopg://user:pass@example.neon.tech/db?sslmode=require"
+    assert settings.public_url == "https://gpu-control-gateway.vercel.app"
+    assert settings.hosted is True
