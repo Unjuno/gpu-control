@@ -23,6 +23,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 ROOT = Path(__file__).resolve().parent
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+MAX_COMMENT_AGE_SECONDS = 6 * 60 * 60  # tolerate hosted-runner queueing, still bound stale requests
 
 
 class Rejected(ValueError):
@@ -113,7 +114,7 @@ def verify_live_comment(event, policy, get=api, now=None):
     require(actual.get("body") == old["body"] and actual.get("updated_at") == actual.get("created_at") == old["created_at"], "comment_changed")
     created = datetime.fromisoformat(actual["created_at"].replace("Z", "+00:00"))
     require(created.tzinfo is not None, "invalid_comment_time")
-    require(-30 <= (time.time() if now is None else now) - created.timestamp() <= 3600, "comment_expired")
+    require(-30 <= (time.time() if now is None else now) - created.timestamp() <= MAX_COMMENT_AGE_SECONDS, "comment_expired")
 
 
 def fetch_sources(request, policy, dest, get=api):
