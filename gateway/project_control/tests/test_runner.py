@@ -120,12 +120,14 @@ class Tests(unittest.TestCase):
         actual["body"] += "changed"
         with self.assertRaises(r.Rejected): r.verify_live_comment(self.event, self.policy, get, now)
 
-    def test_old_comment_not_replayed(self):
+    def test_runner_queue_delay_is_tolerated_but_stale_comment_is_rejected(self):
         actual = copy.deepcopy(self.event["comment"])
         actual["issue_url"] = "https://api.github.com/repos/Unjuno/gpu-control/issues/48"
         def get(path): return self.event["issue"] if path.endswith("/issues/48") else actual
-        now = r.datetime.fromisoformat("2026-09-22T00:00:02+00:00").timestamp()
-        with self.assertRaises(r.Rejected): r.verify_live_comment(self.event, self.policy, get, now)
+        created = r.datetime.fromisoformat("2026-09-21T00:00:00+00:00").timestamp()
+        r.verify_live_comment(self.event, self.policy, get, created + 2 * 60 * 60)
+        with self.assertRaises(r.Rejected):
+            r.verify_live_comment(self.event, self.policy, get, created + r.MAX_COMMENT_AGE_SECONDS + 1)
 
     def test_docker_contract(self):
         args = r.container_args("sha256:" + "a" * 64, "check-123")

@@ -26,7 +26,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     service = ExperimentService(store, settings, {"demo": Workload(provider="demo")})
     auth = Auth(settings, store=store)
     auth.local.seed_bootstrap("bootstrap-secret", ttl_seconds=3600)
-    client = TestClient(create_app(settings, service=service, auth=auth))
+    client = TestClient(create_app(settings, service=service, auth=auth), base_url="https://gateway.example")
 
     health = client.get("/healthz").json()
     assert health["configured"] is True
@@ -116,7 +116,7 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
     auth = Auth(settings, store=store)
     auth.local.seed_bootstrap("bootstrap-secret")
     auth.local.bootstrap_admin("bootstrap-secret", "correct horse battery staple")
-    client = TestClient(create_app(settings, service=service, auth=auth))
+    client = TestClient(create_app(settings, service=service, auth=auth), base_url="https://gateway.example")
 
     bad = client.post("/oauth/register", json={"redirect_uris":["https://attacker.example/callback"]})
     assert bad.status_code == 400
@@ -150,7 +150,7 @@ def test_dcr_registration_is_idempotent_and_reclaimable(tmp_path):
     auth = Auth(settings, store=store)
     auth.local.seed_bootstrap("bootstrap-secret")
     auth.local.bootstrap_admin("bootstrap-secret", "correct horse battery staple")
-    client = TestClient(create_app(settings, service=service, auth=auth))
+    client = TestClient(create_app(settings, service=service, auth=auth), base_url="https://gateway.example")
     payload = {"client_name":"ChatGPT","redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"]}
     first = client.post("/oauth/register", json=payload)
     second = client.post("/oauth/register", json=payload)
