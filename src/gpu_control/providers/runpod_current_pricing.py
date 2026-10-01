@@ -7,7 +7,12 @@ import hashlib
 import json
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+from ..http_security import (
+    ResponseBoundaryError, decode_json_body, read_bounded_body,
+    urlopen_no_redirects as urlopen, validate_timeout,
+)
 
 from ..execution import ApprovedExecutionPlan
 from ..validation import WorkloadRequest
@@ -229,8 +234,10 @@ class RunPodPricingGraphQLClient:
             raise RunPodV2Error("RunPod API key is required for current pricing")
         if api_key != api_key.strip() or any(character.isspace() for character in api_key):
             raise RunPodV2Error("RunPod API key must not contain whitespace")
-        if timeout <= 0:
-            raise RunPodV2Error("RunPod pricing HTTP timeout must be positive")
+        try:
+            timeout = validate_timeout(timeout)
+        except ResponseBoundaryError as exc:
+            raise RunPodV2Error(str(exc)) from exc
         if not callable(opener):
             raise RunPodV2Error("RunPod pricing HTTP opener must be callable")
         self._api_key = api_key
@@ -253,16 +260,18 @@ class RunPodPricingGraphQLClient:
         try:
             with self._opener(request, timeout=self._timeout) as response:
                 status = getattr(response, "status", None)
-                raw = response.read()
+                raw = read_bounded_body(response)
         except HTTPError as exc:
-            raise RunPodV2Error(f"RunPod pricing API returned HTTP {exc.code}") from exc
-        except URLError as exc:
-            raise RunPodV2Error("RunPod pricing API could not be reached") from exc
+            raise RunPodV2Error(f"RunPod pricing API returned HTTP {exc.code}") from None
+        except (URLError, OSError):
+            raise RunPodV2Error("RunPod pricing API could not be reached") from None
+        except ResponseBoundaryError as exc:
+            raise RunPodV2Error(str(exc)) from exc
         if status != 200:
             raise RunPodV2Error(f"RunPod pricing API returned unexpected HTTP status {status}")
         try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            payload = decode_json_body(raw)
+        except ResponseBoundaryError as exc:
             raise RunPodV2Error("RunPod pricing API returned invalid JSON") from exc
         root = _mapping(payload, "RunPod pricing response")
         errors = root.get("errors")

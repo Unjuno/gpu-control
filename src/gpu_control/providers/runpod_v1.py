@@ -5,7 +5,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+from ..http_security import (
+    ResponseBoundaryError, decode_json_body, read_bounded_body,
+    urlopen_no_redirects as urlopen, validate_timeout,
+)
 
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
 from .runpod_network_volume import RunPodNetworkVolumeEvidence
@@ -232,8 +237,10 @@ class RunPodV1HttpClient:
             raise RunPodV2Error("RunPod API key is required")
         if api_key != api_key.strip() or any(character.isspace() for character in api_key):
             raise RunPodV2Error("RunPod API key must not contain whitespace")
-        if timeout <= 0:
-            raise RunPodV2Error("RunPod HTTP timeout must be positive")
+        try:
+            timeout = validate_timeout(timeout)
+        except ResponseBoundaryError as exc:
+            raise RunPodV2Error(str(exc)) from exc
         if not callable(opener):
             raise RunPodV2Error("RunPod HTTP opener must be callable")
         if network_volume is not None:
@@ -266,22 +273,14 @@ class RunPodV1HttpClient:
         try:
             with self._opener(request, timeout=self._timeout) as response:
                 status = getattr(response, "status", None)
-                raw = response.read()
+                raw = read_bounded_body(response)
         except HTTPError as exc:
-            detail = ""
-            try:
-                error_payload = json.loads(exc.read().decode("utf-8"))
-                if isinstance(error_payload, Mapping):
-                    for field in ("message", "detail", "error"):
-                        value = error_payload.get(field)
-                        if isinstance(value, str) and value.strip():
-                            detail = f": {value.strip()}"
-                            break
-            except Exception:
-                pass
-            raise RunPodV2Error(f"RunPod API returned HTTP {exc.code}{detail}") from exc
-        except URLError as exc:
-            raise RunPodV2Error("RunPod API could not be reached") from exc
+            # Error bodies/reason phrases may echo API keys or injected instructions.
+            raise RunPodV2Error(f"RunPod API returned HTTP {exc.code}") from None
+        except (URLError, OSError) as exc:
+            raise RunPodV2Error("RunPod API could not be reached") from None
+        except ResponseBoundaryError as exc:
+            raise RunPodV2Error(str(exc)) from exc
 
         if status != expected_status:
             raise RunPodV2Error(f"RunPod API returned unexpected HTTP status {status}")
@@ -290,8 +289,8 @@ class RunPodV1HttpClient:
                 raise RunPodV2Error("RunPod 204 response unexpectedly contained a body")
             return None
         try:
-            return json.loads(raw.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return decode_json_body(raw)
+        except ResponseBoundaryError as exc:
             raise RunPodV2Error("RunPod API returned invalid JSON") from exc
 
     def list_pods(self) -> dict[str, list[dict[str, str]]]:

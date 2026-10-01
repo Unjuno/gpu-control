@@ -84,7 +84,7 @@ class RunPodV1Adapter(RunPodV2Adapter):
             self.current_pricing.validate_against_plan(
                 self.approved_plan,
                 network_volume=self.network_volume,
-                now_utc=self.clock(),
+                now_utc=self._evidence_validation_time(),
             )
             if self.catalog_pricing != self.current_pricing.to_catalog_evidence():
                 raise RunPodV2Error("legacy pricing view does not exactly match current RunPod pricing evidence")
@@ -118,6 +118,9 @@ class RunPodV1Adapter(RunPodV2Adapter):
             network_volume=self.network_volume,
         )
 
+        # Occupancy probing can consume the remaining authorization/price TTL.
+        # Expiry must deny allocation, but must never prevent cleanup of an existing Pod.
+        self._require_plan_identity(plan)
         try:
             pod = self.client.create_pod(payload)
         except RunPodV2Error as create_error:

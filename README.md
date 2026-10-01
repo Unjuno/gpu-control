@@ -33,8 +33,8 @@ The project is **usable today for offline validation and control-plane developme
 | Authenticated Orbitune completion/result parsing | Ready offline |
 | Orbitune paid-canary result acceptance | Ready offline |
 | Generic external Dockerfile execution | Not enabled |
-| Structured exact human authorization for live execution | Partial; runtime binding still required |
-| Production RunPod authenticated result transport | Blocked pending a verified supported transport |
+| Structured exact human authorization | Exact expiring permit enforced by adapters; trusted live workflow wiring pending |
+| RunPod REST v1, current pricing/DC stock, Network Volume/S3 completion v3 | Implemented and mock-tested; live verification pending |
 | Paid RunPod workflow | Not present |
 | Live paid GPU execution | Disabled / parked |
 
@@ -113,13 +113,13 @@ The repository currently uses this bounded reference canary:
 
 ```text
 repository       Unjuno/orbitune
-source SHA       38594057d1b118a7acf6c843e39d7d8a25571316
+source SHA       fc131174a9b529a9825f54fccf1a7df4c63c9a1a
 Dockerfile       workloads/runpod-training-canary/Dockerfile
 workload id      orbitune-runpod-training-canary-v1
 GPU profile      cheap-24gb
 max runtime      30 minutes
 max cost         $0.30
-completion       gpu-control-hmac-sha256-v2
+completion       gpu-control-hmac-sha256-v3
 ```
 
 The workload's source CI, authenticated completion envelope, offline result parser, and result-side canary acceptance are implemented and tested.
@@ -135,14 +135,14 @@ The current blocker is not simply a boolean flag.
 Important remaining items include:
 
 - protect `main` and enforce required checks;
-- bind structured current human authorization to the exact execution plan and control-plane SHA;
+- wire the existing exact human-authorization validator into a trusted live workflow;
 - establish immutable published image identity;
 - verify current live provider occupancy/create/cleanup behavior;
-- provide a production-supported authenticated completion/result collection transport;
+- live-verify the implemented Network Volume/S3 authenticated completion/result transport;
 - verify live completion-secret injection and result collection;
 - configure the protected owner-only paid Environment and provider credential only after those gates are satisfied.
 
-RunPod REST API v2 itself is used as the provider contract, but the selected canary cannot currently rely on the Pod container-log endpoint as its production authenticated result transport. The repository intentionally does not fall back to SSH, public ports, unrestricted runtime networking, or an unverified volume channel merely to make a demo pass.
+The canonical adapter is `RunPodV1Adapter` at the current REST v1 boundary. Legacy v2 code remains for compatibility, not as the selected production path. The selected result path reads bounded `result.json` and `completion-v3.json` from an existing trusted Network Volume through S3. That path is mock-tested, not live-verified. Pod-log SSE, SSH, public ports, and unrestricted runtime networking are not implicit fallbacks.
 
 ## Workload contract
 
@@ -170,7 +170,7 @@ The project separates four concerns that are often conflated:
 3. **Is this exact action authorized now?** — current human intent bound to the exact plan.
 4. **Can it fail safely?** — blast radius, occupancy, cleanup, completion and result evidence.
 
-External text is treated as data rather than instruction authority. Prompt injection and context poisoning are handled as a source-to-sink trust problem, backed by deterministic policy/tests rather than prompt wording alone.
+External text is treated as data rather than instruction authority. The source-to-sink trust policy and CI fixtures define the intended boundaries. Runtime context/DecisionRecord enforcement is not yet a complete live-agent sandbox, and those tests do not prove resistance to every prompt injection.
 
 ## Action constitution
 
@@ -196,9 +196,10 @@ The repository currently has no paid workflow on `main`.
 
 ## GitHub Actions
 
-Two public workflows are currently included:
+Three public workflows are currently included:
 
 - **CI** — tests the locked Python environment and trusted reference container boundary.
+- **Package check** — builds wheel/sdist, tests an installed wheel outside the checkout, retests the extracted sdist, and checks known dependency advisories and selected static errors.
 - **GPU request dry-run** — manually validates a request and verifies its public GitHub source identity without allocating GPU resources.
 
 Third-party Actions are pinned to immutable full commit SHAs and checkout credentials are not persisted.
@@ -253,6 +254,16 @@ Machine-readable policy lives under `policies/`.
 Use the smallest, cheapest, most reversible action that can answer the current question, but do not let defensive controls turn an achievable objective into unnecessary paralysis.
 
 A budget is a loss ceiling, not a spending target. A denied high-impact action is not automatically mission failure when a safer useful path remains.
+
+## Release validation
+
+A green source checkout is not sufficient release evidence. See
+[docs/INDEPENDENT_ACCEPTANCE.md](docs/INDEPENDENT_ACCEPTANCE.md) for a fresh-session
+acceptance procedure and [docs/RELEASE_AUDIT_2026-09-08.md](docs/RELEASE_AUDIT_2026-09-08.md)
+for the release decision, fixes, remaining blockers, and evidence limitations.
+
+The package remains version `0.1.0`; a PR artifact is a candidate, not a published
+release. No `gpu-control run` or `submit` command is exposed while parked.
 
 ## License
 

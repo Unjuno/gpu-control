@@ -329,11 +329,12 @@ def test_adapter_reconciliation_revalidates_full_pod_identity() -> None:
     value, _, client, _, _, adapter = make_adapter()
     client.get_response = dict(client.get_response, cost=0.45)
 
-    with pytest.raises(RunPodV2AdapterError, match="could not be reconciled"):
+    with pytest.raises(RunPodV2AdapterError, match="terminated"):
         adapter.submit(value)
 
     assert client.create_calls == 1
     assert client.get_calls == 1
+    assert client.terminate_calls == ["pod-123"]
 
 
 def terminal_observation(value: ApprovedExecutionPlan, pod_id: str = "pod-123") -> tuple[object, JobObservation]:

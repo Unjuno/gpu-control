@@ -192,7 +192,7 @@ Unknown or expired price, missing provider-resource identity, missing policy dat
 
 ## Provider API contract and lifecycle
 
-The current RunPod implementation remains a mock-tested legacy v2-beta contract. It must not be enabled live by changing policy booleans alone. Current official provider documentation must be revalidated and the adapter migrated or proven equivalent before any live provider call.
+The canonical selected-canary RunPod adapter uses current REST v1; legacy v2-beta code is compatibility-only. Current pricing/datacenter evidence and Network Volume/S3 completion v3 are implemented and mock-tested, not live-verified. Current official provider documentation and actual account behavior must be revalidated before live enablement; changing policy booleans alone is insufficient.
 
 Once paid provider integration is enabled, any created resource must be cleaned up on normal completion, failure, timeout, cancellation where possible, and provider/API errors after allocation.
 
@@ -203,3 +203,22 @@ A failure to determine fresh price, availability, current API compatibility, pol
 ## Reporting a vulnerability
 
 Open a GitHub security advisory for sensitive reports when available. Do not place credentials, exploit tokens, or other secrets in a public issue.
+
+## HTTP and recovery boundaries
+
+Default credential-bearing GitHub/RunPod readers reject HTTP redirects. JSON
+responses are limited to 1 MiB, duplicate keys and non-finite numbers are rejected,
+and nesting is bounded. Provider error bodies are never echoed into public errors.
+An HTTP socket timeout is not an end-to-end execution deadline; the future live
+workflow still needs its independent watchdog and deadline/cleanup controls.
+
+An explicitly recovery-only adapter may validate historic allocation evidence at
+the submission time of one exact trusted receipt. Its expected receipt fingerprint
+must come from independently trusted durable state. It can observe/collect/clean up
+that receipt, but cannot submit or allocate, even while the original permit is fresh.
+A digest is correlation, not authentication or permission to obtain credentials.
+Normal allocation still requires fresh evidence immediately before the create call.
+
+The runtime context-trust policy and DecisionRecord remain governance/test contracts,
+not a complete sandbox or an identity provider. Their tests do not prove that an
+arbitrary agent will resist every prompt injection.

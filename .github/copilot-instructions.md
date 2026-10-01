@@ -51,6 +51,6 @@ Paid compute is denied by default. Editing code, preparing a Dockerfile, validat
 
 Do not introduce arbitrary remote shell inputs, floating workload refs, secret logging, untrusted paid-compute triggers, silent cost/runtime escalation, open-ended experiments without stop conditions, stale authorization inheritance, example laundering, prompt/context authority laundering, long-lived GitHub Actions polling, or provider adapters that accept raw workload requests.
 
-Do not enable the current legacy RunPod v2-beta adapter live by changing boolean flags alone. `policies/runpod-v2-policy.yaml` requires current official API-contract revalidation or migration before live use.
+The canonical selected-canary adapter is now REST v1 with offline Network Volume/S3 completion v3; live verification remains pending. Do not enable the legacy RunPod v2-beta compatibility adapter live by changing boolean flags alone. `policies/runpod-v2-policy.yaml` requires current official API-contract revalidation or migration before live use.
 
 Prefer small, bounded, reproducible experiments and preserve useful progress when a higher-impact action is blocked. Keep provider-specific operations behind the policy layer, prompt/context trust boundary, structured authorization boundary, and approved execution-plan gate.
