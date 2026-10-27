@@ -5,6 +5,7 @@ from gpu_gateway.store import control, runs
 from gpu_gateway.worker import Worker
 from gpu_gateway.backends import Observation
 from gpu_gateway.service import Prepare
+from sqlalchemy import update
 
 from test_local_admission import plan
 
@@ -78,3 +79,30 @@ def test_result_is_persisted_and_slot_retained_until_cleanup_is_confirmed(system
     assert final["cleanup_state"] == "complete"
     assert final["result"]["exit_code"] == 1
     assert active == 0
+
+
+def test_expired_worker_lease_fences_stale_result_writes(system):
+    candidate = plan()
+    created = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="lease-fencing-0001"))
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(active_count=1))
+        connection.execute(update(runs).where(runs.c.id == created["id"]).values(
+            plan=candidate.model_dump(mode="json"), fingerprint=plan_fingerprint(candidate),
+            state="running", started_at=int(system.clock()), lease_until=0,
+            slot_reserved=True, record_version=2, cleanup_state="pending"))
+    first = Worker(system.store, system.settings, {}, system.clock)
+    stale_claim = first.claim()
+    assert stale_claim is not None
+
+    system.clock.advance(121)
+    replacement = Worker(system.store, system.settings, {}, system.clock)
+    current_claim = replacement.claim()
+    assert current_claim is not None
+    assert current_claim["lease_token"] != stale_claim["lease_token"]
+    assert first.update(stale_claim, result={"stale": True}, state="failed") is False
+    first.finish(stale_claim, "failed", {"stale": True})
+    saved = system.store.read(created["id"])
+    assert saved["lease_token"] == current_claim["lease_token"]
+    assert saved["result"] is None
+    assert saved["state"] == "running"

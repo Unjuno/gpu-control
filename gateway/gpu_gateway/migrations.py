@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy import Column, Integer, MetaData, Table, inspect, insert, select, update
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -70,4 +70,19 @@ def migrate(engine) -> int:
                     )
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=3))
             current = 3
+        if current < 4:
+            tables = set(inspect(connection).get_table_names())
+            if "gateway_runs_v1" in tables:
+                existing = _columns(connection, "gateway_runs_v1")
+                additions = (
+                    ("attempt", "INTEGER NOT NULL DEFAULT 0"),
+                    ("submission_intent", "JSON"),
+                )
+                for name, definition in additions:
+                    if name not in existing:
+                        connection.exec_driver_sql(
+                            f'ALTER TABLE gateway_runs_v1 ADD COLUMN "{name}" {definition}'
+                        )
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
+            current = 4
     return current

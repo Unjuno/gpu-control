@@ -35,6 +35,8 @@ runs = Table(
     Column("finished_at", Integer, nullable=True),
     Column("result_manifest", JSON, nullable=True),
     Column("admission", JSON, nullable=True),
+    Column("attempt", Integer, nullable=False, default=0, server_default="0"),
+    Column("submission_intent", JSON, nullable=True),
     UniqueConstraint("owner", "idempotency_key", name="gateway_owner_request_v1"),
 )
 control = Table(

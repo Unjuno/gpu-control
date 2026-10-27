@@ -82,6 +82,9 @@ os._exit(74)
     found = subprocess.run([docker, "ps", "-aq", "--filter", "label=" + label],
                            check=True, capture_output=True, text=True, timeout=10).stdout.split()
     assert len(found) == 1
+    crashed_row = system.store.read(created["id"])
+    assert crashed_row["submission_intent"]["phase"] == "dispatching"
+    assert crashed_row["submission_intent"]["attempt"] == 1
 
     # Force the persisted lease to expire, as would happen after process death.
     # claim() then changes submitting to submit_unknown, and reconcile must adopt
@@ -105,6 +108,7 @@ os._exit(74)
         assert record["result"]["source_sha"] == candidate.source_sha
         assert record["result"]["plan_fingerprint"] == fingerprint
         assert record["cleanup_state"] == "complete"
+        assert record["submission_intent"]["phase"] == "handle_persisted"
         assert record["handle"]["container_id"].startswith(found[0]) or found[0].startswith(record["handle"]["container_id"])
         remaining = subprocess.run([docker, "ps", "-aq", "--filter", "label=" + label],
                                    check=True, capture_output=True, text=True, timeout=10).stdout.split()

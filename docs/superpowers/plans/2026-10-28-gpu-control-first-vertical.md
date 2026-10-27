@@ -131,14 +131,14 @@ T4 evidence: OrbStack Docker 29.8.2, host/image linux/arm64, image digest `sha25
 **Interfaces:** `Observation`に後方互換のcleanup情報を追加。local backendには追加の `capture(handle: dict) -> dict | None` と `cleanup(handle: dict) -> None` を定義し、workerはcaptureした終了証拠をDB保存→cleanup→inspectによる資源不在確認→terminal確定の順に進む。captureのNoneは未終了であり成功を意味しない。cleanupはidentity一致の資源だけを冪等に削除する。既存4操作のみのbackendは旧契約（terminal inspectは解放済み）を維持し、追加操作の有無をregistryで明示する。cleanup未完了は枠を保持する。provider-neutralの完全supervisorはP2、localの期限監督はこの段階で必須。
 
 - [x] `test_crash_after_create_before_handle`: 実Worker subprocessをDocker start直後に`os._exit`し、同じlabel-bound containerをreconcile。containerは1個のままで結果保存・cleanupまで完了。
-- [ ] `test_unrelated_container_is_not_adopted_or_deleted`: 同名でもlabel/identity不一致ならunknown。
+- [x] `test_unrelated_container_is_not_adopted_or_deleted`: run-id labelが衝突してもowner digest不一致ならreconcile時点で拒否し、resource操作を行わない。
 - [x] `test_cancel_when_new_runs_disabled`: 実container開始後にlocal policyを無効化し、cancel・再cancelを実施。実資源の削除を確認。
 - [x] `test_worker_restart_during_run`: worker subprocessを強制終了後、別Worker instanceで同run_idの結果とcleanupを完了。
 - [x] `test_result_saved_before_cleanup`と`test_cleanup_failure_holds_slot`: cleanup障害注入で結果保存と枠保持を確認し、新しいWorker instanceが同じrunをcleanup再試行してから枠を解放する。
-- [ ] durable intent、lease fencing、再照合、取消優先処理を実装する。reconcileがstartを呼ぶ実装を実backendに持ち込まない。
+- [x] schema v4にdurable submission intent/attemptを追加。intentをbackend start前に保存し、lease-token fencing、label-identity再照合、取消優先処理を確認。reconcileからstartは呼ばない。
 - [x] `python -m pytest gateway/tests/test_worker_recovery.py gateway/tests/test_local_lifecycle_integration.py -q`。実process/container障害試験とcancelを実行。
 
-T5 evidence: Gateway 192 passed, 3 skipped with the pinned image configured; `project_control` 19 passed. The Docker integration starts a real Worker subprocess and terminates it immediately after the container starts but before its handle is persisted. A replacement Worker reconciles exactly one label-bound container, captures the same run result, and cleans it up. A second real run is cancelled after local admission is disabled; repeated cancellation is safe and the container is absent. Unit fault injection verifies cleanup failure preserves the result and active slot until a replacement Worker confirms cleanup. Remaining T5 work: mismatched/unrelated-container identity cases, lease fencing under competing workers, and database failure injection.
+T5 evidence: Gateway 194 passed, 3 skipped with the pinned image configured; `project_control` 19 passed. The Docker integration starts a real Worker subprocess and terminates it immediately after the container starts but before its handle is persisted; the database retains `dispatching` intent/attempt=1. A replacement Worker reconciles exactly one label-bound container, captures the same run result, marks the intent handle_persisted, and cleans it up. A second real run is cancelled after local admission is disabled; repeated cancellation is safe and the container is absent. Unit fault injection verifies cleanup failure preserves the result and active slot until a replacement Worker confirms cleanup; expired lease tokens cannot overwrite a replacement claim. A collision test proves reconciliation rejects a run-id match with the wrong owner digest before mutating anything. Remaining T5 work: database failure injection and concurrent-process contention against PostgreSQL.
 
 ## T6: ChatGPT接続と単一CPU経路の配備
 

@@ -158,6 +158,13 @@ class Worker:
                     if quote * Decimal(plan["runtime_seconds"]) / Decimal(3600) > Decimal(plan["max_cost_usd"]):
                         self.finish(job, "failed", error="cost_limit")
                         return True
+            attempt = int(job.get("attempt") or 0) + 1
+            intent = {"provider": plan["provider"], "owner": job["owner"], "run_id": job["id"],
+                      "attempt": attempt, "plan_fingerprint": job["fingerprint"],
+                      "phase": "dispatching", "created_at": now}
+            if not self.update(job, attempt=attempt, submission_intent=intent):
+                logger.info("Lease lost before submission intent for run %s", job["id"])
+                return True
             try:
                 handle = backend.start(job)
                 if not isinstance(handle, dict) or not handle:
@@ -170,18 +177,34 @@ class Worker:
                 return True
             # Persist a returned handle even if this worker lost its lease. This is
             # evidence of an already-started job, NOT authority to start another.
+            persisted_intent = intent | {"phase": "handle_persisted"}
             with self.store.transaction() as c:
-                c.execute(update(runs).where(runs.c.id == job["id"], runs.c.handle.is_(None)).values(handle=handle))
+                c.execute(update(runs).where(runs.c.id == job["id"], runs.c.handle.is_(None)).values(
+                    handle=handle, submission_intent=persisted_intent))
             self.update(job, state="running", lease_until=now + 1, error="")
             return True
         try:
             handle = job["handle"]
             if handle is None:
+                intent = job.get("submission_intent")
+                if intent is not None and (
+                    not isinstance(intent, dict) or intent.get("provider") != plan["provider"] or
+                    intent.get("owner") != job["owner"] or intent.get("run_id") != job["id"] or
+                    intent.get("plan_fingerprint") != job["fingerprint"] or
+                    type(intent.get("attempt")) is not int or intent["attempt"] < 1 or
+                    intent.get("phase") not in {"dispatching", "handle_persisted"}
+                ):
+                    self.update(job, state="submit_unknown", error="submission_intent_mismatch",
+                                lease_until=now + 30)
+                    return True
                 handle = backend.reconcile(job)
                 if handle is None:
                     self.update(job, state="submit_unknown", error="operator_reconciliation_required", lease_until=now + 30)
                     return True
-                self.update(job, handle=handle, state="running", error="")
+                intent = job.get("submission_intent")
+                if isinstance(intent, dict):
+                    intent = intent | {"phase": "handle_persisted"}
+                self.update(job, handle=handle, submission_intent=intent, state="running", error="")
             latest = self.store.read(job["id"])
             lifecycle_backend = all(callable(getattr(backend, name, None))
                                     for name in ("capture", "cleanup", "is_clean"))

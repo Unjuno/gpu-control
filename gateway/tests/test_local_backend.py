@@ -1,8 +1,10 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from gpu_gateway.local_backend import container_create_args, parse_smoke_result, validate_image_architecture
+from gpu_gateway.local_backend import (LocalContainerBackend, container_create_args,
+                                      parse_smoke_result, validate_image_architecture)
 from gpu_gateway.registry import default_registry
 from gpu_gateway.container_runtime import container_hardening_args
 
@@ -77,3 +79,31 @@ def test_shared_container_hardening_options():
     assert args == ["--network", "none", "--read-only", "--cap-drop", "ALL",
                     "--security-opt", "no-new-privileges", "--user", "10001:10001",
                     "--pids-limit", "32", "--memory", "256m", "--cpus", "1"]
+
+
+def test_reconcile_rejects_run_id_collision_with_wrong_identity_labels():
+    backend = LocalContainerBackend(type("Settings", (), {"max_output_bytes": 65536})())
+    run = {"id": "d" * 32, "owner": "owner-a", "fingerprint": "c" * 64,
+           "plan": {"provider": "local_cpu", "image_digest": "sha256:" + "a" * 64,
+                    "source_sha": "b" * 40}}
+    labels = {
+        "io.unjuno.gpu-control.run-id": run["id"],
+        "io.unjuno.gpu-control.owner-sha256": "0" * 64,
+        "io.unjuno.gpu-control.plan-sha256": run["fingerprint"],
+        "io.unjuno.gpu-control.image-digest": run["plan"]["image_digest"],
+        "io.unjuno.gpu-control.source-sha": run["plan"]["source_sha"],
+    }
+    calls = []
+
+    def fake_run(args, timeout=20):
+        calls.append(args)
+        if args[0] == "ps":
+            return SimpleNamespace(stdout=b"a" * 64)
+        if args[0] == "inspect":
+            return SimpleNamespace(stdout=json.dumps([{"Config": {"Labels": labels}}]).encode())
+        raise AssertionError("reconcile must never mutate or remove an unverified resource")
+
+    backend._run = fake_run
+    with pytest.raises(ValueError, match="identity"):
+        backend.reconcile(run)
+    assert [call[0] for call in calls] == ["ps", "inspect"]

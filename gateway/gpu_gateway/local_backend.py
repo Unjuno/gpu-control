@@ -207,18 +207,22 @@ class LocalContainerBackend:
     def inspect(self, handle: dict) -> Observation:
         return self.capture(handle)
 
+    @staticmethod
+    def _labels_match(item: dict, handle: dict) -> bool:
+        labels = item.get("Config", {}).get("Labels", {})
+        return (labels.get("io.unjuno.gpu-control.run-id") == handle["run_id"] and
+                labels.get("io.unjuno.gpu-control.owner-sha256") == handle["owner_digest"] and
+                labels.get("io.unjuno.gpu-control.plan-sha256") == handle["plan_fingerprint"] and
+                labels.get("io.unjuno.gpu-control.image-digest") == handle["image_digest"] and
+                labels.get("io.unjuno.gpu-control.source-sha") == handle["source_sha"])
+
     def capture(self, handle: dict) -> Observation:
         if not self._valid_handle(handle):
             raise ValueError("container handle binding failed")
         inspected = self._run(["inspect", handle["container_id"]], timeout=10)
         value = json.loads(inspected.stdout)
         item = value[0]
-        labels = item.get("Config", {}).get("Labels", {})
-        if (labels.get("io.unjuno.gpu-control.run-id") != handle["run_id"] or
-                labels.get("io.unjuno.gpu-control.owner-sha256") != handle["owner_digest"] or
-                labels.get("io.unjuno.gpu-control.plan-sha256") != handle["plan_fingerprint"] or
-                labels.get("io.unjuno.gpu-control.image-digest") != handle["image_digest"] or
-                labels.get("io.unjuno.gpu-control.source-sha") != handle["source_sha"]):
+        if not self._labels_match(item, handle):
             raise ValueError("container label binding failed")
         state = item.get("State", {})
         if state.get("Running") is True:
@@ -301,9 +305,15 @@ class LocalContainerBackend:
                   "run_id": run["id"], "owner_digest": labels["io.unjuno.gpu-control.owner-sha256"],
                   "plan_fingerprint": run["fingerprint"], "image_digest": plan["image_digest"],
                   "source_sha": plan["source_sha"]}
-        if self._valid_handle(handle):
+        if not self._valid_handle(handle):
+            raise ValueError("recovered container handle is invalid")
+        inspected = self._run(["inspect", handle["container_id"]], timeout=10)
+        items = json.loads(inspected.stdout)
+        if len(items) == 1 and self._labels_match(items[0], handle):
             return handle
-        raise ValueError("recovered container handle is invalid")
+        if len(items) != 1:
+            raise ValueError("recovered container is unavailable")
+        raise ValueError("recovered container identity mismatch")
 
     @staticmethod
     def _valid_handle(handle: dict) -> bool:
