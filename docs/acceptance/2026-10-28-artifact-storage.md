@@ -41,7 +41,7 @@
   it and wrote a second probe successfully. The unique Compose project and its
   volumes were removed after this check.
 - Final full Gateway suite with digest-pinned CPU image and disposable
-  PostgreSQL 16: **209 passed, 2 skipped** (optional Torch and Modal SDK), one
+  PostgreSQL 16: **214 passed, 2 skipped** (optional Torch and Modal SDK), one
   existing Starlette deprecation warning. This includes the final artifact
   metadata constraints and cleanup-state eligibility.
 - A fresh digest-pinned Linux/arm64 CPU image completed through the real Docker

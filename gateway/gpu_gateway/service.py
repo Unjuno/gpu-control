@@ -58,7 +58,9 @@ def digest(value: Any) -> str:
 
 def public_run(row: dict) -> dict:
     # Never expose provider credentials, internal handles or exception messages.
-    return {key: row.get(key) for key in ("id", "state", "created_at", "fingerprint", "plan", "result", "error", "cancel_requested", "approved_until")}
+    fields = ("id", "state", "created_at", "fingerprint", "plan", "result",
+              "error", "cancel_requested", "approved_until", "last_observed_at")
+    return {key: row.get(key) for key in fields}
 
 
 class ExperimentService:
@@ -264,6 +266,7 @@ class ExperimentService:
             heartbeat = connection.execute(select(control.c.worker_seen_at).where(control.c.id == 1)).scalar_one()
             return {"experiments": [{"id": row["id"], "state": row["state"],
                                      "created_at": row["created_at"], "error": row["error"],
+                                     "last_observed_at": row["last_observed_at"],
                                      "workload": row["plan"]["workload"], "provider": row["plan"]["provider"]}
                                     for row in rows], "worker_last_seen_at": heartbeat}
 
