@@ -119,12 +119,14 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         """
         if configuration_error or service is None or auth is None:
             return JSONResponse({"ready": False, "database": False, "migration": False,
-                                 "worker": False, "registry": False,
+                                 "worker": False, "supervisor": False, "registry": False,
                                  "authentication": False}, status_code=503)
         database_ok = False
         migration_ok = False
         worker_ok = False
+        supervisor_ok = False
         heartbeat_age = None
+        supervisor_heartbeat_age = None
         schema = None
         try:
             with service.store.engine.connect() as connection:
@@ -132,11 +134,16 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
                     schema_version.c.id == 1)).scalar_one_or_none()
                 heartbeat = connection.execute(select(control.c.worker_seen_at).where(
                     control.c.id == 1)).scalar_one_or_none()
+                supervisor_heartbeat = connection.execute(select(control.c.supervisor_seen_at).where(
+                    control.c.id == 1)).scalar_one_or_none()
             database_ok = heartbeat is not None
             migration_ok = schema == SCHEMA_VERSION
             if type(heartbeat) is int and heartbeat > 0:
                 heartbeat_age = int(time.time()) - heartbeat
                 worker_ok = -5 <= heartbeat_age <= WORKER_HEARTBEAT_MAX_AGE_SECONDS
+            if type(supervisor_heartbeat) is int and supervisor_heartbeat > 0:
+                supervisor_heartbeat_age = int(time.time()) - supervisor_heartbeat
+                supervisor_ok = -5 <= supervisor_heartbeat_age <= WORKER_HEARTBEAT_MAX_AGE_SECONDS
         except SQLAlchemyError:
             pass
         registry = getattr(service, "registry", None)
@@ -160,11 +167,13 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
             authentication_ok = bool(auth.configured())
         except Exception:
             authentication_ok = False
-        ready = (database_ok and migration_ok and worker_ok and registry_ok and
+        ready = (database_ok and migration_ok and worker_ok and supervisor_ok and registry_ok and
                  enabled_workloads > 0 and authentication_ok)
         return JSONResponse({"ready": ready, "database": database_ok,
                              "migration": migration_ok, "schema_version": schema,
                              "worker": worker_ok, "worker_heartbeat_age_seconds": heartbeat_age,
+                             "supervisor": supervisor_ok,
+                             "supervisor_heartbeat_age_seconds": supervisor_heartbeat_age,
                              "registry": registry_ok, "enabled_workloads": enabled_workloads,
                              "authentication": authentication_ok},
                             status_code=200 if ready else 503)

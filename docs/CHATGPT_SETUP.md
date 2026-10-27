@@ -36,8 +36,13 @@ Before connecting ChatGPT, provide all of the following:
   its daemon, verify `docker info` and the registered immutable image digest, and
   keep that daemon separate from public API and untrusted workloads. Docker socket
   access gives the worker effective host-root authority.
-- A dedicated Linux worker service definition and environment example are available
-  under `gateway/deploy/`. They are templates only: adapt paths/socket group,
+- A separate recovery supervisor must also run against the same database. It
+  claims expired leases for already-active runs and can take over a submitting
+  intent when the execution-worker heartbeat goes stale, so it can reconcile
+  cancellation and pending cleanup without competing for new submissions.
+  `/readyz` remains false until both worker heartbeats are fresh.
+- Dedicated Linux worker/supervisor service definitions and an environment example
+  are available under `gateway/deploy/`. They are templates only: adapt paths/socket group,
   install secrets with restrictive ownership, and verify service-level DB/Docker
   access on the target host before treating this as deployed.
 - A configured authentication path. With external OIDC, configure issuer, JWKS,

@@ -92,12 +92,14 @@ os._exit(74)
     with system.store.transaction() as connection:
         connection.execute(update(runs).where(runs.c.id == created["id"]).values(lease_until=0))
 
-    worker = Worker(system.store, system.settings, build_backends(system.settings), system.clock)
+    recovery_supervisor = Worker(system.store, system.settings,
+                                 build_backends(system.settings), system.clock,
+                                 role="supervisor")
     cancel_run_id = None
     try:
         deadline = time.monotonic() + 35
         while time.monotonic() < deadline:
-            assert worker.tick()
+            assert recovery_supervisor.tick()
             record = system.store.read(created["id"])
             if record["state"] in {"succeeded", "failed", "cancelled", "expired"}:
                 break
@@ -116,6 +118,7 @@ os._exit(74)
 
         # New submissions are disabled after this second run starts. Cancellation
         # and cleanup must still work for an already-admitted resource.
+        worker = Worker(system.store, system.settings, build_backends(system.settings), system.clock)
         next_now = int(system.clock())
         cancel_candidate = plan_for_workload(workload_name="cpu-smoke-v1",
             workload_manifest=workload.model_dump(mode="json"), repository="Unjuno/gpu-control",
@@ -129,8 +132,14 @@ os._exit(74)
         assert system.store.read(cancel_queued["id"])["state"] == "running"
         policy_path.write_text(json.dumps({**policy, "enabled": False}))
         system.service.cancel(system.owner, cancel_queued["id"])
-        system.clock.advance(4)
-        assert worker.tick()
+        # Simulate the execution worker stopping after cancellation is recorded.
+        # The independent supervisor must cancel and clean the existing container.
+        with system.store.transaction() as connection:
+            connection.execute(update(runs).where(runs.c.id == cancel_queued["id"]).values(lease_until=0))
+        recovery_supervisor = Worker(system.store, system.settings,
+                                     build_backends(system.settings), system.clock,
+                                     role="supervisor")
+        assert recovery_supervisor.tick()
         cancelled = system.store.read(cancel_queued["id"])
         assert cancelled["state"] == "cancelled"
         assert cancelled["cleanup_state"] == "complete"

@@ -15,7 +15,8 @@ This is a separate optional deployment, not a replacement for RunPod CI.
 - WebMCP registration via feature-detected `document.modelContext.registerTool`.
   Unsupported browsers keep the ordinary dashboard. Approval is NOT an MCP tool.
 - Durable PostgreSQL queue, owned experiments, atomic admission, idempotency,
-  expiring approval, worker leases and ambiguous-submission reconciliation.
+  expiring approval, worker leases, recovery-only supervision and
+  ambiguous-submission reconciliation.
 - Disabled-by-default `local_cpu` admission and a Docker worker backend with
   non-root, no-network, read-only, resource-bounded CPU containers. Results are
   persisted before cleanup; worker and PostgreSQL restart recovery is tested.
@@ -102,10 +103,14 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
 4. Run `python -m gpu_gateway.worker --init-db` once against that database from a
    trusted operator environment. Schema creation is never triggered by an HTTP call.
 5. Deploy the Web/API application. `/healthz` reports liveness; `/readyz` reports
-   database, migration, worker heartbeat and workload-registry readiness.
-6. Run an independent worker sharing that database. A Vercel deployment alone
-   does NOT run it. The local Docker backend needs a dedicated worker host with
-   Docker access; never mount the Docker socket into the API container.
+   database/migration state, execution-worker and recovery-supervisor heartbeats,
+   authentication and workload-registry readiness.
+6. Run `gpu-control-worker.service` and `gpu-control-supervisor.service` against
+   that database. The supervisor claims expired active leases and may take over a
+   submitting intent after the worker heartbeat goes stale; it never takes newly
+   queued work. A Vercel deployment alone runs neither process.
+   The local Docker backend needs a dedicated worker host with Docker access;
+   never mount the Docker socket into the API container.
 
 Do not put `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, RunPod API/S3 credentials or an
 operator shell token into the Vercel frontend/API environment. They belong to the
@@ -165,7 +170,8 @@ isolated restore drill. A successful archive creation is not restore evidence.
 cd gateway
 python -m pip install -r requirements-worker.txt
 python -m gpu_gateway.worker --poll-seconds 3
-# Alternatively build Dockerfile.worker and provide environment through a secret store.
+python -m gpu_gateway.worker --supervise --poll-seconds 3
+# Alternatively run these as separately supervised services with the shared secret store.
 ```
 
 The worker must stay available independently of browser sessions. Shutdown of the
@@ -180,13 +186,16 @@ the policy disabled until the host, workload digest, resource limits, cleanup
 path and zero-provider-charge assumptions have been reviewed. The repository's
 demo Compose stack does not perform these steps and does not validate this path.
 
-`deploy/gpu-control-worker.service` and `deploy/worker.env.example` are starting
-templates for a dedicated Linux host, not a tested installer. They assume the
+`deploy/gpu-control-worker.service`, `deploy/gpu-control-supervisor.service` and
+`deploy/worker.env.example` are starting templates for a dedicated Linux host,
+not a tested installer. They assume the
 checkout is at `/opt/gpu-control`, its venv at `/opt/gpu-control/venv`, and the
 Docker daemon socket group is named `docker`; adjust and review those values for
 the host. Install the env file as root-owned mode 0600, keep workload and policy
-files operator-owned, then validate the service identity's DB and Docker access
-before enabling any policy. The service intentionally has no API listener.
+files operator-owned, then validate the service identities' DB and Docker access
+before enabling any policy. Neither service exposes an API listener. Both have
+the Docker daemon trust boundary; the supervisor needs access to cancel and clean
+only exact tracked resources.
 
 ### Modal CPU worker (no new GPU provider required)
 
