@@ -16,6 +16,7 @@ from .admission import evaluate_admission, load_local_cpu_policy, plan_for_workl
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 STATE_SUMMARY = {
     "awaiting_approval": "実行計画は準備できました。承認が必要です。",
+    "authorized": "登録済みlocal CPU policyでこのsmoke planは事前許可されています。",
     "approved": "実行計画は承認済みで、workerの受付を待っています。",
     "queued": "実験をキューに登録しました。",
     "submitting": "workerが実行環境を開始しています。",
@@ -62,7 +63,7 @@ class ListInput(StrictInput):
     workload: str | None = Field(default=None, min_length=1, max_length=100)
     repository: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
     state: Literal[
-        "awaiting_approval", "approved", "queued", "submitting", "submit_unknown",
+        "awaiting_approval", "approved", "authorized", "queued", "submitting", "submit_unknown",
         "running", "succeeded", "failed", "cancelled", "expired",
     ] | None = None
     created_after: int | None = Field(default=None, ge=0)
@@ -214,10 +215,13 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                 return _envelope(status="blocked", summary="local CPU worker backendが登録・有効化されていません。",
                                  machine_state={"policy_digest": decision.policy_digest},
                                  next_actions=["retry_later"], blocker="LOCAL_CPU_BACKEND_UNAVAILABLE")
-            return _envelope(status="blocked", summary="local CPU admissionは通過しましたが、plan永続化経路がまだありません。",
-                             machine_state={"policy_digest": decision.policy_digest,
+            prepared = service.prepare_local(principal, plan, request.idempotency_key, policy, decision)
+            return _envelope(status="ok", summary=STATE_SUMMARY[prepared["state"]],
+                             machine_state={"run_id": prepared["id"], "state": prepared["state"],
+                                            "plan_fingerprint": prepared["fingerprint"],
+                                            "policy_digest": decision.policy_digest,
                                             "valid_until": decision.valid_until},
-                             next_actions=["retry_later"], blocker="LOCAL_CPU_PLAN_PERSISTENCE_UNAVAILABLE")
+                             next_actions=["experiment_submit"])
 
         if name == "experiment_submit":
             request = SubmitInput.model_validate(arguments)

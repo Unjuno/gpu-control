@@ -47,6 +47,13 @@ def test_v2_plan_fingerprint_and_result_identity_are_stable():
     validate_result_binding(plan, fingerprint, result)
 
 
+def test_plan_v2_round_trips_through_json_storage():
+    plan = _plan()
+    restored = PlanV2.model_validate_json(plan.model_dump_json())
+    assert restored == plan
+    assert plan_fingerprint(restored) == plan_fingerprint(plan)
+
+
 @pytest.mark.parametrize("field,value", [
     ("source_sha", "A" * 40),
     ("max_cost_usd", Decimal("NaN")),

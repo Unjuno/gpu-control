@@ -1,7 +1,14 @@
 from decimal import Decimal
+import json
 
-from gpu_gateway.admission import evaluate_admission
-from gpu_gateway.contracts import CostEvidence, PlanV2
+import pytest
+
+from gpu_gateway.admission import evaluate_admission, load_local_cpu_policy, plan_for_workload
+from gpu_gateway.contracts import CostEvidence, PlanV2, plan_fingerprint
+from gpu_gateway.config import Workload
+from gpu_gateway.service import GatewayError, digest
+from gpu_gateway.registry import ProviderRegistration
+from gpu_gateway.worker import Worker
 
 
 def plan(**overrides):
@@ -92,3 +99,99 @@ def test_malformed_policy_fails_closed():
     decision = evaluate_admission(plan(), {"enabled": True}, now=120)
     assert decision.allowed is False
     assert decision.blocking_reason == "INVALID_POLICY"
+
+
+def test_local_plan_idempotency_and_policy_authority_are_distinct(system):
+    workload = Workload(provider="local_cpu", image_digest="sha256:" + "c" * 64,
+        execution_profile="smoke", requires_gpu=False, source_repository="Unjuno/gpu-control",
+        source_sha="a" * 40, max_runtime_seconds=30, max_cost_usd="0.01",
+        parameter_schema={"type": "object", "properties": {"value": {"type": "string"}}, "additionalProperties": False})
+    system.service.workloads["cpu-smoke-v1"] = workload
+    now = int(system.clock())
+    local_policy = policy(valid_until=now + 60)
+    candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
+        repository="Unjuno/gpu-control", source_sha="a" * 40, parameters={"value": "first"}, runtime_seconds=20,
+        max_cost_usd="0.00", now=now, policy=local_policy)
+    decision = evaluate_admission(candidate, local_policy, now=now)
+    first = system.service.prepare_local(system.owner, candidate, "stable-local-key", local_policy, decision)
+    repeated = system.service.prepare_local(system.owner, candidate, "stable-local-key", local_policy, decision)
+    assert first["id"] == repeated["id"]
+    stored = system.store.read(first["id"])
+    assert stored["admission"]["mode"] == "local_policy"
+    assert stored["approval_id"] == ""
+    with pytest.raises(GatewayError, match="new idempotency key"):
+        changed = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
+            repository="Unjuno/gpu-control", source_sha="a" * 40, parameters={"value": "second"}, runtime_seconds=20,
+            max_cost_usd="0.00", now=now, policy=local_policy)
+        system.service.prepare_local(system.owner, changed, "stable-local-key", local_policy,
+                                     evaluate_admission(changed, local_policy, now=now))
+    fresh = system.service.prepare_local(system.owner, candidate, "another-local-key", local_policy, decision)
+    assert fresh["id"] != first["id"]
+
+
+def test_revoked_local_policy_blocks_submit(tmp_path, monkeypatch, system):
+    workload = Workload(provider="local_cpu", image_digest="sha256:" + "c" * 64,
+        execution_profile="smoke", requires_gpu=False, source_repository="Unjuno/gpu-control",
+        source_sha="a" * 40, max_runtime_seconds=30, max_cost_usd="0.01",
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False})
+    system.service.workloads["cpu-smoke-v1"] = workload
+    now = int(system.clock())
+    enabled = policy(valid_until=now + 60)
+    candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
+        repository="Unjuno/gpu-control", source_sha="a" * 40, parameters={}, runtime_seconds=20,
+        max_cost_usd="0.00", now=now, policy=enabled)
+    prepared = system.service.prepare_local(system.owner, candidate, "revocable-local-key", enabled,
+                                             evaluate_admission(candidate, enabled, now))
+    policy_path = tmp_path / "local-policy.json"
+    revoked = {**enabled, "enabled": False}
+    policy_path.write_text(json.dumps(revoked))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    with pytest.raises(GatewayError) as error:
+        system.service.submit(system.owner, prepared["id"])
+    assert error.value.code == "admission_revoked"
+    assert system.store.read(prepared["id"])["state"] == "authorized"
+
+
+def test_worker_rechecks_local_policy_before_start(tmp_path, monkeypatch, system):
+    class Backend:
+        started = 0
+        def start(self, job):
+            self.started += 1
+            return {"container_id": "synthetic-test-handle"}
+        def reconcile(self, job): return None
+        def inspect(self, handle): raise AssertionError("revoked workload must not be inspected")
+        def cancel(self, handle): raise AssertionError("no container should exist")
+
+    workload = Workload(provider="local_cpu", image_digest="sha256:" + "c" * 64,
+        execution_profile="smoke", requires_gpu=False, source_repository="Unjuno/gpu-control",
+        source_sha="a" * 40, max_runtime_seconds=30, max_cost_usd="0.01",
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False})
+    system.service.workloads["cpu-smoke-v1"] = workload
+    now = int(system.clock())
+    enabled = policy(valid_until=now + 60)
+    candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
+        repository="Unjuno/gpu-control", source_sha="a" * 40, parameters={}, runtime_seconds=20,
+        max_cost_usd="0.00", now=now, policy=enabled)
+    policy_path = tmp_path / "local-policy.json"
+    policy_path.write_text(json.dumps(enabled))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    registration = ProviderRegistration("local_cpu", "local_cpu", lambda _: True, lambda _: None)
+    system.service.registry = {"local_cpu": registration}
+    prepared = system.service.prepare_local(system.owner, candidate, "worker-revocation-key", enabled,
+                                             evaluate_admission(candidate, enabled, now))
+    saved = system.store.read(prepared["id"])
+    restored = PlanV2.model_validate_json(json.dumps(saved["plan"]))
+    assert evaluate_admission(restored, load_local_cpu_policy(), now).allowed
+    assert plan_fingerprint(restored) == saved["fingerprint"]
+    assert digest(saved["plan"]) == saved["fingerprint"]
+    queued = system.service.submit(system.owner, prepared["id"])
+    assert queued["state"] == "queued"
+    policy_path.write_text(json.dumps({**enabled, "enabled": False}))
+    backend = Backend()
+    worker = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock,
+                    registry=system.service.registry)
+    assert worker.tick()
+    assert backend.started == 0
+    final = system.store.read(prepared["id"])
+    assert final["state"] == "expired"
+    assert final["error"] == "local_policy_revoked_before_start"

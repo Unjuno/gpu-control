@@ -15,6 +15,8 @@ from sqlalchemy import func, insert, select, update
 from .config import Settings, Workload
 from .store import Store, control, runs
 from .registry import default_registry
+from .contracts import PlanV2, plan_fingerprint
+from .admission import evaluate_admission, load_local_cpu_policy
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 
@@ -129,6 +131,57 @@ class ExperimentService:
                 fingerprint=digest(plan), plan=plan, state="awaiting_approval", created_at=now))
         return public_run(self.owned(principal, run_id))
 
+    def prepare_local(self, principal: Principal, plan: PlanV2, idempotency_key: str,
+                      policy: dict, decision) -> dict:
+        """Persist an operator-preauthorized local plan as distinct from Web approval."""
+        principal.require("experiments:run")
+        workload = self.workloads.get(plan.workload)
+        if workload is None or workload.provider != "local_cpu":
+            raise GatewayError("unknown_workload", "Use an operator-registered local CPU workload")
+        manifest = workload.model_dump(mode="json")
+        if (plan.provider != "local_cpu" or plan.repository != workload.source_repository or
+                plan.source_sha != workload.source_sha or
+                plan.workload_manifest_digest != digest(manifest) or
+                plan.image_digest != workload.image_digest or
+                plan.runtime_seconds > workload.max_runtime_seconds):
+            raise GatewayError("plan_changed", "Plan source or registered workload changed", 409)
+        try:
+            Draft202012Validator(workload.parameter_schema).validate(plan.parameters)
+            digest(plan.parameters)
+        except (SchemaError, ValueError, TypeError):
+            raise GatewayError("invalid_parameters", "Parameters do not match the registered schema") from None
+        current = evaluate_admission(plan, policy, int(self.clock()))
+        if (not current.allowed or not decision.allowed or current.policy_digest != decision.policy_digest or
+                plan.authorization_policy_version != policy.get("version")):
+            raise GatewayError("admission_denied", current.blocking_reason or "Admission decision changed", 409)
+        fingerprint = plan_fingerprint(plan)
+        request_hash = digest({"plan": plan.model_dump(mode="json"), "idempotency_key": idempotency_key})
+        now = int(self.clock())
+        with self.store.transaction() as connection:
+            self.store.lock_control(connection)
+            old = connection.execute(select(runs).where(
+                runs.c.owner == principal.owner, runs.c.idempotency_key == idempotency_key
+            )).mappings().first()
+            if old:
+                if old["request_hash"] != request_hash:
+                    raise GatewayError("idempotency_conflict", "Use a new idempotency key for different inputs", 409)
+                return public_run(dict(old))
+            count = connection.execute(select(func.count()).select_from(runs).where(
+                runs.c.owner == principal.owner, runs.c.state.not_in(list(TERMINAL))
+            )).scalar_one()
+            if count >= self.settings.max_open_requests:
+                raise GatewayError("request_limit", "Too many unfinished experiments", 429)
+            run_id = uuid.uuid4().hex
+            connection.execute(insert(runs).values(
+                id=run_id, owner=principal.owner, idempotency_key=idempotency_key,
+                request_hash=request_hash, fingerprint=fingerprint,
+                plan=plan.model_dump(mode="json"), state="authorized", created_at=now,
+                approved_until=current.valid_until or 0,
+                admission={"mode": "local_policy", "policy_version": plan.authorization_policy_version,
+                           "policy_digest": current.policy_digest, "valid_until": current.valid_until},
+            ))
+        return public_run(self.owned(principal, run_id))
+
     def approve(self, principal: Principal, run_id: str, fingerprint: str) -> dict:
         principal.require("experiments:run")
         if not principal.browser:
@@ -154,7 +207,22 @@ class ExperimentService:
                 raise GatewayError("not_found", "Experiment not found", 404)
             if row["state"] in {"queued", "submitting", "submit_unknown", "running"} | TERMINAL:
                 return public_run(dict(row))
-            if row["state"] != "approved" or row["approved_until"] <= int(self.clock()):
+            local_admission = row["admission"]
+            if local_admission is not None:
+                try:
+                    policy = load_local_cpu_policy()
+                    plan = PlanV2.model_validate_json(json.dumps(row["plan"], allow_nan=False))
+                    decision = evaluate_admission(plan, policy, int(self.clock()))
+                except (OSError, ValueError, TypeError):
+                    decision = None
+                if (local_admission.get("mode") != "local_policy" or decision is None or
+                        not decision.allowed or decision.policy_digest != local_admission.get("policy_digest") or
+                        decision.valid_until != local_admission.get("valid_until") or
+                        digest(row["plan"]) != row["fingerprint"]):
+                    raise GatewayError("admission_revoked", "Current local CPU policy no longer authorizes this plan", 409)
+                if row["state"] != "authorized" or row["approved_until"] <= int(self.clock()):
+                    raise GatewayError("admission_expired", "Local CPU authorization has expired", 409)
+            elif row["state"] != "approved" or row["approved_until"] <= int(self.clock()):
                 raise GatewayError("approval_required", "Current Web approval of this exact plan is required", 409)
             p = row["plan"]["provider"]
             registration = self.registry.get(p)
@@ -177,7 +245,7 @@ class ExperimentService:
                 raise GatewayError("not_found", "Experiment not found", 404)
             if row["state"] in TERMINAL:
                 return public_run(dict(row))
-            if row["state"] in {"awaiting_approval", "approved", "queued"}:
+            if row["state"] in {"awaiting_approval", "approved", "authorized", "queued"}:
                 if row["slot_reserved"]:
                     connection.execute(update(control).where(control.c.id == 1).values(active_count=control.c.active_count - 1))
                 connection.execute(update(runs).where(runs.c.id == run_id).values(state="cancelled", slot_reserved=False, cancel_requested=True))

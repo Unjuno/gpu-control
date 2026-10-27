@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 import pytest
@@ -6,6 +7,7 @@ from sqlalchemy import select
 from gpu_gateway.config import Workload
 from gpu_gateway.experiment_api import invoke
 from gpu_gateway.protocol import CHATGPT_NAMES, dispatch, tools
+from gpu_gateway.registry import ProviderRegistration
 from gpu_gateway.service import GatewayError, Prepare, Principal
 from gpu_gateway.store import runs
 
@@ -54,6 +56,35 @@ def test_prepare_blocks_unregistered_or_unsafe_backend_without_creating_run(syst
     assert result["blocking_reason"] == "POLICY_DISABLED"
     with system.store.engine.connect() as connection:
         assert connection.execute(select(runs.c.id)).first() is None
+
+
+def test_prepare_persists_distinct_operator_local_authorization(tmp_path, monkeypatch, system):
+    system.service.workloads["cpu"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, max_cost_usd="0.01", max_runtime_seconds=30,
+        execution_profile="smoke", image_digest="sha256:" + "d" * 64,
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    )
+    system.service.registry = {"local_cpu": ProviderRegistration("local_cpu", "local_cpu", lambda _: True, lambda _: None)}
+    local_policy = {"version": "local-cpu-v1", "enabled": True,
+                    "valid_until": int(system.clock()) + 60, "workloads": ["cpu"],
+                    "max_runtime_seconds": 30, "max_cost_usd": "0.00",
+                    "allowed_profiles": ["smoke"]}
+    policy_path = tmp_path / "local-policy.json"
+    policy_path.write_text(json.dumps(local_policy))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    args = {"repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "cpu",
+            "runtime_seconds": 20, "max_cost_usd": "0.00", "requires_gpu": False,
+            "idempotency_key": "canonical-local-0001"}
+    first = invoke(system.service, system.owner, "experiment_prepare", args)
+    again = invoke(system.service, system.owner, "experiment_prepare", args)
+    state = first["machine_state"]
+    assert first["status"] == "ok"
+    assert state["state"] == "authorized"
+    assert state["run_id"] == again["machine_state"]["run_id"]
+    stored = system.store.read(state["run_id"])
+    assert stored["admission"]["mode"] == "local_policy"
+    assert stored["approval_id"] == ""
 
 
 def test_prepare_requires_exact_operator_source_and_device_policy(system):

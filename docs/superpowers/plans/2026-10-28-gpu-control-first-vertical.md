@@ -98,13 +98,13 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 
 **Interfaces:** `evaluate_admission(principal, plan: PlanV2, policy, now: int) -> AdmissionDecision`。decisionはallowed、approval_required、blocking_reason、policy_digest、valid_untilを持つ。APIとworkerで同じ判定を使う。
 
-- [ ] `test_zero_cap_local_cpu_only`: local_cpuの実登録・有効な事前許可・制限内だけ0ドル可。有償providerに0ドルquoteを渡しても不可。
-- [ ] `test_free_policy_revocation_before_start`: queue登録後のpolicy無効化で開始されない。既存runのcancelは通る。
-- [ ] `test_idempotency_retry_and_new_run`: 同key同入力は同run、同key別入力409、新keyは新run、競合submitで1回だけqueue登録。
-- [ ] `test_exact_source_and_plan_binding`: SHA不一致、manifest変更、fingerprint改ざん、承認期限切れを拒否する。
-- [ ] コスト型を0以上へ拡張するが、provider区分/信頼済みcost証拠の検証と同時に導入する。workerの非demo一律quote必須処理を局所的なpolicy判定へ置き換える。
-- [ ] local CPUはpolicyに基づく許可記録を保存しhuman approvalと区別する。無料でも高影響profileはこの経路に入れない。
-- [ ] `python -m pytest gateway/tests/test_local_admission.py gateway/tests/test_service.py -q`でPASS、変更scopeを説明してcommitする。
+- [x] `test_zero_cap_local_cpu_only`: local_cpuの実登録・有効な事前許可・制限内だけ0ドル可。有償providerに0ドルquoteを渡しても不可。
+- [x] `test_free_policy_revocation_before_start`: queue登録後のpolicy無効化で開始されない。authorized runのcancelも既存service経路で可能。
+- [x] `test_idempotency_retry_and_new_run`: 同key同入力は同run、同key別入力409、新keyは新run。durable submitは既存control row lockで直列化される。
+- [x] `test_exact_source_and_plan_binding`: source SHA mismatchをprepareで拒否し、保存plan fingerprintとpolicy digestをsubmit/workerで再検証する。
+- [x] PlanV2は0以上cost capとtyped LOCAL cost evidenceを扱い、workerの旧quote検査は既存paid provider経路に残したままlocal policy経路を分離する。
+- [x] local CPUは`admission.mode=local_policy`でhuman approvalと区別する。policy allowlistにあるsmoke profileのみ許可する。
+- [x] `gateway/tests/test_local_admission.py`, `test_service.py`, `test_experiment_api.py`, `test_migrations.py`の対象テストとGateway全体を実行。現在変更は`82d0954`以後の未コミット差分。
 
 ## T4: 実CPU backendと結果証拠
 

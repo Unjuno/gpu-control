@@ -16,6 +16,8 @@ from .config import Settings
 from .registry import default_registry
 from .service import TERMINAL, digest
 from .store import Store, control, runs
+from .admission import evaluate_admission, load_local_cpu_policy
+from .contracts import PlanV2, plan_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -89,29 +91,46 @@ class Worker:
                 self.update(job, error="provider_not_configured", lease_until=now + 30)
             return True
         if job["was_queued"]:
-            manifest = plan["workload_manifest"]
-            if digest(plan) != job["fingerprint"]:
-                self.finish(job, "failed", error="plan_integrity_failed")
-                return True
-            if job["approved_until"] <= now:
-                self.finish(job, "expired", error="approval_expired_before_submission")
-                return True
             registration = self.registry.get(plan["provider"])
             enabled = registration is not None and registration.enabled(self.settings)
             if not enabled:
                 self.finish(job, "failed", error="new_submissions_disabled")
                 return True
-            if Decimal(plan["max_cost_usd"]) > self.settings.max_job_cost_usd:
-                self.finish(job, "failed", error="current_operator_cost_limit")
-                return True
-            if plan["provider"] != "demo":
-                if manifest["quote_expires_at"] <= now:
-                    self.finish(job, "expired", error="quote_expired_before_submission")
+            local_admission = job.get("admission")
+            if local_admission is not None:
+                try:
+                    validated_plan = PlanV2.model_validate_json(json.dumps(plan, allow_nan=False))
+                    policy = load_local_cpu_policy()
+                    decision = evaluate_admission(validated_plan, policy, now)
+                    valid = (local_admission.get("mode") == "local_policy" and decision.allowed and
+                             decision.policy_digest == local_admission.get("policy_digest") and
+                             decision.valid_until == local_admission.get("valid_until") and
+                             plan_fingerprint(validated_plan) == job["fingerprint"] and
+                             job["approved_until"] > now)
+                except (OSError, ValueError, TypeError):
+                    valid = False
+                if not valid:
+                    self.finish(job, "expired", error="local_policy_revoked_before_start")
                     return True
-                quote = Decimal(manifest["quoted_usd_per_hour"])
-                if quote * Decimal(plan["runtime_seconds"]) / Decimal(3600) > Decimal(plan["max_cost_usd"]):
-                    self.finish(job, "failed", error="cost_limit")
+            else:
+                manifest = plan["workload_manifest"]
+                if digest(plan) != job["fingerprint"]:
+                    self.finish(job, "failed", error="plan_integrity_failed")
                     return True
+                if job["approved_until"] <= now:
+                    self.finish(job, "expired", error="approval_expired_before_submission")
+                    return True
+                if Decimal(plan["max_cost_usd"]) > self.settings.max_job_cost_usd:
+                    self.finish(job, "failed", error="current_operator_cost_limit")
+                    return True
+                if plan["provider"] != "demo":
+                    if manifest["quote_expires_at"] <= now:
+                        self.finish(job, "expired", error="quote_expired_before_submission")
+                        return True
+                    quote = Decimal(manifest["quoted_usd_per_hour"])
+                    if quote * Decimal(plan["runtime_seconds"]) / Decimal(3600) > Decimal(plan["max_cost_usd"]):
+                        self.finish(job, "failed", error="cost_limit")
+                        return True
             try:
                 handle = backend.start(job)
                 if not isinstance(handle, dict) or not handle:
