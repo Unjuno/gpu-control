@@ -2,7 +2,7 @@ import json
 from dataclasses import replace
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from gpu_gateway.config import Workload
 from gpu_gateway.experiment_api import invoke
@@ -41,7 +41,33 @@ def test_tool_visibility_follows_scopes(system):
 def test_capabilities_do_not_describe_demo_as_executable(system):
     result = invoke(system.service, system.owner, "experiment_capabilities", {})
     assert result["status"] == "blocked"
-    assert result["blocking_reason"] == "NO_EXECUTABLE_WORKLOAD"
+    assert result["blocking_reason"] == "NO_QUEUEABLE_RESOURCE"
+
+
+@pytest.mark.parametrize("failure", ["connection", "missing_control_row"])
+def test_capabilities_fail_closed_when_control_store_is_unavailable(system, monkeypatch, failure):
+    system.service.workloads["cpu"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, max_cost_usd="0.01", execution_profile="smoke",
+        image_digest="sha256:" + "d" * 64,
+    )
+    system.service.registry["local_cpu"] = ProviderRegistration(
+        "local_cpu", "local_worker_container", lambda _: True, lambda _: None,
+    )
+    if failure == "connection":
+        def unavailable():
+            raise OSError("simulated control-store outage")
+        monkeypatch.setattr(system.store.engine, "connect", unavailable)
+    else:
+        with system.store.transaction() as connection:
+            connection.execute(delete(control).where(control.c.id == 1))
+
+    result = invoke(system.service, system.owner, "experiment_capabilities", {})
+    state = result["machine_state"]
+    cpu = next(resource for resource in state["resources"] if resource["workload"] == "cpu")
+    assert state["control_store"] == {"available": False}
+    assert cpu["submission_available"] is False
+    assert "CONTROL_STORE_UNAVAILABLE" in cpu["blocking_reasons"]
 
 
 def test_worker_does_not_start_provider_if_cancel_wins_dispatch_claim(system, monkeypatch):
@@ -323,4 +349,4 @@ def test_protocol_routes_canonical_calls_and_returns_structured_envelope(system)
     assert status == 200
     result = response["result"]["structuredContent"]
     assert result["schema_version"] == 2
-    assert result["blocking_reason"] == "NO_EXECUTABLE_WORKLOAD"
+    assert result["blocking_reason"] == "NO_QUEUEABLE_RESOURCE"
