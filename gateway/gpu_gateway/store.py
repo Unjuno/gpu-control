@@ -34,6 +34,7 @@ runs = Table(
     Column("cleanup_state", String(16), nullable=False, default="unknown", server_default="unknown"),
     Column("finished_at", Integer, nullable=True),
     Column("result_manifest", JSON, nullable=True),
+    Column("admission", JSON, nullable=True),
     UniqueConstraint("owner", "idempotency_key", name="gateway_owner_request_v1"),
 )
 control = Table(

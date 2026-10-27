@@ -16,6 +16,8 @@ class Workload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
     image_id: str = ""
+    image_digest: str = ""
+    execution_profile: str = "general"
     source_revision: str = ""
     source_repository: str = ""
     source_sha: str = ""
@@ -54,6 +56,15 @@ class Workload(BaseModel):
         if self.provider == "modal":
             if not self.image_id.startswith("im-") or not self.argv or not self.source_revision:
                 raise ValueError("Modal requires a prebuilt image ID, fixed argv and source revision")
+        if self.execution_profile not in {"general", "smoke", "training"}:
+            raise ValueError("execution_profile is unsupported")
+        if self.provider == "local_cpu":
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.image_digest):
+                raise ValueError("local_cpu requires an immutable image_digest")
+            if self.requires_gpu:
+                raise ValueError("local_cpu workload must not require a GPU")
+            if self.execution_profile != "smoke":
+                raise ValueError("local_cpu policy only supports the smoke profile")
         if bool(self.source_repository) != bool(self.source_sha):
             raise ValueError("source_repository and source_sha must be configured together")
         if self.source_repository and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.source_repository):

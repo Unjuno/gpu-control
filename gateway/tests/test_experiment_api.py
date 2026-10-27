@@ -43,7 +43,8 @@ def test_capabilities_do_not_describe_demo_as_executable(system):
 def test_prepare_blocks_unregistered_or_unsafe_backend_without_creating_run(system):
     system.service.workloads["cpu"] = Workload(
         provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
-        requires_gpu=False, max_cost_usd="0.01",
+        requires_gpu=False, max_cost_usd="0.01", execution_profile="smoke",
+        image_digest="sha256:" + "d" * 64,
         parameter_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )
     args = {"repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "cpu",
@@ -58,7 +59,8 @@ def test_prepare_blocks_unregistered_or_unsafe_backend_without_creating_run(syst
 def test_prepare_requires_exact_operator_source_and_device_policy(system):
     system.service.workloads["cpu"] = Workload(
         provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
-        requires_gpu=False, max_cost_usd="0.01",
+        requires_gpu=False, max_cost_usd="0.01", execution_profile="smoke",
+        image_digest="sha256:" + "d" * 64,
         parameter_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )
     base = {"repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "cpu",
@@ -91,7 +93,8 @@ def test_pending_result_does_not_claim_success_and_cancel_is_owner_scoped(system
 
 def test_gpu_required_workload_cannot_fall_back_to_cpu(system):
     system.service.workloads["gpu"] = Workload(
-        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        provider="modal", image_id="im-fixed", argv=("python", "run.py"),
+        source_revision="fixed", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
         requires_gpu=True, max_cost_usd="0.01",
         parameter_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )
@@ -100,9 +103,22 @@ def test_gpu_required_workload_cannot_fall_back_to_cpu(system):
         "max_cost_usd": "0.00", "requires_gpu": True, "idempotency_key": "gpu-plan-0001",
     })
     assert result["blocking_reason"] == "GPU_BACKEND_UNAVAILABLE"
-    assert result["machine_state"]["provider"] == "local_cpu"
+    assert result["machine_state"]["provider"] == "modal"
     with system.store.engine.connect() as connection:
         assert connection.execute(select(runs.c.id)).first() is None
+
+
+def test_local_cpu_workload_requires_operator_image_digest_and_profile():
+    with pytest.raises(ValueError, match="image_digest"):
+        Workload(provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+                 requires_gpu=False, execution_profile="smoke")
+    workload = Workload(provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+                        requires_gpu=False, execution_profile="smoke",
+                        image_digest="sha256:" + "d" * 64)
+    assert workload.image_digest == "sha256:" + "d" * 64
+    with pytest.raises(ValueError, match="must not require a GPU"):
+        Workload(provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+                 requires_gpu=True, execution_profile="smoke", image_digest="sha256:" + "d" * 64)
 
 
 def test_result_never_calls_simulation_a_real_success(system):

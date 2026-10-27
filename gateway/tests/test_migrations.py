@@ -48,8 +48,8 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
     _legacy_v1(engine)
 
-    assert migrate(engine) == 2
-    assert migrate(engine) == 2
+    assert migrate(engine) == 3
+    assert migrate(engine) == 3
     store = Store(str(engine.url))
     store.initialize()
 
@@ -64,6 +64,7 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     assert row["record_version"] == 1
     assert row["cleanup_state"] == "unknown"
     assert row["finished_at"] is None
+    assert row["admission"] is None
     with engine.connect() as connection:
         assert connection.execute(text("SELECT token_hash FROM gateway_oauth_tokens_v1")).scalar_one() == "secret-hash"
     engine.dispose()
@@ -72,7 +73,7 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
 def test_fresh_database_migrates_before_table_creation(tmp_path):
     database = f"sqlite:///{tmp_path / 'fresh.db'}"
     store = Store(database)
-    assert migrate(store.engine) == 2
+    assert migrate(store.engine) == 3
     store.initialize()
     assert store.read("no-such-run") is None
     engine = store.engine
