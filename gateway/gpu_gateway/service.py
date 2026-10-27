@@ -71,7 +71,12 @@ class ExperimentService:
                               for entry in self.registry.values()],
                 "workloads": [{"id": name, "provider": w.provider,
                                "max_runtime_seconds": w.max_runtime_seconds,
-                               "parameter_schema": w.parameter_schema} for name, w in self.workloads.items()]}
+                               "parameter_schema": w.parameter_schema,
+                               "source_repository": w.source_repository or None,
+                               "source_sha": w.source_sha or None,
+                               "requires_gpu": w.requires_gpu,
+                               "gpu": w.gpu if w.requires_gpu else None}
+                              for name, w in self.workloads.items()]}
 
     def owned(self, principal: Principal, run_id: str) -> dict:
         row = self.store.read(run_id)

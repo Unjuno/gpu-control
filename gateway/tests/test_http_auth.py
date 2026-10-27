@@ -31,7 +31,8 @@ def test_initialize_list_and_notification(web):
     assert "mcp-session-id" not in response.headers
     response = rpc(web, "tools/list")
     names = {t["name"] for t in response.json()["result"]["tools"]}
-    assert "experiments_submit" in names
+    assert "experiment_submit" in names
+    assert "experiments_submit" not in names
     assert not any("approve" in n or "authorize" in n for n in names)
     data = {"jsonrpc":"2.0", "method":"notifications/initialized"}
     response = web.client.post("/mcp", json=data, headers=web.headers)

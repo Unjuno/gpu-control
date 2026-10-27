@@ -96,7 +96,8 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     mcp = client.post("/mcp", headers=headers, json={"jsonrpc":"2.0","id":1,"method":"tools/list"})
     assert mcp.status_code == 200
     names = {tool["name"] for tool in mcp.json()["result"]["tools"]}
-    assert "integrations_list" in names
+    assert "experiment_capabilities" in names
+    assert "integrations_list" not in names
 
     refreshed = client.post("/oauth/token", data={
         "grant_type": "refresh_token",

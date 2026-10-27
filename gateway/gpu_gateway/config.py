@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -16,6 +17,9 @@ class Workload(BaseModel):
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
     image_id: str = ""
     source_revision: str = ""
+    source_repository: str = ""
+    source_sha: str = ""
+    requires_gpu: bool = True
     argv: tuple[str, ...] = ()
     gpu: str = "T4"
     cpu: float = Field(default=1, ge=0.125, le=8)
@@ -50,6 +54,12 @@ class Workload(BaseModel):
         if self.provider == "modal":
             if not self.image_id.startswith("im-") or not self.argv or not self.source_revision:
                 raise ValueError("Modal requires a prebuilt image ID, fixed argv and source revision")
+        if bool(self.source_repository) != bool(self.source_sha):
+            raise ValueError("source_repository and source_sha must be configured together")
+        if self.source_repository and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.source_repository):
+            raise ValueError("source_repository must be owner/name")
+        if self.source_sha and not re.fullmatch(r"[0-9a-f]{40}", self.source_sha):
+            raise ValueError("source_sha must be a canonical full commit SHA")
         return self
 
 
