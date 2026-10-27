@@ -21,8 +21,13 @@ class ProviderRegistration:
 def default_registry() -> dict[str, ProviderRegistration]:
     # Lazy imports keep provider SDKs out of the API process.
     from .backends import DemoBackend, ExistingRunPodBridge, ModalSandboxBackend
+    from .local_backend import LocalContainerBackend
+    from .admission import local_cpu_policy_enabled
     entries = (
         ProviderRegistration("demo", "local_simulation_no_gpu", lambda s: True, lambda s: DemoBackend()),
+        ProviderRegistration("local_cpu", "local_worker_container", local_cpu_policy_enabled,
+                             lambda s: LocalContainerBackend(s),
+                             "Registered smoke workloads only; operator policy defaults disabled."),
         ProviderRegistration("modal", "dedicated_worker", lambda s: s.enable_modal, ModalSandboxBackend),
         ProviderRegistration("runpod", "existing_core_bridge",
             lambda s: s.enable_runpod_bridge and bool(s.runpod_factory),

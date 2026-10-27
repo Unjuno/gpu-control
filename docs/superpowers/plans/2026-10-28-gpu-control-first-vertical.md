@@ -112,15 +112,17 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 
 **Interfaces:** `LocalContainerBackend.start(run: dict) -> dict`, `inspect(handle: dict) -> Observation`, `cancel(handle: dict) -> None`, `reconcile(run: dict) -> dict | None`。既存Backendの4操作を維持する。handleはworker host id、container id/name、run id、owner digest、plan fingerprint、image digestを含む。内部handleはMCPへ公開しない。
 
-- [ ] `test_local_container_constraints`で隔離オプションと許可profileを検証する。
-- [ ] `test_real_cpu_smoke_result`で実containerを実行し、exit=0、simulation=false、gpu_used=false、checks/checksum、source/plan一致を確認する。
-- [ ] `test_missing_image_or_architecture_blocks`で未登録image、Mac/Linux architecture不一致を明確に拒否する。
-- [ ] `test_bounded_invalid_and_missing_output`で64 KiB超過、NaN、壊れたJSON、metrics欠落を扱う。失敗でも観測事実とcleanupを保存する。
-- [ ] runnerから隔離設定・検証済みsource取得の共通部分だけ抽出する。GitHub commentの認可をMCPの認可に流用しない。
-- [ ] startはdetached containerを作成・起動してhandleを返す。T5のcaptureは終了証拠と制限付き出力を回収し、inspectのterminalはcleanup確認後にのみ返す。結果保存前にcontainerを削除しない。子プロセスに環境秘密やDB資格情報を渡さない。
-- [ ] trusted supervisorの期限超過時exitと、worker停止中の実プロセス終了を確認する。
-- [ ] `python -m pytest gateway/tests/test_local_backend.py gateway/tests/test_local_backend_integration.py -q`を専用Docker環境で実行しPASS。Dockerなしでskipなら実CPU受入はBLOCKED。
-- [ ] 既存project_control試験も実行し、GitHub CPU経路の互換性を保ってcommitする。
+- [x] `test_local_container_constraints`で隔離オプションと許可profileを検証する。
+- [x] `test_real_cpu_smoke_result`で実containerを実行し、exit=0、simulation=false、gpu_used=false、checks/checksum、source/plan一致を確認する。
+- [x] `test_missing_image_or_architecture_blocks`で未登録image、Mac/Linux architecture不一致を明確に拒否する。
+- [x] `test_bounded_invalid_and_missing_output`で64 KiB超過、NaN、壊れたJSON、metrics欠落を扱う。失敗でも観測事実とcleanupを保存する。
+- [x] runnerから隔離設定・検証済みsource取得の共通部分だけ抽出する。GitHub commentの認可をMCPの認可に流用しない。
+- [x] startはdetached containerを作成・起動してhandleを返す。inspectは制限付き出力とexit evidenceを保存しcleanup完了時だけterminalを返す。子プロセスに環境秘密やDB資格情報を渡さない。
+- [x] trusted supervisorの期限超過でexit 124となり子プロセスが終了することを実コンテナで確認した。
+- [x] `python -m pytest gateway/tests/test_local_backend.py gateway/tests/test_local_backend_integration.py -q`をDocker環境で実行しPASS。専用設定の統合試験は1 passed。
+- [x] 既存project_control試験19件を実行。Gateway全体189 passed, 4 skipped。
+
+T4 evidence: OrbStack Docker 29.8.2, host/image linux/arm64, image digest `sha256:7127dd8799c41c5c5d90001242bb90aefebbb957f578ff95a835cf5651402798`. T4's `inspect` currently gathers the terminal output and removes the container before the worker persists the result; this remaining crash window is explicitly carried into T5, which must split capture/persist/cleanup.
 
 ## T5: 再起動・取消・cleanupの最小受入
 

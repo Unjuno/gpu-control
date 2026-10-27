@@ -54,6 +54,24 @@ def test_plan_v2_round_trips_through_json_storage():
     assert plan_fingerprint(restored) == plan_fingerprint(plan)
 
 
+def test_result_v2_preserves_smoke_checks_and_checksum():
+    plan = _plan()
+    result = _result(plan, plan_fingerprint(plan)).model_dump()
+    result["checks"] = ["iterations_completed", "checksum_verified"]
+    result["checksum"] = "d" * 64
+    validated = ResultV2.model_validate(result)
+    assert validated.checks == result["checks"]
+    assert validated.checksum == result["checksum"]
+
+
+def test_result_checks_are_bounded_ascii_tokens():
+    plan = _plan()
+    result = _result(plan, plan_fingerprint(plan)).model_dump()
+    result["checks"] = ["x" * 65]
+    with pytest.raises(ValidationError):
+        ResultV2.model_validate(result)
+
+
 @pytest.mark.parametrize("field,value", [
     ("source_sha", "A" * 40),
     ("max_cost_usd", Decimal("NaN")),

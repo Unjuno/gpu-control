@@ -7,6 +7,9 @@ from gpu_gateway.admission import evaluate_admission, load_local_cpu_policy, pla
 from gpu_gateway.contracts import CostEvidence, PlanV2, plan_fingerprint
 from gpu_gateway.config import Workload
 from gpu_gateway.service import GatewayError, digest
+from gpu_gateway.contracts import plan_fingerprint
+from gpu_gateway.store import control, runs
+from sqlalchemy import update
 from gpu_gateway.registry import ProviderRegistration
 from gpu_gateway.worker import Worker
 
@@ -195,3 +198,29 @@ def test_worker_rechecks_local_policy_before_start(tmp_path, monkeypatch, system
     final = system.store.read(prepared["id"])
     assert final["state"] == "expired"
     assert final["error"] == "local_policy_revoked_before_start"
+
+
+def test_worker_rejects_result_with_wrong_source_binding(system):
+    from gpu_gateway.service import Prepare
+
+    legacy = system.service.prepare(system.owner, Prepare(workload="demo", idempotency_key="binding-test-0001"))
+    expected_plan = plan()
+    fingerprint = plan_fingerprint(expected_plan)
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(active_count=1))
+        connection.execute(update(runs).where(runs.c.id == legacy["id"]).values(
+            plan=expected_plan.model_dump(mode="json"), fingerprint=fingerprint,
+            state="running", slot_reserved=True, lease_token="worker-token"))
+    job = system.store.read(legacy["id"])
+    result = {"schema_version": 2, "run_id": legacy["id"], "source_sha": "e" * 40,
+              "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+              "gpu_used": False, "device": "cpu", "exit_code": 0, "started_at": 100,
+              "finished_at": 101, "runtime_seconds": 1.0, "metrics": {}, "checks": [],
+              "checksum": None, "artifacts": [], "known_cost_usd": "0",
+              "cost_classification": "LOCAL", "cleanup_state": "complete"}
+    worker = Worker(system.store, system.settings, {}, system.clock)
+    worker.finish({**job, "lease_token": "worker-token"}, "succeeded", result)
+    saved = system.store.read(legacy["id"])
+    assert saved["state"] == "failed"
+    assert saved["error"] == "result_integrity_failed"
+    assert saved["cleanup_state"] == "unknown"

@@ -6,6 +6,7 @@ import json
 import os
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+import time
 
 from .contracts import CostEvidence, PlanV2
 
@@ -28,6 +29,15 @@ def load_local_cpu_policy(path: str | None = None) -> dict:
     if not isinstance(value, dict):
         raise ValueError("local CPU policy must be a JSON object")
     return value
+
+
+def local_cpu_policy_enabled(_settings=None) -> bool:
+    try:
+        policy = load_local_cpu_policy()
+        return (policy.get("enabled") is True and type(policy.get("valid_until")) is int and
+                policy["valid_until"] > int(time.time()))
+    except (OSError, ValueError, TypeError):
+        return False
 
 
 def plan_for_workload(*, workload_name: str, workload_manifest: dict, repository: str,

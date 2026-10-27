@@ -254,7 +254,8 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                        "plan_fingerprint": result["fingerprint"],
                        "cleanup_state": cleanup,
                        "result": result.get("result") if name == "experiment_result" else None,
-                       "error_code": result.get("error") or None}
+                       "error_code": (result.get("error") or
+                                      ((result.get("result") or {}).get("failure_code") if isinstance(result.get("result"), dict) else None))}
             if name == "experiment_status":
                 status = "ok" if state in TERMINAL else "pending"
                 actions = [] if state in TERMINAL else ["experiment_status", "experiment_cancel"]

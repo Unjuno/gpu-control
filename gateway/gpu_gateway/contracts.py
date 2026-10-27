@@ -96,6 +96,8 @@ class ResultV2(StrictContract):
     finished_at: int | None
     runtime_seconds: float | None
     metrics: dict[str, int | float]
+    checks: list[str] = Field(default_factory=list, max_length=32)
+    checksum: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     artifacts: list[ArtifactMetadata]
     known_cost_usd: Decimal | None
     cost_classification: CostClassification
@@ -108,6 +110,13 @@ class ResultV2(StrictContract):
                not isinstance(value, (int, float)) or isinstance(value, bool) or
                not math.isfinite(value) for key, value in values.items()):
             raise ValueError("metrics must have ASCII names and finite numeric values")
+        return values
+
+    @field_validator("checks")
+    @classmethod
+    def bounded_checks(cls, values):
+        if len(values) > 32 or any(not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", value) for value in values):
+            raise ValueError("checks must be bounded lowercase ASCII tokens")
         return values
 
     @field_validator("known_cost_usd")

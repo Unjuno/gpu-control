@@ -17,7 +17,7 @@ from .registry import default_registry
 from .service import TERMINAL, digest
 from .store import Store, control, runs
 from .admission import evaluate_admission, load_local_cpu_policy
-from .contracts import PlanV2, plan_fingerprint
+from .contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_binding
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,28 @@ class Worker:
     def finish(self, job: dict, state: str, result=None, error=""):
         if state not in TERMINAL:
             raise ValueError("Invalid terminal state")
+        record_version = 1
+        if isinstance(job.get("plan"), dict) and job["plan"].get("schema_version") == 2:
+            record_version = 2
+            if result is not None:
+                allowed_extra = {"logs", "logs_truncated", "failure_code"}
+                try:
+                    if not isinstance(result, dict):
+                        raise ValueError("result must be an object")
+                    core = {key: value for key, value in result.items() if key in ResultV2.model_fields}
+                    extras = {key: value for key, value in result.items() if key not in ResultV2.model_fields}
+                    if set(extras) - allowed_extra:
+                        raise ValueError("unexpected result fields")
+                    validated_plan = PlanV2.model_validate_json(json.dumps(job["plan"], allow_nan=False))
+                    validated_result = ResultV2.model_validate_json(json.dumps(core, allow_nan=False))
+                    validate_result_binding(validated_plan, job["fingerprint"], validated_result)
+                    if state == "succeeded" and (validated_result.exit_code != 0 or validated_result.simulation or
+                                                   validated_result.provider == "local_cpu" and validated_result.gpu_used is not False):
+                        raise ValueError("terminal result does not prove local CPU success")
+                    result = validated_result.model_dump(mode="json") | extras
+                except (ValueError, TypeError, json.JSONDecodeError):
+                    state, error = "failed", "result_integrity_failed"
+                    result = {"failure_code": "result_integrity_failed"}
         if result is not None:
             raw = json.dumps(result, allow_nan=False).encode()
             if len(raw) > self.settings.max_output_bytes * 3:
@@ -73,9 +95,14 @@ class Worker:
                 return
             if row["slot_reserved"]:
                 c.execute(update(control).where(control.c.id == 1).values(active_count=control.c.active_count - 1))
+            cleanup_state = ((result or {}).get("cleanup_state", "unknown") if isinstance(result, dict)
+                             else "unknown")
+            if cleanup_state not in {"not_required", "pending", "complete", "unknown"}:
+                cleanup_state = "unknown"
             c.execute(update(runs).where(runs.c.id == job["id"]).values(
                 state=state, result=result, error=error, slot_reserved=False,
-                lease_until=0, lease_token=""))
+                lease_until=0, lease_token="", finished_at=int(self.clock()),
+                cleanup_state=cleanup_state, record_version=record_version))
 
     def tick(self) -> bool:
         job = self.claim()
