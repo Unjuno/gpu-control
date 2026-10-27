@@ -154,6 +154,9 @@ plan/permission, OAuth and live-acceptance gates. Connect to
 `https://YOUR_HOST/mcp`; do not paste provider credentials into ChatGPT. Human Web
 approval remains distinct from ChatGPT tool calls.
 
+See [`../docs/OPERATIONS.md`](../docs/OPERATIONS.md) for the PostgreSQL backup and
+isolated restore drill. A successful archive creation is not restore evidence.
+
 ## Worker placement
 
 ### Existing CPU host or container
