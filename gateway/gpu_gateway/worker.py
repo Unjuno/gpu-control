@@ -275,7 +275,18 @@ class Worker:
                     self.finish(job, state, observation.result)
         except Exception:
             # Observability failure does not prove completion and must not free a slot.
-            self.update(job, error="provider_observation_or_cleanup_failed", lease_until=now + 10)
+            latest = self.store.read(job["id"])
+            # Once terminal evidence has been persisted, preserve the intended
+            # terminal state across cleanup failures. Timeout-triggered
+            # cancellation does not set cancel_requested in the database, so
+            # recovery cannot safely infer "cancelled" from that flag alone.
+            cleanup_intent = (latest.get("error") if latest and
+                              latest.get("cleanup_state") == "pending" and
+                              isinstance(latest.get("result"), dict) and
+                              isinstance(latest.get("error"), str) and
+                              latest["error"].startswith("cleanup_pending:") else None)
+            self.update(job, error=cleanup_intent or "provider_observation_or_cleanup_failed",
+                        lease_until=now + 10)
             logger.exception("Observation/recovery needed for run %s", job["id"])
         return True
 

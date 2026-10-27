@@ -18,7 +18,7 @@ timeouts when a provider requires them.
 
 ## Evidence
 
-- Full Gateway suite at this revision: **204 passed, 2 skipped**, one Starlette
+- Full Gateway suite at this revision: **205 passed, 2 skipped**, one Starlette
   deprecation warning. The skipped optional tests require the Torch and Modal
   SDK packages, respectively.
 - The suite used the digest-pinned local CPU image
@@ -39,6 +39,10 @@ timeouts when a provider requires them.
   result and handle, completed cleanup, marked the run cancelled, and released
   the slot. This specific crash boundary uses a fake local backend; real Docker
   cancellation/recovery is covered by the integration above.
+- A timeout-triggered cancellation with `cancel_requested=false`, a successful
+  exit code, and a cleanup failure retains `cleanup_pending:cancelled`. A
+  replacement worker finishes cleanup and keeps the run `cancelled`; this guards
+  against recovering it as `succeeded` from the exit code alone.
 - PostgreSQL-backed tests migrated an existing v4 control table to v5 while
   preserving the execution-worker heartbeat, exercised concurrent admission and
   lease fencing, and stopped PostgreSQL after result capture before recovering
