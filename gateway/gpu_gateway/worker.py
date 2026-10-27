@@ -341,7 +341,10 @@ class Worker:
                             if isinstance(latest.get("error"), str) else "")
                 if intended not in TERMINAL:
                     intended = "cancelled" if latest["cancel_requested"] else "failed" if saved.get("exit_code") else "succeeded"
-                self.finish(job, intended, saved)
+                failure_error = (saved.get("failure_code", "")
+                                 if intended == "failed" and isinstance(saved.get("failure_code"), str)
+                                 else "")
+                self.finish(job, intended, saved, error=failure_error)
                 return True
             overdue = now > job["started_at"] + plan["runtime_seconds"] + 60
             cancelling = latest["cancel_requested"] or overdue
@@ -355,6 +358,7 @@ class Worker:
                             last_observed_at=observed_at)
             else:
                 state = "cancelled" if cancelling else observation.state
+                terminal_error = ""
                 if observation.result is None:
                     # No manifest means attached payloads cannot be trusted or
                     # published. Still record a bound failure before cleanup so
@@ -364,7 +368,24 @@ class Worker:
                     if state == "succeeded":
                         state = "failed"
                 else:
-                    observation_result = self._persist_artifacts(job, observation)
+                    try:
+                        observation_result = self._persist_artifacts(job, observation)
+                    except Exception:
+                        # A full/unavailable artifact volume must not pin a
+                        # terminal container and admission slot forever. Do not
+                        # publish partial artifact metadata or report success.
+                        logger.exception("Artifact persistence failed for run %s", job["id"])
+                        if isinstance(observation.result, dict):
+                            observation_result = observation.result | {
+                                "artifacts": [],
+                                "failure_code": "artifact_persistence_failed",
+                            }
+                        else:
+                            observation_result = self._missing_backend_result(
+                                job, cleanup_pending=lifecycle_backend,
+                            ) | {"failure_code": "artifact_persistence_failed"}
+                        state = "failed"
+                        terminal_error = "artifact_persistence_failed"
                 if lifecycle_backend and observation_result is not None:
                     # Persist the terminal evidence before deleting the container.
                     if not self.update(job, result=observation_result, cleanup_state="pending",
@@ -376,11 +397,11 @@ class Worker:
                         raise RuntimeError("cleanup receipt not confirmed")
                     result = dict(observation_result)
                     result["cleanup_state"] = "complete"
-                    self.finish(job, state, result)
+                    self.finish(job, state, result, error=terminal_error)
                 else:
                     if not self.update(job, last_observed_at=observed_at):
                         return True
-                    self.finish(job, state, observation_result)
+                    self.finish(job, state, observation_result, error=terminal_error)
         except Exception:
             # Observability failure does not prove completion and must not free a slot.
             latest = self.store.read(job["id"])
