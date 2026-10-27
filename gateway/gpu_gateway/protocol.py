@@ -11,7 +11,7 @@ import base64
 import binascii
 
 from .service import ExperimentService, GatewayError, Prepare, Principal, RunID
-from .experiment_api import EmptyInput, ListInput, PrepareInput, RunInput, SubmitInput
+from .experiment_api import ArtifactInput, EmptyInput, ListInput, PrepareInput, RunInput, SubmitInput
 
 LEGACY_VERSIONS = ("2025-03-26", "2025-06-18", "2025-11-25")
 MODERN = "2026-07-28"
@@ -33,6 +33,7 @@ CHATGPT_TOOL_DATA = (
     ("experiment_submit", "Queue a matching approved plan. The caller cannot create human approval.", "experiments:run", SubmitInput.model_json_schema(), False),
     ("experiment_status", "Read execution, worker and cleanup state for an owned run.", "experiments:read", RunInput.model_json_schema(), True),
     ("experiment_result", "Read a completed bounded result. Simulation is never reported as real execution.", "experiments:read", RunInput.model_json_schema(), True),
+    ("experiment_artifact", "Read a bounded base64 chunk of an owned, unexpired result artifact by run and artifact ID.", "experiments:read", ArtifactInput.model_json_schema(), True),
     ("experiment_cancel", "Request cancellation of an owned run.", "experiments:cancel", RunInput.model_json_schema(), False),
     ("experiment_list", "List owned runs with bounded filters and an owner-bound cursor.", "experiments:read", ListInput.model_json_schema(), True),
 )
@@ -41,7 +42,7 @@ CHATGPT_NAMES = {row[0] for row in CHATGPT_TOOL_DATA}
 
 
 def tools(principal: Principal) -> list[dict]:
-    # Advertise only the canonical seven-tool contract. Legacy names remain
+    # Advertise only the canonical experiment-tool contract. Legacy names remain
     # callable for existing clients during the migration period.
     entries = CHATGPT_TOOL_DATA
     return [{"name": name, "description": description, "inputSchema": schema,

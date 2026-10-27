@@ -94,6 +94,7 @@ class Settings:
     approval_ttl_seconds: int = 900
     max_request_bytes: int = 65536
     max_output_bytes: int = 65536
+    artifact_dir: str = ""
     max_job_cost_usd: Decimal = Decimal("1")
     max_open_requests: int = 100
     hosted: bool = False
@@ -119,6 +120,12 @@ class Settings:
             raise ValueError("HTTPS required except for local development")
         if self.hosted and not self.database_url.startswith("postgresql+psycopg://"):
             raise ValueError("Hosted deployments require durable PostgreSQL, not SQLite or /tmp")
+        if self.hosted and self.artifact_dir:
+            artifact_path = Path(self.artifact_dir).expanduser().resolve(strict=False)
+            temporary_roots = (Path("/tmp").resolve(), Path("/var/tmp").resolve())
+            if (not Path(self.artifact_dir).is_absolute() or
+                    any(artifact_path == root or root in artifact_path.parents for root in temporary_roots)):
+                raise ValueError("Hosted deployments require an absolute persistent artifact directory")
         for value in (self.issuer, self.jwks_url, self.authorization_endpoint, self.token_endpoint):
             if value:
                 p = urlsplit(value)
@@ -163,6 +170,7 @@ class Settings:
             modal_app=e.get("GATEWAY_MODAL_APP", "gpu-control"),
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
             max_job_cost_usd=Decimal(e.get("GATEWAY_MAX_JOB_COST_USD", "1")),
+            artifact_dir=e.get("GATEWAY_ARTIFACT_DIR", ""),
             hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
         )
         value.validate()

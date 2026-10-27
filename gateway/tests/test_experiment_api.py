@@ -16,10 +16,10 @@ REPOSITORY = "Unjuno/gpu-control"
 SOURCE_SHA = "a" * 40
 
 
-def test_canonical_tool_surface_is_seven_tools_and_legacy_remains(system):
+def test_canonical_tool_surface_is_eight_tools_and_legacy_remains(system):
     listed = tools(system.owner)
     assert {tool["name"] for tool in listed} == CHATGPT_NAMES
-    assert len(CHATGPT_NAMES) == 7
+    assert len(CHATGPT_NAMES) == 8
     # Existing clients can still call legacy names, but tools/list is canonical.
     response, status = dispatch(system.service, system.owner, {
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -32,7 +32,8 @@ def test_canonical_tool_surface_is_seven_tools_and_legacy_remains(system):
 def test_tool_visibility_follows_scopes(system):
     reader = Principal(system.owner.owner, frozenset({"experiments:read"}))
     names = {tool["name"] for tool in tools(reader)}
-    assert {"experiment_capabilities", "experiment_status", "experiment_result", "experiment_list"} <= names
+    assert {"experiment_capabilities", "experiment_status", "experiment_result",
+            "experiment_artifact", "experiment_list"} <= names
     assert "experiment_prepare" not in names
     assert "experiment_cancel" not in names
 
