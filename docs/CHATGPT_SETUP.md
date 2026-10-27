@@ -36,6 +36,10 @@ Before connecting ChatGPT, provide all of the following:
   its daemon, verify `docker info` and the registered immutable image digest, and
   keep that daemon separate from public API and untrusted workloads. Docker socket
   access gives the worker effective host-root authority.
+- A dedicated Linux worker service definition and environment example are available
+  under `gateway/deploy/`. They are templates only: adapt paths/socket group,
+  install secrets with restrictive ownership, and verify service-level DB/Docker
+  access on the target host before treating this as deployed.
 - A configured authentication path. With external OIDC, configure issuer, JWKS,
   audience/resource, allowed subject, scopes and the MCP client's registration
   method. With built-in single-owner OAuth, bootstrap the owner and verify discovery,

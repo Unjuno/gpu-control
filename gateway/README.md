@@ -177,6 +177,14 @@ the policy disabled until the host, workload digest, resource limits, cleanup
 path and zero-provider-charge assumptions have been reviewed. The repository's
 demo Compose stack does not perform these steps and does not validate this path.
 
+`deploy/gpu-control-worker.service` and `deploy/worker.env.example` are starting
+templates for a dedicated Linux host, not a tested installer. They assume the
+checkout is at `/opt/gpu-control`, its venv at `/opt/gpu-control/venv`, and the
+Docker daemon socket group is named `docker`; adjust and review those values for
+the host. Install the env file as root-owned mode 0600, keep workload and policy
+files operator-owned, then validate the service identity's DB and Docker access
+before enabling any policy. The service intentionally has no API listener.
+
 ### Modal CPU worker (no new GPU provider required)
 
 `modal_worker.py` supplies an optional CPU-only scheduled worker using the same DB.
