@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from sqlalchemy import (JSON, Boolean, Column, Integer, MetaData, String, Table,
                         Text, UniqueConstraint, create_engine, insert, select, update)
 from sqlalchemy.pool import NullPool
+from .migrations import migrate
 
 metadata = MetaData()
 runs = Table(
@@ -27,6 +28,12 @@ runs = Table(
     Column("lease_token", String(64), nullable=False, default=""),
     Column("cancel_requested", Boolean, nullable=False, default=False),
     Column("slot_reserved", Boolean, nullable=False, default=False),
+    # Additive v2 lifecycle fields. Existing v1 rows receive conservative values
+    # through migrations; unknown historical cleanup is never promoted to complete.
+    Column("record_version", Integer, nullable=False, default=1, server_default="1"),
+    Column("cleanup_state", String(16), nullable=False, default="unknown", server_default="unknown"),
+    Column("finished_at", Integer, nullable=True),
+    Column("result_manifest", JSON, nullable=True),
     UniqueConstraint("owner", "idempotency_key", name="gateway_owner_request_v1"),
 )
 control = Table(
@@ -48,6 +55,7 @@ class Store:
         # Register optional gateway schemas before create_all. Import is local to
         # avoid making the core store depend on auth during ordinary module import.
         from . import local_oauth  # noqa: F401
+        migrate(self.engine)
         metadata.create_all(self.engine)
         with self.engine.begin() as connection:
             if connection.execute(select(control.c.id).where(control.c.id == 1)).first() is None:
