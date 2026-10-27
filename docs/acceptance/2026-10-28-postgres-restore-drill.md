@@ -4,8 +4,8 @@
 
 PASS for an isolated synthetic-data PostgreSQL dump and restore, with exact row
 parity across all Gateway metadata tables. This does not prove a production
-restore, Gateway HTTP behavior against the restored DB, second-operator
-reproducibility, Docker resource recovery, or the roadmap RPO/RTO targets.
+restore, a real OAuth issuer or worker, second-operator reproducibility, Docker
+resource recovery, or the roadmap RPO/RTO targets.
 
 ## Environment and artifact
 
@@ -45,12 +45,25 @@ The restored run approval ID/expiry, succeeded state and result metrics were
 queried directly and matched the seeded values. The isolated container and dump
 were removed after the drill; no project or production database was involved.
 
+## Gateway application read check
+
+A second isolated PostgreSQL 16 source/restore pair was created from synthetic
+records. The Gateway `create_app` and MCP request path were exercised with the
+restored database as the store. `/readyz` returned HTTP 200 with schema v4, DB
+connectivity, a valid registry and configured test auth. `experiment_list`
+returned both seeded run IDs; `experiment_result` returned the succeeded run's
+`checks: 3` metric and `cleanup_state: complete`.
+
+The check used a generated signing key and test JWKS key lookup, with a manually
+refreshed synthetic worker heartbeat. It proves application read-path
+compatibility with restored records; it does not prove a live issuer, worker or
+ChatGPT client. The second isolated container was also removed.
+
 ## Still required for P3
 
 - Repeat against the selected production PostgreSQL service and verify its
   encryption, retention and access controls.
 - Exercise a timed restore with representative database size and measure RPO/RTO.
-- Run an application-level read-only smoke check against the restored database.
 - Reconcile nonterminal run records with the dedicated worker's actual Docker
   resources before resuming submissions.
 - Have a second operator reproduce the procedure and record discrepancies.
