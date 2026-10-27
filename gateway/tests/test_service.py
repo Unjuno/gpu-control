@@ -124,7 +124,10 @@ def test_submission_timeout_never_blindly_retries(system):
     for _ in range(4):
         w.tick(); system.clock.advance(31)
     assert backend.calls == 1
-    assert system.store.read(run["id"])["state"] == "submit_unknown"
+    final = system.store.read(run["id"])
+    assert final["state"] == "submit_unknown"
+    assert final["last_observed_at"] == system.clock() - 31
+    assert system.service.get(system.owner, run["id"])["last_observed_at"] == final["last_observed_at"]
     assert slots(system) == 1
 
 
@@ -138,6 +141,50 @@ def test_reconciliation_recovers_handle_without_resubmission(system):
     w.tick(); system.clock.advance(6); w.tick()
     assert backend.calls == 1
     assert system.store.read(run["id"])["state"] == "succeeded"
+    assert slots(system) == 0
+
+
+def test_slow_provider_start_cannot_overwrite_recovery_lease_or_duplicate_submit(system):
+    prepared = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="slow-start-lease-fence-0001", runtime_seconds=600))
+    system.service.approve(system.browser, prepared["id"], prepared["fingerprint"])
+    run = system.service.submit(system.owner, prepared["id"])
+
+    class SlowStart(DemoBackend):
+        calls = 0
+        recovery_claim = None
+
+        def start(self, job):
+            self.calls += 1
+            # Simulate a provider call that outlives its lease. A second worker
+            # claims the ambiguous submission while the original call is in flight.
+            system.clock.advance(121)
+            self.recovery_claim = Worker(system.store, system.settings, {"demo": self},
+                                         system.clock).claim()
+            return super().start(job)
+
+        def reconcile(self, _job):
+            raise AssertionError("the slow worker persisted its returned handle")
+
+    backend = SlowStart()
+    first = Worker(system.store, system.settings, {"demo": backend}, system.clock)
+    assert first.tick()
+    after_start = system.store.read(run["id"])
+    assert backend.calls == 1
+    assert backend.recovery_claim is not None
+    assert backend.recovery_claim["state"] == "submit_unknown"
+    assert after_start["state"] == "submit_unknown"
+    assert after_start["handle"]["id"] == run["id"]
+
+    # The replacement waits for its own lease, then observes the persisted
+    # resource. It must not invoke start or reconcile a second submission.
+    system.clock.advance(121)
+    assert Worker(system.store, system.settings, {"demo": backend}, system.clock).tick()
+    final = system.store.read(run["id"])
+    assert backend.calls == 1
+    assert final["state"] == "succeeded"
+    assert final["result"]["simulation"] is True
+    assert final["last_observed_at"] == system.clock()
     assert slots(system) == 0
 
 

@@ -2,7 +2,7 @@ import json
 from dataclasses import replace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from gpu_gateway.config import Workload
 from gpu_gateway.experiment_api import invoke
@@ -233,6 +233,28 @@ def test_pending_result_does_not_claim_success_and_cancel_is_owner_scoped(system
     other = replace(system.owner, owner="other")
     with pytest.raises(GatewayError) as error:
         invoke(system.service, other, "experiment_cancel", {"run_id": prepared["id"]})
+    assert error.value.status == 404
+
+
+def test_last_backend_observation_is_owner_scoped_in_status_and_lists(system):
+    prepared = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="last-backend-observation-0001"))
+    observed_at = int(system.clock()) - 17
+    with system.store.transaction() as connection:
+        connection.execute(update(runs).where(runs.c.id == prepared["id"]).values(
+            last_observed_at=observed_at, state="submit_unknown"))
+
+    status = invoke(system.service, system.owner, "experiment_status", {"run_id": prepared["id"]})
+    assert status["machine_state"]["last_observed_at"] == observed_at
+    pending_result = invoke(system.service, system.owner, "experiment_result",
+                            {"run_id": prepared["id"]})
+    assert pending_result["machine_state"]["last_observed_at"] == observed_at
+    listed = invoke(system.service, system.owner, "experiment_list", {})
+    assert listed["experiments"][0]["last_observed_at"] == observed_at
+    assert system.service.get(system.owner, prepared["id"])["last_observed_at"] == observed_at
+    other = replace(system.owner, owner="other")
+    with pytest.raises(GatewayError) as error:
+        invoke(system.service, other, "experiment_status", {"run_id": prepared["id"]})
     assert error.value.status == 404
 
 

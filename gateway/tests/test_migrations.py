@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 
 from gpu_gateway.migrations import (
     UnsupportedSchemaVersion, migrate, schema_version,
@@ -55,8 +55,8 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
     _legacy_v1(engine)
 
-    assert migrate(engine) == 5
-    assert migrate(engine) == 5
+    assert migrate(engine) == 6
+    assert migrate(engine) == 6
     store = Store(str(engine.url))
     store.initialize()
 
@@ -74,6 +74,7 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     assert row["admission"] is None
     assert row["attempt"] == 0
     assert row["submission_intent"] is None
+    assert row["last_observed_at"] is None
     with engine.connect() as connection:
         assert connection.execute(text("SELECT token_hash FROM gateway_oauth_tokens_v1")).scalar_one() == "secret-hash"
         assert connection.execute(text("SELECT worker_seen_at, supervisor_seen_at FROM gateway_control_v1 WHERE id=1")).one() == (123, 0)
@@ -83,11 +84,27 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
 def test_fresh_database_migrates_before_table_creation(tmp_path):
     database = f"sqlite:///{tmp_path / 'fresh.db'}"
     store = Store(database)
-    assert migrate(store.engine) == 5
+    assert migrate(store.engine) == 6
     store.initialize()
     assert store.read("no-such-run") is None
     engine = store.engine
     engine.dispose()
+
+
+def test_v5_migration_adds_nullable_last_observed_at(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'v5.db'}")
+    store.initialize()
+    with store.engine.begin() as connection:
+        connection.exec_driver_sql('ALTER TABLE gateway_runs_v1 DROP COLUMN "last_observed_at"')
+        connection.execute(schema_version.update().values(version=5))
+
+    assert migrate(store.engine) == 6
+    assert migrate(store.engine) == 6
+    row = store.read("missing")
+    assert row is None
+    with store.engine.connect() as connection:
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == 6
+    store.engine.dispose()
 
 
 def test_unknown_future_schema_fails_closed(tmp_path):

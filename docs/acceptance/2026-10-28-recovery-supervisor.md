@@ -9,7 +9,10 @@ newly queued jobs. It can reclaim expired active leases and can reclaim a
 15 seconds. Recovered submissions are reconciled from their persisted intent;
 this mode never calls `Backend.start()` for a non-queued run. Its heartbeat is
 stored separately as schema v5 `supervisor_seen_at`. `/readyz` is ready only
-while both worker heartbeats are fresh.
+while both worker heartbeats are fresh. Schema v6 adds nullable
+`last_observed_at` to each run; successful inspect/reconcile observations update
+it, and owner-scoped status, result and list responses expose it. A failed
+provider call does not overwrite the last successful observation time.
 
 The local CPU smoke image already has its own in-container hard deadline
 supervisor. This database-backed process addresses control-plane recovery while
@@ -18,11 +21,11 @@ timeouts when a provider requires them.
 
 ## Evidence
 
-- Full Gateway suite at this revision: **205 passed, 2 skipped**, one Starlette
+- Full Gateway suite at this revision: **214 passed, 2 skipped**, one Starlette
   deprecation warning. The skipped optional tests require the Torch and Modal
   SDK packages, respectively.
 - The suite used the digest-pinned local CPU image
-  `sha256:7127dd8799c41c5c5d90001242bb90aefebbb957f578ff95a835cf5651402798` and
+  `sha256:92eefb29cdbe77b66f5381afba946c12e31f5bc4fd4d32e907fa5b0aa9548092` and
   a dedicated PostgreSQL 16 test container
   `sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97`.
 - Real Docker lifecycle integration killed the execution-worker subprocess after
@@ -43,15 +46,29 @@ timeouts when a provider requires them.
   exit code, and a cleanup failure retains `cleanup_pending:cancelled`. A
   replacement worker finishes cleanup and keeps the run `cancelled`; this guards
   against recovering it as `succeeded` from the exit code alone.
-- PostgreSQL-backed tests migrated an existing v4 control table to v5 while
-  preserving the execution-worker heartbeat, exercised concurrent admission and
-  lease fencing, and stopped PostgreSQL after result capture before recovering
-  the same result after restart. Legacy v1-to-v5 migration is covered by the
+- PostgreSQL-backed tests migrated an existing v4 database to v6 while
+  preserving the execution-worker heartbeat and adding both recovery fields,
+  exercised concurrent admission and lease fencing, and stopped PostgreSQL
+  after result capture before recovering the same result after restart. Legacy
+  v1-to-v6 migration is covered by the
   migration test fixture.
+- A v5-to-v6 migration test verifies the observation timestamp is nullable and
+  migration is idempotent. The ambiguous-start test verifies `submit_unknown`
+  exposes its last successful reconciliation timestamp through owner-scoped
+  status and list results.
 - Focused tests verify the supervisor leaves queued jobs untouched, uses a
   distinct heartbeat, claims a stale `submitting` intent without a handle, and
   never resubmits it. Readiness stays false when either heartbeat is absent or
   stale.
+- A provider start that outlives its lease was overlapped with a competing
+  worker claim. The original worker persisted its returned handle despite
+  losing the lease; recovery used that handle, did not call `start()` again,
+  and completed the run.
+- Terminal success without a result is converted to an explicit failure. For a
+  lifecycle backend, the failure is persisted before cleanup, unmanifested
+  artifact bytes are discarded, and the admission slot remains reserved until
+  cleanup is confirmed. The same missing-result success cannot pass through a
+  backend without lifecycle cleanup.
 
 ## Boundaries
 

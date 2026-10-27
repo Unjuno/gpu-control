@@ -3,11 +3,114 @@ from sqlalchemy import select, update
 from gpu_gateway.contracts import plan_fingerprint
 from gpu_gateway.store import control, runs
 from gpu_gateway.worker import Worker
-from gpu_gateway.backends import Observation
+from gpu_gateway.backends import ArtifactPayload, Observation
 from gpu_gateway.service import Prepare
-from sqlalchemy import update
 
 from test_local_admission import plan
+
+
+def test_missing_terminal_result_is_failed_and_cleaned_before_slot_release(system):
+    candidate = plan()
+    now = int(system.clock())
+    created = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="missing-result-cleanup-0001"))
+    fingerprint = plan_fingerprint(candidate)
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(active_count=1))
+        connection.execute(update(runs).where(runs.c.id == created["id"]).values(
+            plan=candidate.model_dump(mode="json"), fingerprint=fingerprint,
+            state="running", handle={"container_id": "c" * 64}, lease_until=0,
+            started_at=now - 2, slot_reserved=True, record_version=2,
+            cleanup_state="pending"))
+
+    class MissingResultBackend:
+        cleanup_calls = 0
+        capture_calls = 0
+
+        def start(self, _job):
+            raise AssertionError("recovery must not start another container")
+
+        def reconcile(self, _job):
+            raise AssertionError("persisted handle must be reused")
+
+        def cancel(self, _handle):
+            pass
+
+        def capture(self, _handle):
+            self.capture_calls += 1
+            payload = ArtifactPayload("unbound.json", b"{}", "application/json")
+            return Observation("succeeded", None, (payload,))
+
+        def cleanup(self, _handle):
+            self.cleanup_calls += 1
+            if self.cleanup_calls == 1:
+                raise RuntimeError("injected cleanup failure")
+
+        def is_clean(self, _handle):
+            return self.cleanup_calls > 1
+
+    backend = MissingResultBackend()
+    worker = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock)
+    assert worker.tick()
+    pending = system.store.read(created["id"])
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert pending["state"] == "running"
+    assert pending["cleanup_state"] == "pending"
+    assert pending["result"]["failure_code"] == "missing_backend_result"
+    assert pending["result"]["artifacts"] == []
+    assert active == 1
+
+    system.clock.advance(11)
+    assert Worker(system.store, system.settings, {"local_cpu": backend}, system.clock).tick()
+    final = system.store.read(created["id"])
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert final["state"] == "failed"
+    assert final["cleanup_state"] == "complete"
+    assert final["result"]["failure_code"] == "missing_backend_result"
+    assert final["result"]["artifacts"] == []
+    assert backend.capture_calls == 1
+    assert active == 0
+
+
+def test_missing_terminal_result_cannot_be_reported_as_success(system):
+    candidate = plan()
+    now = int(system.clock())
+    created = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="missing-result-no-cleanup-backend"))
+    fingerprint = plan_fingerprint(candidate)
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(active_count=1))
+        connection.execute(update(runs).where(runs.c.id == created["id"]).values(
+            plan=candidate.model_dump(mode="json"), fingerprint=fingerprint,
+            state="running", handle={"resource_id": "released-by-provider"},
+            lease_until=0, started_at=now - 2, slot_reserved=True, record_version=2,
+            cleanup_state="not_required"))
+
+    class MissingResultBackend:
+        def start(self, _job):
+            raise AssertionError("recovery must not start another resource")
+
+        def reconcile(self, _job):
+            raise AssertionError("persisted handle must be reused")
+
+        def cancel(self, _handle):
+            pass
+
+        def inspect(self, _handle):
+            return Observation("succeeded")
+
+    assert Worker(system.store, system.settings, {"local_cpu": MissingResultBackend()},
+                  system.clock).tick()
+    final = system.store.read(created["id"])
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert final["state"] == "failed"
+    assert final["result"]["failure_code"] == "missing_backend_result"
+    assert final["result"]["cleanup_state"] == "not_required"
+    assert final["cleanup_state"] == "not_required"
+    assert active == 0
 
 
 def test_result_is_persisted_and_slot_retained_until_cleanup_is_confirmed(system):

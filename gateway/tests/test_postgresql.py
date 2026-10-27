@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import inspect, select, update
 
 from gpu_gateway.config import Settings, Workload
 from gpu_gateway.service import ExperimentService, Prepare, Principal
@@ -89,7 +89,7 @@ def test_postgres_worker_lease_has_one_current_owner():
     store.engine.dispose()
 
 
-def test_postgres_v4_to_v5_adds_supervisor_heartbeat_without_changing_worker_heartbeat():
+def test_postgres_v4_to_v6_additive_recovery_fields():
     url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
     if not url:
         pytest.skip('requires a dedicated PostgreSQL test database')
@@ -99,11 +99,15 @@ def test_postgres_v4_to_v5_adds_supervisor_heartbeat_without_changing_worker_hea
     with store.engine.begin() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(worker_seen_at=worker_seen))
         connection.exec_driver_sql('ALTER TABLE gateway_control_v1 DROP COLUMN supervisor_seen_at')
+        connection.exec_driver_sql('ALTER TABLE gateway_runs_v1 DROP COLUMN last_observed_at')
         connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
 
-    assert migrate(store.engine) == 5
+    assert migrate(store.engine) == 6
     with store.engine.connect() as connection:
         row = connection.execute(select(control.c.worker_seen_at, control.c.supervisor_seen_at)
                                  .where(control.c.id == 1)).one()
     assert row == (worker_seen, 0)
+    with store.engine.connect() as connection:
+        assert "last_observed_at" in {column["name"] for column in
+                                       inspect(connection).get_columns("gateway_runs_v1")}
     store.engine.dispose()

@@ -132,6 +132,7 @@ def _list(service: ExperimentService, principal: Principal, request: ListInput) 
     has_more = len(rows) > request.limit
     page = rows[:request.limit]
     values = [{"run_id": row["id"], "state": row["state"], "created_at": row["created_at"],
+               "last_observed_at": row["last_observed_at"],
                "workload": row["plan"].get("workload"),
                "repository": row["plan"].get("repository"),
                "source_sha": row["plan"].get("source_sha"),
@@ -293,10 +294,12 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
             if name == "experiment_result" and state not in TERMINAL:
                 return _envelope(status="pending", summary="実験はまだ終了していません。",
                                  machine_state={"run_id": result["id"], "state": state,
-                                                "cleanup_state": cleanup},
+                                                "cleanup_state": cleanup,
+                                                "last_observed_at": result.get("last_observed_at")},
                                  next_actions=["experiment_status"], blocker=None)
             payload = {"run_id": result["id"], "state": state,
                        "plan_fingerprint": result["fingerprint"],
+                       "last_observed_at": result.get("last_observed_at"),
                        "cleanup_state": cleanup,
                        "result": result.get("result") if name == "experiment_result" else None,
                        "error_code": (result.get("error") or
