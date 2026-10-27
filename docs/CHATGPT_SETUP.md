@@ -1,0 +1,65 @@
+# ChatGPT custom MCP connection and acceptance
+
+This document describes the live connection gate for the Gateway. Repository and
+container tests do not count as a ChatGPT connection test.
+
+## Account and workspace gate
+
+The current [OpenAI Help Center instructions](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
+say full MCP support, including write actions, is available on ChatGPT Business,
+Enterprise and Edu on the web. Pro can connect custom MCP servers for read/fetch
+only. This Gateway exposes run and cancel operations, so a read-only Pro connection
+cannot satisfy product acceptance. The account plan and workspace permissions for
+this project have not been verified from the repository; an authorized workspace
+admin or owner must confirm access to create and test a custom MCP server.
+
+For a permitted workspace, the current UI flow is **Plugins → + → Add custom MCP
+server**, then enter a public HTTPS MCP endpoint (or select an already configured
+Secure MCP Tunnel), choose authentication, acknowledge the risk prompt, create the
+plugin and inspect discovered tools. Install it before starting a conversation;
+use `@` to select the plugin. Tool-list changes are not automatically applied to a
+published connection: an admin must refresh/review the tool snapshot. See OpenAI's
+[custom MCP server guide](https://developers.openai.com/api/docs/guides/custom-mcp-server)
+and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+
+## Required deployment state
+
+Before connecting ChatGPT, provide all of the following:
+
+- A stable, reachable HTTPS URL whose `/mcp` route points to this Gateway.
+- A persistent PostgreSQL database migrated with `python -m gpu_gateway.worker --init-db`.
+- An independent worker that can reach the database and the dedicated local Docker
+  host. The API deployment must not receive Docker socket access.
+- A configured authentication path. With external OIDC, configure issuer, JWKS,
+  audience/resource, allowed subject, scopes and the MCP client's registration
+  method. With built-in single-owner OAuth, bootstrap the owner and verify discovery,
+  client registration, PKCE, token refresh and revocation against the live client.
+- An OAuth authorization server that can keep ChatGPT connected. OpenAI's current
+  guidance calls out refresh-token issuance; for OIDC, `offline_access` should be
+  requested and advertised. See the refresh-token section in the Help Center guide.
+- An operator-reviewed local CPU workload registry and an explicitly enabled,
+  time-bounded local CPU admission policy. The shipped policy defaults disabled.
+
+The repository currently has no configured production HTTPS endpoint, PostgreSQL
+service, ChatGPT OAuth client, or deployed worker. Do not enter a local URL or a
+provider secret into ChatGPT to work around those missing prerequisites.
+
+## Live acceptance sequence
+
+1. Verify `/healthz` and `/readyz`. Readiness must report the current migration,
+   fresh worker heartbeat, database access and valid workload registry.
+2. Add the server to the authorized ChatGPT workspace and complete its OAuth flow.
+3. Confirm ChatGPT discovers the expected read, run and cancel tools. Check the
+   server's discovered schema against this repository's MCP tool contract.
+4. In one conversation, request the registered local CPU smoke. Verify the exact
+   run ID, source SHA, image digest, `simulation=false`, `gpu_used=false`, result,
+   and cleanup evidence through ChatGPT tool outputs.
+5. In a second conversation, list/find the run and retrieve its result. Verify
+   owner isolation, idempotent submit, a distinct new-run request, and cancellation.
+6. Record redacted request/response evidence, endpoint version, tool snapshot,
+   OAuth behavior and the exact worker/database revisions in
+   `docs/CHATGPT_ACCEPTANCE.md`. Never include tokens, cookies or database URLs.
+
+The chat connector's confirmation prompts do not replace Gateway authorization,
+local admission policy, or any later human spending approval. ChatGPT's write-action
+confirmation is a client control; server-side checks remain authoritative.

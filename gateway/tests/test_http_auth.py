@@ -113,6 +113,40 @@ def test_configuration_failure_is_closed():
     assert client.post("/mcp", json={}).status_code == 503
 
 
+def test_readiness_requires_current_database_migration_worker_and_registry(web):
+    from sqlalchemy import update
+    from gpu_gateway.migrations import SCHEMA_VERSION, schema_version
+    from gpu_gateway.store import control
+
+    cold = web.client.get("/readyz")
+    assert cold.status_code == 503
+    assert cold.json()["database"] is True
+    assert cold.json()["migration"] is True
+    assert cold.json()["worker"] is False
+    assert cold.json()["registry"] is True
+    assert cold.json()["authentication"] is True
+
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(worker_seen_at=int(time.time())))
+    assert web.client.get("/readyz").status_code == 200
+
+    from gpu_gateway.config import Workload
+    web.service.workloads["unregistered"] = Workload(provider="ghost")
+    invalid_registry = web.client.get("/readyz")
+    assert invalid_registry.status_code == 503
+    assert invalid_registry.json()["registry"] is False
+    del web.service.workloads["unregistered"]
+
+    with web.service.store.transaction() as connection:
+        connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=SCHEMA_VERSION - 1))
+    stale_schema = web.client.get("/readyz")
+    assert stale_schema.status_code == 503
+    assert stale_schema.json()["migration"] is False
+
+    # A liveness response remains independent from a stale schema or worker.
+    assert web.client.get("/healthz").status_code == 200
+
+
 def test_browser_cookie_tamper_rejected(web):
     web.client.cookies.clear()
     web.client.cookies.set("gpu_gateway_session", "forged")

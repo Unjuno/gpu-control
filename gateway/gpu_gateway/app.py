@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import time
 from urllib.parse import parse_qs, urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
@@ -14,9 +16,11 @@ from .auth import Auth, SCOPES, SESSION
 from .config import Settings, load_workloads
 from .protocol import dispatch, error, tools, validate_headers
 from .service import ExperimentService, GatewayError
-from .store import Store
+from .store import Store, control
+from .migrations import SCHEMA_VERSION, schema_version
 
 STATIC = Path(__file__).parent / "static"
+WORKER_HEARTBEAT_MAX_AGE_SECONDS = 15
 
 
 def create_app(settings: Settings | None = None, *, service=None, auth=None) -> FastAPI:
@@ -105,6 +109,65 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
                 "auth_configured": bool(not configuration_error and auth and auth.configured()),
                 "auth_mode": "external_oidc" if auth and auth.external else "local_oauth",
                 "gpu_started_by_health_check": False}
+
+    @app.get("/readyz")
+    def readiness():
+        """Report whether durable queue processing is currently available.
+
+        Liveness stays independent; readiness never runs migrations or starts
+        compute. Provider enablement is reported separately from registry shape.
+        """
+        if configuration_error or service is None or auth is None:
+            return JSONResponse({"ready": False, "database": False, "migration": False,
+                                 "worker": False, "registry": False,
+                                 "authentication": False}, status_code=503)
+        database_ok = False
+        migration_ok = False
+        worker_ok = False
+        heartbeat_age = None
+        schema = None
+        try:
+            with service.store.engine.connect() as connection:
+                schema = connection.execute(select(schema_version.c.version).where(
+                    schema_version.c.id == 1)).scalar_one_or_none()
+                heartbeat = connection.execute(select(control.c.worker_seen_at).where(
+                    control.c.id == 1)).scalar_one_or_none()
+            database_ok = heartbeat is not None
+            migration_ok = schema == SCHEMA_VERSION
+            if type(heartbeat) is int and heartbeat > 0:
+                heartbeat_age = int(time.time()) - heartbeat
+                worker_ok = -5 <= heartbeat_age <= WORKER_HEARTBEAT_MAX_AGE_SECONDS
+        except SQLAlchemyError:
+            pass
+        registry = getattr(service, "registry", None)
+        workloads = getattr(service, "workloads", None)
+        registry_ok = (isinstance(registry, dict) and bool(registry) and
+                       all(name == getattr(entry, "name", None) and
+                           callable(getattr(entry, "enabled", None)) and
+                           callable(getattr(entry, "factory", None))
+                           for name, entry in registry.items()) and
+                       isinstance(workloads, dict) and bool(workloads) and
+                       all(getattr(workload, "provider", None) in registry
+                           for workload in workloads.values()))
+        enabled_workloads = 0
+        if registry_ok:
+            try:
+                enabled_workloads = sum(1 for workload in workloads.values()
+                                        if registry[workload.provider].enabled(settings))
+            except Exception:
+                registry_ok = False
+        try:
+            authentication_ok = bool(auth.configured())
+        except Exception:
+            authentication_ok = False
+        ready = (database_ok and migration_ok and worker_ok and registry_ok and
+                 enabled_workloads > 0 and authentication_ok)
+        return JSONResponse({"ready": ready, "database": database_ok,
+                             "migration": migration_ok, "schema_version": schema,
+                             "worker": worker_ok, "worker_heartbeat_age_seconds": heartbeat_age,
+                             "registry": registry_ok, "enabled_workloads": enabled_workloads,
+                             "authentication": authentication_ok},
+                            status_code=200 if ready else 503)
 
     @app.get("/")
     def index():
