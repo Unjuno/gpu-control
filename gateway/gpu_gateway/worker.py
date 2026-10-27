@@ -23,6 +23,7 @@ from .contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_bindi
 logger = logging.getLogger(__name__)
 WORKER_HEARTBEAT_STALE_SECONDS = 15
 ARTIFACT_TTL_SECONDS = 30 * 24 * 3600
+ARTIFACT_PRUNE_INTERVAL_SECONDS = 3600
 
 
 class Worker:
@@ -37,6 +38,25 @@ class Worker:
         self.store, self.settings, self.backends, self.clock = store, settings, backends, clock
         self.registry = default_registry() if registry is None else registry
         self.role = role
+        self.last_artifact_prune_at = 0
+
+    def _maybe_prune_artifacts(self, now: int) -> None:
+        if (not self.settings.artifact_dir or
+                now - self.last_artifact_prune_at < ARTIFACT_PRUNE_INTERVAL_SECONDS):
+            return
+        self.last_artifact_prune_at = now
+        try:
+            with self.store.engine.connect() as connection:
+                rows = [dict(row) for row in connection.execute(
+                    select(runs.c.id, runs.c.owner, runs.c.state, runs.c.result)).mappings()]
+            removed = ArtifactStore(self.settings.artifact_dir).prune(rows, now=now)
+            if removed["expired_files"] or removed["orphan_files"]:
+                logger.info("Artifact retention removed expired=%d orphan=%d bytes=%d",
+                            removed["expired_files"], removed["orphan_files"], removed["bytes_removed"])
+        except Exception:
+            # Retention maintenance must not stop queue processing. Retry on the
+            # next interval; artifact reads still enforce expiry and digest.
+            logger.exception("Artifact retention maintenance failed")
 
     def _persist_artifacts(self, job: dict, observation: Observation) -> dict | None:
         result = observation.result
@@ -151,6 +171,7 @@ class Worker:
                 cleanup_state=cleanup_state, record_version=record_version))
 
     def tick(self) -> bool:
+        self._maybe_prune_artifacts(int(self.clock()))
         job = self.claim()
         if job is None:
             return False

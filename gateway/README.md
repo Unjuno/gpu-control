@@ -184,9 +184,12 @@ and 10 MiB per run, 1 MiB per file) with owner/run-scoped opaque paths and
 30-day metadata expiry. `experiment_artifact` returns authenticated base64 chunks
 of at most 24 KiB after run cleanup is confirmed. Configure a durable volume
 backed path in both API and worker environments; temporary or per-instance-only
-storage is not suitable for hosted use. Artifact expiry metadata does not yet
-automatically delete old blobs, so operators must plan storage cleanup before
-enabling artifact-producing workloads.
+storage is not suitable for hosted use. The execution worker and recovery
+supervisor prune expired manifests hourly while running. Unmanifested blobs and
+interrupted temporary files receive a 24-hour grace period, and blobs under an
+active run are preserved. This is not a global volume quota or usage alert; set
+and monitor a volume capacity limit before enabling artifact-producing
+workloads, and expect pruning to resume after a worker comes back online.
 
 For `local_cpu`, install a Docker CLI compatible with the dedicated worker host's
 daemon and verify that the worker service identity can run `docker info` and
