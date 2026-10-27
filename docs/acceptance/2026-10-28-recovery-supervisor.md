@@ -72,8 +72,9 @@ timeouts when a provider requires them.
 
 ## Boundaries
 
-The systemd worker and supervisor units are templates; they have not been
-installed or validated on a target Linux host. Recovery has not been tested
+The systemd worker and supervisor units now declare a private persistent state
+directory for artifact writes, but the templates have not been installed or
+validated on a target Linux host. Recovery has not been tested
 against a real remote provider or a production database. A worker that is alive
 but unable to access its provider may still require operator intervention when
 the outcome cannot be proved. HTTPS, real OAuth, ChatGPT tool use, result retrieval
