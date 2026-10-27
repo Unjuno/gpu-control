@@ -19,9 +19,11 @@ from .service import TERMINAL, digest
 from .store import Store, control, runs
 from .admission import evaluate_admission, load_local_cpu_policy
 from .contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_binding
+from .health import HEARTBEAT_STALE_SECONDS, heartbeat_is_stale
 
 logger = logging.getLogger(__name__)
-WORKER_HEARTBEAT_STALE_SECONDS = 15
+# Keep the historical module constant for callers while sharing its source.
+WORKER_HEARTBEAT_STALE_SECONDS = HEARTBEAT_STALE_SECONDS
 ARTIFACT_TTL_SECONDS = 30 * 24 * 3600
 ARTIFACT_PRUNE_INTERVAL_SECONDS = 3600
 
@@ -130,12 +132,11 @@ class Worker:
             if self.role == "worker":
                 states.insert(0, "queued")
             eligible = runs.c.lease_until <= now
-            if self.role == "supervisor" and control_row["worker_seen_at"] > 0:
+            if self.role == "supervisor" and heartbeat_is_stale(now, control_row["worker_seen_at"]):
                 # A dead worker may leave a 120-second submission lease. Once its
                 # heartbeat is stale, recovery may inspect that intent early, but
                 # it still never calls start() for a non-queued job.
-                eligible = or_(eligible, and_(runs.c.state == "submitting",
-                                               control_row["worker_seen_at"] <= now - WORKER_HEARTBEAT_STALE_SECONDS))
+                eligible = or_(eligible, runs.c.state == "submitting")
             row = c.execute(select(runs).where(
                 runs.c.state.in_(states),
                 eligible,

@@ -14,9 +14,9 @@ from .service import ExperimentService, GatewayError, Prepare, Principal
 from .store import control, runs
 from .admission import evaluate_admission, load_local_cpu_policy, plan_for_workload
 from .artifacts import ArtifactStore
+from .health import heartbeat_age, heartbeat_is_fresh
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
-WORKER_HEARTBEAT_MAX_AGE_SECONDS = 15
 STATE_SUMMARY = {
     "awaiting_approval": "実行計画は準備できました。承認が必要です。",
     "authorized": "登録済みlocal CPU policyでこのsmoke planは事前許可されています。",
@@ -152,6 +152,7 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
     """Describe workload-level readiness without treating configuration as capacity."""
     data = service.integrations(principal)
     now = int(service.clock())
+    control_store_available = True
     try:
         with service.store.engine.connect() as connection:
             row = connection.execute(select(
@@ -159,18 +160,28 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
                 control.c.active_count,
             ).where(control.c.id == 1)).mappings().first()
     except Exception:
+        # Keep capabilities read-only and fail closed, while distinguishing a
+        # control-store outage from an online store with stopped workers.
+        control_store_available = False
         row = None
+    if row is None:
+        # A reachable database without the singleton control row is not a
+        # healthy admission store either.
+        control_store_available = False
 
     worker_seen_at = row["worker_seen_at"] if row else 0
     supervisor_seen_at = row["supervisor_seen_at"] if row else 0
-    worker_age = now - worker_seen_at if worker_seen_at else None
-    supervisor_age = now - supervisor_seen_at if supervisor_seen_at else None
-    worker_ready = worker_age is not None and -5 <= worker_age <= WORKER_HEARTBEAT_MAX_AGE_SECONDS
-    supervisor_ready = (supervisor_age is not None and
-                        -5 <= supervisor_age <= WORKER_HEARTBEAT_MAX_AGE_SECONDS)
+    worker_age = heartbeat_age(now, worker_seen_at)
+    supervisor_age = heartbeat_age(now, supervisor_seen_at)
+    worker_ready = heartbeat_is_fresh(now, worker_seen_at)
+    supervisor_ready = heartbeat_is_fresh(now, supervisor_seen_at)
     active_count = row["active_count"] if row else None
-    capacity_available = (type(active_count) is int and active_count >= 0 and
-                          active_count < service.settings.max_inflight)
+    capacity_available = (
+        control_store_available
+        and type(active_count) is int
+        and active_count >= 0
+        and active_count < service.settings.max_inflight
+    )
 
     local_policy = None
     local_policy_error = None
@@ -198,6 +209,8 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
             cost_classification = "LOCAL"
             additional_cost = "0"
             approval_mode = "operator_local_policy"
+            if not control_store_available:
+                blockers.append("CONTROL_STORE_UNAVAILABLE")
             if not workload.source_repository or not workload.source_sha:
                 blockers.append("SOURCE_IDENTITY_UNCONFIGURED")
             if local_policy_error:
@@ -285,6 +298,7 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
         machine_state={
             "providers": data["providers"],
             "resources": resources,
+            "control_store": {"available": control_store_available},
             "worker": {"last_seen_at": worker_seen_at, "age_seconds": worker_age,
                        "ready": worker_ready},
             "recovery_supervisor": {"last_seen_at": supervisor_seen_at,

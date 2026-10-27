@@ -32,6 +32,10 @@ database or Gateway hosting. A non-local price is classified and estimated only
 while its quote reference and expiry are current; otherwise cost is `UNKNOWN`.
 Provider availability and quota remain unverified until separately accepted.
 The demo workload is always marked `simulation_only`.
+If the control-store health read fails or its singleton control row is missing,
+local CPU reports `CONTROL_STORE_UNAVAILABLE` and marks capacity unavailable,
+separately from stopped worker heartbeats. This readiness signal does not
+guarantee that a subsequent submission will succeed.
 
 `experiment_artifact` accepts only a run ID, an artifact ID already present in
 that run's result manifest, and a bounded byte range. It returns base64 chunks
