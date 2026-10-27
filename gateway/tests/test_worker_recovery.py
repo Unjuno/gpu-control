@@ -168,3 +168,68 @@ def test_result_database_write_failure_keeps_container_and_slot_for_retry(system
     assert final["result"]["checksum"] == "e" * 64
     assert final["cleanup_state"] == "complete"
     assert active == 0
+
+
+def test_timeout_terminal_intent_survives_cleanup_failure(system):
+    candidate = plan()
+    now = int(system.clock())
+    created = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="timeout-cleanup-intent-0001"))
+    fingerprint = plan_fingerprint(candidate)
+    result = {
+        "schema_version": 2, "run_id": created["id"], "source_sha": candidate.source_sha,
+        "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+        "gpu_used": False, "device": "cpu", "exit_code": 0,
+        "started_at": now - 400, "finished_at": now - 1, "runtime_seconds": 399.0,
+        "metrics": {}, "checks": [], "checksum": None, "artifacts": [],
+        "known_cost_usd": "0", "cost_classification": "LOCAL", "cleanup_state": "pending",
+    }
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(active_count=1))
+        connection.execute(update(runs).where(runs.c.id == created["id"]).values(
+            plan=candidate.model_dump(mode="json"), fingerprint=fingerprint, state="running",
+            handle={"container_id": "b" * 64}, lease_until=0,
+            started_at=now - 400, slot_reserved=True, record_version=2,
+            cleanup_state="not_required"))
+
+    class TimeoutBackend:
+        def __init__(self):
+            self.cleanup_calls = 0
+
+        def start(self, _job):
+            raise AssertionError("recovery must not start another container")
+
+        def reconcile(self, _job):
+            raise AssertionError("persisted handle must be reused")
+
+        def cancel(self, _handle):
+            pass
+
+        def capture(self, _handle):
+            return Observation("cancelled", result)
+
+        def cleanup(self, _handle):
+            self.cleanup_calls += 1
+            if self.cleanup_calls == 1:
+                raise RuntimeError("injected cleanup failure")
+
+        def is_clean(self, _handle):
+            return self.cleanup_calls > 1
+
+    backend = TimeoutBackend()
+    worker = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock)
+    assert worker.tick()
+    pending = system.store.read(created["id"])
+    assert pending["cancel_requested"] is False
+    assert pending["state"] == "running"
+    assert pending["cleanup_state"] == "pending"
+    assert pending["error"] == "cleanup_pending:cancelled"
+
+    system.clock.advance(11)
+    replacement = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock)
+    assert replacement.tick()
+    final = system.store.read(created["id"])
+    assert final["state"] == "cancelled"
+    assert final["cleanup_state"] == "complete"
+    assert final["result"]["exit_code"] == 0
+    assert final["result"]["cleanup_state"] == "complete"
