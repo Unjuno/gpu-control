@@ -1,6 +1,7 @@
-# GPU Control Gateway
+# GPU Control Experiment Gateway
 
-Additive gateway for **Modal + the existing RunPod pipeline**. Existing `src/`,
+Additive gateway for ChatGPT-driven experiments. The first real execution path is
+an operator-registered, digest-pinned local CPU smoke container. Existing `src/`,
 RunPod adapters, policy files, `uv.lock`, and existing workflows are unchanged.
 This is a separate optional deployment, not a replacement for RunPod CI.
 
@@ -15,6 +16,9 @@ This is a separate optional deployment, not a replacement for RunPod CI.
   Unsupported browsers keep the ordinary dashboard. Approval is NOT an MCP tool.
 - Durable PostgreSQL queue, owned experiments, atomic admission, idempotency,
   expiring approval, worker leases and ambiguous-submission reconciliation.
+- Disabled-by-default `local_cpu` admission and a Docker worker backend with
+  non-root, no-network, read-only, resource-bounded CPU containers. Results are
+  persisted before cleanup; worker and PostgreSQL restart recovery is tested.
 - Modal Sandbox backend using prebuilt images, fixed argv, bounded runtime,
   blocked network, bounded logs and structured last-line JSON metrics.
 - Provider registry shared by API and worker; a tested third-provider extension.
@@ -24,12 +28,12 @@ This is a separate optional deployment, not a replacement for RunPod CI.
 
 ## What this does not claim
 
-Local tests use synthetic providers, fake Modal calls and generated JWTs. They do
-not prove live Modal, real OAuth-provider/ChatGPT/browser-agent interoperability,
-Vercel deployment or existing RunPod end-to-end success. An official MCP SDK client
-interoperability test remains a deployment acceptance item; this is not a complete
-implementation of every optional MCP feature. Existing upstream tests were not
-rerun in the isolated implementation environment; the PR retains them unchanged.
+Local test runs include synthetic providers, generated JWTs and real local Docker
+and PostgreSQL fault-injection tests. They do not prove live ChatGPT/OAuth
+interoperability, HTTPS deployment, or provider GPU execution. The local CPU
+admission policy remains disabled by default. An official MCP client and actual
+ChatGPT conversation acceptance are still required. This is not a complete
+implementation of every optional MCP feature.
 
 No billable compute is enabled by merely adding these files. No provider credential
 is stored here. **Do not enable a provider until you have reviewed its registered
@@ -39,13 +43,13 @@ access. The RunPod bridge is an extension seam, not an already-connected Web pat
 ## Topology
 
 ```text
-ChatGPT / Remote MCP client -> /mcp -----+
+ChatGPT / Remote MCP client -> HTTPS /mcp -----+
 Browser / WebMCP -> /api/tools ---------+-> ExperimentService -> PostgreSQL
 Browser human approval -> /api/approvals+
                                                  |
-                                     independent CPU worker
+                                     independent local CPU worker
                                                  |
-                                   Modal / existing RunPod bridge
+                                  isolated digest-pinned container
 ```
 
 Long GPU work never occupies a Vercel request. API requests reserve a durable job;
@@ -87,9 +91,11 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    `GATEWAY_PUBLIC_URL` to the exact stable HTTPS origin, without a trailing path.
 4. Run `python -m gpu_gateway.worker --init-db` once against that database from a
    trusted operator environment. Schema creation is never triggered by an HTTP call.
-5. Deploy the Web/API application. Check `/healthz`, OAuth metadata, login, prepare,
-   explicit approval and simulation before registering a real GPU workload.
-6. Run a CPU worker sharing that database. A Vercel deployment alone does NOT run it.
+5. Deploy the Web/API application. `/healthz` reports liveness; `/readyz` reports
+   database, migration, worker heartbeat and workload-registry readiness.
+6. Run an independent worker sharing that database. A Vercel deployment alone
+   does NOT run it. The local Docker backend needs a dedicated worker host with
+   Docker access; never mount the Docker socket into the API container.
 
 Do not put `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, RunPod API/S3 credentials or an
 operator shell token into the Vercel frontend/API environment. They belong to the
@@ -133,10 +139,10 @@ when the token expires; it does not implement refresh-token storage/rotation.
 Oversized JWTs (> cookie capacity) require a future server-side session adapter.
 Neither login nor an MCP `approved=true` argument grants spending approval.
 
-Connect the remote MCP client to `https://YOUR_HOST/mcp`. Use the actual client's
-OAuth flow; do not paste Modal/RunPod credentials into ChatGPT. In the Web UI,
-approve the exact prepared plan, then submit from the UI or MCP. Native WebMCP
-requires a browser/agent exposing the current API; there is no misleading polyfill.
+See [`../docs/CHATGPT_SETUP.md`](../docs/CHATGPT_SETUP.md) for the current ChatGPT
+plan/permission, OAuth and live-acceptance gates. Connect to
+`https://YOUR_HOST/mcp`; do not paste provider credentials into ChatGPT. Human Web
+approval remains distinct from ChatGPT tool calls.
 
 ## Worker placement
 
