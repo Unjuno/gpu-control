@@ -106,3 +106,65 @@ def test_expired_worker_lease_fences_stale_result_writes(system):
     assert saved["lease_token"] == current_claim["lease_token"]
     assert saved["result"] is None
     assert saved["state"] == "running"
+
+
+def test_result_database_write_failure_keeps_container_and_slot_for_retry(system):
+    candidate = plan()
+    created = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="result-db-retry-0001"))
+    fingerprint = plan_fingerprint(candidate)
+    result = {
+        "schema_version": 2, "run_id": created["id"], "source_sha": candidate.source_sha,
+        "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+        "gpu_used": False, "device": "cpu", "exit_code": 0, "started_at": int(system.clock()) - 2,
+        "finished_at": int(system.clock()) - 1, "runtime_seconds": 1.0, "metrics": {},
+        "checks": ["result_valid"], "checksum": "e" * 64, "artifacts": [],
+        "known_cost_usd": "0", "cost_classification": "LOCAL", "cleanup_state": "pending",
+    }
+    handle = {"container_id": "a" * 64}
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(active_count=1))
+        connection.execute(update(runs).where(runs.c.id == created["id"]).values(
+            plan=candidate.model_dump(mode="json"), fingerprint=fingerprint, state="running",
+            handle=handle, lease_until=0, started_at=int(system.clock()) - 2,
+            slot_reserved=True, record_version=2, cleanup_state="pending"))
+
+    class Backend:
+        cleanup_calls = 0
+        def start(self, job): raise AssertionError("must not resubmit")
+        def inspect(self, identity): raise AssertionError("capture contract expected")
+        def capture(self, identity): return Observation("succeeded", result)
+        def cleanup(self, identity): self.cleanup_calls += 1
+        def is_clean(self, identity): return self.cleanup_calls > 0
+        def cancel(self, identity): pass
+        def reconcile(self, run): raise AssertionError("stored handle expected")
+
+    backend = Backend()
+    worker = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock)
+    update_method = worker.update
+
+    def fail_result_write(job, **values):
+        if "result" in values:
+            raise RuntimeError("injected database write outage")
+        return update_method(job, **values)
+
+    worker.update = fail_result_write
+    assert worker.tick()
+    pending = system.store.read(created["id"])
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert pending["result"] is None
+    assert pending["state"] == "running"
+    assert active == 1
+    assert backend.cleanup_calls == 0
+
+    system.clock.advance(11)
+    retry = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock)
+    assert retry.tick()
+    final = system.store.read(created["id"])
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert final["state"] == "succeeded"
+    assert final["result"]["checksum"] == "e" * 64
+    assert final["cleanup_state"] == "complete"
+    assert active == 0
