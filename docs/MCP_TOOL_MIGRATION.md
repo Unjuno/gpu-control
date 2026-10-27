@@ -1,6 +1,6 @@
 # MCP tool migration
 
-The canonical `tools/list` surface contains seven `experiment_*` tools. The six
+The canonical `tools/list` surface contains eight `experiment_*` tools. The six
 pre-existing `integrations_list` / `experiments_*` names remain callable as
 compatibility routes, but are not advertised. This lets existing clients
 continue to call their saved tool names while new clients discover the stable
@@ -19,6 +19,12 @@ Canonical responses use `schema_version: 2` and the fields `status`,
 result is returned as blocked and must not count as real execution. Tool
 visibility follows OAuth scopes; the browser approval endpoint remains
 separate from MCP.
+
+`experiment_artifact` accepts only a run ID, an artifact ID already present in
+that run's result manifest, and a bounded byte range. It returns base64 chunks
+with the manifest digest and size. The API checks run ownership and confirmed
+cleanup before reading from the shared artifact directory; callers cannot
+provide filesystem paths or URLs.
 
 The current staged implementation intentionally reports prepare as blocked
 until an operator-registered and policy-admitted backend exists. No provider

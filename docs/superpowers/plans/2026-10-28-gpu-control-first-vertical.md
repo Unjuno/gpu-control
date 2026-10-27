@@ -30,7 +30,7 @@
 
 ### 1. 公開契約
 
-新しいtools/listは次の7ツールだけを広告する。旧名は既存Web UI、comment bridge、既存クライアント向け互換ルーティングとして最低1リリース残し、移行期間と削除予定を文書化する。
+新しいtools/listは次の7ツールだけを広告する。Artifact受入の追加により、現在の公開面は`experiment_artifact`を加えた8ツール（最大24KiB base64 chunk取得）である。旧名は既存Web UI、comment bridge、既存クライアント向け互換ルーティングとして最低1リリース残し、移行期間と削除予定を文書化する。
 
 | 名前 | 入力 | 出力の中心 |
 |---|---|---|
@@ -39,6 +39,7 @@
 | `experiment_submit` | run_id、plan_fingerprint | queuedまたは既存runの状態 |
 | `experiment_status` | run_id | execution/cleanup状態、elapsed、bounded logs、worker freshness |
 | `experiment_result` | run_id | 完了結果、source、metrics、証拠、費用、cleanup。未完了はpending |
+| `experiment_artifact` | run_id、manifest内artifact_id、offset、length | owner照合・cleanup確認後の最大24KiB base64 chunkとdigest/size |
 | `experiment_cancel` | run_id | durable cancel_requestedと現在状態 |
 | `experiment_list` | limit、cursor、workload、repository、state、created_after、created_before | ownerで限定した一覧とnext_cursor |
 
@@ -79,13 +80,13 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 - [ ] `python -m pytest gateway/tests/test_contracts_v2.py gateway/tests/test_migrations.py -q`。SQLiteと一時PostgreSQLの両方でPASSを記録する。
 - [ ] migrationとrollback互換性、移行前backupをPRへ記載してcommitする。
 
-## T2: 7つのMCPツールと会話向け応答
+## T2: 8つのMCPツールと会話向け応答
 
 **Files:** Modify `protocol.py`, `service.py`, `ci_bridge.py`（必要な旧名互換のみ）; Create `gateway/gpu_gateway/experiment_api.py`; Test `gateway/tests/test_experiment_api.py`。
 
 **Interfaces:** `invoke_experiment(service, principal, name: str, arguments: dict) -> dict`。serviceはowner境界の単一実装を維持し、HTTP/MCPで別の実行ロジックを作らない。
 
-- [ ] `test_seven_advertised_tools_and_legacy_dispatch`: 新7ツール、scope別visibility、旧6名の互換処理を検証する。
+- [ ] `test_eight_advertised_tools_and_legacy_dispatch`: 新8ツール、scope別visibility、旧6名の互換処理を検証する。
 - [ ] `test_owner_isolation_for_status_result_list_cancel`: 別ownerで404、一覧に混入なし、取消不能を検証する。
 - [ ] `test_result_pending_does_not_claim_success`, `test_gpu_required_never_falls_back_to_cpu`を書く。
 - [ ] input/output schema、structuredContent、説明文、制限付きlogsを実装する。opaque cursorはownerに結びつけ、limitは既定20/最大50、UTC期間フィルタを受ける。

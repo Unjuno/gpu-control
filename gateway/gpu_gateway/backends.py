@@ -12,10 +12,18 @@ from .config import Settings
 class Observation:
     state: str
     result: dict | None = None
+    artifacts: tuple["ArtifactPayload", ...] = ()
 
     def __post_init__(self):
         if self.state not in {"running", "succeeded", "failed", "cancelled"}:
             raise ValueError("Backend returned an unsupported state")
+
+
+@dataclass(frozen=True)
+class ArtifactPayload:
+    artifact_id: str
+    data: bytes
+    media_type: str
 
 
 class Backend(Protocol):
