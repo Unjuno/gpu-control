@@ -29,7 +29,13 @@ Before connecting ChatGPT, provide all of the following:
 - A stable, reachable HTTPS URL whose `/mcp` route points to this Gateway.
 - A persistent PostgreSQL database migrated with `python -m gpu_gateway.worker --init-db`.
 - An independent worker that can reach the database and the dedicated local Docker
-  host. The API deployment must not receive Docker socket access.
+  host. The API deployment must not receive Docker socket access. The existing
+  `docker-compose.yml` is demo-provider-only; `Dockerfile.worker` has no Docker CLI
+  or daemon connection. For local CPU execution, provision a dedicated trusted
+  worker host, install a compatible Docker CLI, grant only that worker access to
+  its daemon, verify `docker info` and the registered immutable image digest, and
+  keep that daemon separate from public API and untrusted workloads. Docker socket
+  access gives the worker effective host-root authority.
 - A configured authentication path. With external OIDC, configure issuer, JWKS,
   audience/resource, allowed subject, scopes and the MCP client's registration
   method. With built-in single-owner OAuth, bootstrap the owner and verify discovery,
@@ -42,7 +48,10 @@ Before connecting ChatGPT, provide all of the following:
 
 The repository currently has no configured production HTTPS endpoint, PostgreSQL
 service, ChatGPT OAuth client, or deployed worker. Do not enter a local URL or a
-provider secret into ChatGPT to work around those missing prerequisites.
+provider secret into ChatGPT to work around those missing prerequisites. The
+local CPU lane additionally needs a reviewed, expiring operator policy and a
+dedicated worker/daemon; the demo Compose stack is not evidence that lane is
+deployable.
 
 ## Live acceptance sequence
 

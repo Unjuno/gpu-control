@@ -55,6 +55,16 @@ Browser human approval -> /api/approvals+
 Long GPU work never occupies a Vercel request. API requests reserve a durable job;
 worker invocations consume it. The provider owns the GPU process lifetime.
 
+`docker-compose.yml` is a **demo-only** stack: it runs the simulated `demo`
+provider and is not a local CPU execution deployment. `Dockerfile.worker` does
+not include Docker CLI or daemon access. The `local_cpu` backend requires an
+operator-managed worker host with Docker CLI access to a dedicated daemon. Access
+to `/var/run/docker.sock` is effectively host-root authority; if a container is
+used for that worker, grant socket access only on a dedicated trusted host and
+only to the worker. Never mount it into the public API or share that daemon with
+untrusted workloads. The job containers themselves are further restricted, but
+those restrictions do not remove the worker's authority over its daemon.
+
 ## Local installation and tests (no GPU)
 
 From repository root:
@@ -158,6 +168,14 @@ python -m gpu_gateway.worker --poll-seconds 3
 The worker must stay available independently of browser sessions. Shutdown of the
 Web application must not disable worker recovery. A single global admission record
 limits in-flight jobs; an uncertain submission continues holding its slot.
+
+For `local_cpu`, install a Docker CLI compatible with the dedicated worker host's
+daemon and verify that the worker service identity can run `docker info` and
+inspect the exact digest-pinned image before enabling the policy. The API and
+worker must use the same operator-owned workload registry and policy file. Keep
+the policy disabled until the host, workload digest, resource limits, cleanup
+path and zero-provider-charge assumptions have been reviewed. The repository's
+demo Compose stack does not perform these steps and does not validate this path.
 
 ### Modal CPU worker (no new GPU provider required)
 
