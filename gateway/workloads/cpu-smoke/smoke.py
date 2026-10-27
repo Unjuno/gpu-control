@@ -59,7 +59,8 @@ def main():
                          "non_root", "no_secret_environment", "no_docker_socket",
                          "read_only_rootfs", "network_disabled"],
               "checksum": checksum}
-    sys.stdout.write(json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n")
+    report = json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    sys.stdout.write(report.decode("utf-8") + "\n")
     sys.stdout.flush()
 
 

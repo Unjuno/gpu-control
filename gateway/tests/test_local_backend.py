@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import pytest
 
 from gpu_gateway.local_backend import (LocalContainerBackend, container_create_args,
-                                      parse_smoke_result, validate_image_architecture)
+                                      parse_smoke_result,
+                                      validate_image_architecture)
 from gpu_gateway.registry import default_registry
 from gpu_gateway.container_runtime import container_hardening_args
 

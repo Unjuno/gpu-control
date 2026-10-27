@@ -6,11 +6,13 @@ import subprocess
 import sys
 import time
 import uuid
+from dataclasses import replace
 
 import pytest
 from sqlalchemy import update
 
 from gpu_gateway.backends import build_backends
+from gpu_gateway.artifacts import ArtifactStore
 from gpu_gateway.config import Settings, Workload
 from gpu_gateway.admission import evaluate_admission, plan_for_workload
 from gpu_gateway.contracts import plan_fingerprint
@@ -28,6 +30,8 @@ def _docker_ready():
 @pytest.mark.skipif(not os.environ.get("GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST"),
                     reason="prebuilt digest-pinned CPU smoke image is not configured")
 def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_path, monkeypatch):
+    system.settings = replace(system.settings, artifact_dir=str(tmp_path / "artifacts"))
+    system.service.settings = system.settings
     image = os.environ["GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST"]
     now = int(system.clock())
     policy = {"version": "local-cpu-v1", "enabled": True, "valid_until": now + 60,
@@ -46,7 +50,7 @@ def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_p
     system.service.workloads["cpu-smoke-v1"] = workload
     candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
         repository="Unjuno/gpu-control", source_sha="a" * 40,
-        parameters={"iterations": 20_000_000, "seed": 17}, runtime_seconds=30,
+        parameters={"iterations": 1000, "seed": 17}, runtime_seconds=30,
         max_cost_usd="0.00", now=now, policy=policy)
     prepared = system.service.prepare_local(system.owner, candidate, "os-crash-recovery-0001",
         policy, evaluate_admission(candidate, policy, now))
@@ -110,6 +114,12 @@ os._exit(74)
         assert record["result"]["source_sha"] == candidate.source_sha
         assert record["result"]["plan_fingerprint"] == fingerprint
         assert record["cleanup_state"] == "complete"
+        artifact = record["result"]["artifacts"][0]
+        artifact_data = ArtifactStore(system.settings.artifact_dir).get(
+            system.owner.owner, created["id"], artifact["artifact_id"], offset=0,
+            length=24 * 1024, expected_sha256=artifact["sha256"],
+            expected_size=artifact["size_bytes"])
+        assert artifact_data == record["result"]["logs"].encode().rstrip(b"\n")
         assert record["submission_intent"]["phase"] == "handle_persisted"
         assert record["handle"]["container_id"].startswith(found[0]) or found[0].startswith(record["handle"]["container_id"])
         remaining = subprocess.run([docker, "ps", "-aq", "--filter", "label=" + label],

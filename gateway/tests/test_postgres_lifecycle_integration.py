@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import select, update
 
 from gpu_gateway.admission import evaluate_admission, plan_for_workload
+from gpu_gateway.artifacts import ArtifactStore
 from gpu_gateway.backends import build_backends
 from gpu_gateway.config import Settings, Workload
 from gpu_gateway.service import ExperimentService, Principal
@@ -37,7 +38,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
     docker = shutil.which("docker") or "docker"
     pg_container = os.environ["GPU_CONTROL_POSTGRES_CONTAINER"]
     url = os.environ["GATEWAY_TEST_DATABASE_URL"]
-    settings = Settings(database_url=url)
+    settings = Settings(database_url=url, artifact_dir=str(tmp_path / "artifacts"))
     store = Store(url)
     store.initialize()
     scopes = frozenset({"experiments:read", "experiments:run", "experiments:cancel"})
@@ -132,6 +133,13 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
             time.sleep(3.2)
         assert final["state"] in {"succeeded", "failed"}
         assert final["result"]["run_id"] == run_id
+        artifact = final["result"]["artifacts"][0]
+        assert artifact["artifact_id"] == "cpu-smoke-result.json"
+        artifact_data = ArtifactStore(settings.artifact_dir).get(
+            principal.owner, run_id, artifact["artifact_id"], offset=0,
+            length=24 * 1024, expected_sha256=artifact["sha256"],
+            expected_size=artifact["size_bytes"])
+        assert artifact_data == final["result"]["logs"].encode().removesuffix(b"\n")
         assert final["cleanup_state"] == "complete"
         with store.engine.connect() as connection:
             active_after = connection.execute(select(control.c.active_count)).scalar_one()
