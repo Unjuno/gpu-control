@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy import Column, Integer, MetaData, Table, inspect, insert, select, update
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -85,4 +85,12 @@ def migrate(engine) -> int:
                         )
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
             current = 4
+        if current < 5:
+            tables = set(inspect(connection).get_table_names())
+            if "gateway_control_v1" in tables and "supervisor_seen_at" not in _columns(connection, "gateway_control_v1"):
+                connection.exec_driver_sql(
+                    'ALTER TABLE gateway_control_v1 ADD COLUMN "supervisor_seen_at" INTEGER NOT NULL DEFAULT 0'
+                )
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=5))
+            current = 5
     return current

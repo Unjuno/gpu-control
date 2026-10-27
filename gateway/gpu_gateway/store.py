@@ -44,6 +44,7 @@ control = Table(
     Column("id", Integer, primary_key=True),
     Column("active_count", Integer, nullable=False),
     Column("worker_seen_at", Integer, nullable=False),
+    Column("supervisor_seen_at", Integer, nullable=False, default=0, server_default="0"),
 )
 
 
@@ -62,7 +63,8 @@ class Store:
         metadata.create_all(self.engine)
         with self.engine.begin() as connection:
             if connection.execute(select(control.c.id).where(control.c.id == 1)).first() is None:
-                connection.execute(insert(control).values(id=1, active_count=0, worker_seen_at=0))
+                connection.execute(insert(control).values(id=1, active_count=0, worker_seen_at=0,
+                                                         supervisor_seen_at=0))
 
     @contextmanager
     def transaction(self):
@@ -90,6 +92,9 @@ class Store:
             row = connection.execute(select(runs).where(runs.c.id == run_id)).mappings().first()
             return dict(row) if row else None
 
-    def heartbeat(self, now: int):
+    def heartbeat(self, now: int, *, role: str = "worker"):
+        if role not in {"worker", "supervisor"}:
+            raise ValueError("unsupported heartbeat role")
+        field = control.c.worker_seen_at if role == "worker" else control.c.supervisor_seen_at
         with self.transaction() as connection:
-            connection.execute(update(control).where(control.c.id == 1).values(worker_seen_at=now))
+            connection.execute(update(control).where(control.c.id == 1).values({field.key: now}))

@@ -123,12 +123,27 @@ def test_readiness_requires_current_database_migration_worker_and_registry(web):
     assert cold.json()["database"] is True
     assert cold.json()["migration"] is True
     assert cold.json()["worker"] is False
+    assert cold.json()["supervisor"] is False
     assert cold.json()["registry"] is True
     assert cold.json()["authentication"] is True
 
     with web.service.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(worker_seen_at=int(time.time())))
+    worker_only = web.client.get("/readyz")
+    assert worker_only.status_code == 503
+    assert worker_only.json()["worker"] is True
+    assert worker_only.json()["supervisor"] is False
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(supervisor_seen_at=int(time.time())))
     assert web.client.get("/readyz").status_code == 200
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            supervisor_seen_at=int(time.time()) - 16))
+    stale_supervisor = web.client.get("/readyz")
+    assert stale_supervisor.status_code == 503
+    assert stale_supervisor.json()["supervisor"] is False
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(supervisor_seen_at=int(time.time())))
 
     from gpu_gateway.config import Workload
     web.service.workloads["unregistered"] = Workload(provider="ghost")

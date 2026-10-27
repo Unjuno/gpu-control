@@ -1,0 +1,29 @@
+[Unit]
+Description=GPU Control recovery-only supervisor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=gpu-control
+Group=gpu-control
+# This process can recover/cancel tracked resources and thus shares the worker's
+# dedicated Docker trust boundary. It never claims newly queued jobs.
+SupplementaryGroups=docker
+WorkingDirectory=/opt/gpu-control/gateway
+EnvironmentFile=/etc/gpu-control/worker.env
+ExecStart=/opt/gpu-control/venv/bin/python -m gpu_gateway.worker --supervise --poll-seconds 3
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+[Install]
+WantedBy=multi-user.target

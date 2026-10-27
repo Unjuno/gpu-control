@@ -78,10 +78,11 @@ private operations record.
 
 A database restore cannot reconstruct a lost Docker daemon or prove what happened
 to a container on a destroyed worker host. Before planned database recovery,
-stop new submissions and the worker, preserve the worker host/container inventory,
-restore the database, then let an operator reconcile every nonterminal run before
-restarting admissions. Unknown provider outcomes remain unknown; never resubmit
-them automatically. Verify that restored `active_count` agrees with the
+stop new submissions, worker and recovery supervisor; preserve the worker
+host/container inventory; restore the database; then let an operator reconcile
+every nonterminal run before restarting either process or admissions. Unknown
+provider outcomes remain unknown; never resubmit them automatically. Verify that
+restored `active_count` agrees with the
 operator-reviewed run/resource inventory before enabling submissions.
 
 The initial operational target in the roadmap is RPO 24 hours and RTO 2 hours.

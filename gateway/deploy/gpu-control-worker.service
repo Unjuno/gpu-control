@@ -25,7 +25,5 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 LockPersonality=true
 RestrictSUIDSGID=true
-ReadWritePaths=/var/lib/gpu-control
-
 [Install]
 WantedBy=multi-user.target
