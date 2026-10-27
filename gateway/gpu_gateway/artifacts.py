@@ -7,6 +7,7 @@ import re
 import secrets
 import stat
 from pathlib import Path
+from collections.abc import Iterable
 
 from .contracts import ArtifactMetadata
 
@@ -113,3 +114,73 @@ class ArtifactStore:
                 os.close(fd)
             except OSError:
                 pass
+
+    def prune(self, rows: Iterable[dict], *, now: int,
+              orphan_grace_seconds: int = 24 * 3600) -> dict:
+        """Remove expired blobs and old unmanifested files without touching active runs."""
+        if type(now) is not int or type(orphan_grace_seconds) is not int or orphan_grace_seconds < 3600:
+            raise ValueError("invalid artifact pruning clock or grace period")
+        if not self.root.exists():
+            return {"expired_files": 0, "orphan_files": 0, "bytes_removed": 0}
+        if self.root.is_symlink() or not self.root.is_dir():
+            raise ValueError("artifact root must be a real directory")
+
+        active_scopes: set[str] = set()
+        manifests: dict[str, dict[str, int | None]] = {}
+        for row in rows:
+            owner, run_id = row.get("owner"), row.get("id")
+            if not isinstance(owner, str) or not isinstance(run_id, str) or not re.fullmatch(r"[0-9a-f]{32}", run_id):
+                continue
+            scope = self._scope(owner, run_id)
+            if row.get("state") not in {"succeeded", "failed", "cancelled", "expired"}:
+                active_scopes.add(scope)
+            result = row.get("result")
+            items = result.get("artifacts", []) if isinstance(result, dict) else []
+            if not isinstance(items, list):
+                continue
+            values = manifests.setdefault(scope, {})
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                artifact_id, expiry = item.get("artifact_id"), item.get("expires_at")
+                if (isinstance(artifact_id, str) and ARTIFACT_ID.fullmatch(artifact_id) and
+                        (expiry is None or type(expiry) is int)):
+                    values[hashlib.sha256(artifact_id.encode()).hexdigest() + ".blob"] = expiry
+
+        removed_expired = removed_orphan = removed_bytes = 0
+        cutoff = now - orphan_grace_seconds
+        for scope_entry in os.scandir(self.root):
+            if not scope_entry.is_dir(follow_symlinks=False) or not re.fullmatch(r"[0-9a-f]{64}", scope_entry.name):
+                continue
+            scope = scope_entry.name
+            known = manifests.get(scope, {})
+            for file_entry in os.scandir(scope_entry.path):
+                try:
+                    file_stat = file_entry.stat(follow_symlinks=False)
+                    if not stat.S_ISREG(file_stat.st_mode):
+                        continue
+                    if scope in active_scopes:
+                        continue
+                    if file_entry.name in known:
+                        expiry = known[file_entry.name]
+                        if expiry is None or expiry > now:
+                            continue
+                        expired = True
+                    elif file_stat.st_mtime <= cutoff:
+                        expired = False
+                    else:
+                        continue
+                    os.unlink(file_entry.path)
+                    removed_bytes += file_stat.st_size
+                    if expired:
+                        removed_expired += 1
+                    else:
+                        removed_orphan += 1
+                except FileNotFoundError:
+                    continue
+            try:
+                os.rmdir(scope_entry.path)
+            except OSError:
+                pass
+        return {"expired_files": removed_expired, "orphan_files": removed_orphan,
+                "bytes_removed": removed_bytes}
