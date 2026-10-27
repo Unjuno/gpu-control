@@ -12,7 +12,8 @@ import time
 from datetime import datetime
 from decimal import Decimal
 
-from .backends import Observation
+from .artifacts import MAX_ARTIFACT_BYTES
+from .backends import ArtifactPayload, Observation
 from .contracts import ResultV2, plan_fingerprint
 from .container_runtime import container_hardening_args
 
@@ -246,6 +247,15 @@ class LocalContainerBackend:
             parsed = {"simulation": False, "gpu_used": False, "checks": [], "checksum": "",
                       "metrics": {}, "failure_code": "output_truncated" if truncated else "invalid_or_missing_smoke_output"}
             result_state, failure = "failed", parsed["failure_code"]
+        artifacts = ()
+        if result_state == "succeeded":
+            try:
+                report = raw.removesuffix(b"\n")
+                if len(report) > MAX_ARTIFACT_BYTES:
+                    raise ValueError("artifact report exceeds the bounded storage limit")
+                artifacts = (ArtifactPayload("cpu-smoke-result.json", report, "application/json"),)
+            except (ValueError, OSError):
+                result_state, failure = "failed", "artifact_missing_or_invalid"
         result = {"schema_version": 2, "run_id": handle["run_id"],
                   "source_sha": handle["source_sha"], "plan_fingerprint": handle["plan_fingerprint"],
                   "provider": "local_cpu", "simulation": False, "gpu_used": False, "device": "cpu",
@@ -257,7 +267,7 @@ class LocalContainerBackend:
         result = ResultV2.model_validate(result).model_dump(mode="json")
         result.update({"logs": raw.decode("utf-8", "replace"), "logs_truncated": truncated,
                        "failure_code": failure})
-        return Observation(result_state, result)
+        return Observation(result_state, result, artifacts)
 
     def cleanup(self, handle: dict) -> None:
         """Remove only the identity-validated container; absence is the receipt."""
