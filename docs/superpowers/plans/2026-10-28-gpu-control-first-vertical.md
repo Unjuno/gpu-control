@@ -134,9 +134,11 @@ T4 evidence: OrbStack Docker 29.8.2, host/image linux/arm64, image digest `sha25
 - [ ] `test_unrelated_container_is_not_adopted_or_deleted`: 同名でもlabel/identity不一致ならunknown。
 - [ ] `test_cancel_when_new_runs_disabled`: submit後に受付OFF、cancel後に実containerが消え、再cancelは安全。
 - [ ] `test_worker_restart_during_run`: worker終了・再起動後も同run_idで結果取得できる。
-- [ ] `test_result_saved_before_cleanup`と`test_cleanup_failure_holds_slot`: DB/cleanup失敗で結果を捨てず、枠を誤解放しない。
+- [x] `test_result_saved_before_cleanup`と`test_cleanup_failure_holds_slot`: cleanup障害注入で結果保存と枠保持を確認し、新しいWorker instanceが同じrunをcleanup再試行してから枠を解放する。
 - [ ] durable intent、lease fencing、再照合、取消優先処理を実装する。reconcileがstartを呼ぶ実装を実backendに持ち込まない。
 - [ ] `python -m pytest gateway/tests/test_worker_recovery.py gateway/tests/test_local_lifecycle_integration.py -q`。実プロセスを停止する統合試験を実施し証拠を保存してcommitする。
+
+T5 partial evidence: Gateway 190 passed, 4 skipped; real Docker capture/cleanup integration 1 passed; project_control 19 passed. `test_worker_recovery.py` reconstructs a Worker against persisted SQLite state after simulated cleanup failure. Actual OS worker termination, cancel with intake disabled, DB outage windows, lease fencing, and create-before-handle process crash remain open.
 
 ## T6: ChatGPT接続と単一CPU経路の配備
 

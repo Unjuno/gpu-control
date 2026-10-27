@@ -183,21 +183,47 @@ class Worker:
                     return True
                 self.update(job, handle=handle, state="running", error="")
             latest = self.store.read(job["id"])
+            lifecycle_backend = all(callable(getattr(backend, name, None))
+                                    for name in ("capture", "cleanup", "is_clean"))
+            if lifecycle_backend and latest.get("result") is not None and latest.get("cleanup_state") == "pending":
+                backend.cleanup(handle)
+                if not backend.is_clean(handle):
+                    raise RuntimeError("cleanup receipt not confirmed")
+                saved = dict(latest["result"])
+                saved["cleanup_state"] = "complete"
+                intended = (latest.get("error", "").removeprefix("cleanup_pending:")
+                            if isinstance(latest.get("error"), str) else "")
+                if intended not in TERMINAL:
+                    intended = "cancelled" if latest["cancel_requested"] else "failed" if saved.get("exit_code") else "succeeded"
+                self.finish(job, intended, saved)
+                return True
             overdue = now > job["started_at"] + plan["runtime_seconds"] + 60
             cancelling = latest["cancel_requested"] or overdue
             if cancelling:
                 backend.cancel(handle)
-            observation = backend.inspect(handle)
+            observation = backend.capture(handle) if lifecycle_backend else backend.inspect(handle)
             if observation.state == "running":
                 self.update(job, state="running", lease_until=now + 3,
                             error="cancellation_pending" if cancelling else "")
             else:
                 state = "cancelled" if cancelling else observation.state
-                self.finish(job, state, observation.result)
+                if lifecycle_backend and observation.result is not None:
+                    # Persist the terminal evidence before deleting the container.
+                    if not self.update(job, result=observation.result, cleanup_state="pending",
+                                       lease_until=now + 1, error="cleanup_pending:" + state):
+                        raise RuntimeError("worker lease lost before result persistence")
+                    backend.cleanup(handle)
+                    if not backend.is_clean(handle):
+                        raise RuntimeError("cleanup receipt not confirmed")
+                    result = dict(observation.result)
+                    result["cleanup_state"] = "complete"
+                    self.finish(job, state, result)
+                else:
+                    self.finish(job, state, observation.result)
         except Exception:
             # Observability failure does not prove completion and must not free a slot.
             self.update(job, error="provider_observation_or_cleanup_failed", lease_until=now + 10)
-            logger.warning("Observation/recovery needed for run %s", job["id"])
+            logger.exception("Observation/recovery needed for run %s", job["id"])
         return True
 
 

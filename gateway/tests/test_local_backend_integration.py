@@ -71,12 +71,15 @@ def test_real_cpu_smoke_result():
                 result = observation.result
                 assert result["simulation"] is False
                 assert result["gpu_used"] is False
-                assert result["cleanup_state"] == "complete"
+                assert result["cleanup_state"] == "pending"
                 assert result["source_sha"] == plan.source_sha
                 assert result["plan_fingerprint"] == fingerprint
                 assert result["checks"] and result["checksum"]
                 assert {"non_root", "no_secret_environment", "no_docker_socket",
                         "read_only_rootfs", "network_disabled"} <= set(result["checks"])
+                # Capture is durable data; cleanup is a separate idempotent step.
+                backend.cleanup(recovered)
+                assert backend.is_clean(recovered)
                 break
             time.sleep(0.25)
         else:
@@ -102,8 +105,10 @@ def test_real_cpu_smoke_result():
         if observation.state != "running":
             assert observation.state == "failed"
             assert observation.result["exit_code"] == 124
-            assert observation.result["cleanup_state"] == "complete"
             assert observation.result["failure_code"] == "invalid_or_missing_smoke_output"
+            assert observation.result["cleanup_state"] == "pending"
+            backend.cleanup(timeout_handle)
+            assert backend.is_clean(timeout_handle)
             break
         time.sleep(0.1)
     else:

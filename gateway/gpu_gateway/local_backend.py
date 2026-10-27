@@ -205,6 +205,9 @@ class LocalContainerBackend:
                 "source_sha": plan["source_sha"]}
 
     def inspect(self, handle: dict) -> Observation:
+        return self.capture(handle)
+
+    def capture(self, handle: dict) -> Observation:
         if not self._valid_handle(handle):
             raise ValueError("container handle binding failed")
         inspected = self._run(["inspect", handle["container_id"]], timeout=10)
@@ -239,13 +242,6 @@ class LocalContainerBackend:
             parsed = {"simulation": False, "gpu_used": False, "checks": [], "checksum": "",
                       "metrics": {}, "failure_code": "output_truncated" if truncated else "invalid_or_missing_smoke_output"}
             result_state, failure = "failed", parsed["failure_code"]
-        rm_error = None
-        try:
-            self._run(["rm", handle["container_id"]], timeout=15)
-        except Exception:
-            rm_error = "container_cleanup_pending"
-        if rm_error:
-            raise RuntimeError(rm_error)
         result = {"schema_version": 2, "run_id": handle["run_id"],
                   "source_sha": handle["source_sha"], "plan_fingerprint": handle["plan_fingerprint"],
                   "provider": "local_cpu", "simulation": False, "gpu_used": False, "device": "cpu",
@@ -253,11 +249,38 @@ class LocalContainerBackend:
                   "runtime_seconds": max(0, finished - started) if started and finished else None,
                   "metrics": parsed["metrics"], "checks": parsed["checks"], "checksum": parsed["checksum"] or None,
                   "artifacts": [], "known_cost_usd": Decimal("0"), "cost_classification": "LOCAL",
-                  "cleanup_state": "complete"}
+                  "cleanup_state": "pending"}
         result = ResultV2.model_validate(result).model_dump(mode="json")
         result.update({"logs": raw.decode("utf-8", "replace"), "logs_truncated": truncated,
                        "failure_code": failure})
         return Observation(result_state, result)
+
+    def cleanup(self, handle: dict) -> None:
+        """Remove only the identity-validated container; absence is the receipt."""
+        if not self._valid_handle(handle):
+            raise ValueError("container handle binding failed")
+        result = subprocess.run([self.docker, "rm", "--force", handle["container_id"]],
+                               capture_output=True, timeout=15, env=self._docker_env())
+        if result.returncode != 0:
+            # Docker returns nonzero when already absent; verify absence explicitly.
+            inspected = subprocess.run([self.docker, "inspect", handle["container_id"]],
+                                       capture_output=True, timeout=10, env=self._docker_env())
+            if inspected.returncode == 0 or b"no such object" not in inspected.stderr.lower():
+                raise RuntimeError("container cleanup is still pending")
+
+    def is_clean(self, handle: dict) -> bool:
+        if not self._valid_handle(handle):
+            raise ValueError("container handle binding failed")
+        inspected = subprocess.run([self.docker, "inspect", handle["container_id"]],
+                                   capture_output=True, timeout=10, env=self._docker_env())
+        if inspected.returncode == 0:
+            try:
+                return json.loads(inspected.stdout) == []
+            except (ValueError, TypeError):
+                return False
+        if b"no such object" in inspected.stderr.lower():
+            return True
+        raise RuntimeError("Docker cannot confirm container absence")
 
     def cancel(self, handle: dict) -> None:
         if not self._valid_handle(handle):
