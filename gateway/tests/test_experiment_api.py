@@ -51,7 +51,7 @@ def test_prepare_blocks_unregistered_or_unsafe_backend_without_creating_run(syst
             "parameters": {}, "max_cost_usd": "0.00", "requires_gpu": False,
             "idempotency_key": "cpu-plan-0001"}
     result = invoke(system.service, system.owner, "experiment_prepare", args)
-    assert result["blocking_reason"] == "LOCAL_CPU_ADMISSION_UNAVAILABLE"
+    assert result["blocking_reason"] == "POLICY_DISABLED"
     with system.store.engine.connect() as connection:
         assert connection.execute(select(runs.c.id)).first() is None
 

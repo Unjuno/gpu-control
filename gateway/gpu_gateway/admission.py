@@ -3,7 +3,11 @@
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+from .contracts import CostEvidence, PlanV2
 
 
 @dataclass(frozen=True)
@@ -13,6 +17,40 @@ class AdmissionDecision:
     blocking_reason: str | None
     policy_digest: str
     valid_until: int | None
+
+
+def load_local_cpu_policy(path: str | None = None) -> dict:
+    """Read only an operator-selected local policy file; never accept tool paths."""
+    selected = path or os.environ.get("GATEWAY_LOCAL_CPU_POLICY_FILE")
+    if selected is None:
+        selected = str(Path(__file__).resolve().parent.parent / "policies" / "local-cpu.json")
+    value = json.loads(Path(selected).read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("local CPU policy must be a JSON object")
+    return value
+
+
+def plan_for_workload(*, workload_name: str, workload_manifest: dict, repository: str,
+                      source_sha: str, parameters: dict, runtime_seconds: int,
+                      max_cost_usd: str, now: int, policy: dict) -> PlanV2:
+    """Bind caller inputs to the exact operator manifest before policy evaluation."""
+    manifest_json = json.dumps(workload_manifest, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    manifest_digest = hashlib.sha256(manifest_json.encode()).hexdigest()
+    profile = workload_manifest["execution_profile"]
+    return PlanV2(
+        schema_version=2, repository=repository, source_sha=source_sha,
+        workload=workload_name, workload_manifest_digest=manifest_digest,
+        image_digest=workload_manifest["image_digest"], parameters=parameters,
+        provider=workload_manifest["provider"],
+        device_requirement={"kind": "cpu", "requires_gpu": False, "profile": profile},
+        runtime_seconds=runtime_seconds, max_cost_usd=Decimal(max_cost_usd),
+        cost_evidence=CostEvidence(
+            classification="LOCAL", additional_cost_usd=Decimal("0"),
+            reference="operator-managed-local-host-no-provider-charge",
+            observed_at=now, expires_at=policy.get("valid_until"),
+        ),
+        authorization_policy_version=policy.get("version", ""),
+    )
 
 
 def evaluate_admission(plan, policy, now: int) -> AdmissionDecision:

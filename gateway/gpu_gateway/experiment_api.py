@@ -11,6 +11,7 @@ from sqlalchemy import and_, or_, select
 
 from .service import ExperimentService, GatewayError, Prepare, Principal
 from .store import runs
+from .admission import evaluate_admission, load_local_cpu_policy, plan_for_workload
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 STATE_SUMMARY = {
@@ -184,16 +185,39 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                 return _envelope(status="blocked", summary="GPU必須workloadをCPUへfallbackすることはできません。対応するGPU実行経路がありません。",
                                  machine_state={"requires_gpu": True, "provider": workload.provider},
                                  next_actions=["experiment_capabilities"], blocker="GPU_BACKEND_UNAVAILABLE")
-            # The local CPU admission policy/backend is introduced in T3/T4. Until
-            # then do not create a plan, queue entry, or paid-provider request.
             if workload.provider != "local_cpu":
                 return _envelope(status="blocked", summary="現在、free_firstで実行できるCPU backendが有効ではありません。",
                                  machine_state={"provider": workload.provider},
                                  next_actions=["retry_later", "experiment_capabilities"],
                                  blocker="LOCAL_CPU_BACKEND_UNAVAILABLE")
-            return _envelope(status="blocked", summary="このlocal CPU workloadは admission policyの実装待ちです。",
-                             machine_state={"provider": workload.provider},
-                             next_actions=["retry_later"], blocker="LOCAL_CPU_ADMISSION_UNAVAILABLE")
+            try:
+                policy = load_local_cpu_policy()
+                plan = plan_for_workload(workload_name=request.workload,
+                    workload_manifest=workload.model_dump(mode="json"),
+                    repository=request.repository, source_sha=request.commit,
+                    parameters=request.parameters, runtime_seconds=request.runtime_seconds,
+                    max_cost_usd=request.max_cost_usd, now=int(service.clock()), policy=policy)
+                decision = evaluate_admission(plan, policy, int(service.clock()))
+            except (OSError, ValueError, TypeError):
+                return _envelope(status="blocked", summary="local CPU policyを安全に読み取れませんでした。",
+                                 machine_state={}, next_actions=["retry_later"],
+                                 blocker="LOCAL_CPU_POLICY_INVALID")
+            if not decision.allowed:
+                return _envelope(status="blocked", summary="operatorのlocal CPU admission policyがこのplanを許可しません。",
+                                 machine_state={"policy_version": policy.get("version"),
+                                                "policy_digest": decision.policy_digest,
+                                                "valid_until": decision.valid_until},
+                                 next_actions=["experiment_capabilities"],
+                                 blocker=decision.blocking_reason)
+            registration = service.registry.get("local_cpu")
+            if registration is None or not registration.enabled(service.settings):
+                return _envelope(status="blocked", summary="local CPU worker backendが登録・有効化されていません。",
+                                 machine_state={"policy_digest": decision.policy_digest},
+                                 next_actions=["retry_later"], blocker="LOCAL_CPU_BACKEND_UNAVAILABLE")
+            return _envelope(status="blocked", summary="local CPU admissionは通過しましたが、plan永続化経路がまだありません。",
+                             machine_state={"policy_digest": decision.policy_digest,
+                                            "valid_until": decision.valid_until},
+                             next_actions=["retry_later"], blocker="LOCAL_CPU_PLAN_PERSISTENCE_UNAVAILABLE")
 
         if name == "experiment_submit":
             request = SubmitInput.model_validate(arguments)
