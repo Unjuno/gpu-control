@@ -24,6 +24,8 @@ The project is **usable today for offline validation and control-plane developme
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
+| Remote MCP Gateway and built-in OAuth discovery | Deployed on Vercel; ChatGPT connection not accepted |
+| Registered CPU experiment through ChatGPT | Implemented and locally exercised on this branch; not deployed or ChatGPT-verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
 | Synthetic provider/controller self-test | Ready |
@@ -33,7 +35,7 @@ The project is **usable today for offline validation and control-plane developme
 | Authenticated Orbitune completion/result parsing | Ready offline |
 | Orbitune paid-canary result acceptance | Ready offline |
 | Generic external Dockerfile execution | Not enabled |
-| Structured exact human authorization for live execution | Partial; runtime binding still required |
+| Structured exact human authorization for paid live execution | Partial; runtime binding still required |
 | Production RunPod authenticated result transport | Blocked pending a verified supported transport |
 | Paid RunPod workflow | Not present |
 | Live paid GPU execution | Disabled / parked |
