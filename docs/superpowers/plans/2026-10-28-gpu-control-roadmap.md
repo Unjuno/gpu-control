@@ -74,7 +74,7 @@ P0 現行基準・接続条件確認
 
 この計画は長期目標を示す。以下の現状スナップショットと未解決ゲートを更新してからLunaへ渡し、各段階の受入条件を満たす順に実装する。
 
-- GitHub `main`: `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`。Draft PR #51 `codex/chatgpt-cpu-vertical` はhead `c1541a829825ef627cddd86cb81efd36a2d2ed5a`、120 files、4 GitHub Actions checks success、Vercel preview success、reviewは未着。PR #43は別のDraft監査PRとして存在する。
+- GitHub `main`: `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`。Draft PR #51 `codex/chatgpt-cpu-vertical` はhead `89ea42efd45154e832858d14293cd29bb66cab41`、120 files、4 GitHub Actions checks success、Vercel preview READY、reviewは未着。PR #43は別のDraft監査PRとして存在する。
 - ローカル証拠: P1のT1-T5 CPU lifecycleとHTTP/MCPを通した実Docker実行、P2のrecovery/paired backup restore、およびP4のoffline capability/selection契約が実装・限定scopeで検証済み。これらは実ChatGPT受入、production復旧、GPU実行を意味しない。
 - 公開先: Vercel `gpu-control` の最新READY production buildは上記main SHAのまま。2026-10-28の公開alias確認は `/healthz=200`, `/readyz=404`, 未認証`/mcp=401`。P1実装は未公開。Vercel projectのroot外source include設定と実buildも未確認。
 - 運用先: P3 decisionは専用Linux + systemd API/worker/recovery + managed Neon + 固定artifact filesystem + TLS proxy。ホスト/provider、region、公開HTTPS origin、月額cost ceilingは未決であり、購入・本番変更は未承認。Neon production schemaは未移行で、既存OAuth admin/session stateを保全する必要がある。

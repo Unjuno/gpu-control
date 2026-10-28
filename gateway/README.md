@@ -100,10 +100,11 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    **Include source files outside of the Root Directory in the Build Step**:
    `requirements.txt` installs the shared `gpu-control` package from `..`, and
    its Python source lives in the repository-level `src/` directory. The
-   project's setting value was not inspected directly; however, the Vercel
-   preview for PR #51 built this exact branch to READY, confirming that this
-   source/package path worked for that build. Recheck after changing project
-   Root Directory, build settings, or package layout.
+   project's setting value was not inspected directly; however, Vercel preview
+   deployment `dpl_8297EDuZphLShPAUgHqW8qjmLUCJ` built PR #51 head `89ea42e` to
+   READY, confirming that this source/package path worked for that build.
+   Recheck after changing project Root Directory, build settings, or package
+   layout.
 2. Provision a PostgreSQL database (any compatible provider), preferably using its
    connection pooler/TLS endpoint. Use a distinct DB for Preview and Production.
 3. Set gateway configuration from `.env.example` in Vercel project settings. Set
