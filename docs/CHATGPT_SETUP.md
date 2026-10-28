@@ -84,6 +84,12 @@ Before connecting ChatGPT, provide all of the following:
   privately, then verify discovery, client registration, PKCE, token refresh and
   revocation against the live client. Do not retain the setup URL in shell history,
   CI output or deployment logs; it is a credential until consumed or expired.
+- Hosted DCR currently accepts only ChatGPT's canonical HTTPS redirect forms:
+  `https://chatgpt.com/connector/oauth/{callback_id}` and
+  `https://chatgpt.com/connector_platform_oauth_redirect`. The callback-ID form
+  is restricted to one URL-safe segment, without a query string; subdomains,
+  lookalike hosts, and other paths are rejected. ChatGPT advises copying the
+  exact production redirect URI from the MCP server management page.
 - Built-in OAuth must show an owner consent page naming the registered client,
   requested scopes, and redirect destination. Authorization-code issuance must
   require the owner's CSRF-protected POST; visiting `/oauth/authorize` by GET

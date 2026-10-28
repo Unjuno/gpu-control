@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -227,12 +228,22 @@ class LocalOAuth:
             p = urlsplit(uri)
         except ValueError:
             raise GatewayError("invalid_client_metadata", "Invalid redirect URI", 400)
-        host = (p.hostname or "").lower()
-        if p.fragment or p.username or p.password:
+        if p.fragment or p.username or p.password or not uri.isascii():
             raise GatewayError("invalid_client_metadata", "Invalid redirect URI", 400)
-        trusted = host == "chatgpt.com" or host.endswith(".chatgpt.com") or host == "openai.com" or host.endswith(".openai.com")
+        host = (p.hostname or "").lower()
+        stable_chatgpt_callback = (
+            p.scheme == "https" and p.netloc == "chatgpt.com" and not p.query and
+            p.path == "/connector_platform_oauth_redirect"
+        )
+        callback_id = p.path.removeprefix("/connector/oauth/")
+        callback_id_chatgpt_callback = (
+            p.scheme == "https" and p.netloc == "chatgpt.com" and not p.query and
+            p.path.startswith("/connector/oauth/") and
+            bool(re.fullmatch(r"[A-Za-z0-9._~+-]{1,200}", callback_id)) and
+            callback_id not in {".", ".."}
+        )
         local = host in {"localhost", "127.0.0.1", "::1"} and p.scheme == "http" and not self.settings.hosted
-        if not ((p.scheme == "https" and trusted) or local):
+        if not (stable_chatgpt_callback or callback_id_chatgpt_callback or local):
             raise GatewayError("invalid_client_metadata", "OAuth redirect host is not allowed", 400)
         return uri
 

@@ -147,7 +147,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
 
     registered = client.post("/oauth/register", json={
         "client_name": "ChatGPT test",
-        "redirect_uris": ["https://chatgpt.com/oauth/callback/test"],
+        "redirect_uris": ["https://chatgpt.com/connector/oauth/cb_123-test"],
         "token_endpoint_auth_method": "none",
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
@@ -159,7 +159,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     params = {
         "response_type": "code",
         "client_id": client_id,
-        "redirect_uri": "https://chatgpt.com/oauth/callback/test",
+        "redirect_uri": "https://chatgpt.com/connector/oauth/cb_123-test",
         "scope": "experiments:read offline_access",
         "resource": settings.resource,
         "state": "state-1",
@@ -250,7 +250,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
 
     other_client = client.post("/oauth/register", json={
         "client_name": "Other MCP client",
-        "redirect_uris": ["https://chatgpt.com/oauth/callback/other"],
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
     }).json()["client_id"]
     wrong_client_revoke = client.post("/oauth/revoke", data={
         "client_id": other_client,
@@ -320,17 +320,24 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
     auth.local.bootstrap_admin("bootstrap-secret", "correct horse battery staple")
     client = TestClient(create_app(settings, service=service, auth=auth), base_url="https://gateway.example")
 
-    bad = client.post("/oauth/register", json={"redirect_uris":["https://attacker.example/callback"]})
-    assert bad.status_code == 400
+    for redirect_uri in (
+        "https://attacker.example/callback",
+        "https://evil.chatgpt.com/connector_platform_oauth_redirect",
+        "https://openai.com/connector_platform_oauth_redirect",
+        "https://chatgpt.com.evil.example/connector_platform_oauth_redirect",
+        "https://chatgpt.com/connector/oauth/callback?next=https://attacker.example",
+    ):
+        bad = client.post("/oauth/register", json={"redirect_uris":[redirect_uri]})
+        assert bad.status_code == 400, redirect_uri
 
-    registered = client.post("/oauth/register", json={"redirect_uris":["https://chatgpt.com/oauth/callback/test"]})
+    registered = client.post("/oauth/register", json={"redirect_uris":["https://chatgpt.com/connector/oauth/callback-123"]})
     client_id = registered.json()["client_id"]
     login = client.post("/auth/login", data={"password":"correct horse battery staple","next":"/"}, follow_redirects=False)
     assert login.status_code == 303
     verifier = secrets.token_urlsafe(48)
     params = {
         "response_type":"code", "client_id":client_id,
-        "redirect_uri":"https://chatgpt.com/oauth/callback/test",
+        "redirect_uri":"https://chatgpt.com/connector/oauth/callback-123",
         "scope":"experiments:read", "resource":settings.resource,
         "code_challenge":challenge(verifier), "code_challenge_method":"S256",
     }

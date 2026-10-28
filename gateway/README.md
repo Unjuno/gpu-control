@@ -176,6 +176,14 @@ refresh starts a new tracked family. The local protocol tests do not establish
 compatibility with a live ChatGPT workspace; complete the account-specific
 acceptance before claiming connectivity.
 
+Hosted DCR accepts only ChatGPT's documented HTTPS callback forms:
+`https://chatgpt.com/connector/oauth/{callback_id}` and
+`https://chatgpt.com/connector_platform_oauth_redirect`. Callback IDs must be a
+single URL-safe path segment; query strings, subdomains, lookalike hosts, and
+other redirect paths are rejected. Plain HTTP loopback callbacks remain
+available only when the Gateway is not hosted. Copy the exact callback URI
+shown by ChatGPT's MCP server management page when validating a live connection.
+
 For Web login, separately configure an OAuth/OIDC client with authorization-code
 flow, PKCE S256 and the exact callback `https://YOUR_HOST/auth/callback`. The token
 endpoint must support the configured public client or `client_secret_basic`.
