@@ -2,10 +2,15 @@ name: Gateway comment bridge tests
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
       - 'gateway/**'
+      - 'src/gpu_control/**'
+      - 'pyproject.toml'
+      - 'README.md'
       - '.github/workflows/gateway-comments.yml'
       - '.github/workflows/gateway-bridge-ci.yml'
 
