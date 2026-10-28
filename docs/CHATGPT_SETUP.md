@@ -60,13 +60,28 @@ verify restore, and run the reviewed migration through the manual migration
 unit while application services are stopped. Keep ChatGPT disconnected until
 the new schema and both worker heartbeats pass `/readyz`.
 
-The production alias `gpu-control.vercel.app` was previously observed serving
-an older `main` revision (`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`) without
-`/readyz`; those earlier production observations do not establish current
-deployment state. Vercel environment-variable metadata was not inspected, and
-no credentials were read. No ChatGPT OAuth flow or tool scan has been
-performed. Recheck the chosen stable endpoint after provisioning and deploying
-the reviewed revision; require `/readyz`=200 before connecting ChatGPT.
+### Current production alias checks (2026-10-28)
+
+Vercel reports the production alias is served by deployment
+`dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ`, target `production`, built from `main` SHA
+`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. Direct read-only requests observed:
+
+- `/healthz` returns 200 with `configured=true`, `auth_configured=true`, and
+  `auth_mode=local_oauth`.
+- OAuth protected-resource and authorization-server discovery return 200 and
+  advertise the production `/mcp` resource, authorization-code + refresh-token
+  grants, PKCE S256, and the `offline_access` scope.
+- Unauthenticated `GET /mcp` returns 401 with the advertised bearer metadata
+  challenge. This verifies the unauthenticated boundary only; no OAuth grant or
+  ChatGPT connection was exercised.
+- `/readyz` returns 404 because this production revision predates the readiness
+  route and the reviewed local CPU Gateway vertical.
+
+The production alias has configured OAuth, but readiness, database migration,
+worker/supervisor availability, CPU registry, and ChatGPT tool execution remain
+unverified. Vercel environment-variable metadata was not inspected and no
+credentials were read. Recheck `/readyz` on the reviewed deployment and require
+200 before connecting ChatGPT.
 
 Before connecting ChatGPT, provide all of the following:
 
