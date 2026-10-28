@@ -35,12 +35,16 @@ and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secu
 
 ### Latest observed preview state (2026-10-28)
 
-The PR #51 Vercel preview build is READY, but this only confirms a successful
-build/deployment. Its latest runtime checks returned `/healthz`=200 with
-`configured=false` and `auth_configured=false`, and `/readyz`=503 because the
-database, migration, worker, recovery supervisor, registry and authentication
-are unavailable or unconfigured. It is not ready for ChatGPT connection or
-experiment execution.
+The PR #51 Vercel preview for head `4d59cda9055a09f789c3728f146e4ec977c9d9eb`
+is READY (`dpl_H7KjEKt2ydSmgU7dCdKwbG4gQRLA`, target `null`). This confirms a
+successful preview build/deployment, not a production deployment. Its unique
+deployment URL is SSO-protected, so runtime checks were not repeated for this
+revision. On the preceding PR preview, `/healthz` returned 200 with
+`configured=false` and `auth_configured=false`, and `/readyz` returned 503
+because the database, migration, worker, recovery supervisor, registry and
+authentication were unavailable or unconfigured. Until a current stable
+endpoint returns `/readyz`=200, the service is not ready for ChatGPT connection
+or experiment execution.
 
 The production alias `gpu-control.vercel.app` was previously observed serving
 an older `main` revision (`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`) without
