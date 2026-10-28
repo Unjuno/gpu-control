@@ -103,9 +103,10 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    project's setting value was not inspected directly. Preview deployment
    `dpl_8297EDuZphLShPAUgHqW8qjmLUCJ` reached build READY at head `89ea42e`, but
    its `/healthz` runtime returned `FUNCTION_INVOCATION_FAILED` because the root
-   `gpu_control` package was absent. The runtime dependency is now declared as
-   a local uv source in `pyproject.toml`; verify the new preview's `/healthz`
-   before treating this deployment path as operational.
+   `gpu_control` package was absent. The runtime dependency is declared as a
+   local uv source in `pyproject.toml`; preview deployment for `e67eb72` now
+   returns HTTP 200 from `/healthz`. It reports `configured=false`, so this
+   verifies package imports and liveness only, not database or OAuth readiness.
    Recheck after changing project Root Directory, build settings, or package
    layout.
 2. Provision a PostgreSQL database (any compatible provider), preferably using its
