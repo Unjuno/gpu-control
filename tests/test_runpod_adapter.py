@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+import gpu_control.providers.runpod_adapter as runpod_adapter_module
 
 from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.human_authorization import LiveExecutionPermit
@@ -197,6 +199,44 @@ def test_live_execution_permit_is_rechecked_at_submit_time() -> None:
     with pytest.raises(RunPodV2AdapterError, match="expired before provider submission"):
         runpod.submit(value)
     assert occupancy.calls == 0
+    assert client.create_calls == 0
+
+
+def test_live_permit_and_pricing_are_rechecked_after_occupancy_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    value = plan()
+    runpod, client, _occupancy = adapter(value)
+    now = [SUBMITTED_AT + timedelta(seconds=1)]
+    runpod = replace(runpod, clock=lambda: now[0])
+    original_builder = runpod_adapter_module.build_priced_create_pod_payload
+
+    def expire_before_provider_create(*args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = original_builder(*args, **kwargs)
+        now[0] = datetime(2026, 8, 22, 16, 3, tzinfo=timezone.utc)
+        return payload
+
+    monkeypatch.setattr(runpod_adapter_module, "build_priced_create_pod_payload", expire_before_provider_create)
+
+    with pytest.raises(RunPodV2AdapterError, match="pricing evidence expired"):
+        runpod.submit(value)
+    assert client.create_calls == 0
+
+
+def test_occupancy_evidence_is_rechecked_after_payload_preparation(monkeypatch: pytest.MonkeyPatch) -> None:
+    value = plan()
+    runpod, client, _occupancy = adapter(value)
+    now = [SUBMITTED_AT + timedelta(seconds=1)]
+    runpod = replace(runpod, clock=lambda: now[0])
+    original_builder = runpod_adapter_module.build_priced_create_pod_payload
+
+    def expire_occupancy(*args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = original_builder(*args, **kwargs)
+        now[0] = SUBMITTED_AT + timedelta(seconds=60)
+        return payload
+
+    monkeypatch.setattr(runpod_adapter_module, "build_priced_create_pod_payload", expire_occupancy)
+
+    with pytest.raises(RunPodV2AdapterError, match="occupancy evidence expired"):
+        runpod.submit(value)
     assert client.create_calls == 0
 
 

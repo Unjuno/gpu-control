@@ -6,7 +6,7 @@ def test_provider_contract_self_test_does_not_use_github_network(monkeypatch) ->
     def fail_network(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("offline provider self-test attempted network access")
 
-    monkeypatch.setattr(source_module, "urlopen", fail_network)
+    monkeypatch.setattr(source_module, "_open_github_url", fail_network)
 
     result = run_provider_contract_self_test()
 

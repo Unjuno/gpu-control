@@ -94,6 +94,13 @@ class RunPodCatalogPricingEvidence:
         if self.valid_until_utc != plan.pricing_valid_until_utc:
             raise RunPodV2Error("RunPod catalog validity window does not match approved plan")
 
+    def validate_fresh(self, *, now_utc: datetime) -> None:
+        self.validate_shape()
+        now = _parse_utc(_format_utc(now_utc), "now_utc")
+        valid_until = _parse_utc(self.valid_until_utc, "valid_until_utc")
+        if now >= valid_until:
+            raise RunPodV2Error("RunPod catalog pricing evidence expired before provider submission")
+
 
 def _parse_utc(value: str, field: str) -> datetime:
     if not isinstance(value, str) or not value.strip():

@@ -18,8 +18,8 @@ class FakeResponse:
     def __exit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
         return False
 
-    def read(self) -> bytes:
-        return self._raw
+    def read(self, size: int = -1) -> bytes:
+        return self._raw if size < 0 else self._raw[:size]
 
 
 def test_list_pods_uses_fixed_v2_full_account_endpoint_without_filters() -> None:

@@ -91,15 +91,15 @@ class RunPodV1Adapter(RunPodV2Adapter):
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV1AdapterError(str(exc)) from exc
 
-    def _require_plan_identity(self, plan: ApprovedExecutionPlan) -> None:
-        super()._require_plan_identity(plan)
+    def _require_plan_identity(self, plan: ApprovedExecutionPlan, *, now_utc: datetime | None = None) -> None:
+        super()._require_plan_identity(plan, now_utc=now_utc)
         assert self.current_pricing is not None
         assert self.network_volume is not None
         try:
             self.current_pricing.validate_against_plan(
                 plan,
                 network_volume=self.network_volume,
-                now_utc=self.clock(),
+                now_utc=self.clock() if now_utc is None else now_utc,
             )
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV1AdapterError(str(exc)) from exc
@@ -108,7 +108,7 @@ class RunPodV1Adapter(RunPodV2Adapter):
         """Submit exactly once through current REST v1 after fresh price/stock checks."""
 
         self._require_plan_identity(plan)
-        self._probe_before_create(plan)
+        occupancy_evidence = self._probe_before_create(plan)
         payload = build_create_pod_payload_v1(
             plan,
             self.published_image,
@@ -117,6 +117,15 @@ class RunPodV1Adapter(RunPodV2Adapter):
             completion=self.completion_launch,
             network_volume=self.network_volume,
         )
+
+        # Recheck authorization, current price/stock evidence, and account state
+        # after payload preparation and immediately before provider allocation.
+        create_checked_at = self.clock()
+        self._require_plan_identity(plan, now_utc=create_checked_at)
+        try:
+            occupancy_evidence.validate_before_create(plan, now_utc=create_checked_at)
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV1AdapterError(str(exc)) from exc
 
         try:
             pod = self.client.create_pod(payload)
