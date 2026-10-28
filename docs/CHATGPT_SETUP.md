@@ -33,23 +33,22 @@ and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secu
 
 ## Required deployment state
 
-### Observed Vercel deployment (2026-10-28)
+### Latest observed preview state (2026-10-28)
 
-The `gpu-control.vercel.app` alias currently reaches a configured Gateway
-deployment. Read-only checks observed `/healthz` returning `configured=true` and
-`auth_configured=true` in built-in OAuth mode; protected-resource and
-authorization-server discovery advertise `https://gpu-control.vercel.app/mcp`,
-PKCE S256, refresh tokens, and `offline_access`. An unauthenticated MCP request
-returns 401, as expected before authorization.
+The PR #51 Vercel preview build is READY, but this only confirms a successful
+build/deployment. Its latest runtime checks returned `/healthz`=200 with
+`configured=false` and `auth_configured=false`, and `/readyz`=503 because the
+database, migration, worker, recovery supervisor, registry and authentication
+are unavailable or unconfigured. It is not ready for ChatGPT connection or
+experiment execution.
 
-This is not the reviewed CPU vertical deployment. Vercel reports the production
-deployment is built from `main` SHA
-`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; that revision has no `/readyz`
-route, and a direct request returned 404. The unique deployment URL redirects
-to Vercel SSO. The Vercel integration denied access to environment-variable
-metadata (403), so database, OAuth bootstrap and other environment settings
-were not inspected. No credentials were read, and no ChatGPT OAuth flow or tool
-scan was performed.
+The production alias `gpu-control.vercel.app` was previously observed serving
+an older `main` revision (`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`) without
+`/readyz`; those earlier production observations do not establish current
+deployment state. Vercel environment-variable metadata was not inspected, and
+no credentials were read. No ChatGPT OAuth flow or tool scan has been
+performed. Recheck the chosen stable endpoint after provisioning and deploying
+the reviewed revision; require `/readyz`=200 before connecting ChatGPT.
 
 Before connecting ChatGPT, provide all of the following:
 
