@@ -166,8 +166,8 @@ class Response:
     def __exit__(self, *args):  # type: ignore[no-untyped-def]
         return False
 
-    def read(self) -> bytes:
-        return self._payload
+    def read(self, size: int = -1) -> bytes:
+        return self._payload if size < 0 else self._payload[:size]
 
 
 def test_pricing_client_uses_fixed_graphql_origin_bearer_header_and_exact_queries() -> None:

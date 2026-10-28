@@ -245,8 +245,8 @@ class FakeResponse:
     def __exit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
         return False
 
-    def read(self) -> bytes:
-        return self._raw
+    def read(self, size: int = -1) -> bytes:
+        return self._raw if size < 0 else self._raw[:size]
 
 
 def test_http_client_uses_fixed_origin_bearer_auth_and_v2_paths() -> None:

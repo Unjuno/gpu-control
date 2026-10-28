@@ -8,10 +8,11 @@ import re
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from ..completion import CompletionChallenge, CompletionEvidenceError
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
+from ..http_security import open_no_redirect, read_bounded
 from ..lifecycle import JobState
 
 
@@ -21,6 +22,7 @@ _IMAGE_REFERENCE_RE = re.compile(
     r"^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$"
 )
 _ALLOWED_CLOUDS = {"SECURE", "COMMUNITY"}
+_MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 class RunPodV2Error(RuntimeError):
@@ -226,7 +228,7 @@ class RunPodV2HttpClient:
         api_key: str,
         *,
         timeout: float = 10.0,
-        opener: Callable[..., Any] = urlopen,
+        opener: Callable[..., Any] | None = None,
     ) -> None:
         if not isinstance(api_key, str) or not api_key.strip():
             raise RunPodV2Error("RunPod API key is required")
@@ -236,7 +238,9 @@ class RunPodV2HttpClient:
             raise RunPodV2Error("RunPod HTTP timeout must be positive")
         self._api_key = api_key
         self._timeout = timeout
-        self._opener = opener
+        if opener is not None and not callable(opener):
+            raise RunPodV2Error("RunPod HTTP opener must be callable")
+        self._opener = opener or open_no_redirect
 
     def _request(
         self,
@@ -261,11 +265,11 @@ class RunPodV2HttpClient:
         try:
             with self._opener(request, timeout=self._timeout) as response:
                 status = getattr(response, "status", None)
-                raw = response.read()
+                raw = read_bounded(response, max_bytes=_MAX_API_RESPONSE_BYTES)
         except HTTPError as exc:
             detail = ""
             try:
-                payload = json.loads(exc.read().decode("utf-8"))
+                payload = json.loads(read_bounded(exc, max_bytes=_MAX_API_RESPONSE_BYTES).decode("utf-8"))
                 if isinstance(payload, dict) and isinstance(payload.get("detail"), str):
                     detail = f": {payload['detail']}"
             except Exception:
@@ -273,6 +277,8 @@ class RunPodV2HttpClient:
             raise RunPodV2Error(f"RunPod API returned HTTP {exc.code}{detail}") from exc
         except URLError as exc:
             raise RunPodV2Error("RunPod API could not be reached") from exc
+        except ValueError as exc:
+            raise RunPodV2Error(f"RunPod API response was rejected: {exc}") from exc
 
         if status != expected_status:
             raise RunPodV2Error(f"RunPod API returned unexpected HTTP status {status}")

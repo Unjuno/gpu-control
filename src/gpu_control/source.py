@@ -6,12 +6,20 @@ import os
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
+from .http_security import NoRedirectHandler as _NoRedirectHandler
+from .http_security import open_no_redirect, read_bounded
 from .validation import WorkloadRequest
 
 
 _GITHUB_API = "https://api.github.com"
+MAX_GITHUB_RESPONSE_BYTES = 2 * 1024 * 1024
+
+
+def _open_github_url(request: Request, *, timeout: float):
+    """Open fixed-origin GitHub API requests without following redirects."""
+    return open_no_redirect(request, timeout=timeout)
 
 
 class SourceVerificationError(RuntimeError):
@@ -39,8 +47,12 @@ def _get_json(url: str, *, token: str | None, timeout: float) -> Any:
 
     request = Request(url, headers=headers, method="GET")
     try:
-        with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed HTTPS API origin
-            return json.load(response)
+        with _open_github_url(request, timeout=timeout) as response:
+            try:
+                raw = read_bounded(response, max_bytes=MAX_GITHUB_RESPONSE_BYTES)
+            except ValueError as exc:
+                raise SourceVerificationError(f"GitHub API response {exc}") from exc
+            return json.loads(raw.decode("utf-8"))
     except HTTPError as exc:
         if exc.code == 404:
             raise SourceVerificationError("GitHub source object was not found") from exc
