@@ -237,9 +237,18 @@ def test_vercel_neon_standard_env_fallback(monkeypatch):
     monkeypatch.setenv("VERCEL", "1")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@example.neon.tech/db?sslmode=require")
     monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "gpu-control-gateway.vercel.app")
+    monkeypatch.setenv("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "1073741824")
 
     settings = Settings.from_env()
 
     assert settings.database_url == "postgresql+psycopg://user:pass@example.neon.tech/db?sslmode=require"
     assert settings.public_url == "https://gpu-control-gateway.vercel.app"
     assert settings.hosted is True
+    assert settings.artifact_min_free_bytes == 1073741824
+
+
+def test_artifact_minimum_free_bytes_must_be_nonnegative_integer():
+    with pytest.raises(ValueError, match="artifact_min_free_bytes"):
+        Settings(artifact_min_free_bytes=-1).validate()
+    with pytest.raises(ValueError, match="artifact_min_free_bytes"):
+        Settings(artifact_min_free_bytes=True).validate()

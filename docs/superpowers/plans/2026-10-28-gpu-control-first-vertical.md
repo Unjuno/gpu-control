@@ -69,7 +69,7 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 
 **Interfaces:**
 - `PlanV2`: schema_version、repository、source_sha、workload、workload_manifest_digest、image_digest、parameters、provider、device_requirement、runtime_seconds、max_cost_usd、cost_evidence、authorization_policy_version。
-- `ResultV2`: run_id、source_sha、plan_fingerprint、provider、simulation、gpu_used（boolまたはunknown/null）、device、exit_code、started_at、finished_at、runtime_seconds、metrics、artifacts、cost、cleanup。
+- `ResultV2`: run_id、source_sha、plan_fingerprint、provider、image_digest（local CPUではplanと必須一致。既存v2行との互換のため型はnullable）、simulation、gpu_used（boolまたはunknown/null）、device、exit_code、started_at、finished_at、runtime_seconds、metrics、artifacts、cost、cleanup。
 - `migrate(engine) -> None`: version管理された冪等migration。workerとAPIで必要schema versionを検証する。
 - 追加永続情報: cleanup_state、finished_at、version、attempt、submission_intent、result_manifest。旧runのfingerprintは再計算・上書きせずv1 readerで扱う。
 
@@ -114,8 +114,10 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 **Interfaces:** `LocalContainerBackend.start(run: dict) -> dict`, `inspect(handle: dict) -> Observation`, `cancel(handle: dict) -> None`, `reconcile(run: dict) -> dict | None`。既存Backendの4操作を維持する。handleはworker host id、container id/name、run id、owner digest、plan fingerprint、image digestを含む。内部handleはMCPへ公開しない。
 
 - [x] `test_local_container_constraints`で隔離オプションと許可profileを検証する。
+- [x] `ResultV2`のlocal CPU結果にimage digestを追加し、persist直前にplanとの一致を検証する。既存schema-v2 rowはnullable fieldで読み取り互換を保ち、新しいlocal CPU resultでは欠落・不一致を拒否する。
 - [x] `test_real_cpu_smoke_result`で実containerを実行し、exit=0、simulation=false、gpu_used=false、checks/checksum、source/plan一致を確認する。
 - [x] `test_missing_image_or_architecture_blocks`で未登録image、Mac/Linux architecture不一致を明確に拒否する。
+- [x] Image OCI `source`/`revision` labelsをbuild時に固定し、workerがexact digest・repository・commit SHAをregistered planと照合してからcontainerを作成する。欠落・不一致を拒否する回帰テストと実OrbStack imageでの検証を追加した。これはoperator build metadataの整合性確認であり、署名付きsupply-chain attestationではない。
 - [x] `test_bounded_invalid_and_missing_output`で64 KiB超過、NaN、壊れたJSON、metrics欠落を扱う。失敗でも観測事実とcleanupを保存する。
 - [x] runnerから隔離設定・検証済みsource取得の共通部分だけ抽出する。GitHub commentの認可をMCPの認可に流用しない。
 - [x] startはdetached containerを作成・起動してhandleを返す。inspectは制限付き出力とexit evidenceを保存しcleanup完了時だけterminalを返す。子プロセスに環境秘密やDB資格情報を渡さない。
@@ -123,7 +125,7 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 - [x] `python -m pytest gateway/tests/test_local_backend.py gateway/tests/test_local_backend_integration.py -q`をDocker環境で実行しPASS。専用設定の統合試験は1 passed。
 - [x] 既存project_control試験19件を実行。Gateway全体189 passed, 4 skipped。
 
-T4 evidence: OrbStack Docker 29.8.2, host/image linux/arm64, image digest `sha256:7127dd8799c41c5c5d90001242bb90aefebbb957f578ff95a835cf5651402798`. T4's `inspect` currently gathers the terminal output and removes the container before the worker persists the result; this remaining crash window is explicitly carried into T5, which must split capture/persist/cleanup.
+Historical T4 evidence: OrbStack Docker 29.8.2, host/image linux/arm64, image digest `sha256:7127dd8799c41c5c5d90001242bb90aefebbb957f578ff95a835cf5651402798`. T5 subsequently split capture/persist/cleanup and added crash recovery; the current behavior is covered by the T5 local Docker acceptance below.
 
 ## T5: 再起動・取消・cleanupの最小受入
 
@@ -160,6 +162,7 @@ T5 evidence: Gateway 198 passed, 2 skipped with pinned CPU image and PostgreSQL 
 **Files:** Create `docs/RELEASE_MATRIX.md`, `docs/acceptance/<date>-cpu.json`; Update README/STATUS。
 
 - [ ] 別ChatGPT会話で「追加料金なしでGPUがあれば最小smoke。なければ登録済みCPU smoke」を依頼する。GPUなし理由→CPU prepare/submit→run_idを確認する。
+  - Offline integration now drives authenticated `/mcp` tools/list, prepare, idempotent replay, submit, a real Docker worker, then result and byte-exact artifact retrieval through a second HTTP client. It proves the local protocol/backend path only; this checklist still requires actual ChatGPT conversations.
 - [ ] 「状態を見て」「結果を見せて」でCPU、provider、source SHA、時間、metrics、cleanup、既知費用が返ることを確認する。
 - [ ] 同じrequest再送で同run、新しい「もう一度」で別runになることを確認する。
 - [ ] 別会話で「昨日/直前の実験」を検索する。同ownerだけ見え、複数なら候補一覧を返す。

@@ -1,9 +1,10 @@
 # GPU Control Experiment Gateway
 
 Additive gateway for ChatGPT-driven experiments. The first real execution path is
-an operator-registered, digest-pinned local CPU smoke container. Existing `src/`,
-RunPod adapters, policy files, `uv.lock`, and existing workflows are unchanged.
-This is a separate optional deployment, not a replacement for RunPod CI.
+an operator-registered, digest-pinned local CPU smoke container. This is a
+separate optional deployment; it does not replace the standalone CLI or RunPod
+CI. This branch also updates RunPod adapters and CI workflows independently;
+those changes do not connect the gateway to the RunPod bridge.
 
 ## Implemented
 
@@ -95,18 +96,36 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
 
 1. Import this repository and set **Root Directory = `gateway`** and framework
    **FastAPI**. `app.py` exports the ASGI app. `vercel.json` bounds HTTP requests
-   to 30 seconds; GPU execution is not inside that duration.
+   to 30 seconds; GPU execution is not inside that duration. Enable and verify
+   **Include source files outside of the Root Directory in the Build Step**:
+   `requirements.txt` installs the shared `gpu-control` package from `..`, and
+   its Python source lives in the repository-level `src/` directory. The Vercel
+   project's setting was not inspected, so this remains a deployment prerequisite.
 2. Provision a PostgreSQL database (any compatible provider), preferably using its
    connection pooler/TLS endpoint. Use a distinct DB for Preview and Production.
 3. Set gateway configuration from `.env.example` in Vercel project settings. Set
    `GATEWAY_PUBLIC_URL` to the exact stable HTTPS origin, without a trailing path.
 4. Run `python -m gpu_gateway.worker --init-db` once against that database from a
    trusted operator environment. Schema creation is never triggered by an HTTP call.
-5. Deploy the Web/API application. `/healthz` reports liveness; `/readyz` reports
+5. Choose exactly one ChatGPT authentication path. For external OIDC, configure
+   the issuer/JWKS/audience/subject/scope and client settings from `.env.example`.
+   For built-in single-owner OAuth, leave `GATEWAY_OIDC_ISSUER` unset and, after
+   database initialization, run this once in the same trusted environment:
+
+   ```sh
+   python -m gpu_gateway.worker --bootstrap-auth --bootstrap-auth-ttl 900
+   ```
+
+   It prints a one-time `/auth/setup` URL. Treat it as a credential: deliver the
+   URL directly to the owner over a private channel, do not save it in shell
+   history or build logs, and complete setup before its 15-minute expiry. The token is consumed
+   after successful setup. Do not run bootstrap in external OIDC mode or against
+   a production database before its paired backup/restore and migration gates pass.
+6. Deploy the Web/API application. `/healthz` reports liveness; `/readyz` reports
    database/migration state, execution-worker and recovery-supervisor heartbeats,
    authentication and workload-registry readiness.
-6. Run `gpu-control-worker.service` and `gpu-control-supervisor.service` against
-   that database. The supervisor claims expired active leases and may take over a
+7. Run `gpu-control-worker.service` and `gpu-control-supervisor.service`
+   against that database. The supervisor claims expired active leases and may take over a
    submitting intent after the worker heartbeat goes stale; it never takes newly
    queued work. A Vercel deployment alone runs neither process.
    The local Docker backend needs a dedicated worker host with Docker access;
@@ -115,7 +134,9 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
 Do not put `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, RunPod API/S3 credentials or an
 operator shell token into the Vercel frontend/API environment. They belong to the
 worker's secret store. The API only needs DB access, trusted workload manifests,
-OAuth verification/login settings and a stable encrypted-cookie key.
+OAuth verification/login settings and a stable encrypted-cookie key. The separate
+`deploy/worker.env.example` is for the dedicated Linux services; when the API is
+also a systemd service, add the selected OAuth settings to its root-owned env file.
 
 ### OAuth and ChatGPT connection
 
@@ -133,6 +154,16 @@ registration method required by your MCP client (pre-registration, DCR or CIMD).
 Do not use the gateway's browser OAuth client ID as a substitute for the MCP
 client's independent registration. The gateway publishes protected-resource
 metadata and returns a `WWW-Authenticate` challenge; it is NOT an OAuth issuer.
+
+The built-in single-owner OAuth mode supports public-client DCR, authorization
+code with PKCE S256, refresh tokens, exact MCP resource binding, and [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009)
+token revocation. Refresh-token rotation and revocation operate on a persisted
+grant family for newly issued credentials. Existing pre-v7 tokens retain a
+null grant ID because their original access/refresh relationships cannot be
+reconstructed; revocation applies to the presented legacy token, and a legacy
+refresh starts a new tracked family. The local protocol tests do not establish
+compatibility with a live ChatGPT workspace; complete the account-specific
+acceptance before claiming connectivity.
 
 For Web login, separately configure an OAuth/OIDC client with authorization-code
 flow, PKCE S256 and the exact callback `https://YOUR_HOST/auth/callback`. The token
@@ -161,6 +192,35 @@ approval remains distinct from ChatGPT tool calls.
 
 See [`../docs/OPERATIONS.md`](../docs/OPERATIONS.md) for the PostgreSQL backup and
 isolated restore drill. A successful archive creation is not restore evidence.
+
+### Build and register the local CPU smoke image
+
+Use a clean checkout of the exact reviewed commit. The image build records that
+repository and full commit SHA in OCI labels; the worker compares both labels
+with the registered plan before it creates a container. A commit SHA supplied by
+an unclean working tree is not provenance for its uncommitted contents.
+
+```sh
+SOURCE_REPOSITORY=Unjuno/gpu-control
+SOURCE_SHA="$(git rev-parse HEAD)"
+docker build --file gateway/workloads/cpu-smoke/Dockerfile \
+  --build-arg SOURCE_REPOSITORY="$SOURCE_REPOSITORY" \
+  --build-arg SOURCE_SHA="$SOURCE_SHA" \
+  --tag gpu-control-cpu-smoke:reviewed \
+  gateway/workloads/cpu-smoke
+docker image inspect gpu-control-cpu-smoke:reviewed \
+  --format '{{.Id}} {{index .Config.Labels "org.opencontainers.image.source"}} {{index .Config.Labels "org.opencontainers.image.revision"}}'
+```
+
+Review the printed image ID and both labels, then copy that exact ID, repository
+and SHA into an operator-owned workload manifest based on
+`examples/local-cpu-workloads.template.json`. The blank identity fields are
+deliberate; the template is invalid until populated. Set
+`GATEWAY_WORKLOADS_FILE` to the completed manifest on API, worker and supervisor.
+Keep `policies/local-cpu.json` disabled until the exact source, image digest,
+limits, dedicated host and cleanup path have passed operator review. The build
+command is for a reviewed local checkout; deployment automation must not rebuild
+an image during an MCP call.
 
 ## Worker placement
 
@@ -233,11 +293,19 @@ in the local implementation environment.
    `GATEWAY_MODAL_APP`). The backend uses `create_if_missing=False`.
 2. Build a reusable Modal Image containing a compatible Python/PyTorch/CUDA build,
    your exact committed code, and any necessary model/data files. Record its `im-`
-   image ID and exact source revision. No image build occurs during an MCP call.
+   image ID, source repository, full commit SHA and source revision. Complete the
+   OS/architecture, GPU count/minimum VRAM, network, result-size/transport,
+   cancellation and cleanup requirements in `examples/workloads.json`. The
+   T4 example requires 16384 MiB VRAM, matching NVIDIA's [published 16 GB
+   specification](https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-product-literature/T4%20Product%20Brief.pdf).
+   No image build occurs during an MCP call.
 3. Copy `examples/workloads.json` into trusted operator configuration. Replace the
-   image/source placeholders and supply a current, conservative **all-in compute**
-   hourly quote, source reference and Unix-seconds expiry. GPU-only advertised
-   pricing is not sufficient: include CPU, RAM and applicable execution overhead.
+   image/source placeholders, including both `source_repository` and `source_sha`,
+   and supply a current, conservative **all-in compute** hourly quote, source
+   reference and Unix-seconds expiry. The example deliberately leaves the source
+   identity empty, so capability selection reports it as incomplete until the
+   operator fills in the exact identity. GPU-only advertised pricing is not
+   sufficient: include CPU, RAM and applicable execution overhead.
 4. Store that JSON as `GATEWAY_WORKLOADS_JSON` on the API. Do NOT allow a client to
    set image IDs, argv, import paths, endpoint URLs, quotas or credentials.
 5. Review/configure limits, then enable `GATEWAY_ENABLE_MODAL=true` on both API and

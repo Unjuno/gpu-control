@@ -2,8 +2,8 @@ services:
   artifact-init:
     image: gpu-control-gateway:local
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: gateway/Dockerfile
     user: "0:0"
     command: ["sh", "-c", "chown 10001:10001 /artifacts && chmod 0700 /artifacts"]
     volumes:
@@ -13,8 +13,8 @@ services:
   api:
     image: gpu-control-gateway:local
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: gateway/Dockerfile
     ports:
       - "8000:8000"
     environment:
@@ -34,8 +34,8 @@ services:
 
   worker:
     build:
-      context: .
-      dockerfile: Dockerfile.worker
+      context: ..
+      dockerfile: gateway/Dockerfile.worker
     environment:
       GATEWAY_DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/gateway
       GATEWAY_ENABLE_MODAL: "false"

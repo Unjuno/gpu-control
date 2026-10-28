@@ -13,6 +13,15 @@ cannot satisfy product acceptance. The account plan and workspace permissions fo
 this project have not been verified from the repository; an authorized workspace
 admin or owner must confirm access to create and test a custom MCP server.
 
+The current role rules are stricter than plan availability alone: in Business,
+only workspace admins/owners can create and publish a custom MCP app. In
+Enterprise/Edu, admins/owners can create and test; an admin may grant selected
+members permission to create/test through RBAC, while only admins/owners can
+publish the app. Record the actual tester's role, the workspace's `Create
+plugins with MCPs` permission, write-action permission, and the publisher role
+in the acceptance evidence. A plan name by itself does not prove these gates
+are satisfied.
+
 For a permitted workspace, the current UI flow is **Plugins → + → Add custom MCP
 server**, then enter a public HTTPS MCP endpoint (or select an already configured
 Secure MCP Tunnel), choose authentication, acknowledge the risk prompt, create the
@@ -69,8 +78,12 @@ Before connecting ChatGPT, provide all of the following:
   the mounted filesystem on the chosen host.
 - A configured authentication path. With external OIDC, configure issuer, JWKS,
   audience/resource, allowed subject, scopes and the MCP client's registration
-  method. With built-in single-owner OAuth, bootstrap the owner and verify discovery,
-  client registration, PKCE, token refresh and revocation against the live client.
+  method. With built-in single-owner OAuth, run
+  `python -m gpu_gateway.worker --bootstrap-auth --bootstrap-auth-ttl 900` after
+  schema initialization in the trusted environment, deliver its one-time setup URL
+  privately, then verify discovery, client registration, PKCE, token refresh and
+  revocation against the live client. Do not retain the setup URL in shell history,
+  CI output or deployment logs; it is a credential until consumed or expired.
 - An OAuth authorization server that can keep ChatGPT connected. OpenAI's current
   guidance calls out refresh-token issuance; for OIDC, `offline_access` should be
   requested and advertised. See the refresh-token section in the Help Center guide.

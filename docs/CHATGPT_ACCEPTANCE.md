@@ -24,7 +24,9 @@ redacted evidence collected during this acceptance run.
 
 | Gate | Status | Evidence reference | Notes / blocker |
 | --- | --- | --- | --- |
-| Account/workspace permits custom MCP with required write actions | NOT RUN | | |
+| Account plan supports custom MCP with write actions on ChatGPT web (Business/Enterprise/Edu) | NOT RUN | | |
+| Tester has workspace permission to create and test a custom MCP app (Business admin/owner; Enterprise/Edu admin/owner or RBAC-authorized member) | NOT RUN | | |
+| Run/cancel write actions are enabled for the test app; if publishing workspace-wide, publisher is an admin/owner | NOT RUN | | |
 | Reviewed Gateway revision is deployed at stable HTTPS origin | NOT RUN | | |
 | `/healthz` and `/readyz` match the deployed revision and are healthy | NOT RUN | | |
 | PostgreSQL migration, worker, recovery supervisor, and persistent artifact storage are healthy | NOT RUN | | |
@@ -87,3 +89,53 @@ keys, raw OAuth requests, or unrelated user data.
 Update `docs/RELEASE_MATRIX.md` only from the evidence above and retain the
 evidence scope. ChatGPT write confirmations do not replace server-side
 authorization. A successful CPU acceptance does not enable GPU or paid paths.
+
+## Seven-day CPU operations observation
+
+Status: **NOT STARTED**. Begin only after the account, deployment, OAuth,
+readiness, recovery, storage-quota, alert-delivery, and single-run ChatGPT gates
+above pass. This observation is not permission to change repository mode or run
+GPU/provider workloads.
+
+Keep Modal and RunPod disabled, local CPU admission restricted to the reviewed
+`cpu-smoke-v1` workload, and concurrency at one. Run at most one smoke per UTC
+day for seven consecutive UTC dates. Record the host/database/artifact fixed
+cost for the observation period: CPU workload cost evidence does not mean the
+hosting infrastructure is free. Do not enable automatic retries or let
+monitoring create runs. If a request times out or a client disconnects, first
+query the existing idempotency key/run and reconcile its state; do not submit a
+new key until the first outcome is known.
+
+During the seven days, observe normal cross-session continuity and day-boundary
+result retrieval. Perform one planned worker restart while a smoke is active,
+and one controlled client disconnect/reconnect; record both. Do not kill the
+database, corrupt storage, fill the production volume, or deliberately break
+the TLS endpoint as part of this low-volume period. Those failure modes belong
+to isolated drills. After each restart or reconnect, verify the same run ID,
+terminal result, artifact digest, owner boundary, and cleanup state.
+
+Before starting, record the allowed worker-restart recovery interval and the
+alert delivery SLO established by target-host acceptance; do not choose either
+threshold after seeing a failure. Stop the observation and leave admissions
+disabled if readiness remains false beyond that recovery interval, an outcome
+is ambiguous, a duplicate resource appears, an artifact digest/owner check
+fails, capacity or alerting fails, or unexpected cost appears. Preserve
+evidence and reconcile the existing run; do not auto-retry. A stopped or
+interrupted observation restarts its seven-consecutive-day count only after
+the cause is understood and the operator records a new start date.
+
+| UTC date | Gateway/worker revision | Readiness + heartbeat | Smoke run ID/result | Disconnect/restart event | Artifact hash + cleanup | Cost / anomalies |
+| --- | --- | --- | --- | --- | --- | --- |
+| Day 1 | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+| Day 2 | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+| Day 3 | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+| Day 4 | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+| Day 5 | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+| Day 6 | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+| Day 7 | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+
+Pass requires seven consecutive daily records, no unexplained lost/duplicate
+runs or artifacts, same-owner cross-day retrieval, completed worker-restart and
+client-reconnect checks, all resources cleaned up, functioning low-capacity and
+recovery alerts, and accounted-for fixed and variable costs. This procedure
+does not assert that the observation has started or passed.

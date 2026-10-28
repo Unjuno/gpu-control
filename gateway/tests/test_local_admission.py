@@ -1,5 +1,8 @@
 from decimal import Decimal
 import json
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,7 +12,7 @@ from gpu_gateway.config import Workload
 from gpu_gateway.service import GatewayError, digest
 from gpu_gateway.contracts import plan_fingerprint
 from gpu_gateway.store import control, runs
-from sqlalchemy import update
+from sqlalchemy import select, update
 from gpu_gateway.registry import ProviderRegistration
 from gpu_gateway.worker import Worker
 
@@ -268,6 +271,65 @@ def test_worker_rejects_manifest_rotated_after_submit_before_start(tmp_path, mon
     final = system.store.read(prepared["id"])
     assert final["state"] == "expired"
     assert final["error"] == "local_policy_revoked_before_start"
+
+
+def test_worker_rechecks_artifact_headroom_before_start(tmp_path, monkeypatch, system):
+    class Backend:
+        started = 0
+        def start(self, _job):
+            self.started += 1
+            return {"container_id": "synthetic-test-handle"}
+        def reconcile(self, _job): raise AssertionError("no container should exist")
+        def inspect(self, _handle): raise AssertionError("no container should exist")
+        def cancel(self, _handle): raise AssertionError("no container should exist")
+
+    workload = Workload(provider="local_cpu", image_digest="sha256:" + "c" * 64,
+        execution_profile="smoke", requires_gpu=False, source_repository="Unjuno/gpu-control",
+        source_sha="a" * 40, max_runtime_seconds=30, max_cost_usd="0.01",
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False})
+    system.service.workloads["cpu-smoke-v1"] = workload
+    now = int(system.clock())
+    enabled = policy(valid_until=now + 60)
+    candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
+        repository="Unjuno/gpu-control", source_sha="a" * 40, parameters={}, runtime_seconds=20,
+        max_cost_usd="0.00", now=now, policy=enabled)
+    policy_path = tmp_path / "local-policy.json"
+    policy_path.write_text(json.dumps(enabled))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    system.settings = replace(system.settings, artifact_dir=str(artifact_root),
+                              artifact_min_free_bytes=10 * 1024 * 1024)
+    system.service.settings = system.settings
+    original_stat = Path.stat
+
+    def different_devices(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        return SimpleNamespace(st_dev=2 if path == artifact_root else result.st_dev,
+                               st_mode=result.st_mode)
+
+    monkeypatch.setattr("gpu_gateway.artifacts.Path.stat", different_devices)
+    monkeypatch.setattr("gpu_gateway.artifacts.os.statvfs", lambda _: SimpleNamespace(
+        f_bavail=8, f_frsize=1024 * 1024))
+    registration = ProviderRegistration("local_cpu", "local_cpu", lambda _: True, lambda _: None)
+    system.service.registry = {"local_cpu": registration}
+    prepared = system.service.prepare_local(system.owner, candidate, "worker-capacity-key", enabled,
+                                             evaluate_admission(candidate, enabled, now))
+    queued = system.service.submit(system.owner, prepared["id"])
+    assert queued["state"] == "queued"
+
+    backend = Backend()
+    worker = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock,
+                    registry=system.service.registry)
+    assert worker.tick()
+    final = system.store.read(prepared["id"])
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert backend.started == 0
+    assert final["state"] == "failed"
+    assert final["error"] == "ARTIFACT_STORAGE_UNAVAILABLE"
+    assert final["submission_intent"] is None
+    assert active == 0
 
 
 def test_worker_rejects_result_with_wrong_source_binding(system):
