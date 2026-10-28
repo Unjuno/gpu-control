@@ -100,9 +100,12 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    **Include source files outside of the Root Directory in the Build Step**:
    `requirements.txt` installs the shared `gpu-control` package from `..`, and
    its Python source lives in the repository-level `src/` directory. The
-   project's setting value was not inspected directly; however, Vercel preview
-   deployment `dpl_8297EDuZphLShPAUgHqW8qjmLUCJ` built PR #51 head `89ea42e` to
-   READY, confirming that this source/package path worked for that build.
+   project's setting value was not inspected directly. Preview deployment
+   `dpl_8297EDuZphLShPAUgHqW8qjmLUCJ` reached build READY at head `89ea42e`, but
+   its `/healthz` runtime returned `FUNCTION_INVOCATION_FAILED` because the root
+   `gpu_control` package was absent. The runtime dependency is now declared as
+   a local uv source in `pyproject.toml`; verify the new preview's `/healthz`
+   before treating this deployment path as operational.
    Recheck after changing project Root Directory, build settings, or package
    layout.
 2. Provision a PostgreSQL database (any compatible provider), preferably using its

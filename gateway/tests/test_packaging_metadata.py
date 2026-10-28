@@ -18,7 +18,11 @@ def test_pep621_dependencies_match_runtime_requirements():
     project = tomllib.loads((GATEWAY / "pyproject.toml").read_text())
     requirements = [line.strip() for line in (GATEWAY / "requirements.txt").read_text().splitlines()
                    if line.strip() and not line.lstrip().startswith(("#", "-e "))]
-    assert {_identity(item) for item in project["project"]["dependencies"]} == {
+    project_dependencies = {_identity(item) for item in project["project"]["dependencies"]}
+    assert project_dependencies - {_identity(item) for item in requirements} == {
+        ("gpu-control", frozenset(), "")
+    }
+    assert project_dependencies - {("gpu-control", frozenset(), "")} == {
         _identity(item) for item in requirements
     }
 
@@ -26,4 +30,8 @@ def test_pep621_dependencies_match_runtime_requirements():
 def test_runtime_requirements_install_the_shared_monorepo_package():
     requirements = (GATEWAY / "requirements.txt").read_text().splitlines()
     assert "-e .." in requirements
+    project = tomllib.loads((GATEWAY / "pyproject.toml").read_text())
+    assert project["tool"]["uv"]["sources"]["gpu-control"] == {
+        "path": "..", "editable": True,
+    }
     assert (ROOT / "src" / "gpu_control" / "__init__.py").is_file()

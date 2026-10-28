@@ -40,6 +40,13 @@ jobs:
       - name: Build Gateway wheel from PEP 621 metadata
         working-directory: ${{ github.workspace }}
         run: uv build gateway --wheel --out-dir "$RUNNER_TEMP/gateway-wheel"
+      - name: Verify Vercel-style locked runtime installation
+        working-directory: ${{ github.workspace }}
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/gateway-runtime-venv
+        run: |
+          uv sync --project gateway --locked --no-dev
+          uv run --project gateway --locked --no-dev python -c 'import gpu_control, gpu_gateway; print("runtime imports ok")'
       - name: Start a dedicated stoppable PostgreSQL test container
         shell: bash
         run: |

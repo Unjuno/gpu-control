@@ -13,9 +13,14 @@ dependencies = [
   "jsonschema==4.26.0",
   "uvicorn==0.48.0",
   "psycopg[binary]>=3.2,<4",
+  "gpu-control",
 ]
 # `requirements.txt` additionally installs the monorepo's local `gpu-control`
-# package with `-e ..`; that pip option is intentionally not PEP 621 metadata.
+# package with `-e ..` for pip-based environments. Vercel resolves the uv
+# source below from the repository root during its Python build.
+
+[tool.uv.sources]
+gpu-control = { path = "..", editable = true }
 
 [build-system]
 requires = ["setuptools>=75", "wheel"]
