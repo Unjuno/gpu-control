@@ -2,16 +2,80 @@ import base64
 import hashlib
 import os
 from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import update
 
-from gpu_gateway.artifacts import ArtifactStore
+from gpu_gateway.artifacts import ArtifactStore, inspect_artifact_storage
 from gpu_gateway.backends import ArtifactPayload, Observation
 from gpu_gateway.experiment_api import invoke
 from gpu_gateway.service import GatewayError, Prepare, Principal
 from gpu_gateway.store import runs
 from gpu_gateway.worker import Worker
+
+
+def fake_dedicated_filesystem(monkeypatch, root):
+    original_stat = Path.stat
+
+    def stat_with_separate_device(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        return SimpleNamespace(st_dev=2 if path == root else result.st_dev,
+                               st_mode=result.st_mode)
+
+    monkeypatch.setattr("gpu_gateway.artifacts.Path.stat", stat_with_separate_device)
+
+
+def test_artifact_storage_probe_fails_closed_on_missing_or_symlink_root(tmp_path):
+    assert inspect_artifact_storage("")["reason"] == "not_configured"
+    missing = inspect_artifact_storage(str(tmp_path / "missing"))
+    assert missing["available"] is False
+    assert missing["reason"] == "not_directory"
+    root = tmp_path / "private"
+    root.mkdir()
+    available = inspect_artifact_storage(str(root))
+    assert available["configured"] is True
+    assert available["available"] is True
+    assert type(available["free_bytes"]) is int and available["free_bytes"] > 0
+    alias = tmp_path / "alias"
+    alias.symlink_to(root, target_is_directory=True)
+    assert inspect_artifact_storage(str(alias))["reason"] == "symlink"
+
+
+def test_artifact_storage_probe_fails_closed_when_statvfs_raises(tmp_path, monkeypatch):
+    root = tmp_path / "private"
+    root.mkdir()
+
+    def unavailable(_path):
+        raise OSError("simulated capacity query failure")
+
+    monkeypatch.setattr("gpu_gateway.artifacts.os.statvfs", unavailable)
+    result = inspect_artifact_storage(str(root))
+    assert result == {"configured": True, "available": False,
+                      "free_bytes": None, "reason": "unavailable"}
+
+
+def test_artifact_storage_probe_enforces_configured_minimum_free_bytes(tmp_path, monkeypatch):
+    root = tmp_path / "private"
+    root.mkdir()
+    fake_dedicated_filesystem(monkeypatch, root)
+    monkeypatch.setattr("gpu_gateway.artifacts.os.statvfs", lambda _: SimpleNamespace(
+        f_bavail=8, f_frsize=1024 * 1024))
+    result = inspect_artifact_storage(str(root), 9 * 1024 * 1024)
+    assert result == {"configured": True, "available": False,
+                      "free_bytes": 8 * 1024 * 1024,
+                      "minimum_free_bytes": 9 * 1024 * 1024,
+                      "reason": "below_minimum_free_bytes"}
+
+
+def test_artifact_storage_probe_requires_separate_filesystem_when_floor_is_configured(tmp_path):
+    root = tmp_path / "private"
+    root.mkdir()
+    result = inspect_artifact_storage(str(root), 1024)
+    assert result == {"configured": True, "available": False, "free_bytes": None,
+                      "minimum_free_bytes": 1024,
+                      "reason": "not_dedicated_filesystem"}
 
 
 def test_artifact_store_writes_private_content_addressed_blob_and_verifies_chunks(tmp_path):

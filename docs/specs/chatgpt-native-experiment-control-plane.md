@@ -231,6 +231,7 @@ ChatGPT側から必要な操作がすべてtool callとして行えるように�
 - artifact metadata
 - exact source SHA
 - exact plan fingerprint
+- exact workload image digest
 - provider evidence
 - GPU actually used
 - runtime

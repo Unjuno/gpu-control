@@ -67,4 +67,6 @@ ChatGPT client. The second isolated container was also removed.
 - Reconcile nonterminal run records with the dedicated worker's actual Docker
   resources before resuming submissions.
 - Have a second operator reproduce the procedure and record discrepancies.
-- Revisit this procedure when a separate artifact store is introduced.
+- See `2026-10-28-paired-artifact-restore.md` for a separate synthetic paired
+  database/artifact restore; repeat it with the selected production backup and
+  artifact-volume configuration before claiming P3 acceptance.

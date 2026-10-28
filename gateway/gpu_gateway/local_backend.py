@@ -38,11 +38,20 @@ def _labels(run_id: str, owner: str, fingerprint: str, image_digest: str, source
             "io.unjuno.gpu-control.source-sha": source_sha}
 
 
-def validate_image_architecture(image: dict | None, host: dict, *, expected_digest: str | None = None) -> None:
+def validate_image_architecture(image: dict | None, host: dict, *, expected_digest: str | None = None,
+                                expected_source_repository: str | None = None,
+                                expected_source_sha: str | None = None) -> None:
     if not isinstance(image, dict):
         raise ValueError("image is missing")
     if expected_digest and image.get("Id") != expected_digest:
         raise ValueError("image digest mismatch")
+    if expected_source_repository is not None or expected_source_sha is not None:
+        labels = (image.get("Config", {}).get("Labels", {})
+                  if isinstance(image.get("Config"), dict) else {})
+        if (not isinstance(labels, dict) or
+                labels.get("org.opencontainers.image.source") != expected_source_repository or
+                labels.get("org.opencontainers.image.revision") != expected_source_sha):
+            raise ValueError("image source provenance does not match registered plan")
     if image.get("Os") != "linux" or host.get("OSType") != "linux":
         raise ValueError("Linux container image required")
     aliases = {"aarch64": "arm64", "x86_64": "amd64"}
@@ -193,7 +202,11 @@ class LocalContainerBackend:
             host = json.loads(host_raw.stdout)
         except Exception as error:
             raise ValueError("Docker host information is unavailable") from error
-        validate_image_architecture(image, host, expected_digest=plan["image_digest"])
+        validate_image_architecture(
+            image, host, expected_digest=plan["image_digest"],
+            expected_source_repository=plan["repository"],
+            expected_source_sha=plan["source_sha"],
+        )
         created = self._run(container_create_args(plan, run_id=run["id"], owner=run["owner"],
                                                  fingerprint=run["fingerprint"]), timeout=20)
         container_id = created.stdout.decode().strip()
@@ -258,7 +271,8 @@ class LocalContainerBackend:
                 result_state, failure = "failed", "artifact_missing_or_invalid"
         result = {"schema_version": 2, "run_id": handle["run_id"],
                   "source_sha": handle["source_sha"], "plan_fingerprint": handle["plan_fingerprint"],
-                  "provider": "local_cpu", "simulation": False, "gpu_used": False, "device": "cpu",
+                  "provider": "local_cpu", "image_digest": handle["image_digest"],
+                  "simulation": False, "gpu_used": False, "device": "cpu",
                   "exit_code": code, "started_at": started, "finished_at": finished,
                   "runtime_seconds": max(0, finished - started) if started and finished else None,
                   "metrics": parsed["metrics"], "checks": parsed["checks"], "checksum": parsed["checksum"] or None,

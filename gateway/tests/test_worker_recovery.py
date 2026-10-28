@@ -125,7 +125,8 @@ def test_result_is_persisted_and_slot_retained_until_cleanup_is_confirmed(system
     fingerprint = plan_fingerprint(candidate)
     result = {
         "schema_version": 2, "run_id": created["id"], "source_sha": candidate.source_sha,
-        "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+        "plan_fingerprint": fingerprint, "provider": "local_cpu",
+        "image_digest": candidate.image_digest, "simulation": False,
         "gpu_used": False, "device": "cpu", "exit_code": 1, "started_at": now - 2,
         "finished_at": now - 1, "runtime_seconds": 1.0, "metrics": {}, "checks": [],
         "checksum": None, "artifacts": [], "known_cost_usd": "0",
@@ -221,7 +222,8 @@ def test_result_database_write_failure_keeps_container_and_slot_for_retry(system
     fingerprint = plan_fingerprint(candidate)
     result = {
         "schema_version": 2, "run_id": created["id"], "source_sha": candidate.source_sha,
-        "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+        "plan_fingerprint": fingerprint, "provider": "local_cpu",
+        "image_digest": candidate.image_digest, "simulation": False,
         "gpu_used": False, "device": "cpu", "exit_code": 0, "started_at": int(system.clock()) - 2,
         "finished_at": int(system.clock()) - 1, "runtime_seconds": 1.0, "metrics": {},
         "checks": ["result_valid"], "checksum": "e" * 64, "artifacts": [],
@@ -284,7 +286,8 @@ def test_timeout_terminal_intent_survives_cleanup_failure(system):
     fingerprint = plan_fingerprint(candidate)
     result = {
         "schema_version": 2, "run_id": created["id"], "source_sha": candidate.source_sha,
-        "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+        "plan_fingerprint": fingerprint, "provider": "local_cpu",
+        "image_digest": candidate.image_digest, "simulation": False,
         "gpu_used": False, "device": "cpu", "exit_code": 0,
         "started_at": now - 400, "finished_at": now - 1, "runtime_seconds": 399.0,
         "metrics": {}, "checks": [], "checksum": None, "artifacts": [],
@@ -351,7 +354,8 @@ def test_artifact_storage_failure_fails_run_but_cleans_terminal_container(system
     fingerprint = plan_fingerprint(candidate)
     result = {
         "schema_version": 2, "run_id": created["id"], "source_sha": candidate.source_sha,
-        "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+        "plan_fingerprint": fingerprint, "provider": "local_cpu",
+        "image_digest": candidate.image_digest, "simulation": False,
         "gpu_used": False, "device": "cpu", "exit_code": 0,
         "started_at": now - 2, "finished_at": now - 1, "runtime_seconds": 1.0,
         "metrics": {}, "checks": ["result_valid"], "checksum": "e" * 64,

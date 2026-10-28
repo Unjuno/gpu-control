@@ -89,7 +89,7 @@ def test_postgres_worker_lease_has_one_current_owner():
     store.engine.dispose()
 
 
-def test_postgres_v4_to_v6_additive_recovery_fields():
+def test_postgres_v4_to_v7_additive_recovery_and_oauth_fields():
     url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
     if not url:
         pytest.skip('requires a dedicated PostgreSQL test database')
@@ -100,9 +100,10 @@ def test_postgres_v4_to_v6_additive_recovery_fields():
         connection.execute(update(control).where(control.c.id == 1).values(worker_seen_at=worker_seen))
         connection.exec_driver_sql('ALTER TABLE gateway_control_v1 DROP COLUMN supervisor_seen_at')
         connection.exec_driver_sql('ALTER TABLE gateway_runs_v1 DROP COLUMN last_observed_at')
+        connection.exec_driver_sql('ALTER TABLE gateway_oauth_tokens_v1 DROP COLUMN grant_id')
         connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
 
-    assert migrate(store.engine) == 6
+    assert migrate(store.engine) == 7
     with store.engine.connect() as connection:
         row = connection.execute(select(control.c.worker_seen_at, control.c.supervisor_seen_at)
                                  .where(control.c.id == 1)).one()
@@ -110,4 +111,6 @@ def test_postgres_v4_to_v6_additive_recovery_fields():
     with store.engine.connect() as connection:
         assert "last_observed_at" in {column["name"] for column in
                                        inspect(connection).get_columns("gateway_runs_v1")}
+        assert "grant_id" in {column["name"] for column in
+                              inspect(connection).get_columns("gateway_oauth_tokens_v1")}
     store.engine.dispose()

@@ -31,7 +31,8 @@ def _plan():
 def _result(plan, fingerprint):
     return ResultV2(
         schema_version=2, run_id="d" * 32, source_sha=plan.source_sha,
-        plan_fingerprint=fingerprint, provider="local_cpu", simulation=False,
+        plan_fingerprint=fingerprint, provider="local_cpu", image_digest=plan.image_digest,
+        simulation=False,
         gpu_used=False, device="cpu", exit_code=0, started_at=110,
         finished_at=111, runtime_seconds=1.0, metrics={"checksum": 42},
         artifacts=[], known_cost_usd=Decimal("0"), cost_classification="LOCAL",
@@ -102,6 +103,12 @@ def test_result_cannot_claim_different_source_or_fingerprint():
     with pytest.raises(ValueError, match="does not match"):
         validate_result_binding(plan, fingerprint, result)
     result = _result(plan, "f" * 64)
+    with pytest.raises(ValueError, match="does not match"):
+        validate_result_binding(plan, fingerprint, result)
+    result = _result(plan, fingerprint).model_copy(update={"image_digest": "sha256:" + "e" * 64})
+    with pytest.raises(ValueError, match="does not match"):
+        validate_result_binding(plan, fingerprint, result)
+    result = _result(plan, fingerprint).model_copy(update={"image_digest": None})
     with pytest.raises(ValueError, match="does not match"):
         validate_result_binding(plan, fingerprint, result)
 

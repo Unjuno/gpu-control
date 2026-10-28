@@ -4,7 +4,9 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -13,8 +15,15 @@ from sqlalchemy import and_, or_, select
 from .service import ExperimentService, GatewayError, Prepare, Principal
 from .store import control, runs
 from .admission import evaluate_admission, load_local_cpu_policy, plan_for_workload
-from .artifacts import ArtifactStore
+from .artifacts import ArtifactStore, inspect_artifact_storage
 from .health import heartbeat_age, heartbeat_is_fresh
+from gpu_control.selection import select_candidate
+from gpu_control.workloads import (
+    AcceleratorKind,
+    NetworkRequirement,
+    ResultTransport,
+    WorkloadRequirements,
+)
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 STATE_SUMMARY = {
@@ -107,6 +116,50 @@ def _cursor_decode(value: str, owner: str) -> tuple[int, str]:
         raise GatewayError("invalid_cursor", "The experiment list cursor is invalid", 400) from None
 
 
+def _gpu_requirements(name: str, workload) -> tuple[WorkloadRequirements | None, list[str]]:
+    """Convert only explicit operator requirements; missing fields stay unknown."""
+    required = {
+        "workload_id": bool(re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)),
+        "source_repository": bool(workload.source_repository),
+        "source_sha": bool(workload.source_sha),
+        "operating_system": workload.operating_system is not None,
+        "architecture": workload.architecture is not None,
+        "gpu_count": workload.gpu_count is not None,
+        "minimum_vram_mib": workload.minimum_vram_mib is not None,
+        "network_requirement": workload.network_requirement is not None,
+        "result_transport": workload.result_transport is not None,
+        "max_result_bytes": workload.max_result_bytes is not None,
+        "cancellation_required": workload.cancellation_required is not None,
+        "cleanup_proof_required": workload.cleanup_proof_required is not None,
+    }
+    missing = [field for field, configured in required.items() if not configured]
+    if missing:
+        return None, missing
+    try:
+        requirements = WorkloadRequirements(
+            workload_id=name,
+            source_repository=workload.source_repository,
+            source_sha=workload.source_sha,
+            operating_system=workload.operating_system,
+            architecture=workload.architecture,
+            accelerator_kind=AcceleratorKind.GPU,
+            gpu_profile=workload.gpu.lower(),
+            gpu_count=workload.gpu_count,
+            minimum_vram_mib=workload.minimum_vram_mib,
+            minimum_cpu_cores=Decimal(str(workload.cpu)),
+            minimum_memory_mib=workload.memory_mib,
+            max_runtime_seconds=workload.max_runtime_seconds,
+            network_requirement=NetworkRequirement(workload.network_requirement),
+            result_transport=ResultTransport(workload.result_transport),
+            max_result_bytes=workload.max_result_bytes,
+            cancellation_required=workload.cancellation_required,
+            cleanup_proof_required=workload.cleanup_proof_required,
+        )
+    except (TypeError, ValueError):
+        return None, ["invalid_workload_requirements"]
+    return requirements, []
+
+
 def _list(service: ExperimentService, principal: Principal, request: ListInput) -> dict:
     principal.require("experiments:read")
     if request.created_after is not None and request.created_before is not None and request.created_after > request.created_before:
@@ -192,6 +245,8 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
 
     enabled_providers = {provider["id"] for provider in data["providers"]
                          if provider["enabled"]}
+    artifact_storage = inspect_artifact_storage(
+        service.settings.artifact_dir, service.settings.artifact_min_free_bytes)
     resources = []
     for workload_info in data["workloads"]:
         name = workload_info["id"]
@@ -232,6 +287,8 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
                     blockers.append("LOCAL_CPU_POLICY_INVALID")
             if not provider_enabled:
                 blockers.append("LOCAL_CPU_BACKEND_DISABLED")
+            if not artifact_storage["available"]:
+                blockers.append("ARTIFACT_STORAGE_UNAVAILABLE")
             if not worker_ready:
                 blockers.append("WORKER_OFFLINE")
             if not supervisor_ready:
@@ -258,6 +315,45 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
             else:
                 blockers.append("PROVIDER_LIVE_ACCEPTANCE_REQUIRED")
                 availability = "configured_unverified"
+
+        candidate_selection = None
+        if workload.requires_gpu:
+            requirements, missing_requirements = _gpu_requirements(name, workload)
+            cpu_alternatives = sorted(
+                candidate_name for candidate_name, candidate_workload
+                in service.workloads.items()
+                if not candidate_workload.requires_gpu and
+                candidate_workload.provider == "local_cpu"
+            )
+            alternatives = ([{"kind": "local_cpu_workload", "workload": item}
+                             for item in cpu_alternatives] +
+                            [{"kind": "paid_gpu_path",
+                              "status": "unavailable_until_live_acceptance"}])
+            if requirements is None:
+                candidate_selection = {
+                    "status": "not_evaluated",
+                    "blocking_reason": "WORKLOAD_REQUIREMENTS_INCOMPLETE",
+                    "missing_workload_requirements": missing_requirements,
+                    "provider_evidence": "NOT_AVAILABLE",
+                    "alternatives": alternatives,
+                }
+            else:
+                now_utc = datetime.fromtimestamp(
+                    now, timezone.utc).isoformat().replace("+00:00", "Z")
+                decision = select_candidate(
+                    requirements, [], now_utc=now_utc,
+                    max_cost_usd=workload.max_cost_usd, free_first=True,
+                    inventory_complete=False,
+                )
+                candidate_selection = {
+                    "status": "not_evaluated",
+                    "blocking_reason": decision.blocking_reason.value,
+                    "missing_workload_requirements": [],
+                    "provider_evidence": "NOT_AVAILABLE",
+                    "workload_fingerprint": requirements.fingerprint(),
+                    "selector_result": decision.to_dict(),
+                    "alternatives": alternatives,
+                }
 
         resources.append({
             "workload": name,
@@ -288,6 +384,8 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
             "approval_mode": approval_mode,
             "human_approval_required": approval_mode == "browser",
             "parameter_schema": workload.parameter_schema,
+            **({"candidate_selection": candidate_selection}
+               if candidate_selection is not None else {}),
         })
 
     submission_available = any(resource["submission_available"] for resource in resources)
@@ -299,6 +397,7 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
             "providers": data["providers"],
             "resources": resources,
             "control_store": {"available": control_store_available},
+            "artifact_storage": artifact_storage,
             "worker": {"last_seen_at": worker_seen_at, "age_seconds": worker_age,
                        "ready": worker_ready},
             "recovery_supervisor": {"last_seen_at": supervisor_seen_at,
@@ -376,6 +475,13 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                 return _envelope(status="blocked", summary="local CPU worker backendが登録・有効化されていません。",
                                  machine_state={"policy_digest": decision.policy_digest},
                                  next_actions=["retry_later"], blocker="LOCAL_CPU_BACKEND_UNAVAILABLE")
+            artifact_storage = inspect_artifact_storage(
+                service.settings.artifact_dir, service.settings.artifact_min_free_bytes)
+            if not artifact_storage["available"]:
+                return _envelope(status="blocked", summary="local CPU実験の成果物ストレージを利用できません。",
+                                 machine_state={"artifact_storage": artifact_storage},
+                                 next_actions=["retry_later", "experiment_capabilities"],
+                                 blocker="ARTIFACT_STORAGE_UNAVAILABLE")
             prepared = service.prepare_local(principal, plan, request.idempotency_key, policy, decision)
             return _envelope(status="ok", summary=STATE_SUMMARY[prepared["state"]],
                              machine_state={"run_id": prepared["id"], "state": prepared["state"],

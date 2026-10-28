@@ -43,6 +43,53 @@ def test_missing_image_or_architecture_blocks():
                                     expected_digest="sha256:" + "a" * 64)
 
 
+def test_image_source_provenance_must_match_the_registered_plan():
+    image = {"Id": "sha256:" + "a" * 64, "Os": "linux", "Architecture": "arm64",
+             "Config": {"Labels": {
+                 "org.opencontainers.image.source": "Unjuno/gpu-control",
+                 "org.opencontainers.image.revision": "b" * 40,
+             }}}
+    host = {"OSType": "linux", "Architecture": "arm64"}
+    validate_image_architecture(image, host, expected_digest=image["Id"],
+                                expected_source_repository="Unjuno/gpu-control",
+                                expected_source_sha="b" * 40)
+    with pytest.raises(ValueError, match="source provenance"):
+        validate_image_architecture(image, host, expected_digest=image["Id"],
+                                    expected_source_repository="Unjuno/gpu-control",
+                                    expected_source_sha="c" * 40)
+    with pytest.raises(ValueError, match="source provenance"):
+        validate_image_architecture({**image, "Config": {"Labels": {}}}, host,
+                                    expected_digest=image["Id"],
+                                    expected_source_repository="Unjuno/gpu-control",
+                                    expected_source_sha="b" * 40)
+
+
+def test_local_backend_refuses_unproven_image_before_container_create(monkeypatch):
+    backend = LocalContainerBackend(type("Settings", (), {"max_output_bytes": 65536})())
+    image_digest = "sha256:" + "a" * 64
+    run = {"id": "d" * 32, "owner": "owner-a", "fingerprint": "c" * 64,
+           "plan": {"provider": "local_cpu", "image_digest": image_digest,
+                    "repository": "Unjuno/gpu-control", "source_sha": "b" * 40}}
+    monkeypatch.setattr("gpu_gateway.local_backend.plan_fingerprint_from_run", lambda _: run["fingerprint"])
+    calls = []
+
+    def fake_run(args, timeout=20):
+        calls.append(args)
+        if args[:2] == ["image", "inspect"]:
+            value = {"Id": image_digest, "Os": "linux", "Architecture": "arm64",
+                     "Config": {"Labels": {}}}
+        elif args[:2] == ["info", "--format"]:
+            value = {"OSType": "linux", "Architecture": "arm64"}
+        else:
+            raise AssertionError("unproven image must not create a container")
+        return SimpleNamespace(stdout=json.dumps(value).encode())
+
+    backend._run = fake_run
+    with pytest.raises(ValueError, match="source provenance"):
+        backend.start(run)
+    assert [call[:2] for call in calls] == [["image", "inspect"], ["info", "--format"]]
+
+
 def test_smoke_result_binds_source_and_plan_and_rejects_fake_gpu_claims():
     expected = {"run_id": "d" * 32, "source_sha": "b" * 40, "plan_fingerprint": "c" * 64}
     value = {"schema_version": 1, **expected, "check": "cpu-smoke-v1", "status": "passed",
