@@ -13,7 +13,8 @@ from sqlalchemy import select
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
 from gpu_gateway.config import Settings, Workload
-from gpu_gateway.local_oauth import LocalOAuth, oauth_tokens
+<<<<<<< HEAD
+from gpu_gateway.local_oauth import LocalOAuth, oauth_codes, oauth_tokens
 from gpu_gateway.service import ExperimentService, GatewayError
 from gpu_gateway.store import Store
 
@@ -165,7 +166,35 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
         "code_challenge": challenge(verifier),
         "code_challenge_method": "S256",
     }
-    authorized = client.get("/oauth/authorize", params=params, follow_redirects=False)
+    forged_consent = client.get("/oauth/authorize", params={**params, "decision": "approve"}, follow_redirects=False)
+    assert forged_consent.status_code == 400
+    consent = client.get("/oauth/authorize", params=params, follow_redirects=False)
+    assert consent.status_code == 200
+    assert "ChatGPT test" in consent.text
+    assert "experiments:read" in consent.text
+    assert "offline_access" in consent.text
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_codes.c.code_hash)).first() is None
+
+    owner_session = auth.local.session(client.cookies.get("gpu_gateway_session"))
+    denied = client.post("/oauth/authorize", data={**params, "csrf": owner_session["csrf"], "decision": "deny"},
+                         headers={"Origin": settings.public_url}, follow_redirects=False)
+    assert denied.status_code == 303
+    denial_query = parse_qs(urlsplit(denied.headers["location"]).query)
+    assert denial_query["error"] == ["access_denied"]
+    assert denial_query["state"] == ["state-1"]
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_codes.c.code_hash)).first() is None
+
+    missing_csrf = client.post("/oauth/authorize", data={**params, "decision": "approve"},
+                               headers={"Origin": settings.public_url}, follow_redirects=False)
+    assert missing_csrf.status_code == 403
+    wrong_origin = client.post("/oauth/authorize", data={**params, "csrf": owner_session["csrf"], "decision": "approve"},
+                               headers={"Origin": "https://attacker.example"}, follow_redirects=False)
+    assert wrong_origin.status_code == 403
+
+    authorized = client.post("/oauth/authorize", data={**params, "csrf": owner_session["csrf"], "decision": "approve"},
+                             headers={"Origin": settings.public_url}, follow_redirects=False)
     assert authorized.status_code == 303
     query = parse_qs(urlsplit(authorized.headers["location"]).query)
     assert query["state"] == ["state-1"]
@@ -305,7 +334,13 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
         "scope":"experiments:read", "resource":settings.resource,
         "code_challenge":challenge(verifier), "code_challenge_method":"S256",
     }
-    authorized = client.get("/oauth/authorize", params=params, follow_redirects=False)
+    consent = client.get("/oauth/authorize", params=params, follow_redirects=False)
+    assert consent.status_code == 200
+    owner_session = auth.local.session(client.cookies.get("gpu_gateway_session"))
+    authorized = client.post("/oauth/authorize", data={
+        **params, "csrf": owner_session["csrf"], "decision": "approve",
+    }, headers={"Origin": settings.public_url}, follow_redirects=False)
+    assert authorized.status_code == 303
     code = parse_qs(urlsplit(authorized.headers["location"]).query)["code"][0]
     failed = client.post("/oauth/token", data={
         "grant_type":"authorization_code", "client_id":client_id, "code":code,

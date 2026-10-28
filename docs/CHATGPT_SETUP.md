@@ -84,6 +84,11 @@ Before connecting ChatGPT, provide all of the following:
   privately, then verify discovery, client registration, PKCE, token refresh and
   revocation against the live client. Do not retain the setup URL in shell history,
   CI output or deployment logs; it is a credential until consumed or expired.
+- Built-in OAuth must show an owner consent page naming the registered client,
+  requested scopes, and redirect destination. Authorization-code issuance must
+  require the owner's CSRF-protected POST; visiting `/oauth/authorize` by GET
+  while signed in is not consent. The implementation has a local regression for
+  this boundary, but a live ChatGPT flow has not yet verified its user experience.
 - An OAuth authorization server that can keep ChatGPT connected. OpenAI's current
   guidance calls out refresh-token issuance; for OIDC, `offline_access` should be
   requested and advertised. See the refresh-token section in the Help Center guide.

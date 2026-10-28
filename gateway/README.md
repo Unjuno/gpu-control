@@ -165,7 +165,10 @@ metadata and returns a `WWW-Authenticate` challenge; it is NOT an OAuth issuer.
 
 The built-in single-owner OAuth mode supports public-client DCR, authorization
 code with PKCE S256, refresh tokens, exact MCP resource binding, and [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009)
-token revocation. Refresh-token rotation and revocation operate on a persisted
+token revocation. Its authorization endpoint displays the registered client,
+requested scopes, and redirect destination; a CSRF-protected owner POST is
+required before an authorization code is issued. Opening the authorization URL
+with a logged-in browser session alone does not grant access. Refresh-token rotation and revocation operate on a persisted
 grant family for newly issued credentials. Existing pre-v7 tokens retain a
 null grant ID because their original access/refresh relationships cannot be
 reconstructed; revocation applies to the presented legacy token, and a legacy

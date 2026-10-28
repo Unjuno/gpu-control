@@ -306,9 +306,12 @@ class LocalOAuth:
             raise GatewayError("invalid_scope", "Unsupported OAuth scope", 400)
         return " ".join(dict.fromkeys(requested))
 
-    def authorize(self, params: dict, session_token: str) -> str:
+    def authorization_details(self, params: dict, session_token: str) -> dict:
         client_id = params.get("client_id", "")
         redirect_uri = params.get("redirect_uri", "")
+        state = params.get("state", "")
+        if not isinstance(client_id, str) or not isinstance(redirect_uri, str):
+            raise GatewayError("invalid_request", "OAuth client and redirect URI are required", 400)
         if params.get("response_type") != "code":
             raise GatewayError("unsupported_response_type", "Only response_type=code is supported", 400)
         client = self._client(client_id)
@@ -323,15 +326,24 @@ class LocalOAuth:
             raise GatewayError("invalid_target", "OAuth resource must match the MCP resource", 400)
         self.session(session_token)
         scope = self._scope(params.get("scope"))
+        if (not isinstance(state, str) or len(state) > 2048 or
+                any(ord(char) < 0x20 or ord(char) == 0x7f for char in state)):
+            raise GatewayError("invalid_request", "Invalid OAuth state", 400)
+        return {"client_id": client_id, "client_name": client["client_name"],
+                "redirect_uri": redirect_uri, "scope": scope, "state": state}
+
+    def authorize(self, params: dict, session_token: str) -> str:
+        details = self.authorization_details(params, session_token)
         raw = "gc_" + secrets.token_urlsafe(32)
         now = int(time.time())
         with self.store.transaction() as c:
             c.execute(update(oauth_clients).where(
-                oauth_clients.c.client_id == client_id
+                oauth_clients.c.client_id == details["client_id"]
             ).values(expires_at=now + 30 * 86400))
             c.execute(insert(oauth_codes).values(
-                code_hash=_sha(raw), client_id=client_id, redirect_uri=redirect_uri,
-                scope=scope, resource=self.resource, code_challenge=challenge,
+                code_hash=_sha(raw), client_id=details["client_id"], redirect_uri=details["redirect_uri"],
+                scope=details["scope"], resource=self.resource,
+                code_challenge=params["code_challenge"],
                 subject="owner", expires_at=now + 300, created_at=now
             ))
         return raw
