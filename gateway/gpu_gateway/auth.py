@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import math
 import secrets
 from urllib.parse import urlencode
 
@@ -11,6 +12,7 @@ import jwt
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from jwt.exceptions import PyJWKClientConnectionError
 
 from .config import Settings
 from .local_oauth import LocalOAuth
@@ -19,6 +21,77 @@ from .service import GatewayError, Principal
 SCOPES = ("experiments:read", "experiments:run", "experiments:cancel")
 SESSION = "gpu_gateway_session"
 LOGIN_STATE = "gpu_gateway_login"
+MAX_OIDC_TOKEN_RESPONSE_BYTES = 65536
+
+
+def _read_bounded_oauth_json(response) -> dict:
+    """Read a small, uncompressed OAuth JSON response without buffering it all."""
+    headers = response.headers
+    content_encoding = headers.get("content-encoding", "identity").lower()
+    if content_encoding not in ("", "identity"):
+        raise ValueError("compressed OAuth responses are not accepted")
+    content_length = headers.get("content-length")
+    if content_length is not None:
+        try:
+            length = int(content_length)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid OAuth response length") from exc
+        if length < 0 or length > MAX_OIDC_TOKEN_RESPONSE_BYTES:
+            raise ValueError("OAuth response exceeds the byte limit")
+
+    body = bytearray()
+    for chunk in response.iter_raw():
+        if len(body) + len(chunk) > MAX_OIDC_TOKEN_RESPONSE_BYTES:
+            raise ValueError("OAuth response exceeds the byte limit")
+        body.extend(chunk)
+
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate OAuth JSON key")
+            value[key] = item
+        return value
+
+    def reject_constant(_value):
+        raise ValueError("non-finite OAuth JSON number")
+
+    def finite_float(value):
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError("non-finite OAuth JSON number")
+        return parsed
+
+    try:
+        result = json.loads(bytes(body).decode("utf-8"),
+                            object_pairs_hook=unique_object,
+                            parse_constant=reject_constant,
+                            parse_float=finite_float)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("invalid OAuth JSON response") from exc
+    if not isinstance(result, dict):
+        raise ValueError("OAuth response must be a JSON object")
+    return result
+
+
+class BoundedJWKClient(jwt.PyJWKClient):
+    """Use the configured JWKS URI without redirects or unbounded response reads."""
+
+    def fetch_data(self):
+        try:
+            with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+                with client.stream(
+                    "GET", self.uri,
+                    headers={**self.headers, "Accept-Encoding": "identity"},
+                ) as response:
+                    response.raise_for_status()
+                    jwk_set = _read_bounded_oauth_json(response)
+        except (httpx.HTTPError, OSError, TimeoutError, ValueError):
+            raise PyJWKClientConnectionError("Failed to fetch a bounded OIDC JWKS response") from None
+
+        if self.jwk_set_cache is not None:
+            self.jwk_set_cache.put(jwk_set)
+        return jwk_set
 
 
 def _safe_next(value: str | None) -> str:
@@ -38,7 +111,7 @@ class Auth:
         self.external = bool(settings.issuer)
         self.local = None if self.external else (LocalOAuth(settings, store) if store is not None else None)
         self.keys = keys or (
-            jwt.PyJWKClient(settings.jwks_url, cache_keys=True, lifespan=300, timeout=5)
+            BoundedJWKClient(settings.jwks_url, cache_keys=True, lifespan=300, timeout=5)
             if self.external and settings.jwks_url else None
         )
         self.fernet = Fernet(settings.cookie_key.encode()) if self.external and settings.cookie_key else None
@@ -209,9 +282,12 @@ class Auth:
         basic = (self.settings.client_id, self.settings.client_secret) if self.settings.client_secret else None
         try:
             with httpx.Client(timeout=10, follow_redirects=False) as client:
-                response = client.post(self.settings.token_endpoint, data=payload, auth=basic)
-                response.raise_for_status()
-                tokens = response.json()
+                with client.stream(
+                    "POST", self.settings.token_endpoint, data=payload, auth=basic,
+                    headers={"Accept-Encoding": "identity"},
+                ) as response:
+                    response.raise_for_status()
+                    tokens = _read_bounded_oauth_json(response)
             identity = self.decode(tokens["id_token"], self.settings.client_id)
             if identity.get("nonce") != pending["nonce"]:
                 raise ValueError()
