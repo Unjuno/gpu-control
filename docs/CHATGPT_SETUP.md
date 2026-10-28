@@ -46,6 +46,20 @@ authentication were unavailable or unconfigured. Until a current stable
 endpoint returns `/readyz`=200, the service is not ready for ChatGPT connection
 or experiment execution.
 
+### Existing Neon database candidate (read-only inventory, 2026-10-28)
+
+A read-only Neon inventory found an existing `gpu-control-gateway` project with
+a ready `production` branch and PostgreSQL 17. Its listed Gateway tables are
+still unversioned legacy tables; `gateway_schema_version` was not present in
+the table inventory. The inspected run table has the legacy `gateway_runs_v1`
+shape, and the control row has `worker_seen_at` but no `supervisor_seen_at`.
+This is a candidate database, not a migration acceptance result. No migration,
+backup, service stop, or data query was performed. Before using it, identify all
+connected services, take and validate the paired database/artifact backup,
+verify restore, and run the reviewed migration through the manual migration
+unit while application services are stopped. Keep ChatGPT disconnected until
+the new schema and both worker heartbeats pass `/readyz`.
+
 The production alias `gpu-control.vercel.app` was previously observed serving
 an older `main` revision (`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`) without
 `/readyz`; those earlier production observations do not establish current
