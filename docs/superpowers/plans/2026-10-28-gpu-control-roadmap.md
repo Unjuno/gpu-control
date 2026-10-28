@@ -74,7 +74,7 @@ P0 現行基準・接続条件確認
 
 この計画は長期目標を示す。以下の現状スナップショットと未解決ゲートを更新してからLunaへ渡し、各段階の受入条件を満たす順に実装する。
 
-- GitHub `main`: `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`。ローカル作業branch `codex/chatgpt-cpu-vertical` は未push。HTTP boundary `311d6a9`、CPU/MCP/recovery `7c4454b`、OAuth migration `c8172c0`、P3 operations `d794c13`、CI/package `cccfcb8`をローカルcommitに抽出したが、GitHub CIと独立PR reviewは未実施。残るworktreeにはP4/goal/progress文書の差分がある。PR #43は別のDraft監査PRとして存在する。
+- GitHub `main`: `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`。Draft PR #51 `codex/chatgpt-cpu-vertical` はhead `c1541a829825ef627cddd86cb81efd36a2d2ed5a`、120 files、4 GitHub Actions checks success、Vercel preview success、reviewは未着。PR #43は別のDraft監査PRとして存在する。
 - ローカル証拠: P1のT1-T5 CPU lifecycleとHTTP/MCPを通した実Docker実行、P2のrecovery/paired backup restore、およびP4のoffline capability/selection契約が実装・限定scopeで検証済み。これらは実ChatGPT受入、production復旧、GPU実行を意味しない。
 - 公開先: Vercel `gpu-control` の最新READY production buildは上記main SHAのまま。2026-10-28の公開alias確認は `/healthz=200`, `/readyz=404`, 未認証`/mcp=401`。P1実装は未公開。Vercel projectのroot外source include設定と実buildも未確認。
 - 運用先: P3 decisionは専用Linux + systemd API/worker/recovery + managed Neon + 固定artifact filesystem + TLS proxy。ホスト/provider、region、公開HTTPS origin、月額cost ceilingは未決であり、購入・本番変更は未承認。Neon production schemaは未移行で、既存OAuth admin/session stateを保全する必要がある。
@@ -82,7 +82,7 @@ P0 現行基準・接続条件確認
 
 直近の順序:
 
-1. **P4 spec/evidenceと最新handoffをコミットし、ローカル受入を再実行する。** 5つの実装slice commitは揃った。PR #43との差分を再照合してから、これらのcommitを現行main上のPRとしてレビュー・CIにかける。mainへの直接反映、merge、parked解除を含めない。
+1. **PR #51の独立レビューとCI follow-upを得る。** 現在のActions/preview checksはsuccessだがreviewは未着。PR #43との差分を再照合し続け、指摘があればhead SHAを固定して対応・再CIする。mainへの直接反映、merge、parked解除を含めない。
 2. **実ChatGPT接続条件を確認する。** 利用者が使うworkspaceでcustom MCP write actionsが可能か、OAuth app接続・tool discovery・tool callを確認する。権限やworkspace設定が揃わなければ具体的なBLOCKED条件を記録し、独立してできる実装を進める。
 3. **P3 host choiceを閉じる。** 月額上限、region、host/provider、public HTTPS originを確定してから運用構成をdeploy可能なrunbookにする。ホスト購入やproduction変更は明示承認後のみ。
 4. **隔離先でproduction形状の導入を検証する。** migration、Neon互換backup/restore、artifact volume、service restart/mount/permission、TLS/proxy、monitor/alertを実測し、既存OAuthとowner境界を確認する。production schema変更は別途レビューと承認後。
@@ -160,7 +160,7 @@ P0 現行基準・接続条件確認
   - Added `gpu-control-db-migrate.service` as a manually started, hardened oneshot with no boot-install target. Production use remains gated on quiescence, paired backup/restore, and review of the exact release migration.
   - 2026-10-28 read-only Neon inventory found an existing unversioned v1 Gateway schema, zero runs/active slots, and existing local OAuth admin/session state. The initial isolated v1-to-v6 `Store.initialize()` rehearsal is historical; after schema v7, the current operator `--init-db` entrypoint was rerun twice against an isolated v1-shaped PostgreSQL 16 database and preserved synthetic run/OAuth rows, with unknown future schema rejected without mutation. This does not authorize or validate production migration; see `docs/acceptance/2026-10-28-neon-first-schema-migration.md`.
   - 現行Vercel Functions案は `gateway/vercel.json` の `maxDuration: 30` で、queueを常時監視するworkerには使わない。Vercel Sandboxは別製品で、現行公式資料ではPro/Enterpriseのsession上限が最大24時間、snapshotとDriveによる永続化がある。P3の構成選定時に候補比較はできるが、利用可能なplan、請求/上限、停止後の再開・queue監視、専用workerの信頼境界、DB/成果物の永続性を実環境で確認するまでは採用済みと扱わない。
-  - Local Vercel package preflight now builds a Gateway wheel from valid PEP 621 metadata and checks the runtime dependency list against `requirements.txt`. Because `requirements.txt` installs the shared root `gpu-control` package via `-e ..`, the Vercel project must enable/verify inclusion of source files outside Root Directory. That project setting and an actual Vercel build remain unverified.
+  - Local Vercel package preflight builds a Gateway wheel from valid PEP 621 metadata and checks the runtime dependency list against `requirements.txt`. A Vercel preview for PR #51 built exact head `c1541a8` to READY, confirming that the shared root `gpu-control` package resolved for that build. The explicit include-outside-Root-Directory project setting was not directly read; recheck it after changing Vercel build configuration.
   - 比較対象は専用Linux host (systemd)、Vercel Sandbox + Drive、および必要なら既存のmanaged PostgreSQL/storage。選択理由、費用上限、failure/recovery実測を記録する。いずれもCPU policy enableより前に同じacceptance gateを通す。
 - [ ] OAuth接続/refresh/revocation、誤audience、誤scope、PKCE、redirect URI、CSRF、rate limit、owner境界を検証する。
   - 2026-10-28 offline regression fixed a rollback bug in the built-in OAuth failed-login counter; the fifth invalid password now activates a persisted lockout and expiry is verified. The complete item stays open until live ChatGPT/OIDC and all listed protocol/owner cases pass. See `docs/IMPLEMENTATION_PROGRESS.md`.
