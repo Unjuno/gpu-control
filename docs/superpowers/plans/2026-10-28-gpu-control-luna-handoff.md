@@ -1,5 +1,13 @@
 # Lunaへの実装引き継ぎ
 
+## 継続ゴールと現在地（2026-10-28）
+
+最終ゴールは、ChatGPTの通常会話だけで登録済み実験のprepare/submit/status/result/search/cancelを行い、同じjobの実行・復旧・成果物を正確に返すこと。長期ロードマップの順にP3運用、P4実GPU、明示承認付きP5有償、P6再現可能な研究実験、P7保守へ進む。実装計画の現行スナップショットと次の順序は `2026-10-28-gpu-control-roadmap.md` を参照。
+
+現時点でP1 CPU縦通しとP2復旧はローカル環境の限定受入が済み、P4にはoffline resource selection sliceがある。ローカルcommitはHTTP boundary `311d6a9`、CPU/MCP/recovery `7c4454b`、OAuth migration `c8172c0`、P3 operations `d794c13`、CI/package `cccfcb8`。どれも未pushで現HEADに対するGitHub Actions/独立reviewはない。公開VercelはGitHub main SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e` のまま。公開endpointは`/healthz=200`, `/readyz=404`, 未認証`/mcp=401`。これはChatGPT受入ではない。残るworktree変更を保全し、P4 evidence/goal文書を整えた後でローカル全suiteを再実行する。実ホスト、region、public origin、monthly ceiling、ChatGPT workspace write-action accessは未確定。
+
+最初に差分・PR #43・mainを照合してレビュー可能な単位へ整理し、独立レビューと現行CIを得る。続いて実ChatGPT workspace権限とP3運用先の不足情報を記録する。独立してできる実装・文書化は継続する。GPU provider追加はChatGPT CPU verticalの独立受入後、paid activationは別途明示承認後とする。
+
 以下をLunaへ渡す。これは実装開始用の指示書であり、計画作成者はまだLunaを起動していない。
 
 ---

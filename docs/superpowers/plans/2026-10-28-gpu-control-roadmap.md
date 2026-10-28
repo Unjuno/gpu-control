@@ -70,13 +70,51 @@ P0 現行基準・接続条件確認
 
 期間はLunaの処理時間ではなく、人間のレビュー・外部設定を含む計画上の目安。P0〜P1で2〜4週間、P2〜P3で追加3〜5週間、P4〜P5で追加4〜8週間、P6〜P7を3〜6か月の拡張期間とする。暦で強制終了せず受入条件で判定し、最初の2PRの実績で見積り直す。
 
+## 2026-10-28 継続時点と直近の実行順
+
+この計画は長期目標を示す。以下の現状スナップショットと未解決ゲートを更新してからLunaへ渡し、各段階の受入条件を満たす順に実装する。
+
+- GitHub `main`: `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`。ローカル作業branch `codex/chatgpt-cpu-vertical` は未push。HTTP boundary `311d6a9`、CPU/MCP/recovery `7c4454b`、OAuth migration `c8172c0`、P3 operations `d794c13`、CI/package `cccfcb8`をローカルcommitに抽出したが、GitHub CIと独立PR reviewは未実施。残るworktreeにはP4/goal/progress文書の差分がある。PR #43は別のDraft監査PRとして存在する。
+- ローカル証拠: P1のT1-T5 CPU lifecycleとHTTP/MCPを通した実Docker実行、P2のrecovery/paired backup restore、およびP4のoffline capability/selection契約が実装・限定scopeで検証済み。これらは実ChatGPT受入、production復旧、GPU実行を意味しない。
+- 公開先: Vercel `gpu-control` の最新READY production buildは上記main SHAのまま。2026-10-28の公開alias確認は `/healthz=200`, `/readyz=404`, 未認証`/mcp=401`。P1実装は未公開。Vercel projectのroot外source include設定と実buildも未確認。
+- 運用先: P3 decisionは専用Linux + systemd API/worker/recovery + managed Neon + 固定artifact filesystem + TLS proxy。ホスト/provider、region、公開HTTPS origin、月額cost ceilingは未決であり、購入・本番変更は未承認。Neon production schemaは未移行で、既存OAuth admin/session stateを保全する必要がある。
+- 安全ゲート: `policies/repository-state.yaml` は `mode: parked`。有償compute、RunPod live call/adapter/workflow、一般外部container実行は無効のまま維持する。コード変更・dry run・repository accessはactivation承認ではない。
+
+直近の順序:
+
+1. **P4 spec/evidenceと最新handoffをコミットし、ローカル受入を再実行する。** 5つの実装slice commitは揃った。PR #43との差分を再照合してから、これらのcommitを現行main上のPRとしてレビュー・CIにかける。mainへの直接反映、merge、parked解除を含めない。
+2. **実ChatGPT接続条件を確認する。** 利用者が使うworkspaceでcustom MCP write actionsが可能か、OAuth app接続・tool discovery・tool callを確認する。権限やworkspace設定が揃わなければ具体的なBLOCKED条件を記録し、独立してできる実装を進める。
+3. **P3 host choiceを閉じる。** 月額上限、region、host/provider、public HTTPS originを確定してから運用構成をdeploy可能なrunbookにする。ホスト購入やproduction変更は明示承認後のみ。
+4. **隔離先でproduction形状の導入を検証する。** migration、Neon互換backup/restore、artifact volume、service restart/mount/permission、TLS/proxy、monitor/alertを実測し、既存OAuthとowner境界を確認する。production schema変更は別途レビューと承認後。
+5. **レビュー・CI後に実CPU verticalをdeployしChatGPT acceptanceを実施する。** 別ChatGPT会話でprepare/submit/status/result/search/artifact/cancel、worker restart、owner isolationを記録する。実ChatGPT・実ホスト証拠が揃うまで各軸をUNCERTAIN/BLOCKEDに保つ。
+6. **P3の安定運用期間を測る。** seven-day observation、target-host cancellation/recovery、second-operator restore、measured RPO/RTO、capacity alert deliveryを完了する。
+7. **その後P4→P5→P6→P7へ進む。** 最初の実GPU backendを選ぶ際に現行provider/API/規約/quota/pricingを再確認し、free GPUとpaid GPUは別release axisとする。P5 paid executionは別の明示authorizationを要する。
+
+### 現在の未コミット差分を分けるレビュー単位
+
+現worktreeは67 tracked pathsの変更と28 untracked pathsを含む（2026-10-28のporcelain status集計）。現時点でPR/commitへ分割済みではない。いずれも現行CIと個別レビューを通すまでproduction受入に使わない。
+
+| 順 | 独立レビュー単位 | 主な範囲 | 必須の境界・証拠 |
+|---|---|---|---|
+| A | 外向きHTTP境界 | `src/gpu_control/http_security.py`, `source.py`, RunPod transport helpersと各adapter tests | redirect、圧縮、body上限、permit/price freshness。offline証拠のみ。RunPod live呼び出し禁止のまま |
+| B | Local CPU backend + MCP vertical | `gateway/gpu_gateway/{app,config,contracts,experiment_api,local_backend,worker}.py`、CPU workload/Docker、各 lifecycle/MCP tests | exact source/image/plan binding、idempotency、worker/recovery/cancel、owner-scoped result/artifact。real Docker/Postgres local scope |
+| C | OAuth state and migration | `auth.py`, `local_oauth.py`, `migrations.py`, `owner_migration.py`と関連tests/acceptance | PKCE、refresh/revocation、旧schema/issuer保全、rollback/owner境界。synthetic isolated DB scope |
+| D | Artifact・backup・host operations | `artifacts.py`, `backup_generation.py`, capacity monitor、systemd/Compose、`docs/OPERATIONS.md`とrestore/deploy tests | atomic paired backup、別DB restore、quota/mount/service/security境界。target-host/production証拠とは分離 |
+| E | Capability/selection contract | `workloads.py`, `capabilities.py`, `selection.py`、P4 Gateway mapping/spec/tests | workload適合性、cost evidence freshness、unknown/free/paid分類。offline evidenceのみ、GPU実行は未受入 |
+| F | CIとrelease evidence | 4 workflow files、package metadata/tests、baseline/acceptance/release/progress docs | PR/merge_group checks、wheel packaging、現行HEADでのCIとreview。CI定義だけの静的確認を実行成功扱いしない |
+
+依存関係: AはCやBと別レビュー可能。BはCのOAuth contract/schema境界とDの永続artifact運用に依存する。EのselectionをBのprepare/submit実行へ接続するのは独立レビュー後にする。Fは各sliceの内容に応じて同時または最後に更新する。docsの同一記述はそれぞれのsliceへ含め、別の巨大docs-only PRにしない。最初にworktree上で差分内容とテスト結果の対応を監査し、ファイル境界が衝突する箇所（とくに`IMPLEMENTATION_PROGRESS.md`, `RELEASE_MATRIX.md`, `gateway-ci.yml`）は1つのowner sliceに割り当てる。
+
+各段階はimplementation progressとrelease matrixに、実行した日時、base/control-plane SHA、環境、観測、artifact path、証拠scope、失敗・未確認事項を追記する。unit/offline/local Docker/production/ChatGPT/real GPUの証拠を混ぜない。
+
 ## P0: 現行基準を揃える（1〜2 PR）
 
-- [ ] mainとPR #43の正確なSHAを取得。各監査修正を「mainに存在／未適用／後続で置換／要調査」に分類する。
-- [ ] `docs/BASELINE_AUDIT.md`に対象ファイル、根拠、再現テスト、適用順序を記録する。PR全体を無条件にcherry-pickしない。
-- [ ] README/STATUS/実コードの相違を修正し、Gatewayとcoreの責務を記録する。
-- [ ] 利用予定ChatGPTアカウントでcustom MCP接続が利用可能か確認する。HTTPS endpoint、OAuth、永続DB、常時workerの既存構成を調査し、不足を具体名で記録する。
-- [ ] PR #43のCPU/MCP公開にも関係する修正を小さいPRで取り込む。RunPod固有の残項目はP5の必須ゲートとして追跡する。
+- [x] mainとPR #43の正確なSHAを取得。各監査修正を「mainに存在／未適用／後続で置換／要調査」に分類する。2026-10-28再確認でもmainは`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`、PR #43はOPEN/DRAFT、head `1699b75df8262023501d41279e83bf429dca1be4`。
+- [x] `docs/BASELINE_AUDIT.md`に対象ファイル、根拠、再現テスト、適用順序を記録する。PR全体を無条件にcherry-pickしない。
+- [x] README/STATUS/実コードの相違を修正し、Gatewayとcoreの責務を記録する。
+- [ ] 利用予定ChatGPT workspaceでcustom MCPのwrite actionsが利用可能か確認する。Business/Enterprise/Eduのweb workspace、作成・試験者の権限、`Create plugins with MCPs`およびwrite action設定を記録する。Proのread/fetch-only接続はrun/cancel受入条件を満たさない。詳細は[OpenAIの接続要件](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)を参照する。HTTPS endpoint、OAuth、永続DB、常時workerの既存構成も調査し、不足を具体名で記録する。
+- [x] PR #43からCPU/MCP公開にも関係するHTTP境界・dependency修正を選択的にローカル実装し、回帰根拠を記録した。これはPR #43のmerge/cherry-pickやlive provider acceptanceを意味しない。RunPod固有の残項目はP5で追跡する。
+- [ ] 実装差分を独立レビューできる小さいPRにまとめ、現在のGitHub `main`をbaseにレビューと最新CIを得る。現状の変更はローカル未コミットで、この作業ブランチはGitHubにpushされていない。
 
 完了条件: 採用基準SHA、差分表、接続条件、最初のCPU workloadが確定。接続権限がなければMCP_CONNECTIVITYをBLOCKEDと記録し、backend実装まで進める。
 
@@ -84,13 +122,14 @@ P0 現行基準・接続条件確認
 
 詳細は `2026-10-28-gpu-control-first-vertical.md`。
 
-- [ ] 現行DBから移行可能なversioned plan・状態・結果契約を導入する。
-- [ ] `experiment_capabilities / prepare / submit / status / result / cancel / list`を公開する。
-- [ ] trusted registryのCPU workloadを0ドルでprepareできるようにする。低リスクの事前運用許可を厳密に限定し、有償承認は維持する。
-- [ ] 既存project_controlの検証・隔離を再利用するlocal Docker CPU backendを独立workerへ接続する。
-- [ ] process/containerの実行証拠、source SHA、image digest、fingerprint、metrics、cleanupを返す。
-- [ ] 同じkeyの再送、再実験の新key、owner別検索、worker再起動、cancelを実containerで確認する。
+- [x] 現行DBから移行可能なversioned plan・状態・結果契約を導入する。
+- [x] `experiment_capabilities / prepare / submit / status / result / cancel / list`を公開する。
+- [x] trusted registryのCPU workloadを0ドルでprepareできるようにする。低リスクの事前運用許可を厳密に限定し、有償承認は維持する。
+- [x] 既存project_controlの検証・隔離を再利用するlocal Docker CPU backendを独立workerへ接続する。
+- [x] process/containerの実行証拠、source SHA、image digest、fingerprint、metrics、cleanupを返す。
+- [x] 同じkeyの再送、再実験の新key、owner別検索、worker再起動、cancelを実containerで確認する。
 - [ ] 実ChatGPTで初回接続・実行・別会話での検索・結果取得を行う。
+  - Local OAuth now advertises RFC 7009 revocation and binds refresh/access credentials to a persisted grant family; a v6-to-v7 additive migration preserves existing tokens. This is local protocol evidence only and does not establish live ChatGPT acceptance.
 
 最初のworkloadは標準ライブラリだけの決定的 `cpu-smoke-v1`。次に既存 `orbitune-tokenizer`を接続する。GPU必須入力にCPUを自動実行しない。CPUが許可された要求のみ0ドル経路を使う。
 
@@ -115,11 +154,31 @@ P0 現行基準・接続条件確認
 主な変更先: `gateway/docker-compose.yml`, deploy設定、DB migration、`docs/OPERATIONS.md`, `docs/CHATGPT_ACCEPTANCE.md`。
 
 - [ ] 本番Gatewayと独立workerの構成を1つ選び、TLS、永続PostgreSQL、migration、worker自動再起動を整える。APIにDocker socketやprovider secretsを渡さない。
+  - Topology decision recorded 2026-10-28: dedicated Linux host with separate systemd API/worker/recovery services, existing managed Neon PostgreSQL, fixed-size artifact filesystem, and loopback API behind TLS proxy. Host/provider, region, cost ceiling, and public origin remain undecided; this is not purchase/deployment approval. See `docs/decisions/2026-10-28-p3-deployment-topology.md`.
+  - Local systemd templates and their syntax/security checks exist; they are not installed or exercised on the selected host. Host boot, TLS proxy, permissions, mount ordering, and restart behavior remain acceptance gates.
+  - 2026-10-28 read-only provider shortlist: Lightsail offers Tokyo and Singapore. A 2 GB VM plus a 32 GB separate artifact disk is currently estimated at $15.20/month; 4 GB plus that disk at $27.20/month, before snapshots, transfer overage, tax, domain, or backup costs. Singapore is the first region to measure against the existing Singapore Neon database; Tokyo remains an alternative. DigitalOcean is a Singapore-only comparison for this shortlist and lacks a currently listed Japan datacenter. These are candidate prices, not a selected provider or approved budget. The owner-set cost ceiling, exact region, and account-specific availability are still open. See the linked topology decision for official price sources and limits.
+  - Added `gpu-control-db-migrate.service` as a manually started, hardened oneshot with no boot-install target. Production use remains gated on quiescence, paired backup/restore, and review of the exact release migration.
+  - 2026-10-28 read-only Neon inventory found an existing unversioned v1 Gateway schema, zero runs/active slots, and existing local OAuth admin/session state. The initial isolated v1-to-v6 `Store.initialize()` rehearsal is historical; after schema v7, the current operator `--init-db` entrypoint was rerun twice against an isolated v1-shaped PostgreSQL 16 database and preserved synthetic run/OAuth rows, with unknown future schema rejected without mutation. This does not authorize or validate production migration; see `docs/acceptance/2026-10-28-neon-first-schema-migration.md`.
+  - 現行Vercel Functions案は `gateway/vercel.json` の `maxDuration: 30` で、queueを常時監視するworkerには使わない。Vercel Sandboxは別製品で、現行公式資料ではPro/Enterpriseのsession上限が最大24時間、snapshotとDriveによる永続化がある。P3の構成選定時に候補比較はできるが、利用可能なplan、請求/上限、停止後の再開・queue監視、専用workerの信頼境界、DB/成果物の永続性を実環境で確認するまでは採用済みと扱わない。
+  - Local Vercel package preflight now builds a Gateway wheel from valid PEP 621 metadata and checks the runtime dependency list against `requirements.txt`. Because `requirements.txt` installs the shared root `gpu-control` package via `-e ..`, the Vercel project must enable/verify inclusion of source files outside Root Directory. That project setting and an actual Vercel build remain unverified.
+  - 比較対象は専用Linux host (systemd)、Vercel Sandbox + Drive、および必要なら既存のmanaged PostgreSQL/storage。選択理由、費用上限、failure/recovery実測を記録する。いずれもCPU policy enableより前に同じacceptance gateを通す。
 - [ ] OAuth接続/refresh/revocation、誤audience、誤scope、PKCE、redirect URI、CSRF、rate limit、owner境界を検証する。
-- [ ] 内蔵OAuthのissuerがURL変更で変わる点を扱う。ドメイン変更で別ownerになった既存runを自動公開せず、明示的移行を用意する。
-- [ ] DB backup/restoreを実行し、run・approval・OAuth状態の復旧を確認。成果物も対応する世代へ復元できるようにする。
-- [ ] readinessはDB、migration version、worker heartbeat、registry有効性を確認する。liveness成功を計算可能の証拠にしない。
-- [ ] 7日間の少数・非課金試験で接続切れ、再起動、停止、日をまたぐ検索を観察する。監視で実験を勝手に再実行しない。
+  - 2026-10-28 offline regression fixed a rollback bug in the built-in OAuth failed-login counter; the fifth invalid password now activates a persisted lockout and expiry is verified. The complete item stays open until live ChatGPT/OIDC and all listed protocol/owner cases pass. See `docs/IMPLEMENTATION_PROGRESS.md`.
+- [x] 内蔵OAuthのissuer変更用オフライン移行手段を実装し、実DB複製とartifact fixtureでローカル検証した。移行元/先issuer・subjectの明示確認、quiescence、衝突・digest検査、再開可能なコピー/rollback手順、旧token/session失効、owner境界を検査する。実装とSIGKILL試験の範囲は`docs/acceptance/2026-10-28-owner-issuer-migration.md`を参照する。これはproduction migrationの承認や実行ではない。
+  - Production rollout remains separate: stop all services/admission, take and verify a paired production backup, run read-only preflight, independently review the exact migration, apply it, then verify owner counts, artifact digests, old-issuer rejection, and cross-owner denial before resuming.
+  - 移行元と移行先issuer/subjectを明示し、認証済みの同一ownerであることをoperatorが確認してから実行する。subだけの一致や新issuerへのログインだけでは移行を許可しない。
+  - API、worker、supervisorを停止し、新しいsubmitを遮断した状態でDBとartifact volumeを同じ世代として退避する。通常のAPIリクエストや起動時migrationでownerを自動書換えしない。
+  - runのowner、submission intent内のowner参照、artifact scope directoryをまとめて移行する。現行schemaに独立approval tableやplan内owner参照はない。owner/idempotency一意制約の衝突・対象件数・参照整合性を検査し、artifactを新scopeへコピーしてmanifestのsize/SHA-256を照合する。原本を保持し、DB更新とartifact切替の不一致から再実行・復旧できる段階設計にする。
+  - 旧issuerのtoken/sessionを引き継がず、旧URLの認証を拒否する。移行後は新issuerでrun一覧、status、result、artifactの読出しを確認し、別ownerからの全経路が404/拒否となること、件数・owner境界・成果物digestが一致することを証拠に残す。
+  - 実DB複製と実artifact fixtureで、成功移行、同一owner再実行、衝突時の無変更、途中失敗後の復旧、別owner拒否を検証する。通常運用への復帰は全検査成功後のみ許可する。
+- [x] Paired DB/artifact backup generation and isolated restoreを実装・ローカルsynthetic PostgreSQL 16で実行し、run/OAuth stateとowner-scoped artifact retrievalを確認した。v7 refreshではOAuth `grant_id`/revocation状態も確認し、PostgreSQL 16 generationを別PostgreSQL 17.11 DBへrestoreしてschema/run/artifact/OAuthの保持を確認した。手順と限界は`docs/acceptance/2026-10-28-paired-artifact-restore.md`および`docs/acceptance/2026-10-28-atomic-backup-generation.md`に記録した。
+  - [ ] Neon固有のpaired backup/restore挙動とsecond-operator手順を、承認済みの隔離環境で確認する。
+  - [ ] 選定production database/artifact volumeでpaired backup/restoreを行い、second-operator手順とRPO/RTO実測を記録する。
+- [x] `/readyz`はDB、schema migration version、worker/supervisor heartbeat、registry有効性を検証し、境界テストを持つ。コード上の実装証拠は`gateway/gpu_gateway/health.py`、`gateway/tests/test_health.py`、`gateway/tests/test_http_auth.py`。
+  - [ ] 選定ホストに配置し、実サービス再起動・DB停止・stale heartbeat時にreadinessと回復動作を受け入れ確認する。
+- [x] Local CPU artifact admissionのfilesystem/headroom probeはcapabilities、prepare、worker直前でfail-closedし、systemd monitorも実装済み。ローカルfixture evidenceは`docs/acceptance/2026-10-28-artifact-storage.md`。
+  - [ ] 選定ホストでfixed-size filesystem quota、alert通知/復旧通知、quota上限時のwrite失敗・cleanup、API/worker/supervisor継続稼働を実測する。`statvfs`だけをquotaや通知の証拠にしない。
+- [ ] `docs/CHATGPT_ACCEPTANCE.md`のSeven-day CPU operations observationに従い、接続切れ、worker再起動、停止、日をまたぐ検索を7日間記録する。現在はNOT STARTED。監視で実験を勝手に再実行しない。
 
 目標: 通常負荷でstatus応答p95 2秒以内、submit応答5秒以内、local cancelから解放30秒以内。環境・サンプル数・負荷条件を証拠に含め、未測定をPASSにしない。DB backupは当初RPO 24時間/RTO 2時間を目標とし、受理済みjob自体はDB commit後にのみ応答する。
 
@@ -129,9 +188,13 @@ P0 現行基準・接続条件確認
 
 主な変更先: 新規 `capabilities.py`, `selection.py`, `costs.py`, `workloads.py`、既存Modal backend、対応tests/docs。
 
+Implementation brief: [`docs/specs/p4-capability-selection-contract.md`](../../specs/p4-capability-selection-contract.md)。既存`PricingVerificationResult`と`ApprovedExecutionPlan`の境界を維持し、discovery/selectionでhuman authorizationやprovider submitを発生させない。
+
 - [ ] provider単位ではなくworkload実行可能性を判定する。GPU/VRAM、OS/architecture、依存環境、timeout、待ち時間、結果回収、cleanup、費用証拠の有効期限を入力にする。
+  - 2026-10-28 offline implementation: `src/gpu_control/workloads.py`, `capabilities.py`, `selection.py` define immutable workload requirements, independent availability/cost evidence, per-run cost components, freshness checks, deterministic compatibility filtering, `FREE_FIRST`, and refusal reasons. Gateway now accepts explicit optional P4 requirements in its operator manifest and invokes the selector read-only; absent provider inventory fails closed as `PROVIDER_EVIDENCE_UNAVAILABLE`. Local root/Gateway suites: 517/262 passed (1/8 skipped); Docker API/worker image builds and shared-package imports passed. The GPU example declares execution requirements but leaves exact source repository/SHA blank, with regression coverage that selection remains blocked until they are supplied. No provider/account/live GPU evidence is implied; Vercel deployment packaging remains unverified. Details: `docs/specs/p4-capability-selection-contract.md`.
 - [ ] `LOCAL / FREE / FREE_QUOTA / CREDIT_BACKED / PAID / MANUAL_ONLY / UNSUPPORTED / UNKNOWN`を公開し、availabilityと費用分類を別々に保持する。
 - [ ] まず既存Modal adapterの公式APIを再検証し、利用者アカウントの実際のquota/credit/支払い制御を確認する。実行可能性がなければ理由を記録して他候補1つを調査する。
+  - 2026-10-28: Modal Sandboxの公式timeout/idle-timeout/termination仕様と公開pricingを現行adapterと照合した。worker専用adapterは固定argv・prebuilt image・GPU/CPU/RAM/runtime・block_network・cancel/reconcileの境界を持つが、ユーザーworkspaceのplan/quota/credits/budget/overageは未確認。公開価格のincluded creditはzero-additional-cost保証ではない。Modal readiness記録: `docs/decisions/2026-10-28-p4-modal-readiness.md`。このP4 itemはアカウント確認が残るため未完了。
 - [ ] FREE_FIRSTは適合候補を絞り、証明済みの追加料金0枠を優先する。credit残高だけでゼロ課金を保証しない。overageを確実に止められない枠は0ドル要求でBLOCKEDにする。
 - [ ] GPU候補の不在では `FREE_GPU_UNAVAILABLE`、quota不明では `QUOTA_UNKNOWN` を返し、CPU代案と有償prepareを案内する。
 - [ ] GPU smokeは実デバイス情報と小さいCUDA演算を含め、device名、VRAM、provider handleに対応する証拠、exit、時間、使用量、cleanupを記録する。
@@ -146,8 +209,10 @@ P0 現行基準・接続条件確認
 主な変更先: `src/gpu_control/human_authorization.py`, `providers/`、新規Gateway core bridge、activation docs/policies。
 
 - [ ] PR #43由来のallocation直前期限再確認、HTTP境界、receiptに結びついたrecovery-onlyを現行main上で検証する。
+  - Offline hardening added: RunPod REST v1/v2, pricing GraphQL, and S3 reads now reject redirects and cap response bodies. Both adapters revalidate the live permit, exact price evidence freshness, and pre-create occupancy at one timestamp immediately before the create call. Injected-clock tests prove expired evidence prevents allocation; this does not verify live provider compatibility or the remaining receipt/recovery-only behavior.
 - [ ] Gateway planとcore ApprovedExecutionPlan/LiveExecutionPermitの変換を定義。browser承認はtrusted server側でexact plan・期限・owner・control-plane SHAへ結びつける。
 - [ ] 保護main、必須checks、必要なEnvironment/権限、immutable image、現在の価格/在庫、Network Volume/S3 transportを確認する。
+- [ ] 同一アカウントの並行submitを安全に直列化する。現在の短命occupancy snapshotの再確認だけでは別プロセス間の競合を防げないため、account-wide lock/leaseまたはprovider-enforced idempotencyを実装し、競合canaryで重複allocationが0件である証拠を得る。
 - [ ] GPU時間だけでなくCPU/RAM、storage、egress、cleanup遅延、失敗時コストを含む見積りを出す。未確定料金はnull/unknownにし、要求上限とproviderが強制できる上限を区別する。
 - [ ] authority、支払上限、期限、最大同時数、停止条件を具体化した最小canaryを人間承認後に実行する。
 - [ ] 別経路のprovider観測で資源解放を確認する。永続Volumeの保持課金を明示し、Pod解放だけで全費用終了と言わない。
