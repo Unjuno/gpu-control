@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy import Column, Integer, MetaData, Table, inspect, insert, select, update
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -102,4 +102,13 @@ def migrate(engine) -> int:
                 )
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=6))
             current = 6
+        if current < 7:
+            tables = set(inspect(connection).get_table_names())
+            if ("gateway_oauth_tokens_v1" in tables and
+                    "grant_id" not in _columns(connection, "gateway_oauth_tokens_v1")):
+                connection.exec_driver_sql(
+                    'ALTER TABLE gateway_oauth_tokens_v1 ADD COLUMN "grant_id" VARCHAR(64)'
+                )
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=7))
+            current = 7
     return current

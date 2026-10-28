@@ -73,6 +73,7 @@ oauth_tokens = Table(
     Column("expires_at", Integer, nullable=False),
     Column("created_at", Integer, nullable=False),
     Column("revoked", Boolean, nullable=False, default=False),
+    Column("grant_id", String(64), nullable=True),
 )
 
 
@@ -154,6 +155,7 @@ class LocalOAuth:
         raw = "gs_" + secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         expires = now + 12 * 3600
+        failure: tuple[str, int] | None = None
         with self.store.transaction() as c:
             row = c.execute(select(oauth_admin).where(oauth_admin.c.id == 1)).mappings().first()
             if row is None:
@@ -183,15 +185,22 @@ class LocalOAuth:
                     failures=failures, window_started=window_started, locked_until=locked_until
                 ))
                 if locked_until:
-                    raise GatewayError("login_rate_limited", "Too many failed sign-in attempts; try again later", 429)
-                raise GatewayError("invalid_credentials", "Invalid credentials", 401)
-            c.execute(update(oauth_login_guard).where(oauth_login_guard.c.id == 1).values(
-                failures=0, window_started=now, locked_until=0
-            ))
-            c.execute(delete(oauth_sessions).where(oauth_sessions.c.expires_at <= now))
-            c.execute(insert(oauth_sessions).values(
-                token_hash=_sha(raw), csrf=csrf, expires_at=expires, created_at=now
-            ))
+                    failure = ("login_rate_limited", 429)
+                else:
+                    failure = ("invalid_credentials", 401)
+            else:
+                c.execute(update(oauth_login_guard).where(oauth_login_guard.c.id == 1).values(
+                    failures=0, window_started=now, locked_until=0
+                ))
+                c.execute(delete(oauth_sessions).where(oauth_sessions.c.expires_at <= now))
+                c.execute(insert(oauth_sessions).values(
+                    token_hash=_sha(raw), csrf=csrf, expires_at=expires, created_at=now
+                ))
+        if failure is not None:
+            code, status = failure
+            if code == "login_rate_limited":
+                raise GatewayError(code, "Too many failed sign-in attempts; try again later", status)
+            raise GatewayError(code, "Invalid credentials", status)
         return LocalSession(raw, csrf, expires)
 
     def session(self, raw: str) -> dict:
@@ -339,24 +348,27 @@ class LocalOAuth:
         return dict(row)
 
     def _store_token(self, raw: str, *, kind: str, client_id: str, subject: str, scope: str,
-                     resource: str, expires_at: int) -> None:
+                     resource: str, expires_at: int, grant_id: str) -> None:
         with self.store.transaction() as c:
             c.execute(insert(oauth_tokens).values(
                 token_hash=_sha(raw), kind=kind, client_id=client_id, subject=subject,
                 scope=scope, resource=resource, expires_at=expires_at,
-                created_at=int(time.time()), revoked=False
+                created_at=int(time.time()), revoked=False, grant_id=grant_id,
             ))
 
-    def _new_token_pair(self, *, client_id: str, subject: str, scope: str, resource: str) -> dict:
+    def _new_token_pair(self, *, client_id: str, subject: str, scope: str, resource: str,
+                        grant_id: str | None = None) -> dict:
         now = int(time.time())
+        grant_id = grant_id or secrets.token_hex(32)
         access = "ga_" + secrets.token_urlsafe(32)
         self._store_token(access, kind="access", client_id=client_id, subject=subject,
-                          scope=scope, resource=resource, expires_at=now + 3600)
+                          scope=scope, resource=resource, expires_at=now + 3600, grant_id=grant_id)
         value = {"access_token": access, "token_type": "Bearer", "expires_in": 3600, "scope": scope}
         if "offline_access" in scope.split():
             refresh = "gr_" + secrets.token_urlsafe(40)
             self._store_token(refresh, kind="refresh", client_id=client_id, subject=subject,
-                              scope=scope, resource=resource, expires_at=now + 30 * 86400)
+                              scope=scope, resource=resource, expires_at=now + 30 * 86400,
+                              grant_id=grant_id)
             value["refresh_token"] = refresh
         return value
 
@@ -401,8 +413,36 @@ class LocalOAuth:
                     raise GatewayError("invalid_scope", "Refresh scope cannot be expanded", 400)
                 scope = narrowed
             return self._new_token_pair(client_id=client_id, subject=row["subject"],
-                                        scope=scope, resource=resource)
+                                        scope=scope, resource=resource,
+                                        grant_id=row.get("grant_id"))
         raise GatewayError("unsupported_grant_type", "Unsupported OAuth grant type", 400)
+
+    def revoke(self, form: dict) -> None:
+        token = form.get("token")
+        if not isinstance(token, str) or not token:
+            raise GatewayError("invalid_request", "A token is required", 400)
+        client_id = form.get("client_id", "")
+        self._client(client_id)
+        # Public PKCE clients have no client secret. Scope lookup to the
+        # registered client so one client cannot revoke another's credentials.
+        with self.store.transaction() as c:
+            row = c.execute(select(oauth_tokens).where(
+                oauth_tokens.c.token_hash == _sha(token),
+                oauth_tokens.c.client_id == client_id,
+                oauth_tokens.c.revoked.is_(False),
+            ).with_for_update()).mappings().first()
+            if row is None:
+                return
+            if row["kind"] == "refresh" and row.get("grant_id"):
+                c.execute(update(oauth_tokens).where(
+                    oauth_tokens.c.grant_id == row["grant_id"],
+                    oauth_tokens.c.client_id == client_id,
+                ).values(revoked=True))
+            else:
+                c.execute(update(oauth_tokens).where(
+                    oauth_tokens.c.token_hash == _sha(token),
+                    oauth_tokens.c.client_id == client_id,
+                ).values(revoked=True))
 
     def verify_access(self, raw: str) -> dict:
         now = int(time.time())
@@ -427,6 +467,7 @@ class LocalOAuth:
             "authorization_endpoint": self.issuer + "/oauth/authorize",
             "token_endpoint": self.issuer + "/oauth/token",
             "registration_endpoint": self.issuer + "/oauth/register",
+            "revocation_endpoint": self.issuer + "/oauth/revoke",
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "token_endpoint_auth_methods_supported": ["none"],

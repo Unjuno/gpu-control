@@ -3,12 +3,15 @@ import hashlib
 import secrets
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
 from gpu_gateway.config import Settings, Workload
-from gpu_gateway.service import ExperimentService
+from gpu_gateway.local_oauth import oauth_tokens
+from gpu_gateway.service import ExperimentService, GatewayError
 from gpu_gateway.store import Store
 
 
@@ -46,6 +49,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     assert meta["authorization_servers"] == ["https://gateway.example"]
     discovery = client.get("/.well-known/oauth-authorization-server").json()
     assert discovery["registration_endpoint"].endswith("/oauth/register")
+    assert discovery["revocation_endpoint"] == "https://gateway.example/oauth/revoke"
     assert "offline_access" in discovery["scopes_supported"]
     assert "refresh_token" in discovery["grant_types_supported"]
 
@@ -108,6 +112,76 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     assert refreshed.status_code == 200
     assert refreshed.json()["access_token"] != token_data["access_token"]
 
+    refreshed_tokens = refreshed.json()
+    token_hashes = [hashlib.sha256(value.encode()).hexdigest() for value in (
+        token_data["refresh_token"], refreshed_tokens["access_token"], refreshed_tokens["refresh_token"]
+    )]
+    with store.engine.connect() as connection:
+        grant_ids = connection.execute(select(oauth_tokens.c.grant_id).where(
+            oauth_tokens.c.token_hash.in_(token_hashes)
+        )).scalars().all()
+    assert len(grant_ids) == 3 and len(set(grant_ids)) == 1
+
+    still_valid = client.post("/mcp", headers={
+        "Authorization": "Bearer " + refreshed_tokens["access_token"],
+        "Accept": "application/json, text/event-stream",
+    }, json={"jsonrpc":"2.0","id":2,"method":"tools/list"})
+    assert still_valid.status_code == 200
+
+    other_client = client.post("/oauth/register", json={
+        "client_name": "Other MCP client",
+        "redirect_uris": ["https://chatgpt.com/oauth/callback/other"],
+    }).json()["client_id"]
+    wrong_client_revoke = client.post("/oauth/revoke", data={
+        "client_id": other_client,
+        "token": token_data["access_token"],
+    })
+    assert wrong_client_revoke.status_code == 200
+    still_valid_after_wrong_client = client.post("/mcp", headers={
+        "Authorization": "Bearer " + token_data["access_token"],
+        "Accept": "application/json, text/event-stream",
+    }, json={"jsonrpc":"2.0","id":3,"method":"tools/list"})
+    assert still_valid_after_wrong_client.status_code == 200
+
+    revoked_access = client.post("/oauth/revoke", data={
+        "client_id": client_id,
+        "token": token_data["access_token"],
+        "token_type_hint": "access_token",
+    })
+    assert revoked_access.status_code == 200
+    assert revoked_access.content == b""
+    rejected_access = client.post("/mcp", headers={
+        "Authorization": "Bearer " + token_data["access_token"],
+        "Accept": "application/json, text/event-stream",
+    }, json={"jsonrpc":"2.0","id":4,"method":"tools/list"})
+    assert rejected_access.status_code == 401
+
+    revoked_refresh = client.post("/oauth/revoke", data={
+        "client_id": client_id,
+        "token": refreshed_tokens["refresh_token"],
+        "token_type_hint": "refresh_token",
+    })
+    assert revoked_refresh.status_code == 200
+    assert revoked_refresh.content == b""
+    rejected_refresh = client.post("/oauth/token", data={
+        "grant_type": "refresh_token",
+        "client_id": client_id,
+        "refresh_token": refreshed_tokens["refresh_token"],
+        "resource": settings.resource,
+    })
+    assert rejected_refresh.status_code == 400
+
+    rejected_cascaded_access = client.post("/mcp", headers={
+        "Authorization": "Bearer " + refreshed_tokens["access_token"],
+        "Accept": "application/json, text/event-stream",
+    }, json={"jsonrpc":"2.0","id":5,"method":"tools/list"})
+    assert rejected_cascaded_access.status_code == 401
+
+    unknown = client.post("/oauth/revoke", data={"client_id": client_id, "token": "unknown-token"})
+    assert unknown.status_code == 200
+    missing_token = client.post("/oauth/revoke", data={"client_id": client_id})
+    assert missing_token.status_code == 400
+
 
 def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
     settings = Settings(database_url=f"sqlite:///{tmp_path / 'reject.db'}", public_url="https://gateway.example")
@@ -141,6 +215,39 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
         "resource":settings.resource,
     })
     assert failed.status_code == 400
+
+
+def test_local_oauth_failed_login_rate_limit_persists_and_expires(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'rate-limit.db'}",
+        public_url="https://gateway.example",
+    )
+    store = Store(settings.database_url)
+    store.initialize()
+    auth = Auth(settings, store=store)
+    auth.local.seed_bootstrap("one-time-setup", ttl_seconds=600)
+    auth.local.bootstrap_admin("one-time-setup", "correct horse battery staple")
+
+    for _ in range(4):
+        with pytest.raises(GatewayError) as error:
+            auth.local.login("incorrect password")
+        assert error.value.code == "invalid_credentials"
+    with pytest.raises(GatewayError) as error:
+        auth.local.login("incorrect password")
+    assert error.value.code == "login_rate_limited"
+
+    # A separately constructed auth facade shares the persisted lockout state.
+    second_auth = Auth(settings, store=Store(settings.database_url))
+    with pytest.raises(GatewayError) as error:
+        second_auth.local.login("correct horse battery staple")
+    assert error.value.code == "login_rate_limited"
+
+    now[0] += 301
+    with pytest.raises(GatewayError) as error:
+        second_auth.local.login("incorrect password")
+    assert error.value.code == "invalid_credentials"
 
 
 def test_dcr_registration_is_idempotent_and_reclaimable(tmp_path):
