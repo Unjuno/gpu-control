@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -26,6 +27,43 @@ _BLOB_NAME = re.compile(r"^[0-9a-f]{64}\.blob$")
 _MAX_ARTIFACT_BYTES = 1024 * 1024
 _MAX_RUN_ARTIFACT_BYTES = 10 * 1024 * 1024
 _MAX_ARTIFACTS_PER_RUN = 10
+_RUN_ID = re.compile(r"^[0-9a-f]{32}$")
+_HAS_ARTIFACT_MANIFEST = (
+    "CASE WHEN json_typeof(result->'artifacts')='array' "
+    "THEN json_array_length(result->'artifacts') ELSE 0 END > 0"
+)
+SYSTEMD_BACKUP_UNITS = (
+    "gpu-control-api.service",
+    "gpu-control-worker.service",
+    "gpu-control-supervisor.service",
+    "gpu-control-db-migrate.service",
+    "gpu-control-artifact-capacity.service",
+    "gpu-control-artifact-capacity.timer",
+    "gpu-control-capacity-bridge.service",
+)
+
+
+def _assert_gateway_systemd_units_stopped() -> dict[str, str]:
+    """Require the installed Gateway units to be loaded and inactive locally."""
+    systemctl = shutil.which("systemctl")
+    if systemctl is None:
+        raise ValueError("systemctl is required to verify stopped Gateway services")
+    observations = {}
+    for unit in SYSTEMD_BACKUP_UNITS:
+        try:
+            result = subprocess.run(
+                [systemctl, "show", "--property=LoadState", "--property=ActiveState",
+                 "--value", unit],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, check=False, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            raise ValueError("could not verify Gateway systemd service state") from None
+        state = result.stdout.splitlines()
+        if result.returncode != 0 or state != ["loaded", "inactive"]:
+            raise ValueError("all Gateway systemd services must be loaded and inactive")
+        observations[unit] = state[1]
+    return observations
 
 
 def _validate_artifact_archive(path: Path) -> None:
@@ -131,6 +169,120 @@ def _artifact_root(path_value: str | None, backup_dir: Path) -> Path | None:
     return root
 
 
+def _artifact_records() -> list[dict]:
+    """Read artifact manifests needed to verify the paired filesystem backup."""
+    raw = _sql(
+        "SELECT COALESCE(json_agg(json_build_object('owner', owner, 'run_id', id, "
+        f"'artifacts', result->'artifacts')) FILTER (WHERE {_HAS_ARTIFACT_MANIFEST}), "
+        "'[]'::json)::text "
+        "FROM gateway_runs_v1"
+    )
+    records = json.loads(raw)
+    if not isinstance(records, list) or any(not isinstance(row, dict) for row in records):
+        raise ValueError("database artifact manifest query returned invalid data")
+    return records
+
+
+def _verify_live_artifact_files(root: Path, records: list[dict], *, now: int | None = None) -> int:
+    """Verify every unexpired DB artifact reference against its no-follow blob."""
+    observed_at = int(time.time()) if now is None else now
+    verified = 0
+    for row in records:
+        owner, run_id, artifacts = row.get("owner"), row.get("run_id"), row.get("artifacts")
+        if not isinstance(owner, str) or not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
+            raise ValueError("database artifact manifest identity is invalid")
+        if not isinstance(artifacts, list):
+            raise ValueError("database artifact manifest list is invalid")
+        scope = hashlib.sha256((owner + "\0" + run_id).encode()).hexdigest()
+        for item in artifacts:
+            if not isinstance(item, dict):
+                raise ValueError("database artifact manifest entry is invalid")
+            artifact_id = item.get("artifact_id")
+            digest = item.get("sha256")
+            size = item.get("size_bytes")
+            expiry = item.get("expires_at")
+            if (not isinstance(artifact_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", artifact_id) or
+                    not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) or
+                    type(size) is not int or not 0 <= size <= _MAX_ARTIFACT_BYTES or
+                    (expiry is not None and type(expiry) is not int)):
+                raise ValueError("database artifact manifest entry is invalid")
+            if expiry is not None and expiry <= observed_at:
+                continue
+            name = hashlib.sha256(artifact_id.encode()).hexdigest() + ".blob"
+            path = root / scope / name
+            try:
+                fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            except OSError as exc:
+                raise ValueError("live artifact referenced by database is missing or unsafe") from exc
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_size != size:
+                    raise ValueError("live artifact type or size does not match database manifest")
+                hasher = hashlib.sha256()
+                with os.fdopen(fd, "rb", closefd=False) as source:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                        hasher.update(chunk)
+                if hasher.hexdigest() != digest:
+                    raise ValueError("live artifact digest does not match database manifest")
+            finally:
+                os.close(fd)
+            verified += 1
+    return verified
+
+
+def _verify_artifact_archive_manifests(
+        archive_path: Path, records: list[dict], *, now: int | None = None) -> int:
+    """Ensure every unexpired DB reference is present and intact in the tar."""
+    observed_at = int(time.time()) if now is None else now
+    verified = 0
+    try:
+        with tarfile.open(archive_path, mode="r:") as archive:
+            members = {
+                (member.name[2:] if member.name.startswith("./") else member.name): member
+                for member in archive
+            }
+            for row in records:
+                owner, run_id, artifacts = row.get("owner"), row.get("run_id"), row.get("artifacts")
+                if not isinstance(owner, str) or not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
+                    raise ValueError("database artifact manifest identity is invalid")
+                if not isinstance(artifacts, list):
+                    raise ValueError("database artifact manifest list is invalid")
+                scope = hashlib.sha256((owner + "\0" + run_id).encode()).hexdigest()
+                for item in artifacts:
+                    if not isinstance(item, dict):
+                        raise ValueError("database artifact manifest entry is invalid")
+                    artifact_id, digest = item.get("artifact_id"), item.get("sha256")
+                    size, expiry = item.get("size_bytes"), item.get("expires_at")
+                    if (not isinstance(artifact_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", artifact_id) or
+                            not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) or
+                            type(size) is not int or not 0 <= size <= _MAX_ARTIFACT_BYTES or
+                            (expiry is not None and type(expiry) is not int)):
+                        raise ValueError("database artifact manifest entry is invalid")
+                    if expiry is not None and expiry <= observed_at:
+                        continue
+                    name = hashlib.sha256(artifact_id.encode()).hexdigest() + ".blob"
+                    member = members.get(f"{scope}/{name}")
+                    if member is None:
+                        raise ValueError("live artifact referenced by database is missing from backup")
+                    source = archive.extractfile(member)
+                    if source is None:
+                        raise ValueError("live artifact referenced by database is missing from backup")
+                    hasher = hashlib.sha256()
+                    actual_size = 0
+                    with source:
+                        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                            actual_size += len(chunk)
+                            hasher.update(chunk)
+                    if actual_size != size:
+                        raise ValueError("live artifact size does not match database manifest")
+                    if hasher.hexdigest() != digest:
+                        raise ValueError("live artifact digest does not match database manifest")
+                    verified += 1
+    except (OSError, KeyError, tarfile.TarError) as exc:
+        raise ValueError("live artifact referenced by database is missing or unsafe") from exc
+    return verified
+
+
 def _quiescence() -> dict:
     nonterminal = int(_sql(
         f"SELECT count(*) FROM gateway_runs_v1 WHERE state NOT IN ({TERMINAL_STATES})"
@@ -159,8 +311,7 @@ def _quiescence() -> dict:
 
     artifact_manifests = int(_sql(
         "SELECT count(*) FROM gateway_runs_v1 "
-        "WHERE result IS NOT NULL AND json_typeof(result->'artifacts')='array' "
-        "AND json_array_length(result->'artifacts') > 0"
+        f"WHERE result IS NOT NULL AND {_HAS_ARTIFACT_MANIFEST}"
     ))
 
     schema_table = _sql("SELECT to_regclass('public.gateway_schema_version')::text")
@@ -179,7 +330,11 @@ def _quiescence() -> dict:
     }
 
 
-def create_generation(output_dir: str, artifact_dir: str | None = None) -> Path:
+def create_generation(output_dir: str, artifact_dir: str | None = None, *,
+                     services_stopped_confirmed: bool = False) -> Path:
+    if services_stopped_confirmed is not True:
+        raise ValueError("operator must confirm all Gateway services are stopped")
+    systemd_units = _assert_gateway_systemd_units_stopped()
     output = Path(output_dir)
     if not output.is_absolute() or output.is_symlink() or not output.is_dir():
         raise ValueError("output directory must be an absolute, existing, non-symlink directory")
@@ -188,8 +343,14 @@ def create_generation(output_dir: str, artifact_dir: str | None = None) -> Path:
         raise ValueError("output directory must not be accessible by group or other users")
     artifact_root = _artifact_root(artifact_dir, output)
     quiescence = _quiescence()
+    artifact_records = _artifact_records()
+    artifact_check_time = int(time.time())
     if artifact_root is None and quiescence["artifact_manifest_runs"]:
         raise ValueError("database contains artifact manifests but --artifact-dir was omitted")
+    if artifact_root is None and artifact_records:
+        raise ValueError("database contains artifact manifests but --artifact-dir was omitted")
+    if artifact_root is not None:
+        _verify_live_artifact_files(artifact_root, artifact_records, now=artifact_check_time)
 
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     generation_id = f"{stamp}-{uuid.uuid4().hex}"
@@ -210,6 +371,7 @@ def create_generation(output_dir: str, artifact_dir: str | None = None) -> Path:
         if artifact_root is not None:
             artifact_archive = stage / "artifacts.tar"
             _run(["tar", "--create", "--file", str(artifact_archive),
+                  "--exclude=.gpu-control-probes",
                   "--directory", str(artifact_root), "."],
                  env={"COPYFILE_DISABLE": "1"})
             if not artifact_archive.is_file() or artifact_archive.stat().st_size == 0:
@@ -217,6 +379,8 @@ def create_generation(output_dir: str, artifact_dir: str | None = None) -> Path:
             os.chmod(artifact_archive, 0o600)
             _run(["tar", "--list", "--file", str(artifact_archive)])
             _validate_artifact_archive(artifact_archive)
+            _verify_artifact_archive_manifests(
+                artifact_archive, artifact_records, now=artifact_check_time)
             _fsync_file(artifact_archive)
             artifacts = {
                 "archive": "artifacts.tar",
@@ -230,6 +394,8 @@ def create_generation(output_dir: str, artifact_dir: str | None = None) -> Path:
             "generation_id": generation_id,
             "created_at_utc": stamp,
             "consistency": "quiesced",
+            "services_stopped_confirmed": True,
+            "systemd_units": systemd_units,
             **quiescence,
             "database": {
                 "archive": "database.dump",
@@ -270,6 +436,12 @@ def verify_generation(generation_dir: str) -> dict:
             manifest.get("consistency") != "quiesced" or
             generation.name != f"gpu-control-{manifest.get('generation_id')}"):
         raise ValueError("generation manifest identity or format is invalid")
+    if ("services_stopped_confirmed" in manifest and
+            manifest["services_stopped_confirmed"] is not True):
+        raise ValueError("generation does not record stopped-service confirmation")
+    if ("systemd_units" in manifest and
+            manifest["systemd_units"] != {unit: "inactive" for unit in SYSTEMD_BACKUP_UNITS}):
+        raise ValueError("generation does not record all Gateway systemd units inactive")
 
     expected = {"manifest.json", "database.dump"}
     database = manifest.get("database")
@@ -314,18 +486,25 @@ def main(argv: list[str] | None = None) -> int:
                         help="verify a completed generation before restore")
     parser.add_argument("--artifact-dir",
                         help="configured artifact directory; omit only when no artifacts exist")
+    parser.add_argument("--confirm-services-stopped", action="store_true",
+                        help="attest that API, worker, and recovery supervisor are stopped")
     args = parser.parse_args(argv)
     try:
         if args.verify_generation:
             if args.artifact_dir:
                 parser.error("--artifact-dir is only valid with --output-dir")
+            if args.confirm_services_stopped:
+                parser.error("--confirm-services-stopped is only valid with --output-dir")
             manifest = verify_generation(args.verify_generation)
             print(json.dumps({"verified": True,
                               "generation_id": manifest["generation_id"],
                               "schema_version": manifest["schema_version"]},
                              sort_keys=True))
             return 0
-        generation = create_generation(args.output_dir, args.artifact_dir)
+        if not args.confirm_services_stopped:
+            parser.error("--output-dir requires --confirm-services-stopped")
+        generation = create_generation(args.output_dir, args.artifact_dir,
+                                       services_stopped_confirmed=True)
     except Exception as exc:
         print(f"backup generation failed: {exc}", file=sys.stderr)
         return 2
