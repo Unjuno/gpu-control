@@ -1778,3 +1778,23 @@ migration remain unverified. See
   route; the production alias still serves a revision without it. This does
   not establish ChatGPT acceptance or production readiness. No GitHub write,
   deployment, OAuth grant, provider call, or paid action occurred.
+
+## PR CI and preview source verification — 2026-10-30
+
+- Pushed `4a0597782da50eb90697bb280f036dcd26c446d7` to Draft PR #51. All
+  required workflow checks passed on that SHA. The Gateway workflow ran the
+  Linux systemd template verifier and the real local CPU + PostgreSQL lifecycle
+  suite (**424 passed, 1 skipped**, one Starlette deprecation warning). Root
+  CI passed Python 3.11, 3.12, and 3.13; trusted reference container and both
+  bridge suites also passed. This is CI evidence, not deployed production or
+  ChatGPT acceptance.
+- Vercel's read-only deployment record identifies preview deployment
+  `dpl_A3SApn6Ry5Ys9UN3vZSQWqw6GWQj` as READY from the exact PR SHA above.
+  Project metadata says SSO protection is enabled for previews. An unauthenticated
+  HTTP fetch of the preview is redirected to Vercel login, so its runtime
+  `/readyz` response remains unobserved. Asked the owner whether a temporary
+  (up to 23-hour) Vercel share link may be created/reused solely to GET
+  `/healthz` and `/readyz`; no share link has been created.
+- PR #51 remains OPEN/DRAFT with `REVIEW_REQUIRED` and no submitted reviews.
+  Production alias still returns `/healthz`=200, `/readyz`=404, `/mcp`=401.
+  Repository paid-execution policy remains `mode: parked`.
