@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, inspect, insert, select, update
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -192,4 +192,22 @@ def migrate(engine) -> int:
             provider_observations.create(connection, checkfirst=True)
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=8))
             current = 8
+        if current < 9:
+            tables = set(inspect(connection).get_table_names())
+            clients = "gateway_oauth_clients_v1"
+            tokens = "gateway_oauth_tokens_v1"
+            if clients in tables:
+                if "persistent" not in _columns(connection, clients):
+                    default = "FALSE" if engine.dialect.name == "postgresql" else "0"
+                    connection.exec_driver_sql(
+                        f'ALTER TABLE "{clients}" ADD COLUMN "persistent" BOOLEAN NOT NULL DEFAULT {default}'
+                    )
+                if tokens in tables:
+                    connection.exec_driver_sql(
+                        f'UPDATE "{clients}" AS client SET "persistent" = TRUE '
+                        f'WHERE EXISTS (SELECT 1 FROM "{tokens}" AS token '
+                        'WHERE token.client_id = client.client_id)'
+                    )
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=9))
+            current = 9
     return current

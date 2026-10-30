@@ -13,7 +13,7 @@ from sqlalchemy import select
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
 from gpu_gateway.config import Settings, Workload
-from gpu_gateway.local_oauth import LocalOAuth, oauth_codes, oauth_tokens
+from gpu_gateway.local_oauth import LocalOAuth, oauth_clients, oauth_codes, oauth_tokens
 from gpu_gateway.service import ExperimentService, GatewayError
 from gpu_gateway.store import Store
 
@@ -407,6 +407,86 @@ def test_refresh_rotation_rolls_back_revocation_if_new_pair_insert_fails(tmp_pat
         "refresh_token": original["refresh_token"], "resource": settings.resource,
     })
     assert retried["refresh_token"] != original["refresh_token"]
+
+
+def test_authorized_dcr_client_survives_expired_refresh_grant_for_reauthorization(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'rolling-client.db'}",
+        public_url="https://gateway.example",
+    )
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    local.seed_bootstrap("setup-token")
+    local.bootstrap_admin("setup-token", "correct horse battery staple")
+    owner_session = local.login("correct horse battery staple")
+    client = local.register_client({
+        "client_name": "ChatGPT rolling refresh",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })
+    client_id = client["client_id"]
+    verifier = secrets.token_urlsafe(48)
+    params = {
+        "response_type": "code", "client_id": client_id,
+        "redirect_uri": "https://chatgpt.com/connector_platform_oauth_redirect",
+        "scope": "experiments:read offline_access", "resource": settings.resource,
+        "state": "rolling-refresh", "code_challenge": challenge(verifier),
+        "code_challenge_method": "S256",
+    }
+    code = local.authorize(params, owner_session.token)
+    tokens = local.token({
+        "grant_type": "authorization_code", "client_id": client_id,
+        "code": code, "redirect_uri": params["redirect_uri"],
+        "code_verifier": verifier, "resource": settings.resource,
+    })
+
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id
+        )).scalar_one() is True
+
+    # ChatGPT can keep using a connection whose refresh grant went idle. The
+    # same registered client must still be valid when the owner reauthorizes.
+    now[0] += 31 * 86400
+    assert local._client(client_id)["client_id"] == client_id
+    renewed_session = local.login("correct horse battery staple")
+    new_verifier = secrets.token_urlsafe(48)
+    params["state"] = "reauthorization"
+    params["code_challenge"] = challenge(new_verifier)
+    code = local.authorize(params, renewed_session.token)
+    renewed = local.token({
+        "grant_type": "authorization_code", "client_id": client_id,
+        "code": code, "redirect_uri": params["redirect_uri"],
+        "code_verifier": new_verifier, "resource": settings.resource,
+    })
+    assert renewed["refresh_token"] != tokens["refresh_token"]
+
+
+def test_expired_provisional_dcr_client_is_pruned_on_registration(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'provisional-client.db'}",
+        public_url="https://gateway.example",
+    )
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    first = local.register_client({
+        "client_name": "Unapproved temporary connection",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })["client_id"]
+    now[0] += 3601
+    local.register_client({
+        "client_name": "Next temporary connection",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.client_id).where(
+            oauth_clients.c.client_id == first
+        )).first() is None
 
 
 def test_local_oauth_failed_login_rate_limit_persists_and_expires(tmp_path, monkeypatch):

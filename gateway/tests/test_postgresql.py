@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, inspect, select, text, update
 from sqlalchemy.engine import make_url
 
 from gpu_gateway.config import Settings, Workload
-from gpu_gateway.local_oauth import LocalOAuth, oauth_tokens
+from gpu_gateway.local_oauth import LocalOAuth, oauth_clients, oauth_tokens
 from gpu_gateway.service import ExperimentService, GatewayError, Prepare, Principal
 from gpu_gateway.store import Store, control, runs
 from gpu_gateway.migrations import migrate, migration_status, schema_version
@@ -282,9 +282,9 @@ def test_postgres_v4_to_current_additive_recovery_oauth_and_provider_evidence():
         connection.exec_driver_sql('DROP TABLE gateway_provider_observations_v1')
         connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
 
-    assert migrate(store.engine) == 8
+    assert migrate(store.engine) == 9
     with store.engine.connect() as connection:
-        assert connection.execute(select(schema_version.c.version)).scalar_one() == 8
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == 9
         row = connection.execute(select(control.c.worker_seen_at, control.c.supervisor_seen_at)
                                  .where(control.c.id == 1)).one()
     assert row == (worker_seen, 0)
@@ -322,17 +322,17 @@ def test_postgres_v1_to_current_preserves_legacy_run_and_oauth_rows():
         status = migration_status(engine)
         assert status["supported"] is True
         assert status["current_version"] == 1
-        assert status["target_version"] == 8
+        assert status["target_version"] == 9
         assert status["migration_required"] is True
-        assert status["planned_versions"] == list(range(2, 9))
+        assert status["planned_versions"] == list(range(2, 10))
         with engine.connect() as connection:
             assert "gateway_schema_version" not in inspect(connection).get_table_names()
             assert connection.execute(text(
                 'SELECT token_hash FROM gateway_oauth_tokens_v1'
             )).scalar_one() == 'secret-hash'
 
-        assert migrate(engine) == 8
-        assert migrate(engine) == 8
+        assert migrate(engine) == 9
+        assert migrate(engine) == 9
         # Preserve the password when constructing the store's second engine.
         store = Store(scoped_url.render_as_string(hide_password=False))
         store.initialize()
@@ -350,7 +350,7 @@ def test_postgres_v1_to_current_preserves_legacy_run_and_oauth_rows():
             assert connection.execute(text(
                 'SELECT token_hash FROM gateway_oauth_tokens_v1'
             )).scalar_one() == 'secret-hash'
-            assert connection.execute(select(schema_version.c.version)).scalar_one() == 8
+            assert connection.execute(select(schema_version.c.version)).scalar_one() == 9
             assert 'grant_id' in {column['name'] for column in
                                   inspect(connection).get_columns('gateway_oauth_tokens_v1')}
             assert {column['name'] for column in
@@ -361,6 +361,52 @@ def test_postgres_v1_to_current_preserves_legacy_run_and_oauth_rows():
         store.engine.dispose()
     finally:
         engine.dispose()
+        with admin.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+        admin.dispose()
+
+
+def test_postgres_v8_oauth_client_migration_preserves_used_dcr_clients():
+    url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('requires a dedicated PostgreSQL test database')
+
+    admin = create_engine(url)
+    schema = f"oauth_migration_{uuid4().hex}"
+    with admin.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    scoped_url = make_url(url).set(query={
+        **make_url(url).query,
+        'options': f'-csearch_path={schema}',
+    })
+    store = Store(scoped_url.render_as_string(hide_password=False))
+    try:
+        store.initialize()
+        client_id = "mcp_existing_postgres_client"
+        with store.engine.begin() as connection:
+            connection.execute(oauth_clients.insert().values(
+                client_id=client_id,
+                redirect_uris=["https://chatgpt.com/connector_platform_oauth_redirect"],
+                client_name="Existing ChatGPT connection", created_at=1,
+                expires_at=100, persistent=False,
+            ))
+            connection.execute(oauth_tokens.insert().values(
+                token_hash="a" * 64, kind="refresh", client_id=client_id,
+                subject="owner", scope="experiments:read offline_access",
+                resource="https://gateway.example/mcp", expires_at=50,
+                created_at=1, revoked=True, grant_id="b" * 64,
+            ))
+            connection.exec_driver_sql(
+                'ALTER TABLE "gateway_oauth_clients_v1" DROP COLUMN "persistent"')
+            connection.execute(schema_version.update().values(version=8))
+
+        assert migrate(store.engine) == 9
+        with store.engine.connect() as connection:
+            assert connection.execute(select(oauth_clients.c.persistent).where(
+                oauth_clients.c.client_id == client_id
+            )).scalar_one() is True
+    finally:
+        store.engine.dispose()
         with admin.begin() as connection:
             connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
         admin.dispose()
