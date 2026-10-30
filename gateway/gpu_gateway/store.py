@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
 import re
 
 from sqlalchemy import (JSON, Boolean, Column, Integer, MetaData, String, Table,
                         Text, UniqueConstraint, create_engine, insert, select, update)
 from sqlalchemy.pool import NullPool
-from .migrations import migrate
+from .migrations import migrate, provider_observations
 
 metadata = MetaData()
 runs = Table(
@@ -140,6 +141,99 @@ class Store:
                 runs.c.attempt == attempt, runs.c.cancel_requested.is_(False),
             ).values(submission_intent=intent | {"phase": "provider_call_started"}))
             return changed.rowcount == 1
+    def write_provider_observation(self, envelope: dict, trusted_public_keys, *, now: int) -> bool:
+        """Atomically replace one provider snapshot, refusing version rollback.
+
+        The caller signs with the worker-only key and supplies its trusted
+        public-key set for verification. This method enforces monotonic
+        replacement; readers must still verify signature and expiry before use.
+        """
+        from .provider_evidence import (
+            _canonical,
+            verify_signed_observation,
+        )
+
+        if not isinstance(envelope, dict):
+            raise ValueError("provider observation envelope must be an object")
+        try:
+            verified = verify_signed_observation(
+                envelope, trusted_public_keys, now=now)
+            envelope = verified
+            serialized = _canonical(envelope)
+            provider = envelope["provider"]
+            version = envelope["version"]
+            observed_at = envelope["observed_at"]
+            expires_at = envelope["expires_at"]
+            if (not isinstance(provider, str) or type(version) is not int or version < 1 or
+                    re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", provider) is None or
+                    type(observed_at) is not int or observed_at < 0 or
+                    type(expires_at) is not int or expires_at <= observed_at):
+                raise ProviderEvidenceError("provider observation storage fields are invalid")
+        except KeyError as exc:
+            raise ValueError("provider observation envelope is invalid") from exc
+        digest_value = hashlib.sha256(serialized).hexdigest()
+        with self.transaction() as connection:
+            values = {"version": version, "observed_at": observed_at,
+                      "expires_at": expires_at, "envelope": envelope,
+                      "envelope_sha256": digest_value}
+            if self.engine.dialect.name == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert as dialect_insert
+            elif self.engine.dialect.name == "sqlite":
+                from sqlalchemy.dialects.sqlite import insert as dialect_insert
+            else:
+                raise RuntimeError("provider observations require SQLite or PostgreSQL")
+            statement = dialect_insert(provider_observations).values(
+                provider=provider, **values)
+            statement = statement.on_conflict_do_update(
+                index_elements=[provider_observations.c.provider],
+                set_=values,
+                where=provider_observations.c.version < statement.excluded.version,
+            )
+            result = connection.execute(statement)
+            return result.rowcount == 1
+
+    def read_provider_observation(self, provider: str, *, connection=None, lock: bool = False):
+        """Return a stored envelope; callers must verify signature and freshness."""
+        from .provider_evidence import ProviderEvidenceError, _canonical
+
+        if lock and connection is None:
+            raise ValueError("locking provider evidence requires the active transaction connection")
+        statement = select(provider_observations).where(
+            provider_observations.c.provider == provider)
+        if lock:
+            statement = statement.with_for_update()
+        if connection is not None:
+            row = connection.execute(statement).mappings().first()
+        else:
+            with self.engine.connect() as read_connection:
+                row = read_connection.execute(statement).mappings().first()
+        if row is None:
+            return None
+        value = dict(row)
+        digest_value = hashlib.sha256(_canonical(value["envelope"])).hexdigest()
+        if digest_value != value["envelope_sha256"]:
+            raise ProviderEvidenceError("stored provider observation digest mismatch")
+        if (not isinstance(value["envelope"], dict) or
+                value["envelope"].get("provider") != value["provider"] or
+                value["envelope"].get("version") != value["version"] or
+                value["envelope"].get("observed_at") != value["observed_at"] or
+                value["envelope"].get("expires_at") != value["expires_at"]):
+            raise ProviderEvidenceError("stored provider observation index fields mismatch")
+        return value
+
+    def read_verified_provider_observation(self, provider: str, trusted_public_keys, *, now: int,
+                                           minimum_version: int | None = None,
+                                           connection=None, lock: bool = False):
+        """Return only a current envelope whose worker signature verifies."""
+        from .provider_evidence import verify_signed_observation
+
+        stored = self.read_provider_observation(provider, connection=connection, lock=lock)
+        if stored is None:
+            return None
+        return verify_signed_observation(
+            stored["envelope"], trusted_public_keys, now=now,
+            minimum_version=minimum_version,
+        )
 
     def heartbeat(self, now: int, *, role: str = "worker"):
         if role not in {"worker", "supervisor"}:

@@ -8,6 +8,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import time
 
+from jsonschema import (Draft202012Validator, SchemaError as InvalidSchema,
+                        ValidationError as SchemaError)
+
 from .contracts import CostEvidence, PlanV2
 
 
@@ -61,6 +64,38 @@ def plan_for_workload(*, workload_name: str, workload_manifest: dict, repository
         ),
         authorization_policy_version=policy.get("version", ""),
     )
+
+
+def matches_registered_local_workload(plan: PlanV2, workloads: dict) -> bool:
+    """Check an approved local plan against the current operator registry."""
+    if not isinstance(plan, PlanV2) or not isinstance(workloads, dict):
+        return False
+    # Local CPU admission is bound to the static operator policy, not the P4
+    # provider-selection lifecycle. Never accept a candidate-bound plan here
+    # until its exact evidence is revalidated at prepare, submit, and launch.
+    if plan.selection_binding is not None:
+        return False
+    workload = workloads.get(plan.workload)
+    if workload is None or getattr(workload, "provider", None) != "local_cpu":
+        return False
+    try:
+        manifest = workload.model_dump(mode="json")
+        canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        manifest_digest = hashlib.sha256(canonical.encode()).hexdigest()
+        if (plan.provider != "local_cpu" or
+                plan.repository != workload.source_repository or
+                plan.source_sha != workload.source_sha or
+                plan.workload_manifest_digest != manifest_digest or
+                plan.image_digest != workload.image_digest or
+                plan.runtime_seconds > workload.max_runtime_seconds or
+                plan.device_requirement.get("profile") != workload.execution_profile):
+            return False
+        Draft202012Validator(workload.parameter_schema).validate(plan.parameters)
+        json.dumps(plan.parameters, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return True
+    except (AttributeError, InvalidSchema, SchemaError, TypeError, ValueError,
+            RecursionError):
+        return False
 
 
 def evaluate_admission(plan, policy, now: int) -> AdmissionDecision:

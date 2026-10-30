@@ -5,22 +5,36 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=gpu-control
-Group=gpu-control
+User=gpu-control-api
+Group=gpu-control-artifacts
+SupplementaryGroups=gpu-control-artifact-probes
 # The API shares PostgreSQL and artifact state with worker/supervisor, but must
 # not join the Docker group or receive access to the container daemon.
 WorkingDirectory=/opt/gpu-control/gateway
-EnvironmentFile=/etc/gpu-control/worker.env
+EnvironmentFile=/etc/gpu-control/gateway.env
+EnvironmentFile=/etc/gpu-control/api.env
 ExecStart=/opt/gpu-control/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=3
 UMask=0077
-StateDirectory=gpu-control
+StateDirectory=gpu-control-api
 StateDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+# The API reads group-readable blobs but may write only its sticky probe directory.
+ReadWritePaths=-/var/lib/gpu-control/artifacts/.gpu-control-probes
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

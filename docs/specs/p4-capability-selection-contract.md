@@ -35,7 +35,7 @@ adjusted to match the implementation, but preserve these semantics:
 - OS and architecture requirements;
 - accelerator kind, model/profile, count, and minimum VRAM;
 - CPU and RAM bounds;
-- image/runtime requirements and maximum wall time;
+- image/runtime requirements, maximum wall time, and an optional queue-wait ceiling;
 - network requirements and whether outbound network can be disabled;
 - result transport requirements and maximum result size;
 - cancellation and resource-release proof required by the workload.
@@ -55,7 +55,7 @@ loosened to make a candidate fit.
 - quota/credit evidence, whether a hard spend cap is enforceable, and the
   provider's stated overage behavior;
 - supported OS/architecture/runtime, accelerator and VRAM capacity, timeout,
-  result transport, cancellation, and cleanup behavior;
+  estimated queue wait, result transport, cancellation, and cleanup behavior;
 - evidence reference, observed-at time, expiry, and evidence source.
 
 Availability and cost classification are independent. For example,
@@ -63,6 +63,16 @@ Availability and cost classification are independent. For example,
 for a zero-additional-cost requirement. `CREDIT_BACKED` does not mean free, and
 `FREE_QUOTA` is acceptable only while current quota evidence is valid and
 overage is prevented or explicitly authorized.
+
+For a credit-backed provider, keep gross per-run charges separate from current
+usage headroom, credit coverage, and out-of-pocket exposure. Quota evidence
+must identify usage headroom, credit balance, expiry, and eligible cost
+components; a zero net-spend cap does not prove enough usage headroom or
+eligible credit remains to finish a run. Re-evaluate the evidence at prepare,
+approval, submit, and worker launch. Modal's public billing guide documents
+separate usage and net-spend limits, and says credit-covered work may continue
+until the usage limit even after the spend limit is reached; the selected
+workspace's values still require owner inspection.
 
 ### Selection decision
 
@@ -78,6 +88,14 @@ included credit alone is insufficient. Unknown quota returns `QUOTA_UNKNOWN`.
 No matching currently free GPU returns `FREE_GPU_UNAVAILABLE` and exposes a
 separate local CPU alternative plus the separately authorized paid-prepare
 path. An alternative is presented for human choice, never silently selected.
+
+Runtime requirements are exact operator-owned identifiers (for example,
+`python:3.12` or `cuda:12.4`). Evidence must enumerate supported identifiers;
+missing or incompatible runtime evidence rejects that candidate. A workload may
+set `max_queue_wait_seconds`; then the current capability observation must
+include `estimated_queue_wait_seconds` no greater than that limit. An absent
+estimate is unknown and rejects the candidate. Both fields are part of the
+workload/evidence fingerprints so approval cannot outlive a change to either.
 
 After a human approves an exact plan, the plan fingerprint fixes the provider
 and resource. If pricing/quota evidence expires or changes before submit or
@@ -97,10 +115,23 @@ Unit tests must cover at least:
 5. `FREE_FIRST` order with only compatible, currently admissible candidates;
 6. `QUOTA_UNKNOWN` and `FREE_GPU_UNAVAILABLE` results and explicit CPU/paid
    alternatives;
-7. evidence invalidation between prepare, approval, and submit without provider
-   substitution;
+7. evidence invalidation between prepare, approval, submit, and worker launch
+   without provider substitution. Core `revalidate_approved_candidate` compares
+   the approved workload/provider/resource/evidence fingerprints, re-runs
+   compatibility and quota checks on the exact candidate, and returns
+   `APPROVED_PLAN_STALE` instead of selecting a replacement. `PlanV2` now
+   persists an optional strict `selection_binding` and includes it in the plan
+   fingerprint, while preserving legacy unbound v2 fingerprints. Gateway does
+   not yet ingest provenance-checked provider evidence, create bound GPU plans,
+   or invoke revalidation at submit/worker launch; live GPU submission must
+   remain blocked until those links exist. The local CPU admission lane now
+   rejects any candidate-bound `PlanV2`, because that path uses its separate
+   static CPU policy and does not revalidate provider-selection evidence.
 8. deterministic canonical serialization/fingerprint and rejection of unknown
    fields or non-finite monetary values.
+9. exact runtime-identifier compatibility and unknown-evidence rejection;
+10. unknown/above-ceiling queue-wait estimates and their inclusion in evidence
+    fingerprints.
 
 Offline tests can accept deterministic classification and selection only. They
 cannot prove a provider quota, account budget, real GPU, actual spend cap,
@@ -114,9 +145,16 @@ paid calls disabled until those external gates pass.
    changing the MCP payload. Pure `WorkloadRequirements`, `CapabilityEvidence`,
    `CostBreakdown`, and `SelectionResult` types now exist; registry wiring is
    still open.
-2. [x] Add cost decomposition and evidence freshness while leaving the current
+2. [x] Add gross cost decomposition and evidence freshness while leaving the current
    `PricingVerificationResult`/`ApprovedExecutionPlan` authorization boundary
    unchanged.
+   [partial] Core `QuotaEvidence` now binds usage headroom, credit balance,
+   eligible cost components, reference, and expiry to immutable capability evidence. The
+   selector accepts zero-additional-cost `CREDIT_BACKED` candidates only when
+   current credits cover every gross component, the hard spend cap is enforced,
+   and overage stops; insufficient/stale balances return `QUOTA_UNKNOWN`, and
+   uncovered costs fail closed. Gateway/provider evidence ingestion and
+   prepare/approval/submit/worker-launch rechecks remain unimplemented.
 3. [x] Add deterministic candidate selection and structured refusal reasons.
 4. [partial] Surface selection and registered CPU alternatives in the
    Gateway read-only capability response; do not permit prepare/submit to
@@ -124,16 +162,118 @@ paid calls disabled until those external gates pass.
    architecture, GPU count/VRAM, network, result transport/size, cancellation,
    and cleanup requirements. Missing fields remain unknown. Complete manifests
    are converted to `WorkloadRequirements` and passed to the pure selector.
-   Since there is no provider inventory/evidence source yet, the selector is
-   called with `inventory_complete=false` and fails closed with
+   The selector is called with `inventory_complete=false` and fails closed with
    `PROVIDER_EVIDENCE_UNAVAILABLE`; the API labels this `not_evaluated` and
-   does not imply that no free GPU exists. `gpu-control` is installed as a
+   does not imply that no free GPU exists. The repository has a RunPod source
+   (`src/gpu_control/providers/runpod_current_pricing.py`) for GPU type, VRAM,
+   secure price, and exact datacenter stock, but it is not wired into Gateway
+   and cannot establish the remaining capability or all-in cost fields. Do not
+   call that partial quote/stock observation complete capability evidence.
+   Provider credentials stay out of the API process; a worker-produced,
+   provenance-preserving observation path is required. `gpu-control` is installed as a
    local dependency in Gateway tests/containers; the Vercel project has not
-   been redeployed to verify its outside-root source inclusion setting.
-5. Add Modal as the first candidate only after owner-read workspace billing,
-   quota, and hard-stop evidence. Require a bounded actual GPU smoke to mark it
-   usable. If it cannot meet the cost or result-collection requirements, keep
-   it unavailable and research exactly one alternative provider.
+   been redeployed to verify its outside-root source inclusion setting. The
+   capability response now also exposes `provider_availability` separately
+   from Gateway submission `availability` and `cost_classification`; an enabled
+   but unverified GPU provider is `UNKNOWN`, while a disabled provider is
+   `UNAVAILABLE`. This keeps configuration/readiness from being mistaken for
+   live inventory evidence.
+5. Reassess the Modal-first candidate sequence against the existing RunPod
+   price/stock source and its separately gated credential path. Select the
+   first integration only after comparing the evidence needed for full
+   capability, quota, spend-stop, result collection, and cleanup. Require
+   owner-read account evidence and a bounded actual GPU smoke before marking
+   any provider usable. Do not substitute one provider's missing evidence with
+   another's assumptions; retain other candidates as unavailable until their
+   own gates pass.
+
+## Gateway integration boundary
+
+The first Gateway integration must be split into these independently
+reviewable steps:
+
+1. A worker-only collector performs bounded, read-only provider observations
+   using a dedicated environment file loaded by the normal worker only. The API
+   process, recovery supervisor, MCP request, and workload manifest never carry
+   provider credentials or the observation signing key. Polling is rate-limited
+   and happens only while the worker has no claimed job. Missing credentials,
+   provider errors, or an unconfigured exact resource/datacenter mapping produce
+   no observation, not a synthetic empty inventory.
+2. Persist a normalized observation with provider/source identity, source
+   contract revision, observed/expiry timestamps, a canonical normalized-payload digest, and
+   a monotonic observation version. Never persist credentials or unbounded raw
+   provider payloads. Write and replacement are atomic. Expired observations
+   remain unavailable to selection even if the provider API is down. The
+   current systemd templates give API and worker the same database URL, so
+   worker-only provider credentials do not authenticate who wrote a database
+   row. Before trusting the persisted observation, either (a) sign its
+   canonical envelope with a worker-only signing key and verify it in API via
+   a pinned public key/key ID, including rotation and rollback rules, or (b)
+   split database roles so API can read but cannot insert/update the evidence
+   table and worker can write it. A plain digest detects accidental changes,
+   not a malicious or mistaken writer. If using signatures, the signed
+   envelope must bind the monotonic provider version and all observation
+   fields. Persist the highest accepted version and reject equal/lower versions
+   to prevent replay; keep retired public keys trusted only long enough to
+   validate already-issued unexpired envelopes (maximum observation TTL plus
+   the configured clock-skew allowance), then remove them.
+3. The signed payload shape is exactly
+   `{ "inventory_complete": boolean, "candidates": [CapabilityEvidence.to_dict()] }`
+   with at most 256 candidates. The API capability response reads only the
+   latest persisted observation, strictly reconstructs selector types, and
+   checks provider/source/observation timestamps against the signed envelope.
+   It converts only directly supported fields and preserves unknowns. RunPod
+   `HIGH` stock means a recent offer signal, not a reservation. Its catalog
+   price is not all-in cost; until CPU/RAM, storage, egress, usage headroom,
+   and stop behavior are evidenced, zero-cost requests and bounded-total-cost
+   plans must reject it.
+4. Persist the selector's exact workload/provider/resource/evidence
+   fingerprints in the approved plan. The submit path and worker immediately
+   before provider creation fetch current evidence and compare the same
+   identities. A missing, expired, changed, or newly incompatible observation
+   fails the run and requires a new prepare/approval; it never substitutes a
+   different GPU or provider. The normal API and worker both use verified
+   signed observations. Candidate-bound plans remain non-submittable unless
+   their provider registration explicitly declares a backend that has passed
+   candidate-bound lifecycle acceptance; current Modal and RunPod registrations
+   do not. This keeps plan binding and backend readiness separate.
+5. Only after this offline-to-live observation path is reviewed should an
+   explicitly authorized bounded GPU smoke exercise allocation, device
+   identity, result retrieval, cancellation, spend limit, and cleanup. Passing
+   selector tests or observing `HIGH` stock is not GPU execution acceptance.
+
+The repository has the pure Ed25519 signed-envelope builder/verifier in
+`gateway/gpu_gateway/provider_evidence.py` and schema v8 table
+`gateway_provider_observations_v1`. Store methods verify signatures before
+write, reject non-increasing provider versions atomically, detect row/index
+digest mismatch, and verify signature/freshness on verified read. Neither the
+collector or capability mapping nor Gateway binding revalidation is wired.
+Public-key JSON parsing and worker private-key configuration are available in
+`Settings`, and `Worker.persist_provider_observation` restricts publication to
+the normal worker role. The API and worker still share the database credential;
+the API capability path must call the verified-read helper with its pinned key
+set before using stored evidence. These are implementation dependencies, not
+reasons to read provider secrets in the API process or to use the provider
+during MCP discovery. The API selection and revalidation helpers are in
+`gateway/gpu_gateway/provider_selection.py`. A selected candidate is bound to
+the v2 plan fingerprint; prepare rechecks before persistence, submit locks and
+rechecks the provider observation in its transaction, and the worker rechecks
+again immediately before writing submission intent. Any changed fingerprint,
+manifest, cost evidence, or exact resource fails closed. Current provider
+registrations still have `supports_candidate_binding=False`, so no such plan
+can reserve a queue slot or reach an execution backend yet.
+
+The current worker collector implementation is `gateway/gpu_gateway/runpod_inventory.py`.
+It queries the official RunPod GraphQL GPU catalog and datacenter availability
+using exact operator-owned `provider_resource_id` and
+`provider_data_center_id` values. The signed source revision identifies the
+official GraphQL spec revision `graphql-spec-1.1.0`. Inventory is marked
+complete only when every registered RunPod workload has an unambiguous GPU,
+datacenter, and availability row. The candidate preserves unknown OS, CPU,
+RAM, runtime, network, output, cancellation, cleanup, and non-accelerator cost
+fields, so the selector rejects it as non-runnable. The collector code and
+signed storage path are covered with fake clients only; no RunPod API call or
+GPU allocation has occurred.
 
 The offline core slice is covered by `tests/test_capabilities.py` (16 cases) and
 `tests/test_selection.py` (36 cases). The current root suite passed 517 tests

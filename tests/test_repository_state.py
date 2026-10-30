@@ -48,7 +48,7 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
         "control_plane_verifier": "implemented_offline",
         "production_collection_transport": "network_volume_s3_implemented_offline_mock_tested",
         "production_collection_transport_live_verified": False,
-        "production_pod_log_sse": "unavailable_http_422_path_not_found",
+        "production_pod_log_sse": "officially_documented_not_live_verified",
         "live_secret_injection": False,
         "live_result_collection": False,
     }

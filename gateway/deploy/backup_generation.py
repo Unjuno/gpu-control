@@ -26,6 +26,38 @@ _BLOB_NAME = re.compile(r"^[0-9a-f]{64}\.blob$")
 _MAX_ARTIFACT_BYTES = 1024 * 1024
 _MAX_RUN_ARTIFACT_BYTES = 10 * 1024 * 1024
 _MAX_ARTIFACTS_PER_RUN = 10
+SYSTEMD_BACKUP_UNITS = (
+    "gpu-control-api.service",
+    "gpu-control-worker.service",
+    "gpu-control-supervisor.service",
+    "gpu-control-db-migrate.service",
+    "gpu-control-artifact-capacity.service",
+    "gpu-control-artifact-capacity.timer",
+    "gpu-control-capacity-bridge.service",
+)
+
+
+def _assert_gateway_systemd_units_stopped() -> dict[str, str]:
+    """Require the installed Gateway units to be loaded and inactive locally."""
+    systemctl = shutil.which("systemctl")
+    if systemctl is None:
+        raise ValueError("systemctl is required to verify stopped Gateway services")
+    observations = {}
+    for unit in SYSTEMD_BACKUP_UNITS:
+        try:
+            result = subprocess.run(
+                [systemctl, "show", "--property=LoadState", "--property=ActiveState",
+                 "--value", unit],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, check=False, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            raise ValueError("could not verify Gateway systemd service state") from None
+        state = result.stdout.splitlines()
+        if result.returncode != 0 or state != ["loaded", "inactive"]:
+            raise ValueError("all Gateway systemd services must be loaded and inactive")
+        observations[unit] = state[1]
+    return observations
 
 
 def _validate_artifact_archive(path: Path) -> None:
@@ -179,7 +211,11 @@ def _quiescence() -> dict:
     }
 
 
-def create_generation(output_dir: str, artifact_dir: str | None = None) -> Path:
+def create_generation(output_dir: str, artifact_dir: str | None = None, *,
+                     services_stopped_confirmed: bool = False) -> Path:
+    if services_stopped_confirmed is not True:
+        raise ValueError("operator must confirm all Gateway services are stopped")
+    systemd_units = _assert_gateway_systemd_units_stopped()
     output = Path(output_dir)
     if not output.is_absolute() or output.is_symlink() or not output.is_dir():
         raise ValueError("output directory must be an absolute, existing, non-symlink directory")
@@ -210,6 +246,7 @@ def create_generation(output_dir: str, artifact_dir: str | None = None) -> Path:
         if artifact_root is not None:
             artifact_archive = stage / "artifacts.tar"
             _run(["tar", "--create", "--file", str(artifact_archive),
+                  "--exclude=.gpu-control-probes",
                   "--directory", str(artifact_root), "."],
                  env={"COPYFILE_DISABLE": "1"})
             if not artifact_archive.is_file() or artifact_archive.stat().st_size == 0:
@@ -230,6 +267,8 @@ def create_generation(output_dir: str, artifact_dir: str | None = None) -> Path:
             "generation_id": generation_id,
             "created_at_utc": stamp,
             "consistency": "quiesced",
+            "services_stopped_confirmed": True,
+            "systemd_units": systemd_units,
             **quiescence,
             "database": {
                 "archive": "database.dump",
@@ -270,6 +309,12 @@ def verify_generation(generation_dir: str) -> dict:
             manifest.get("consistency") != "quiesced" or
             generation.name != f"gpu-control-{manifest.get('generation_id')}"):
         raise ValueError("generation manifest identity or format is invalid")
+    if ("services_stopped_confirmed" in manifest and
+            manifest["services_stopped_confirmed"] is not True):
+        raise ValueError("generation does not record stopped-service confirmation")
+    if ("systemd_units" in manifest and
+            manifest["systemd_units"] != {unit: "inactive" for unit in SYSTEMD_BACKUP_UNITS}):
+        raise ValueError("generation does not record all Gateway systemd units inactive")
 
     expected = {"manifest.json", "database.dump"}
     database = manifest.get("database")
@@ -314,18 +359,25 @@ def main(argv: list[str] | None = None) -> int:
                         help="verify a completed generation before restore")
     parser.add_argument("--artifact-dir",
                         help="configured artifact directory; omit only when no artifacts exist")
+    parser.add_argument("--confirm-services-stopped", action="store_true",
+                        help="attest that API, worker, and recovery supervisor are stopped")
     args = parser.parse_args(argv)
     try:
         if args.verify_generation:
             if args.artifact_dir:
                 parser.error("--artifact-dir is only valid with --output-dir")
+            if args.confirm_services_stopped:
+                parser.error("--confirm-services-stopped is only valid with --output-dir")
             manifest = verify_generation(args.verify_generation)
             print(json.dumps({"verified": True,
                               "generation_id": manifest["generation_id"],
                               "schema_version": manifest["schema_version"]},
                              sort_keys=True))
             return 0
-        generation = create_generation(args.output_dir, args.artifact_dir)
+        if not args.confirm_services_stopped:
+            parser.error("--output-dir requires --confirm-services-stopped")
+        generation = create_generation(args.output_dir, args.artifact_dir,
+                                       services_stopped_confirmed=True)
     except Exception as exc:
         print(f"backup generation failed: {exc}", file=sys.stderr)
         return 2

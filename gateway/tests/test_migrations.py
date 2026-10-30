@@ -1,7 +1,8 @@
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, inspect, select, text, update
 
 from gpu_gateway.migrations import (
-    UnsupportedSchemaVersion, migrate, schema_version,
+    SCHEMA_VERSION, UnsupportedSchemaVersion, migrate, migration_status,
+    schema_version,
 )
 from gpu_gateway.store import Store
 
@@ -27,7 +28,7 @@ def _legacy_v1(engine):
                 '0123456789abcdef0123456789abcdef', 'owner-a', 'stable-key',
                 'request-hash', 'plan-fingerprint', '{"schema_version":1}',
                 'succeeded', 100, 110, 0, '', '{"id":"provider-id"}',
-                '{"simulation":true}', '', 0, '', 0, 0
+                '{"simulation":true}', '', 0, '', FALSE, FALSE
             )
         """)
         connection.exec_driver_sql("""
@@ -40,7 +41,7 @@ def _legacy_v1(engine):
         """)
         connection.exec_driver_sql("""
             INSERT INTO gateway_oauth_tokens_v1 VALUES
-            ('secret-hash', 'refresh', 'client', 'owner', 'scope', 'resource', 200, 50, 0)
+            ('secret-hash', 'refresh', 'client', 'owner', 'scope', 'resource', 200, 50, FALSE)
         """)
         connection.exec_driver_sql("""
             CREATE TABLE gateway_control_v1 (
@@ -55,8 +56,8 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
     _legacy_v1(engine)
 
-    assert migrate(engine) == 7
-    assert migrate(engine) == 7
+    assert migrate(engine) == 8
+    assert migrate(engine) == 8
     store = Store(str(engine.url))
     store.initialize()
 
@@ -82,10 +83,112 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     engine.dispose()
 
 
+def test_migration_status_is_read_only_for_unversioned_v1(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy-preflight.db'}")
+    _legacy_v1(engine)
+    tables_before = set(inspect(engine).get_table_names())
+
+    status = migration_status(engine)
+
+    assert status == {
+        "supported": True,
+        "reason": None,
+        "current_version": 1,
+        "target_version": SCHEMA_VERSION,
+        "migration_required": True,
+        "planned_versions": list(range(2, SCHEMA_VERSION + 1)),
+    }
+    assert set(inspect(engine).get_table_names()) == tables_before
+    with engine.connect() as connection:
+        assert "gateway_schema_version" not in inspect(connection).get_table_names()
+        assert connection.execute(text(
+            "SELECT token_hash FROM gateway_oauth_tokens_v1"
+        )).scalar_one() == "secret-hash"
+    engine.dispose()
+
+
+def test_migration_status_marks_current_database_without_pending_steps(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'current-preflight.db'}")
+    store.initialize()
+
+    status = migration_status(store.engine)
+
+    assert status["supported"] is True
+    assert status["current_version"] == SCHEMA_VERSION
+    assert status["target_version"] == SCHEMA_VERSION
+    assert status["migration_required"] is False
+    assert status["planned_versions"] == []
+    store.engine.dispose()
+
+
+def test_migration_status_does_not_create_missing_sqlite_database(tmp_path):
+    database_path = tmp_path / "not-created.db"
+    engine = create_engine(f"sqlite:///{database_path}")
+
+    status = migration_status(engine)
+
+    assert status["supported"] is True
+    assert status["current_version"] == 0
+    assert status["target_version"] == SCHEMA_VERSION
+    assert status["migration_required"] is True
+    assert status["planned_versions"] == list(range(1, SCHEMA_VERSION + 1))
+    assert database_path.exists() is False
+    engine.dispose()
+
+
+def test_migration_status_rejects_unknown_future_version_without_writes(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'future-preflight.db'}")
+    store.initialize()
+    with store.engine.begin() as connection:
+        connection.execute(update(schema_version).where(
+            schema_version.c.id == 1).values(version=99))
+    tables_before = set(inspect(store.engine).get_table_names())
+
+    status = migration_status(store.engine)
+
+    assert status == {
+        "supported": False,
+        "reason": "unsupported_schema_version",
+        "current_version": 99,
+        "target_version": SCHEMA_VERSION,
+        "migration_required": None,
+        "planned_versions": [],
+    }
+    with store.engine.connect() as connection:
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == 99
+    assert set(inspect(store.engine).get_table_names()) == tables_before
+    store.engine.dispose()
+
+
+def test_migration_status_rejects_malformed_version_table_without_writes(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'malformed-preflight.db'}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE gateway_schema_version (id INTEGER PRIMARY KEY)"
+        )
+    tables_before = set(inspect(engine).get_table_names())
+
+    status = migration_status(engine)
+
+    assert status == {
+        "supported": False,
+        "reason": "invalid_schema_version_table",
+        "current_version": None,
+        "target_version": SCHEMA_VERSION,
+        "migration_required": None,
+        "planned_versions": [],
+    }
+    assert set(inspect(engine).get_table_names()) == tables_before
+    with engine.connect() as connection:
+        assert {column["name"] for column in
+                inspect(connection).get_columns("gateway_schema_version")} == {"id"}
+    engine.dispose()
+
+
 def test_fresh_database_migrates_before_table_creation(tmp_path):
     database = f"sqlite:///{tmp_path / 'fresh.db'}"
     store = Store(database)
-    assert migrate(store.engine) == 7
+    assert migrate(store.engine) == 8
     store.initialize()
     assert store.read("no-such-run") is None
     engine = store.engine
@@ -105,10 +208,10 @@ def test_v6_migration_adds_oauth_grant_id_without_rewriting_existing_tokens(tmp_
         """)
         connection.execute(schema_version.update().values(version=6))
 
-    assert migrate(store.engine) == 7
-    assert migrate(store.engine) == 7
+    assert migrate(store.engine) == 8
+    assert migrate(store.engine) == 8
     with store.engine.connect() as connection:
-        assert connection.execute(select(schema_version.c.version)).scalar_one() == 7
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == 8
         assert "grant_id" in {column["name"] for column in
                               inspect(store.engine).get_columns("gateway_oauth_tokens_v1")}
         token = connection.exec_driver_sql(

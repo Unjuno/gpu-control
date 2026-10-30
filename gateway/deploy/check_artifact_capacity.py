@@ -37,7 +37,11 @@ def main() -> int:
     except (TypeError, ValueError):
         minimum = 0
     result = inspect_capacity(root, minimum)
-    print(json.dumps({"check": "gpu-control-artifact-capacity", **result},
+    # Emit a stable state on every timer run so a journal/metrics bridge can
+    # both raise and clear an alert. Delivery still belongs to the host sink.
+    print(json.dumps({"check": "gpu-control-artifact-capacity",
+                      "status": "ok" if result["available"] else "alert",
+                      **result},
                      sort_keys=True, separators=(",", ":")), flush=True)
     return 0 if result["available"] else 1
 

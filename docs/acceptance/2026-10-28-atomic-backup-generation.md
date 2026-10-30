@@ -66,3 +66,42 @@ macOS `tar` fixture exposed AppleDouble metadata entries; creation now disables
 those entries with `COPYFILE_DISABLE=1`, and a real OS tar archive passed the
 layout validator. Gateway suite after this follow-up: 258 passed, 8 skipped,
 1 Starlette deprecation warning. Production restore acceptance remains open.
+
+## Required stopped-service attestation — 2026-10-28
+
+Source review found that database row checks can pass while API/worker services
+are idle but still running; a new admission or OAuth write could race the
+backup. The operator runbook already requires ingress and all API, worker, and
+supervisor instances to be stopped. The backup tool now requires the explicit
+`--confirm-services-stopped` CLI flag, locally checks all seven installed
+Gateway systemd units report `LoadState=loaded` and `ActiveState=inactive`, and
+records both `services_stopped_confirmed: true` and the per-unit states in new
+manifests. Verification rejects explicit false or incomplete systemd states.
+It continues to accept legacy format-1 generations with neither field so
+existing backups remain verifiable.
+
+The systemd query covers only this local manager. It cannot prove that every
+replica on other hosts or manually started processes is stopped; operators must
+complete the runbook's ingress and all-host shutdown procedure before
+confirming. Database quiescence and cleanup checks remain additional guards.
+
+- Focused `test_backup_generation.py`: **20 passed**, one existing Starlette
+  deprecation warning.
+- Full offline Gateway suite: **351 passed / 9 skipped**, one existing
+  Starlette deprecation warning.
+- Source SHA-256:
+  `8326f29ba084bad13a9be9c838238dcbdca6ead5770e768ab1b00e654b78c860`.
+- Test SHA-256:
+  `23255bc9b3f2f8cf759cd070a6044c6247adf4d3114c43ba6defb4639022efdc`.
+- systemctl outputs were stubbed in unit tests; no target Linux manager or
+  backup/restore was exercised for this follow-up. `git diff --check` passed.
+
+## Database-stage failure cleanup follow-up — 2026-10-28
+
+Added regressions that inject failure at `pg_dump` and at the subsequent
+`pg_restore --list` validation. Both failures leave the output directory
+without a published generation or a `.gpu-control-incomplete-*` staging
+directory. Focused `test_backup_generation.py` now passes **22 tests**, with
+one existing Starlette deprecation warning. This is fault-injected local
+filesystem/tool-boundary evidence; no database dump or restore was run in this
+follow-up, and production recovery acceptance remains open.

@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 from .auth import Auth, SCOPES, SESSION
+from .artifacts import inspect_artifact_storage
 from .config import Settings, load_workloads
 from .protocol import dispatch, error, tools, validate_headers
 from .service import ExperimentService, GatewayError
@@ -117,12 +118,15 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         """Report whether durable queue processing is currently available.
 
         Liveness stays independent; readiness never runs migrations or starts
-        compute. Provider enablement is reported separately from registry shape.
+        compute. Enabled local CPU workloads require usable artifact storage;
+        demo-only deployments do not depend on that filesystem.
         """
         if configuration_error or service is None or auth is None:
             return JSONResponse({"ready": False, "database": False, "migration": False,
                                  "worker": False, "supervisor": False, "registry": False,
-                                 "authentication": False}, status_code=503)
+                                 "authentication": False,
+                                 "local_cpu_storage_required": False,
+                                 "artifact_storage": None}, status_code=503)
         database_ok = False
         migration_ok = False
         worker_ok = False
@@ -158,25 +162,39 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
                        all(getattr(workload, "provider", None) in registry
                            for workload in workloads.values()))
         enabled_workloads = 0
+        local_cpu_storage_required = False
         if registry_ok:
             try:
-                enabled_workloads = sum(1 for workload in workloads.values()
-                                        if registry[workload.provider].enabled(settings))
+                active_workloads = [
+                    workload for workload in workloads.values()
+                    if registry[workload.provider].enabled(settings)
+                ]
+                enabled_workloads = len(active_workloads)
+                local_cpu_storage_required = any(
+                    workload.provider == "local_cpu" for workload in active_workloads)
             except Exception:
                 registry_ok = False
+        artifact_storage = None
+        artifact_storage_ok = True
+        if local_cpu_storage_required:
+            artifact_storage = inspect_artifact_storage(
+                settings.artifact_dir, settings.artifact_min_free_bytes)
+            artifact_storage_ok = artifact_storage["available"]
         try:
             authentication_ok = bool(auth.configured())
         except Exception:
             authentication_ok = False
         ready = (database_ok and migration_ok and worker_ok and supervisor_ok and registry_ok and
-                 enabled_workloads > 0 and authentication_ok)
+                 enabled_workloads > 0 and authentication_ok and artifact_storage_ok)
         return JSONResponse({"ready": ready, "database": database_ok,
                              "migration": migration_ok, "schema_version": schema,
                              "worker": worker_ok, "worker_heartbeat_age_seconds": heartbeat_age,
                              "supervisor": supervisor_ok,
                              "supervisor_heartbeat_age_seconds": supervisor_heartbeat_age,
                              "registry": registry_ok, "enabled_workloads": enabled_workloads,
-                             "authentication": authentication_ok},
+                             "authentication": authentication_ok,
+                             "local_cpu_storage_required": local_cpu_storage_required,
+                             "artifact_storage": artifact_storage},
                             status_code=200 if ready else 503)
 
     @app.get("/")

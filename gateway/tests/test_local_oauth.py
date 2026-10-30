@@ -13,7 +13,6 @@ from sqlalchemy import select
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
 from gpu_gateway.config import Settings, Workload
-<<<<<<< HEAD
 from gpu_gateway.local_oauth import LocalOAuth, oauth_codes, oauth_tokens
 from gpu_gateway.service import ExperimentService, GatewayError
 from gpu_gateway.store import Store
@@ -213,6 +212,15 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     assert token_data["token_type"] == "Bearer"
     assert token_data["refresh_token"].startswith("gr_")
 
+    scope_expansion = client.post("/oauth/token", data={
+        "grant_type": "refresh_token",
+        "client_id": client_id,
+        "refresh_token": token_data["refresh_token"],
+        "resource": settings.resource,
+        "scope": "experiments:read experiments:run offline_access",
+    })
+    assert scope_expansion.status_code == 400
+
     headers = {
         "Authorization": "Bearer " + token_data["access_token"],
         "Accept": "application/json, text/event-stream",
@@ -355,6 +363,50 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
         "resource":settings.resource,
     })
     assert failed.status_code == 400
+
+
+def test_refresh_rotation_rolls_back_revocation_if_new_pair_insert_fails(tmp_path, monkeypatch):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'refresh-atomic.db'}",
+        public_url="https://gateway.example",
+    )
+    store = Store(settings.database_url)
+    store.initialize()
+    auth = Auth(settings, store=store)
+    local = auth.local
+    client_id = local.register_client({
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })["client_id"]
+    original = local._new_token_pair(
+        client_id=client_id, subject="owner", scope="experiments:read offline_access",
+        resource=settings.resource,
+    )
+    real_insert = local._insert_token
+
+    def fail_refresh_insert(connection, raw, **kwargs):
+        if kwargs["kind"] == "refresh":
+            raise RuntimeError("injected token persistence failure")
+        return real_insert(connection, raw, **kwargs)
+
+    monkeypatch.setattr(local, "_insert_token", fail_refresh_insert)
+    with pytest.raises(RuntimeError, match="injected token persistence failure"):
+        local.token({
+            "grant_type": "refresh_token", "client_id": client_id,
+            "refresh_token": original["refresh_token"], "resource": settings.resource,
+        })
+
+    monkeypatch.setattr(local, "_insert_token", real_insert)
+    with store.engine.connect() as connection:
+        tokens = connection.execute(select(oauth_tokens.c.kind, oauth_tokens.c.revoked)).all()
+    assert sorted(tokens, key=lambda row: row.kind) == [
+        ("access", False), ("refresh", False),
+    ]
+
+    retried = local.token({
+        "grant_type": "refresh_token", "client_id": client_id,
+        "refresh_token": original["refresh_token"], "resource": settings.resource,
+    })
+    assert retried["refresh_token"] != original["refresh_token"]
 
 
 def test_local_oauth_failed_login_rate_limit_persists_and_expires(tmp_path, monkeypatch):

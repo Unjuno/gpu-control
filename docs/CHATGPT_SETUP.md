@@ -20,31 +20,114 @@ members permission to create/test through RBAC, while only admins/owners can
 publish the app. Record the actual tester's role, the workspace's `Create
 plugins with MCPs` permission, write-action permission, and the publisher role
 in the acceptance evidence. A plan name by itself does not prove these gates
-are satisfied.
+are satisfied. The current Plugins flow does not require enabling Developer
+Mode first; use the connection flow visible in the intended workspace and
+record any difference from the current guide.
 
 For a permitted workspace, the current UI flow is **Plugins → + → Add custom MCP
 server**, then enter a public HTTPS MCP endpoint (or select an already configured
 Secure MCP Tunnel), choose authentication, acknowledge the risk prompt, create the
 plugin and inspect discovered tools. Install it before starting a conversation;
 use `@` to select the plugin. Tool-list changes are not automatically applied to a
-published connection: an admin must refresh/review the tool snapshot. See OpenAI's
+published connection: an admin must refresh/review the tool snapshot; new or
+changed actions may need to be explicitly enabled. ChatGPT may ask the user to
+confirm a write action based on its context. Such confirmation is a ChatGPT UI
+step and does not replace Gateway-side owner, scope, policy, or plan checks. See OpenAI's
 [custom MCP server guide](https://developers.openai.com/api/docs/guides/custom-mcp-server)
 and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+
+### Development-only private tunnel path
+
+Secure MCP Tunnel is a supported path for testing a private MCP server from
+ChatGPT without a public inbound endpoint. It can shorten the first live
+ChatGPT CPU smoke: run the Gateway locally and keep the tunnel client running
+beside it while discovering tools and making calls. This still requires an
+eligible ChatGPT workspace and its custom-MCP permissions. Separately, the
+Platform organization must create/manage the tunnel (Tunnels Read + Manage),
+the caller must have Tunnels Read + Use, and the tunnel must be associated with
+the target ChatGPT workspace. Tunnel access does not grant MCP/OAuth access to
+the Gateway and does not replace its owner, scope, or admission checks.
+
+Tunnel setup also requires a `tunnel_id` and a runtime API key for
+`tunnel-client`, plus a local MCP server reachable by that client over stdio or
+HTTP. Install the current client from the Platform tunnel settings or the
+[official tunnel-client releases](https://github.com/openai/tunnel-client/releases/latest).
+Configure its named profile using the official
+[Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels),
+run `tunnel-client doctor --profile <profile> --explain`, and keep
+`tunnel-client run --profile <profile>` healthy during ChatGPT discovery and
+calls. Keep the runtime key in the client's secret/configuration mechanism; do
+not paste it into this repository, shell history, logs, or acceptance artifacts.
+The tunnel ID is an identifier, not a substitute for the runtime key or the
+workspace association.
+
+OAuth has a related but distinct network path. The current Secure MCP Tunnel
+guide says OAuth discovery can travel through the tunnel path, so protected-
+resource metadata need not require a separate public MCP listener. The
+authorization server itself is not automatically tunneled. Inspect the
+Gateway's protected-resource and authorization-server metadata and verify that
+the advertised issuer, authorization endpoint, token endpoint, and (when
+advertised) revocation endpoint are reachable by their respective ChatGPT
+authorization flow clients. If those endpoints are private, use an explicitly
+supported reachable OAuth deployment or a public HTTPS route for the
+authorization server; do not infer that the MCP tunnel exposes them. Mark OAuth
+acceptance blocked until authorization-code + PKCE, token exchange, refresh,
+and revocation have each been exercised through ChatGPT. See the current
+[Secure MCP Tunnel OAuth guidance](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels#oauth).
+
+The tunnel guide documents a 120-second absolute MCP request deadline and a
+10 MiB serialized request/response limit. Keep the tunnel smoke small and
+bounded; verify that every tool call completes within the deadline and the
+result/artifact path fits the transfer limit. Treat this as ChatGPT connection
+and short CPU-vertical evidence only. It does not establish a stable service,
+continuous worker availability, seven-day operation, public plugin
+distribution, or large-artifact delivery. Those still require the selected P3
+host and public HTTPS route. Do not start the tunnel or expose a local server
+until the required Platform/workspace access and local service state have been
+confirmed.
+
+### Container-hosted tunnel-client on macOS
+
+The host may run the official client in Docker when native installation is
+unavailable. The current OpenAI release is `v0.0.18`; its multi-architecture
+image digest is
+`sha256:486321616c197fed2d3fbe7d44f22433ce9a1e6c1ee434c0d6652868a5fda5c1`.
+For this macOS ARM64 host, `gh attestation verify
+oci://ghcr.io/openai/tunnel-client:v0.0.18 -R openai/tunnel-client` succeeded,
+and the pinned image reported version `0.0.18+274a5588414819f063d27100a4fb1096aae3830f`.
+The following no-network check prints the supported quickstart without
+contacting Platform or needing credentials:
+
+```sh
+docker run --rm --network none --read-only --cap-drop=ALL \
+  --security-opt=no-new-privileges \
+  --entrypoint /usr/bin/tunnel-client \
+  ghcr.io/openai/tunnel-client@sha256:486321616c197fed2d3fbe7d44f22433ce9a1e6c1ee434c0d6652868a5fda5c1 \
+  help quickstart
+```
+
+Keep the tunnel runtime key in a root/user-restricted file and pass the CLI a
+`file:/run/secrets/...` reference from a read-only container mount; do not put
+the key in an image, command argument, Compose file, repository environment
+file, or terminal history. The client container must be able to reach the
+Gateway on its private Docker network. This image/tool preflight does not prove
+that a tunnel exists, the runtime key has Tunnels Read + Use, ChatGPT is
+associated with the tunnel, or the local Gateway is ready.
 
 ## Required deployment state
 
 ### Latest observed preview state (2026-10-28)
 
-The PR #51 Vercel preview for head `4d59cda9055a09f789c3728f146e4ec977c9d9eb`
-is READY (`dpl_H7KjEKt2ydSmgU7dCdKwbG4gQRLA`, target `null`). This confirms a
-successful preview build/deployment, not a production deployment. Its unique
-deployment URL is SSO-protected, so runtime checks were not repeated for this
-revision. On the preceding PR preview, `/healthz` returned 200 with
-`configured=false` and `auth_configured=false`, and `/readyz` returned 503
-because the database, migration, worker, recovery supervisor, registry and
-authentication were unavailable or unconfigured. Until a current stable
-endpoint returns `/readyz`=200, the service is not ready for ChatGPT connection
-or experiment execution.
+Read-only Vercel inventory found the latest PR #51 deployment for head
+`f054aebe96460fe033dde8d91d7e3bbab0255655`: READY build
+`dpl_DFmSmWfMKE2Nbox5ufWDxKBa7Y9p`, target `null`, at
+`https://gpu-control-65fenen47-unjunos-projects.vercel.app`. Direct authenticated
+Vercel fetches returned `/healthz`=200 with `configured=false` and
+`auth_configured=false`; `/readyz`=503 with database, migration, worker,
+supervisor, registry, and authentication all false; and protected-resource
+discovery=503 `configuration_required`. This confirms a preview build only.
+The current preview is not configured or ready for ChatGPT connection or
+experiment execution, and does not change the production alias.
 
 ### Existing Neon database candidate (read-only inventory, 2026-10-28)
 
@@ -83,7 +166,22 @@ unverified. Vercel environment-variable metadata was not inspected and no
 credentials were read. Recheck `/readyz` on the reviewed deployment and require
 200 before connecting ChatGPT.
 
-Before connecting ChatGPT, provide all of the following:
+Latest read-only endpoint recheck (2026-10-28 04:54 UTC): unauthenticated
+requests still returned `/healthz`=200 (`configured=true`,
+`auth_configured=true`, `auth_mode=local_oauth`), `/readyz`=404, and `/mcp`=401
+(`Bearer access token is required`). This confirms the alias is responsive and
+the unauthenticated MCP boundary rejects access; it does not identify the
+deployed source revision, prove readiness, or establish a ChatGPT connection.
+
+Fresh read-only endpoint recheck (2026-10-28 06:21 UTC): `/healthz`=200 with
+configured local OAuth, `/readyz`=404, and
+`/.well-known/oauth-protected-resource`=200 advertising read/run/cancel scopes.
+The readiness route is still absent. No OAuth grant, authenticated MCP request,
+or ChatGPT conversation was attempted; acceptance remains **NOT RUN**.
+
+Before **release or continuous-operation acceptance**, provide all of the
+following. A private tunnel may replace the public URL only for a bounded
+development smoke; it does not waive the remaining service requirements:
 
 - A stable, reachable HTTPS URL whose `/mcp` route points to this Gateway.
 - A persistent PostgreSQL database migrated with `python -m gpu_gateway.worker --init-db`.
@@ -104,10 +202,12 @@ Before connecting ChatGPT, provide all of the following:
   are available under `gateway/deploy/`. They are templates only: adapt paths/socket group,
   install secrets with restrictive ownership, and verify service-level DB/Docker
   access on the target host before treating this as deployed.
-- Both systemd templates declare the persistent `gpu-control` state directory
-  with mode 0700. Artifact bytes live below `/var/lib/gpu-control/artifacts`, so
-  this path remains writable under `ProtectSystem=strict`; verify ownership and
-  the mounted filesystem on the chosen host.
+- The systemd templates declare persistent service state directories under
+  `/var/lib`; artifact bytes live on the separately mounted
+  `/var/lib/gpu-control/artifacts` filesystem. The worker owns artifact writes,
+  while the API reads blobs and writes only its sticky probe directory. Verify
+  the selected host's service accounts, ownership, and mount before enabling a
+  workload.
 - A configured authentication path. With external OIDC, configure issuer, JWKS,
   audience/resource, allowed subject, scopes and the MCP client's registration
   method. With built-in single-owner OAuth, run
@@ -161,3 +261,28 @@ evidence that lane is deployable.
 The chat connector's confirmation prompts do not replace Gateway authorization,
 local admission policy, or any later human spending approval. ChatGPT's write-action
 confirmation is a client control; server-side checks remain authoritative.
+
+
+### Authenticated preview endpoint recheck (2026-10-28 09:00 UTC)
+
+Vercel's authenticated protected-URL fetch reached the PR #51 preview.
+`/healthz`=200 reports `configured=false` and `auth_configured=false`;
+`/readyz`=503 reports `ready=false` with database, migration, worker,
+supervisor, registry, and authentication false;
+`/.well-known/oauth-protected-resource/mcp`=503 `configuration_required`.
+The preview therefore has a successful build and a reachable process, but is
+not configured or ready for ChatGPT. The temporary Vercel share link was used
+only for these read-only GETs; no application credentials were supplied.
+
+### Public alias endpoint recheck (2026-10-28 11:13 UTC)
+
+Unauthenticated GETs to `https://gpu-control.vercel.app` returned
+`/healthz`=200 (`configured=true`, `auth_configured=true`,
+`auth_mode=local_oauth`), `/readyz`=404, protected-resource metadata=200,
+authorization-server metadata=200 (authorization code, refresh token, PKCE
+S256 and revocation endpoints advertised), and `/mcp`=401 (`invalid_token`,
+access token required). This verifies current liveness, OAuth discovery, and
+the unauthenticated MCP boundary only. It does not identify the deployed SHA,
+prove worker/database readiness, complete an OAuth grant, or establish ChatGPT
+tool use. No token or authenticated request was used; acceptance remains
+**NOT RUN**.

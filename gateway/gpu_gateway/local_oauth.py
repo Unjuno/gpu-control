@@ -370,40 +370,37 @@ class LocalOAuth:
             raise GatewayError("invalid_grant", "Authorization code expired", 400)
         return dict(row)
 
-    def _store_token(self, raw: str, *, kind: str, client_id: str, subject: str, scope: str,
-                     resource: str, expires_at: int, grant_id: str, connection=None) -> None:
-        statement = insert(oauth_tokens).values(
+    @staticmethod
+    def _insert_token(connection, raw: str, *, kind: str, client_id: str, subject: str,
+                      scope: str, resource: str, expires_at: int, grant_id: str) -> None:
+        connection.execute(insert(oauth_tokens).values(
             token_hash=_sha(raw), kind=kind, client_id=client_id, subject=subject,
             scope=scope, resource=resource, expires_at=expires_at,
             created_at=int(time.time()), revoked=False, grant_id=grant_id,
-        )
-        if connection is not None:
-            connection.execute(statement)
-            return
-        with self.store.transaction() as c:
-            c.execute(statement)
+        ))
 
     def _new_token_pair(self, *, client_id: str, subject: str, scope: str, resource: str,
                         grant_id: str | None = None, connection=None) -> dict:
-        if connection is None:
-            with self.store.transaction() as c:
-                return self._new_token_pair(
-                    client_id=client_id, subject=subject, scope=scope,
-                    resource=resource, grant_id=grant_id, connection=c,
-                )
         now = int(time.time())
         grant_id = grant_id or secrets.token_hex(32)
         access = "ga_" + secrets.token_urlsafe(32)
-        self._store_token(access, kind="access", client_id=client_id, subject=subject,
-                          scope=scope, resource=resource, expires_at=now + 3600, grant_id=grant_id,
-                          connection=connection)
+        tokens = [(access, "access", now + 3600)]
         value = {"access_token": access, "token_type": "Bearer", "expires_in": 3600, "scope": scope}
         if "offline_access" in scope.split():
             refresh = "gr_" + secrets.token_urlsafe(40)
-            self._store_token(refresh, kind="refresh", client_id=client_id, subject=subject,
-                              scope=scope, resource=resource, expires_at=now + 30 * 86400,
-                              grant_id=grant_id, connection=connection)
+            tokens.append((refresh, "refresh", now + 30 * 86400))
             value["refresh_token"] = refresh
+        if connection is None:
+            with self.store.transaction() as transaction:
+                for raw, kind, expires_at in tokens:
+                    self._insert_token(transaction, raw, kind=kind, client_id=client_id,
+                                       subject=subject, scope=scope, resource=resource,
+                                       expires_at=expires_at, grant_id=grant_id)
+        else:
+            for raw, kind, expires_at in tokens:
+                self._insert_token(connection, raw, kind=kind, client_id=client_id,
+                                   subject=subject, scope=scope, resource=resource,
+                                   expires_at=expires_at, grant_id=grant_id)
         return value
 
     def token(self, form: dict) -> dict:

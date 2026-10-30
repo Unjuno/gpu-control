@@ -6,14 +6,25 @@ states do not prove cleanup, so migrated cleanup state is conservatively unknown
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, Integer, MetaData, Table, inspect, insert, select, update
+from pathlib import Path
 
-SCHEMA_VERSION = 7
+from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, inspect, insert, select, update
+
+SCHEMA_VERSION = 8
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
     Column("id", Integer, primary_key=True),
     Column("version", Integer, nullable=False),
+)
+provider_observations = Table(
+    "gateway_provider_observations_v1", MetaData(),
+    Column("provider", String(32), primary_key=True),
+    Column("version", Integer, nullable=False),
+    Column("observed_at", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=False),
+    Column("envelope", JSON, nullable=False),
+    Column("envelope_sha256", String(64), nullable=False),
 )
 
 
@@ -23,6 +34,72 @@ class UnsupportedSchemaVersion(RuntimeError):
 
 def _columns(engine, table_name: str) -> set[str]:
     return {column["name"] for column in inspect(engine).get_columns(table_name)}
+
+
+def migration_status(engine) -> dict:
+    """Describe the pending schema upgrade without creating or changing data."""
+    database = engine.url.database
+    if (engine.dialect.name == "sqlite" and database not in {None, "", ":memory:"}
+            and not Path(database).exists()):
+        return {
+            "supported": True,
+            "reason": None,
+            "current_version": 0,
+            "target_version": SCHEMA_VERSION,
+            "migration_required": True,
+            "planned_versions": list(range(1, SCHEMA_VERSION + 1)),
+        }
+
+    with engine.connect() as connection:
+        inspector = inspect(connection)
+        tables = set(inspector.get_table_names())
+        has_runs = "gateway_runs_v1" in tables
+        has_version_table = schema_version.name in tables
+
+        if has_version_table:
+            columns = {column["name"] for column in inspector.get_columns(schema_version.name)}
+            if not {"id", "version"}.issubset(columns):
+                return {
+                    "supported": False,
+                    "reason": "invalid_schema_version_table",
+                    "current_version": None,
+                    "target_version": SCHEMA_VERSION,
+                    "migration_required": None,
+                    "planned_versions": [],
+                }
+            versions = connection.execute(select(schema_version.c.version).where(
+                schema_version.c.id == 1)).scalars().all()
+            if len(versions) > 1:
+                return {
+                    "supported": False,
+                    "reason": "multiple_schema_version_rows",
+                    "current_version": None,
+                    "target_version": SCHEMA_VERSION,
+                    "migration_required": None,
+                    "planned_versions": [],
+                }
+            current = versions[0] if versions else (1 if has_runs else 0)
+        else:
+            current = 1 if has_runs else 0
+
+        if type(current) is not int or current < 0 or current > SCHEMA_VERSION:
+            return {
+                "supported": False,
+                "reason": "unsupported_schema_version",
+                "current_version": current if type(current) is int else None,
+                "target_version": SCHEMA_VERSION,
+                "migration_required": None,
+                "planned_versions": [],
+            }
+
+        return {
+            "supported": True,
+            "reason": None,
+            "current_version": current,
+            "target_version": SCHEMA_VERSION,
+            "migration_required": current < SCHEMA_VERSION,
+            "planned_versions": list(range(current + 1, SCHEMA_VERSION + 1)),
+        }
 
 
 def migrate(engine) -> int:
@@ -111,4 +188,8 @@ def migrate(engine) -> int:
                 )
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=7))
             current = 7
+        if current < 8:
+            provider_observations.create(connection, checkfirst=True)
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=8))
+            current = 8
     return current

@@ -13,6 +13,7 @@ class Observation:
     state: str
     result: dict | None = None
     artifacts: tuple["ArtifactPayload", ...] = ()
+    candidate_receipt: dict | None = None
 
     def __post_init__(self):
         if self.state not in {"running", "succeeded", "failed", "cancelled"}:
