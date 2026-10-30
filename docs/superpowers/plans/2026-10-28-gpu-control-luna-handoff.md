@@ -4,6 +4,18 @@
 
 最終ゴールは、ChatGPTの通常会話だけで登録済み実験のprepare/submit/status/result/search/cancelを行い、同じjobの実行・復旧・成果物を正確に返すこと。長期ロードマップの順にP3運用、P4実GPU、明示承認付きP5有償、P6再現可能な研究実験、P7保守へ進む。実装計画の現行スナップショットと次の順序は `2026-10-28-gpu-control-roadmap.md` を参照。
 
+## 最新状態 — 2026-10-30
+
+- 作業ブランチ `codex/chatgpt-cpu-vertical` は `b3c355404815f1bb8ce711fe1e8db05b6f9ba2e5`、worktreeはclean。PR #51は `main` (`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`) 向けにOPEN/DRAFTで `REVIEW_REQUIRED`。最新必須CIは全件success。Gateway CIのPostgreSQL + digest-pinned local CPU lifecycleは424 passed / 1 skipped、root suiteは550 passed / 1 skipped。PRにGitHub reviewはまだない。
+- PR preview deployment `dpl_5Lb4vGMSD9PsKbpYJv1woS94PQGq` はSHA `b3c3554` からREADY。project SSO protectionがpreview deploymentsに有効で、匿名アクセスはVercel loginへredirectされるため、previewの `/readyz` runtime応答は未観測。
+- Production aliasはdeployment `dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ`、`main` SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e` を配信。実測は `/healthz`=200、`/readyz`=404、unauthenticated `/mcp`=401。PR未レビュー・未mergeのためproductionは旧revision。
+- Vercel env metadataのnames-only照会 (`decrypt=false`) は403。値は読んでおらず、preview/production runtime変数の有無は未確定。ローカルにVercel CLIはない。
+- 前回依頼した一時Vercel share linkの読み取り利用許可は未回答のため作成していない。ChatGPT workspace eligibility、OAuth grant、tool discovery、CPU run、別会話からのresult/artifact取得はすべて未受入。AcceptanceはNOT RUN。
+- P0/P1/P3/P4/P5のローカル実装・CI証拠とproduction/ChatGPT/provider受入れを混同しない。P3 host/region/public origin/cost ceiling/notification SLOも未決。`policies/repository-state.yaml` は `mode: parked` のまま。有償provider callやspendなし。
+- 117-path変更はPR #51へpush済みで、既存file-ownership mapに従ったreview evidenceはある。ただしP1/P3/P4/P5を一つのDraft PRに含むため、 roadmapの「小さい複数PR」に整理する項目は未完了。履歴を書き換えるforce pushはせず、GitHub review前にPR分割が必要ならブランチ戦略を別途判断する。
+
+これより下の 2026-10-28 snapshot/log は各記載日の履歴であり、現在のbranch/PR/runtime stateとして再利用しない。
+
 ## 継続時の現在状態 — 2026-10-28 11:49 UTC
 
 Codex goal is active for the complete roadmap; continue from the current

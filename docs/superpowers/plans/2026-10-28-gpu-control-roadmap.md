@@ -24,6 +24,31 @@
 - ローカル実行の「0ドル」は追加provider料金0ドルという意味。電力・既存PC・Gateway・DBの固定運用費が消えるという意味ではない。
 - 計画は課金・本番デプロイ・権限変更・PRマージの承認ではない。実装時点の明示承認とリポジトリ規則を照合する。
 
+## Latest status snapshot — 2026-10-30
+
+- Current branch `codex/chatgpt-cpu-vertical`, HEAD
+  `b3c355404815f1bb8ce711fe1e8db05b6f9ba2e5`; worktree clean. Draft PR #51
+  targets `main` at `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`, is OPEN and
+  `REVIEW_REQUIRED`; all current required checks pass. Latest Gateway
+  PostgreSQL + local CPU lifecycle CI: 424 passed / 1 skipped; root suite:
+  550 passed / 1 skipped.
+- The preview built from this branch is READY but SSO-protected, so its
+  app-level `/readyz` has not been observed. Production Vercel still serves
+  `main` SHA `24ecb9b`; unauthenticated checks return `/healthz`=200,
+  `/readyz`=404, `/mcp`=401. The preview link is not a production acceptance.
+- ChatGPT OAuth/tool discovery/CPU execution/result retrieval remain **NOT
+  RUN**. The PR has no submitted GitHub review. A user answer is pending for
+  using Vercel's temporary share link to read `/healthz` and `/readyz`; none
+  has been created. Vercel denied names-only environment inventory with 403;
+  no environment values were read.
+- The current 117-path implementation update is in one Draft PR and has not
+  been split into the roadmap's smaller reviewable PRs. This remains open.
+  `policies/repository-state.yaml` remains `mode: parked`; no paid provider
+  calls or spending occurred.
+
+This snapshot supersedes older “uncommitted/unpushed” state notes below. Dated
+logs are historical evidence only; refresh their external facts before reuse.
+
 ## Review Focus
 
 1. 同じsubmitを通信再試行した場合と「もう一度実験して」を区別し、前者は同一run、後者は新runにする（P1/T3、P2）。
@@ -155,7 +180,7 @@ PR #51は現在121 files（+13,040/-215）の大きな差分である。既存�
   - 2026-10-28 official-doc refresh: The current OpenAI guide confirms Business and Enterprise/Edu on ChatGPT web for full MCP/write actions; Enterprise/Edu can RBAC-authorize selected creators/testers, but workspace publishing remains admin/owner-only. The current Plugins flow says Developer Mode is not required, uses Plugins → + → Add custom MCP server, and permits public HTTPS or Secure MCP Tunnel endpoints. Published tool snapshots do not auto-update; a workspace admin must refresh/review changed actions, with new actions disabled by default in the documented action-control flow. ChatGPT may ask for confirmation based on action context; this is not the Gateway's authorization evidence. The previous Developer Mode guide URL redirects to this canonical current page. This resolves the requirements, not the user's actual plan, role, settings, or connection acceptance.
   - 2026-10-28 Secure MCP Tunnel guide refresh: private server testing is supported via an outbound `tunnel-client`; requires separate Platform Tunnels Read + Manage / Read + Use permissions and association with the intended ChatGPT workspace. Documented request deadline is 120 seconds and serialized envelope limit is 10 MiB. This creates a possible bounded development smoke before public-host selection, not public distribution or continuous-operation evidence. See `docs/CHATGPT_SETUP.md`.
 - [x] PR #43からCPU/MCP公開にも関係するHTTP境界・dependency修正を選択的にローカル実装し、回帰根拠を記録した。これはPR #43のmerge/cherry-pickやlive provider acceptanceを意味しない。RunPod固有の残項目はP5で追跡する。
-- [ ] 実装差分を独立レビューできる小さいPRにまとめ、現在のGitHub `main`をbaseにレビューと最新CIを得る。現状の変更はローカル未コミットで、この作業ブランチはGitHubにpushされていない。
+- [ ] 独立レビュー可能な小さいPRに分割し、GitHub reviewと最新CIを得る。2026-10-30時点では変更はPR #51 (`codex/chatgpt-cpu-vertical`) にpush済みだが、P1/P3/P4/P5を含む117-pathのフォローアップが同じDraft PRにまとまっている。PR #51はOPEN/DRAFT/REVIEW_REQUIRED、最新CIはsuccess、GitHub reviewは未提出。小さいPRへの分割と必要なレビューは未完了。production aliasは旧 `main` SHA `24ecb9b` のままで、preview runtime readinessとChatGPT acceptanceは未確認。
 
 完了条件: 採用基準SHA、差分表、接続条件、最初のCPU workloadが確定。接続権限がなければMCP_CONNECTIVITYをBLOCKEDと記録し、backend実装まで進める。
 
