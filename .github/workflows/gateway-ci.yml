@@ -40,6 +40,8 @@ jobs:
           python-version: "3.12"
       - name: Install isolated gateway test dependencies
         run: python -m pip install -r requirements-test.txt -r requirements-worker.txt
+      - name: Install the repository package under test
+        run: python -m pip install -e ..
       - name: CPU and mocked-provider tests only
         run: python -m pytest -o addopts= -q
       - name: WebMCP registration contract
