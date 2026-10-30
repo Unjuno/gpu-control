@@ -1798,3 +1798,23 @@ migration remain unverified. See
 - PR #51 remains OPEN/DRAFT with `REVIEW_REQUIRED` and no submitted reviews.
   Production alias still returns `/healthz`=200, `/readyz`=404, `/mcp`=401.
   Repository paid-execution policy remains `mode: parked`.
+
+## Production source comparison and preview access boundary — 2026-10-30
+
+- Read-only Vercel deployment metadata resolves `gpu-control.vercel.app` to
+  production deployment `dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ`, source `main` at
+  `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. This predates the PR #51 CPU
+  vertical. The current PR branch remains OPEN/DRAFT with
+  `REVIEW_REQUIRED`; its CI is green and the corresponding preview is READY.
+- Direct unauthenticated requests to production still return `/healthz`=200,
+  `/readyz`=404, `/mcp`=401. Vercel project metadata confirms preview SSO
+  protection (`all_except_custom_domains`); direct preview requests redirect
+  to Vercel login. Thus the preview deployment exists, but its app-level
+  readiness response has not been observed.
+- A names-only Vercel environment-variable inventory request
+  (`decrypt=false`, preview branch filter) was denied with HTTP 403. The local
+  `vercel` CLI is not installed. No environment values were requested or read;
+  this is an access boundary and does not prove that runtime variables are
+  absent. No protection setting, deployment, secret, OAuth grant, provider, or
+  paid resource was changed. Temporary share-link authorization remains
+  unanswered; no link was created. ChatGPT acceptance remains **NOT RUN**.
