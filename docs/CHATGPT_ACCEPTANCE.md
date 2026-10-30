@@ -348,3 +348,22 @@ discovery=200, `/mcp`=401 requiring a bearer token, and `/readyz`=404. The
 readiness-route gap persists. This does not identify the deployed source
 revision or prove tool usability; no authenticated ChatGPT/Platform session,
 OAuth grant, deployment setting, or runtime was used or changed.
+
+## P1 deployment refresh (2026-10-30)
+
+- GitHub PR #51 is OPEN/DRAFT at head
+  `58f19ed2ea32c7a9b65a6f5c865540552b091978`; all current required checks
+  pass. The Gateway CI integration run passed 424 tests / 1 optional skip with
+  PostgreSQL and the digest-pinned local CPU container. No GitHub review has
+  been submitted; review remains required.
+- Vercel's read-only deployment record identifies preview deployment
+  `dpl_GiePt9LLG86WmE23rnyZCHf345KT` as READY from that exact SHA. Project
+  metadata shows preview SSO protection enabled. Direct unauthenticated
+  requests to the preview redirect to Vercel login, so the preview's runtime
+  `/healthz` and `/readyz` responses were not observed.
+- The production alias still returns `/healthz`=200, `/readyz`=404, and
+  unauthenticated `/mcp`=401. No ChatGPT OAuth grant, workspace tool scan,
+  experiment call, or result retrieval has been completed; acceptance remains
+  **NOT RUN**. No temporary Vercel share link has been created. Approval to use
+  a temporary link solely for read-only `/healthz` and `/readyz` checks is
+  pending.
