@@ -352,12 +352,12 @@ OAuth grant, deployment setting, or runtime was used or changed.
 ## P1 deployment refresh (2026-10-30)
 
 - GitHub PR #51 is OPEN/DRAFT at head
-  `58f19ed2ea32c7a9b65a6f5c865540552b091978`; all current required checks
+  `144cccebca3351b42cd9261375b012784f3b8715`; all current required checks
   pass. The Gateway CI integration run passed 424 tests / 1 optional skip with
   PostgreSQL and the digest-pinned local CPU container. No GitHub review has
   been submitted; review remains required.
 - Vercel's read-only deployment record identifies preview deployment
-  `dpl_GiePt9LLG86WmE23rnyZCHf345KT` as READY from that exact SHA. Project
+  `dpl_CWs7WJ4hKt2thQtmMZeVabiKV84f` as READY from that exact SHA. Project
   metadata shows preview SSO protection enabled. Direct unauthenticated
   requests to the preview redirect to Vercel login, so the preview's runtime
   `/healthz` and `/readyz` responses were not observed.
