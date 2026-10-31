@@ -2,43 +2,38 @@
 
 ## Scope
 
-- PR: #58, `codex/gpu-control-p1-dcr-v9-review`.
-- New base: PR #51 CPU vertical candidate
-  `cc09bb56a77aadf65471a21acccb1c26e83ffe28`.
-- DCR feature commit: `d5a30985d8f2df0e7221476f47f1dfecff2faedb`.
-- Validation record commit: `b8028841df5b3df6d3b957be402397639d2c326a`.
-- The stale merge commit from the prior PR #51 head was not carried forward.
-- The resulting PR-specific diff is seven files: OAuth persistence, schema
-  migration, PostgreSQL coverage, and acceptance evidence.
+- Validated source head before this evidence-only update:
+  `e7918adcfee86036ce4e68ceceeecf9e32670be0`.
+- Updated base: PR #51 head `3ad3797a2ace96ab0330317a303376e8af75fb21`.
+- DCR feature commit replayed as `64facc8`; the stack retains the PR #57
+  atomic refresh/revocation fix and the rebased P1–P5 continuation.
+- The PR-specific diff is eight files covering OAuth client persistence,
+  schema migration, PostgreSQL tests, and acceptance records.
 
 ## Validation
 
-Gateway suite, run from this candidate worktree's `gateway/` directory:
+Gateway suite used a dedicated local PostgreSQL 16 database, the CPU smoke
+container, and disabled Modal/RunPod integrations:
 
 ```text
-/Users/taka/Documents/ChatGPT/Gpuラッパリポジトリ/gpu-control/gateway/.venv/bin/python -m pytest -o addopts='' -q
+GATEWAY_TEST_DATABASE_URL=postgresql+psycopg://.../gateway_p58_rebased_full_test
+GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST=sha256:07da90a98f66cca25c1afe3208cde7928012f6bdf1fdee9d5e9939c50cf7d32f
+GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY=Unjuno/gpu-control
+GPU_CONTROL_CPU_SMOKE_SOURCE_SHA=d5a30985d8f2df0e7221476f47f1dfecff2faedb
+python -m pytest -o addopts='' gateway/tests -q
 ```
 
-Result: **419 passed, 13 skipped**, one existing Starlette deprecation warning,
-10.82 seconds. After moving PR #51 to `cc09bb5`, the full suite was rerun with
-the exact-source CPU smoke image described below: **429 passed, 3 skipped**,
-one existing Starlette deprecation warning, 18.07 seconds.
+Result: **433 passed, 3 skipped**, one existing Starlette deprecation warning,
+19.48 seconds. This includes DCR persistence, PostgreSQL refresh/revoke races,
+refresh rollback behavior, and the real CPU smoke container path.
 
-The real-container smoke used an image built from the DCR feature source SHA
-`d5a30985d8f2df0e7221476f47f1dfecff2faedb`; image digest:
-`sha256:07da90a98f66cca25c1afe3208cde7928012f6bdf1fdee9d5e9939c50cf7d32f`.
-GitHub Actions reruns for PR #51 after the CI fixes all passed (9 checks).
-
-Core suite, with imports directed to this candidate worktree:
-
-```text
-PYTHONPATH=/tmp/gpu-control-pr58-rebase-candidate/src /Users/taka/Documents/ChatGPT/Gpuラッパリポジトリ/gpu-control/.venv/bin/python -m pytest -o addopts='' -q
-```
-
-Result: **550 passed, 1 skipped**, 0.98 seconds. `git diff --check` passed.
+Core suite result: **550 passed, 1 skipped** in 1.38 seconds.
+`git diff --check` passed.
 
 ## Limits
 
-This is local rebase and test evidence. The rebased PR needs fresh GitHub CI
-and review. It does not establish live ChatGPT OAuth or real execution
-acceptance.
+These are local test-host results. The exact rebased PR head still requires
+fresh GitHub CI and GitHub review. No live ChatGPT OAuth exchange, public
+runtime acceptance, provider call, GPU allocation, paid execution, or target
+host restore/operations exercise was performed. Repository mode remains
+`parked`.
