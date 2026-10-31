@@ -1,5 +1,7 @@
 """Run against the dedicated ephemeral PostgreSQL service in gateway CI."""
+import hashlib
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
@@ -8,6 +10,7 @@ import pytest
 from sqlalchemy import inspect, select, update
 
 from gpu_gateway.config import Settings, Workload
+from gpu_gateway.local_oauth import LocalOAuth, oauth_tokens
 from gpu_gateway.service import ExperimentService, Prepare, Principal
 from gpu_gateway.store import Store, control, runs
 from gpu_gateway.migrations import migrate, schema_version
@@ -86,6 +89,84 @@ def test_postgres_worker_lease_has_one_current_owner():
 
     for worker in workers:
         worker.store.engine.dispose()
+    store.engine.dispose()
+
+
+def test_postgres_refresh_rotation_and_grant_revocation_race():
+    url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('requires a dedicated PostgreSQL test database')
+    settings = Settings(database_url=url, public_url='https://gateway.example')
+    store = Store(url)
+    store.initialize()
+    oauth = LocalOAuth(settings, store)
+    client_id = oauth.register_client({
+        'client_name': 'ChatGPT race ' + uuid4().hex,
+        'redirect_uris': ['https://chatgpt.com/oauth/callback/test'],
+    })['client_id']
+    initial = oauth._new_token_pair(
+        client_id=client_id, subject='owner',
+        scope='experiments:read offline_access', resource=settings.resource,
+    )
+    pair_entered = threading.Event()
+    allow_pair_to_finish = threading.Event()
+    errors = []
+    refreshed = []
+    original_new_pair = oauth._new_token_pair
+
+    def pause_replacement_pair(**kwargs):
+        pair_entered.set()
+        if not allow_pair_to_finish.wait(timeout=10):
+            raise TimeoutError('test did not release replacement token pair')
+        return original_new_pair(**kwargs)
+
+    oauth._new_token_pair = pause_replacement_pair
+
+    def refresh():
+        try:
+            refreshed.append(oauth.token({
+                'grant_type': 'refresh_token', 'client_id': client_id,
+                'refresh_token': initial['refresh_token'], 'resource': settings.resource,
+            }))
+        except Exception as exc:
+            errors.append(exc)
+
+    def revoke():
+        try:
+            oauth.revoke({'client_id': client_id, 'token': initial['refresh_token']})
+        except Exception as exc:
+            errors.append(exc)
+
+    refresh_thread = threading.Thread(target=refresh, name='postgres-oauth-refresh')
+    refresh_thread.start()
+    assert pair_entered.wait(timeout=10)
+    revoke_started = threading.Event()
+
+    def revoke_with_signal():
+        revoke_started.set()
+        revoke()
+
+    revoke_thread = threading.Thread(target=revoke_with_signal, name='postgres-oauth-revoke')
+    revoke_thread.start()
+    assert revoke_started.wait(timeout=5)
+    # Let the revoke query reach the row lock while the refresh transaction is
+    # paused after consuming the old token but before writing replacement rows.
+    time.sleep(0.1)
+    allow_pair_to_finish.set()
+    refresh_thread.join(timeout=10)
+    revoke_thread.join(timeout=10)
+    assert not refresh_thread.is_alive() and not revoke_thread.is_alive()
+    assert not errors
+    assert len(refreshed) == 1
+
+    token_hashes = [hashlib.sha256(value.encode()).hexdigest() for value in (
+        initial['refresh_token'], refreshed[0]['access_token'], refreshed[0]['refresh_token'],
+    )]
+    with store.engine.connect() as connection:
+        revoked = connection.execute(select(oauth_tokens.c.revoked).where(
+            oauth_tokens.c.token_hash.in_(token_hashes)
+        )).scalars().all()
+    assert len(revoked) == 3 and all(revoked)
     store.engine.dispose()
 
 
