@@ -101,8 +101,16 @@ def test_smoke_result_binds_source_and_plan_and_rejects_fake_gpu_claims():
     assert result["metrics"]["checksum_value"] == 42
     with pytest.raises(ValueError, match="binding"):
         parse_smoke_result(json.dumps({**value, "source_sha": "e" * 40}).encode(), expected, exit_code=0)
+    with pytest.raises(ValueError, match="binding"):
+        parse_smoke_result(json.dumps({**value, "run_id": "e" * 32}).encode(), expected, exit_code=0)
     with pytest.raises(ValueError, match="GPU"):
         parse_smoke_result(json.dumps({**value, "gpu_used": True}).encode(), expected, exit_code=0)
+    for forged_cleanup in (
+            {**value, "cleanup_state": "complete"},
+            {**value, "cleanup": {"confirmed": True}},
+    ):
+        with pytest.raises(ValueError, match="schema"):
+            parse_smoke_result(json.dumps(forged_cleanup).encode(), expected, exit_code=0)
     with pytest.raises(ValueError):
         parse_smoke_result(json.dumps({**value, "schema_version": True}).encode(), expected, exit_code=0)
 

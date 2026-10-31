@@ -1,0 +1,23 @@
+{
+  "cpu-smoke-v1": {
+    "provider": "local_cpu",
+    "image_digest": "",
+    "execution_profile": "smoke",
+    "source_repository": "",
+    "source_sha": "",
+    "requires_gpu": false,
+    "cpu": 1,
+    "memory_mib": 256,
+    "max_runtime_seconds": 30,
+    "max_cost_usd": "0.01",
+    "parameter_schema": {
+      "type": "object",
+      "properties": {
+        "iterations": {"type": "integer", "minimum": 1, "maximum": 20000000},
+        "seed": {"type": "integer", "minimum": 0, "maximum": 1000000}
+      },
+      "required": ["iterations", "seed"],
+      "additionalProperties": false
+    }
+  }
+}

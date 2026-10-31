@@ -12,20 +12,19 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import and_, or_, select
 
-from .service import ExperimentService, GatewayError, Prepare, Principal
+from .service import ExperimentService, GatewayError, Principal, digest
 from .store import control, runs
 from .admission import evaluate_admission, load_local_cpu_policy, plan_for_workload
 from .artifacts import ArtifactStore, inspect_artifact_storage
 from .health import heartbeat_age, heartbeat_is_fresh
-from gpu_control.selection import select_candidate
-from gpu_control.workloads import (
-    AcceleratorKind,
-    NetworkRequirement,
-    ResultTransport,
-    WorkloadRequirements,
+from .provider_selection import (
+    gpu_requirements as _gpu_requirements,
+    plan_for_selected_gpu,
+    select_registered_candidate,
 )
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
+STATUS_LOG_LIMIT = 4096
 STATE_SUMMARY = {
     "awaiting_approval": "実行計画は準備できました。承認が必要です。",
     "authorized": "登録済みlocal CPU policyでこのsmoke planは事前許可されています。",
@@ -114,50 +113,6 @@ def _cursor_decode(value: str, owner: str) -> tuple[int, str]:
         return data["created_at"], data["id"]
     except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error):
         raise GatewayError("invalid_cursor", "The experiment list cursor is invalid", 400) from None
-
-
-def _gpu_requirements(name: str, workload) -> tuple[WorkloadRequirements | None, list[str]]:
-    """Convert only explicit operator requirements; missing fields stay unknown."""
-    required = {
-        "workload_id": bool(re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)),
-        "source_repository": bool(workload.source_repository),
-        "source_sha": bool(workload.source_sha),
-        "operating_system": workload.operating_system is not None,
-        "architecture": workload.architecture is not None,
-        "gpu_count": workload.gpu_count is not None,
-        "minimum_vram_mib": workload.minimum_vram_mib is not None,
-        "network_requirement": workload.network_requirement is not None,
-        "result_transport": workload.result_transport is not None,
-        "max_result_bytes": workload.max_result_bytes is not None,
-        "cancellation_required": workload.cancellation_required is not None,
-        "cleanup_proof_required": workload.cleanup_proof_required is not None,
-    }
-    missing = [field for field, configured in required.items() if not configured]
-    if missing:
-        return None, missing
-    try:
-        requirements = WorkloadRequirements(
-            workload_id=name,
-            source_repository=workload.source_repository,
-            source_sha=workload.source_sha,
-            operating_system=workload.operating_system,
-            architecture=workload.architecture,
-            accelerator_kind=AcceleratorKind.GPU,
-            gpu_profile=workload.gpu.lower(),
-            gpu_count=workload.gpu_count,
-            minimum_vram_mib=workload.minimum_vram_mib,
-            minimum_cpu_cores=Decimal(str(workload.cpu)),
-            minimum_memory_mib=workload.memory_mib,
-            max_runtime_seconds=workload.max_runtime_seconds,
-            network_requirement=NetworkRequirement(workload.network_requirement),
-            result_transport=ResultTransport(workload.result_transport),
-            max_result_bytes=workload.max_result_bytes,
-            cancellation_required=workload.cancellation_required,
-            cleanup_proof_required=workload.cleanup_proof_required,
-        )
-    except (TypeError, ValueError):
-        return None, ["invalid_workload_requirements"]
-    return requirements, []
 
 
 def _list(service: ExperimentService, principal: Principal, request: ListInput) -> dict:
@@ -257,6 +212,7 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
         blockers: list[str] = []
         if provider == "demo":
             availability = "simulation_only"
+            provider_availability = "UNKNOWN"
             cost_classification = "LOCAL"
             additional_cost = "0"
             approval_mode = "none"
@@ -296,8 +252,10 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
             if not capacity_available:
                 blockers.append("CONCURRENCY_UNAVAILABLE")
             availability = "queue_ready" if not blockers else "blocked"
+            provider_availability = "AVAILABLE" if availability == "queue_ready" else "UNAVAILABLE"
         else:
             approval_mode = "browser"
+            provider_availability = "UNAVAILABLE" if not provider_enabled else "UNKNOWN"
             additional_cost = None
             cost_classification = "UNKNOWN"
             quote_current = (workload.quoted_usd_per_hour is not None and
@@ -318,7 +276,10 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
 
         candidate_selection = None
         if workload.requires_gpu:
-            requirements, missing_requirements = _gpu_requirements(name, workload)
+            requirements, decision, missing_requirements, evidence_status, inventory_complete = select_registered_candidate(
+                service.store, service.settings, name=name, workload=workload,
+                now=now, max_cost_usd=workload.max_cost_usd,
+            )
             cpu_alternatives = sorted(
                 candidate_name for candidate_name, candidate_workload
                 in service.workloads.items()
@@ -338,20 +299,18 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
                     "alternatives": alternatives,
                 }
             else:
-                now_utc = datetime.fromtimestamp(
-                    now, timezone.utc).isoformat().replace("+00:00", "Z")
-                decision = select_candidate(
-                    requirements, [], now_utc=now_utc,
-                    max_cost_usd=workload.max_cost_usd, free_first=True,
-                    inventory_complete=False,
+                decision_status = (
+                    "candidate_selected" if decision is not None and decision.selected is not None else
+                    "not_evaluated" if not inventory_complete else "blocked"
                 )
                 candidate_selection = {
-                    "status": "not_evaluated",
-                    "blocking_reason": decision.blocking_reason.value,
+                    "status": decision_status,
+                    "blocking_reason": (None if decision is None or decision.blocking_reason is None else
+                                        decision.blocking_reason.value),
                     "missing_workload_requirements": [],
-                    "provider_evidence": "NOT_AVAILABLE",
+                    "provider_evidence": evidence_status,
                     "workload_fingerprint": requirements.fingerprint(),
-                    "selector_result": decision.to_dict(),
+                    "selector_result": None if decision is None else decision.to_dict(),
                     "alternatives": alternatives,
                 }
 
@@ -360,6 +319,10 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
             "provider": provider,
             "execution": registration.execution if registration else "unsupported",
             "availability": availability,
+            # `availability` above is the Gateway submission state. Keep live
+            # provider/resource evidence separate so configured-but-unverified
+            # providers are never presented as available inventory.
+            "provider_availability": provider_availability,
             "submission_available": availability == "queue_ready",
             "simulation": provider == "demo",
             "execution_capacity": "UNVERIFIED",
@@ -422,6 +385,35 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
         if name == "experiment_prepare":
             request = PrepareInput.model_validate(arguments)
             principal.require("experiments:run")
+            request_payload = request.model_dump(mode="json")
+            request_hash = digest(request_payload)
+            existing = service.existing_prepare(principal, request_payload)
+            if existing is not None:
+                state = existing["state"]
+                response_status = ("ok" if state in {"authorized", "succeeded"} else
+                                   "error" if state in {"failed", "cancelled", "expired"} else
+                                   "pending")
+                next_actions = (
+                    ["approve_exact_plan_in_browser"] if state == "awaiting_approval" else
+                    ["experiment_submit"] if state == "authorized" else
+                    ["experiment_result"] if state == "succeeded" else
+                    ["experiment_status"]
+                )
+                blocker = "APPROVAL_REQUIRED" if state == "awaiting_approval" else None
+                machine_state = {
+                    "run_id": existing["id"], "state": state,
+                    "plan_fingerprint": existing["fingerprint"],
+                }
+                binding = existing.get("plan", {}).get("selection_binding")
+                if isinstance(binding, dict):
+                    machine_state["selection_binding"] = binding
+                return _envelope(
+                    status=response_status,
+                    summary=STATE_SUMMARY.get(state, "既存の実験状態を確認しました。"),
+                    machine_state=machine_state,
+                    next_actions=next_actions,
+                    blocker=blocker,
+                )
             workload = service.workloads.get(request.workload)
             if workload is None:
                 return _envelope(status="blocked", summary="このworkloadはoperator registryに登録されていません。",
@@ -443,9 +435,66 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                                  machine_state={"requires_gpu": workload.requires_gpu}, next_actions=["choose_registered_workload"],
                                  blocker="DEVICE_REQUIREMENT_MISMATCH")
             if workload.requires_gpu:
-                return _envelope(status="blocked", summary="GPU必須workloadをCPUへfallbackすることはできません。対応するGPU実行経路がありません。",
-                                 machine_state={"requires_gpu": True, "provider": workload.provider},
-                                 next_actions=["experiment_capabilities"], blocker="GPU_BACKEND_UNAVAILABLE")
+                if request.runtime_seconds > workload.max_runtime_seconds:
+                    return _envelope(status="blocked", summary="runtimeがoperator登録上限を超えています。",
+                                     machine_state={"max_runtime_seconds": workload.max_runtime_seconds},
+                                     next_actions=["experiment_capabilities"], blocker="RUNTIME_LIMIT")
+                if Decimal(request.max_cost_usd) > workload.max_cost_usd:
+                    return _envelope(status="blocked", summary="cost ceilingがoperator登録上限を超えています。",
+                                     machine_state={"max_cost_usd": str(workload.max_cost_usd)},
+                                     next_actions=["experiment_capabilities"], blocker="COST_LIMIT")
+                requirements, decision, missing, evidence_status, _complete = select_registered_candidate(
+                    service.store, service.settings, name=request.workload,
+                    workload=workload, now=int(service.clock()),
+                    max_cost_usd=Decimal(request.max_cost_usd),
+                )
+                if requirements is None:
+                    return _envelope(
+                        status="blocked",
+                        summary="GPU workloadの実行条件が未登録か不完全です。",
+                        machine_state={"requires_gpu": True, "provider": workload.provider,
+                                       "missing_workload_requirements": missing,
+                                       "provider_evidence": evidence_status},
+                        next_actions=["experiment_capabilities"],
+                        blocker="WORKLOAD_REQUIREMENTS_INCOMPLETE",
+                    )
+                if decision is None or decision.selected is None:
+                    blocker = ("PROVIDER_EVIDENCE_UNAVAILABLE" if decision is None or
+                               decision.blocking_reason is None else decision.blocking_reason.value)
+                    return _envelope(
+                        status="blocked",
+                        summary="現在の署名済みprovider evidenceでは、このGPU要求を安全に満たせません。",
+                        machine_state={"requires_gpu": True, "provider": workload.provider,
+                                       "provider_evidence": evidence_status,
+                                       "selector_result": None if decision is None else decision.to_dict()},
+                        next_actions=["experiment_capabilities"], blocker=blocker,
+                    )
+                if not re.fullmatch(r"sha256:[0-9a-f]{64}", workload.image_digest):
+                    return _envelope(
+                        status="blocked",
+                        summary="GPU workloadは固定image digestなしでは承認planを作成できません。",
+                        machine_state={"requires_gpu": True, "provider": workload.provider},
+                        next_actions=["update_registered_workload"],
+                        blocker="IMMUTABLE_IMAGE_REQUIRED",
+                    )
+                gpu_plan = plan_for_selected_gpu(
+                    name=request.workload, workload=workload,
+                    requirements=requirements, evidence=decision.selected,
+                    repository=request.repository, source_sha=request.commit,
+                    parameters=request.parameters, runtime_seconds=request.runtime_seconds,
+                    max_cost_usd=request.max_cost_usd,
+                )
+                prepared = service.prepare_bound_gpu(
+                    principal, gpu_plan, request.idempotency_key,
+                    request_hash=request_hash)
+                return _envelope(
+                    status="pending", summary=STATE_SUMMARY[prepared["state"]],
+                    machine_state={"run_id": prepared["id"], "state": prepared["state"],
+                                   "plan_fingerprint": prepared["fingerprint"],
+                                   "selection_binding": gpu_plan.selection_binding.model_dump(mode="json")},
+                    next_actions=["approve_exact_plan_in_browser"],
+                    blocker="APPROVAL_REQUIRED",
+                )
             if workload.provider != "local_cpu":
                 return _envelope(status="blocked", summary="現在、free_firstで実行できるCPU backendが有効ではありません。",
                                  machine_state={"provider": workload.provider},
@@ -482,7 +531,9 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                                  machine_state={"artifact_storage": artifact_storage},
                                  next_actions=["retry_later", "experiment_capabilities"],
                                  blocker="ARTIFACT_STORAGE_UNAVAILABLE")
-            prepared = service.prepare_local(principal, plan, request.idempotency_key, policy, decision)
+            prepared = service.prepare_local(
+                principal, plan, request.idempotency_key, policy, decision,
+                request_hash=request_hash)
             return _envelope(status="ok", summary=STATE_SUMMARY[prepared["state"]],
                              machine_state={"run_id": prepared["id"], "state": prepared["state"],
                                             "plan_fingerprint": prepared["fingerprint"],
@@ -556,25 +607,47 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                                                 "cleanup_state": cleanup,
                                                 "last_observed_at": result.get("last_observed_at")},
                                  next_actions=["experiment_status"], blocker=None)
+            stored_result = result.get("result")
+            result_omitted = (isinstance(stored_result, dict) and
+                              stored_result.get("result_omitted") is True)
             payload = {"run_id": result["id"], "state": state,
                        "plan_fingerprint": result["fingerprint"],
                        "last_observed_at": result.get("last_observed_at"),
                        "cleanup_state": cleanup,
-                       "result": result.get("result") if name == "experiment_result" else None,
+                       "result": (stored_result if name == "experiment_result" and not result_omitted else None),
                        "error_code": (result.get("error") or
-                                      ((result.get("result") or {}).get("failure_code") if isinstance(result.get("result"), dict) else None))}
+                                      (stored_result.get("failure_code") if isinstance(stored_result, dict) else None) or
+                                      ("result_size_limit" if result_omitted else None))}
+            if result_omitted:
+                payload["result_omitted"] = True
             if name == "experiment_status":
+                result_data = result.get("result")
+                raw_logs = result_data.get("logs") if isinstance(result_data, dict) else None
+                if isinstance(raw_logs, str):
+                    payload["logs"] = raw_logs[-STATUS_LOG_LIMIT:]
+                    payload["logs_truncated"] = len(raw_logs) > STATUS_LOG_LIMIT
                 status = "ok" if state in TERMINAL else "pending"
                 actions = [] if state in TERMINAL else ["experiment_status", "experiment_cancel"]
             elif name == "experiment_cancel":
                 status, actions = "pending", ["experiment_status"] if state not in TERMINAL else []
             else:
+                if result_omitted:
+                    return _envelope(
+                        status="blocked",
+                        summary="実験は完了しましたが、結果データはサイズ上限により取得できません。",
+                        machine_state=payload,
+                        next_actions=[],
+                        blocker="RESULT_OMITTED",
+                    )
                 status = "error" if state != "succeeded" else "ok"
                 actions = []
                 if (result.get("result") or {}).get("simulation") is True:
                     return _envelope(status="blocked", summary="このrunはsimulationです。実計算の成功には数えられません。",
                                      machine_state=payload, next_actions=[], blocker="SIMULATION_RESULT")
-            return _envelope(status=status, summary=STATE_SUMMARY.get(state, "実験状態を確認しました。"),
+            summary = ("実験は完了しましたが、結果データはサイズ上限により省略されました。"
+                       if name == "experiment_status" and result_omitted else
+                       STATE_SUMMARY.get(state, "実験状態を確認しました。"))
+            return _envelope(status=status, summary=summary,
                              machine_state=payload, next_actions=actions,
                              blocker=payload["error_code"] if state == "failed" else None)
 

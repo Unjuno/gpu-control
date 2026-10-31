@@ -73,11 +73,13 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 - `migrate(engine) -> None`: version管理された冪等migration。workerとAPIで必要schema versionを検証する。
 - 追加永続情報: cleanup_state、finished_at、version、attempt、submission_intent、result_manifest。旧runのfingerprintは再計算・上書きせずv1 readerで扱う。
 
-- [ ] `test_v1_rows_survive_migration`: 旧DBのrun/owner/承認/key/fingerprintが保持され、2回migrationして変わらないことを書く。
-- [ ] `test_unknown_schema_fails_closed`: 未知versionを実行しないこと、旧version結果を読めることを書く。
-- [ ] `test_result_identity_is_control_plane_owned`: workload JSONに偽run_id/gpu_used/cleanupを入れても信頼フィールドを書き換えられないことを書く。
-- [ ] 契約とmigrationを実装し、v1/新規v2の読取を分岐する。旧行を無根拠に新しい承認へ変換しない。
-- [ ] `python -m pytest gateway/tests/test_contracts_v2.py gateway/tests/test_migrations.py -q`。SQLiteと一時PostgreSQLの両方でPASSを記録する。
+- [x] `test_v1_rows_survive_migration`: 旧DBのrun/owner/承認/key/fingerprintが保持され、2回migrationして変わらないことを検証する。Coverage: `test_v1_rows_and_oauth_tokens_survive_idempotent_migration`。
+- [x] `test_unknown_schema_fails_closed`: 未知versionを実行しないこと、旧version結果を読めることを検証する。Coverage: `test_unknown_future_schema_fails_closed`。
+- [x] `test_result_identity_is_control_plane_owned`: workload JSONのrun_id/gpu_used/cleanup偽装を拒否し、信頼フィールドを書き換えさせない。Coverage: `test_smoke_result_binds_source_and_plan_and_rejects_fake_gpu_claims`。
+- [x] 契約とmigrationを実装し、v1/新規v2の読取を分岐する。旧行を無根拠に新しい承認へ変換しない。
+- [x] `gateway/.venv/bin/python -m pytest -o addopts= gateway/tests/test_contracts_v2.py gateway/tests/test_migrations.py -q`。SQLite tests pass; separate PostgreSQL 16 disposable migration check below also passed.
+  - 2026-10-28: initial PostgreSQL run exposed legacy fixture inserts using integer `0` for BOOLEAN columns (accepted by SQLite only). Updated the fixture to standard SQL `FALSE`; then the SQLite contract/migration/local-backend set passed 31 tests, and PostgreSQL 16 applied the same v1 fixture twice to schema v7 while preserving the legacy run and OAuth token. Disposable container was loopback-only and removed after the run.
+- [x] Current additive migration follow-up: PostgreSQL integration upgrades the v4 shape to schema v8 and verifies the `gateway_provider_observations_v1` columns. A separate isolated-schema PostgreSQL regression now migrates the actual unversioned v1 fixture directly to schema v8 twice and verifies preserved run/OAuth rows and v8 additions. Each targeted PostgreSQL 16 regression passed **1 test**. Production migration remains unperformed. Details: `docs/acceptance/2026-10-28-local-integration-revalidation.md`.
 - [ ] migrationとrollback互換性、移行前backupをPRへ記載してcommitする。
 
 ## T2: 8つのMCPツールと会話向け応答
@@ -86,12 +88,14 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 
 **Interfaces:** `invoke_experiment(service, principal, name: str, arguments: dict) -> dict`。serviceはowner境界の単一実装を維持し、HTTP/MCPで別の実行ロジックを作らない。
 
-- [ ] `test_eight_advertised_tools_and_legacy_dispatch`: 新8ツール、scope別visibility、旧6名の互換処理を検証する。
-- [ ] `test_owner_isolation_for_status_result_list_cancel`: 別ownerで404、一覧に混入なし、取消不能を検証する。
-- [ ] `test_result_pending_does_not_claim_success`, `test_gpu_required_never_falls_back_to_cpu`を書く。
-- [ ] input/output schema、structuredContent、説明文、制限付きlogsを実装する。opaque cursorはownerに結びつけ、limitは既定20/最大50、UTC期間フィルタを受ける。
-- [ ] `python -m pytest gateway/tests/test_experiment_api.py gateway/tests/test_protocol_validation.py gateway/tests/test_ci_bridge.py -q`でPASS。workloadエラーとprotocolエラーの期待応答を確認する。
-- [ ] API仕様と互換期間を文書化しcommitする。
+- [x] `test_eight_advertised_tools_and_legacy_dispatch`: 新8ツール、scope別visibility、旧6名の互換処理を検証する。Coverage: `test_canonical_tool_surface_is_eight_tools_and_legacy_remains`, `test_tool_visibility_follows_scopes`。
+- [x] `test_owner_isolation_for_status_result_list_cancel`: 別ownerでstatus/result/cancelは404、listに対象runが混入しないことを検証する。Coverage: `test_owner_isolation_for_status_result_list_and_cancel`。
+- [x] `test_result_pending_does_not_claim_success`, `test_gpu_required_never_falls_back_to_cpu`を書く。Coverage: `test_pending_result_does_not_claim_success_and_cancel_is_owner_scoped`, `test_result_never_calls_simulation_a_real_success`, `test_omitted_oversized_result_is_not_reported_as_retrieved`, `test_gpu_required_workload_cannot_fall_back_to_cpu`。
+- [x] input/output schema、structuredContent、説明文、制限付きlogsを実装する。opaque cursorはownerに結びつけ、limitは既定20/最大50、UTC期間フィルタを受ける。outputSchema/structuredContentは2025-06-18以降だけに広告し、2025-03-26はJSON text互換を維持する。
+- [x] MCP 2025-03-26と2025-06-18以降でtools/list/tools/callの互換性を回帰検証する。Coverage: `test_protocol_version_gates_output_schema_and_structured_content` verifies 2025-03-26, 2025-06-18, 2025-11-25, and 2026-07-28.
+- [x] `gateway/.venv/bin/python -m pytest -o addopts= gateway/tests/test_experiment_api.py gateway/tests/test_protocol_validation.py -q`: **42 passed**, one existing Starlette deprecation warning. Includes explicit result-size omission reporting.
+- [x] `gateway/.venv/bin/python -m pytest -o addopts= gateway/tests/test_experiment_api.py gateway/tests/test_protocol_validation.py gateway/tests/test_ci_bridge.py -q`でPASS。2026-10-28: **107 passed, 1 skipped**, one existing Starlette deprecation warning。workloadエラーとprotocolエラーの期待応答を確認した。
+- [x] API仕様と互換期間を文書化する。commitはPR統合時に行う。
 
 ## T3: 0ドルCPU受付と限定した事前許可
 
@@ -153,7 +157,9 @@ T5 evidence: Gateway 198 passed, 2 skipped with pinned CPU image and PostgreSQL 
 - [ ] endpoint→OAuth→tool discovery→read-only capabilitiesを実ChatGPTで通す。現行のprotocol version/header処理を公式仕様・実クライアント要求で検証する。
 - [ ] deployment protection、token audience/resource、HTTPS origin、refresh/revocation、scope不足を確認する。DB初期化/migrationをHTTP handlerに置かない。
 - [ ] 固定費と常時worker稼働条件を運用手順に記載し、local workerがsleep/offlineならcapabilitiesを実行可能と偽らない。
-- [ ] `python -m pytest gateway/tests/test_http_auth.py gateway/tests/test_local_oauth.py -q`、その後実ChatGPTの認証更新と再接続を検証する。
+- [ ] `gateway/.venv/bin/python -m pytest -o addopts= gateway/tests/test_http_auth.py gateway/tests/test_local_oauth.py -q`、その後実ChatGPTの認証更新と再接続を検証する。
+  - 2026-10-28 local rerun: 34 passed, one existing Starlette deprecation warning. This does not satisfy the ChatGPT grant, refresh, or reconnection acceptance.
+- [x] `experiment_capabilities` must not advertise the local CPU queue when either the worker or recovery-supervisor heartbeat is stale. A new local regression first proves both fresh heartbeats permit the registered CPU workload, then independently ages each heartbeat by the 15-second threshold and verifies the exact blocker. This is local contract coverage only; it does not prove live worker uptime or ChatGPT acceptance.
 - [ ] 本番操作に追加承認が必要なときは具体的な構成・費用・rollbackを提示し、その外部操作だけ保留する。offlineの残作業は続ける。
 - [ ] 設定手順と接続証拠をcommitする。トークン・パスワード・接続文字列は記録しない。
 

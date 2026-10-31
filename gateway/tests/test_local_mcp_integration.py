@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import time
 from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,12 +27,28 @@ def _docker_ready():
                  stderr=subprocess.DEVNULL, timeout=5).returncode == 0)
 
 
+def fake_dedicated_filesystem(monkeypatch, root):
+    original_stat = Path.stat
+
+    def stat_with_separate_device(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        if path in {root, root / ".gpu-control-probes"}:
+            return SimpleNamespace(st_dev=2, st_mode=result.st_mode)
+        return result
+
+    monkeypatch.setattr(Path, "stat", stat_with_separate_device)
+
+
 @pytest.mark.skipif(not _docker_ready(), reason="Docker/OrbStack daemon is unavailable")
 @pytest.mark.skipif(not os.environ.get("GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST"),
                     reason="prebuilt digest-pinned CPU smoke image is not configured")
 def test_authenticated_mcp_cpu_run_and_cross_client_artifact_retrieval(web, tmp_path, monkeypatch):
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    # A deployed API has this worker-owned sticky probe directory installed.
+    # Keep the integration fixture faithful to the readiness contract.
+    (artifact_root / ".gpu-control-probes").mkdir(mode=0o700)
+    fake_dedicated_filesystem(monkeypatch, artifact_root)
     settings = replace(web.settings, artifact_dir=str(artifact_root), artifact_min_free_bytes=0)
     web.service.settings = settings
     workload = Workload(
@@ -44,6 +62,8 @@ def test_authenticated_mcp_cpu_run_and_cross_client_artifact_retrieval(web, tmp_
             "required": ["iterations", "seed"], "additionalProperties": False},
     )
     web.service.workloads = {"cpu-smoke-v1": workload}
+    monkeypatch.setenv("GATEWAY_WORKLOADS_JSON", json.dumps({
+        "cpu-smoke-v1": workload.model_dump(mode="json")}, allow_nan=False))
     now = int(web.clock())
     policy = {"version": "local-cpu-v1", "enabled": True, "valid_until": now + 180,
               "workloads": ["cpu-smoke-v1"], "max_runtime_seconds": 30,
@@ -55,10 +75,14 @@ def test_authenticated_mcp_cpu_run_and_cross_client_artifact_retrieval(web, tmp_
     app = create_app(settings, service=web.service, auth=web.auth)
     first_conversation = TestClient(app)
     second_conversation = TestClient(app)
+    # This end-to-end vertical validates the current structured tool contract.
+    # The gateway defaults unversioned legacy requests to 2025-03-26, which
+    # intentionally omits structuredContent for protocol compatibility.
+    mcp_headers = {**web.headers, "MCP-Protocol-Version": "2025-11-25"}
     run_id = None
 
     def call(client, name, arguments):
-        response = client.post("/mcp", headers=web.headers, json={
+        response = client.post("/mcp", headers=mcp_headers, json={
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": name, "arguments": arguments},
         })
@@ -68,7 +92,7 @@ def test_authenticated_mcp_cpu_run_and_cross_client_artifact_retrieval(web, tmp_
         return payload["structuredContent"]
 
     try:
-        listed = first_conversation.post("/mcp", headers=web.headers, json={
+        listed = first_conversation.post("/mcp", headers=mcp_headers, json={
             "jsonrpc": "2.0", "id": 1, "method": "tools/list",
         })
         assert listed.status_code == 200

@@ -8,12 +8,186 @@ itself. Keep the local CPU policy disabled during a restore drill.
 
 `gateway/deploy/` contains systemd units for the API, execution worker and
 recovery-only supervisor. Install the application and locked Python
-dependencies under `/opt/gpu-control`, create the `gpu-control` service account,
-and install the shared environment file as `/etc/gpu-control/worker.env`
-owned by root with mode `0600`. Configure one durable PostgreSQL URL, the exact
-public HTTPS origin, and the same persistent `GATEWAY_ARTIFACT_DIR` in that
-file. Keep the local CPU policy disabled until its independent acceptance gates
-pass.
+dependencies under `/opt/gpu-control`, create separate API, worker, migration,
+capacity-monitor, and capacity-bridge service users plus artifact/probe groups,
+and install `/etc/gpu-control/gateway.env` from `gateway.env.example` for the
+common database, workload, policy, public-origin, and artifact settings.
+Install `/etc/gpu-control/api.env` from `api.env.example` for API-only
+cookie/OIDC credentials, and `/etc/gpu-control/capacity.env` from
+`capacity.env.example` for the capacity monitor's artifact path/headroom only.
+All files must be root-owned mode `0600`. API loads common plus API-only
+settings; worker, supervisor, and manual migration load common settings only;
+capacity monitoring receives filesystem settings only. Worker and supervisor
+may also load the optional root-owned `worker-secrets.env`, which is not loaded
+by API, migration, or capacity services. Do not add OAuth credentials to the
+common file. Keep the local CPU policy disabled until its independent
+acceptance gates pass.
+
+The API, database migration, and capacity monitor must not share a Unix UID
+with the worker. The worker and recovery supervisor intentionally share the
+`gpu-control-worker` UID because both receive the same reviewed cleanup/provider
+credentials. Environment-file separation alone is not process isolation:
+`/proc/<pid>/environ` access is governed by ptrace permissions, and services
+running as the same UID may be able to inspect each other's environment on a
+host without additional procfs restrictions ([Linux proc environment access]
+(https://man7.org/linux/man-pages/man5/proc_pid_environ.5.html), [systemd
+environment security notes](https://www.freedesktop.org/software/systemd/man/258/systemd.exec.html)).
+Create the dedicated identities before installing/starting units:
+
+```sh
+sudo groupadd --system gpu-control-artifacts
+sudo groupadd --system gpu-control-artifact-probes
+sudo groupadd --system gpu-control-migrate
+sudo groupadd --system gpu-control-capacity-bridge
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid gpu-control-artifacts gpu-control-api
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid gpu-control-artifacts gpu-control-worker
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid gpu-control-migrate gpu-control-migrate
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid gpu-control-artifacts gpu-control-capacity
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid gpu-control-capacity-bridge gpu-control-capacity-bridge
+sudo usermod --append --groups systemd-journal gpu-control-capacity-bridge
+```
+
+The API unit joins the artifact-probe group so its readiness endpoint can
+create and remove a temporary probe; worker and recovery supervisor join only
+the Docker group because the worker UID owns the probe directory and artifact
+tree. The capacity user receives only its primary artifact-read group, allowing
+`statvfs` and blob reads without probe-directory write permission, database/auth
+settings, or Docker access. The migration user receives database settings only.
+
+The optional capacity journal bridge uses a distinct
+`gpu-control-capacity-bridge` identity, joins only the host's
+`systemd-journal` read group, and writes only its private systemd
+`StateDirectory`. Its service has no environment file, network, database,
+artifact, Docker, or provider access. The unit is manual-only: do not schedule
+it repeatedly until a reviewed sender is connected, because undelivered
+transitions occupy the bounded outbox. `systemd-journal` membership grants
+underlying read access to the host journal; bridge code restricts its fixed
+no-shell query to the capacity unit and selected fields. Do not install this
+identity if that host-journal trust boundary is unacceptable.
+
+After mounting the dedicated artifact filesystem and before starting any unit,
+prepare its root and probe directory. For a new empty mount:
+
+```sh
+sudo install -d -o gpu-control-worker -g gpu-control-artifacts -m 2750 /var/lib/gpu-control/artifacts
+sudo install -d -o gpu-control-worker -g gpu-control-artifact-probes -m 3770 /var/lib/gpu-control/artifacts/.gpu-control-probes
+```
+
+Do not use these commands as a recursive migration for an existing artifact
+tree. For an existing tree, follow the quiesced migration procedure below and
+verify all stored digests before restarting services.
+
+From the repository root, install the three required environment-file examples
+first, edit their settings, then install all seven unit templates. The sample
+database URL must be replaced with a value from the approved configuration
+source. Set `GATEWAY_COOKIE_KEY` only for external OIDC browser login; generate
+it with `Fernet.generate_key()` as described in the Gateway README. Built-in
+local OAuth does not use this cookie key. Use `sudoedit` for the
+credential-bearing files; do not put credentials in shell arguments or
+terminal history.
+
+```sh
+sudo install -d -o root -g root -m 0750 /etc/gpu-control
+sudo install -o root -g root -m 0600 gateway/deploy/gateway.env.example /etc/gpu-control/gateway.env
+sudo install -o root -g root -m 0600 gateway/deploy/api.env.example /etc/gpu-control/api.env
+sudo install -o root -g root -m 0600 gateway/deploy/capacity.env.example /etc/gpu-control/capacity.env
+sudoedit /etc/gpu-control/gateway.env
+sudoedit /etc/gpu-control/api.env
+sudoedit /etc/gpu-control/capacity.env
+
+sudo install -o root -g root -m 0644 gateway/deploy/gpu-control-api.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 gateway/deploy/gpu-control-worker.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 gateway/deploy/gpu-control-supervisor.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 gateway/deploy/gpu-control-db-check.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 gateway/deploy/gpu-control-db-migrate.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 gateway/deploy/gpu-control-artifact-capacity.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 gateway/deploy/gpu-control-artifact-capacity.timer /etc/systemd/system/
+sudo install -o root -g root -m 0644 gateway/deploy/gpu-control-capacity-bridge.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemd-analyze verify \
+  /etc/systemd/system/gpu-control-db-check.service \
+  /etc/systemd/system/gpu-control-db-migrate.service \
+  /etc/systemd/system/gpu-control-api.service \
+  /etc/systemd/system/gpu-control-worker.service \
+  /etc/systemd/system/gpu-control-supervisor.service \
+  /etc/systemd/system/gpu-control-artifact-capacity.service \
+  /etc/systemd/system/gpu-control-artifact-capacity.timer \
+  /etc/systemd/system/gpu-control-capacity-bridge.service
+```
+
+Keep `worker-secrets.env` absent while provider integrations are parked. If a
+later reviewed activation needs it, install that example separately with mode
+`0600`, enter only the authorized worker/supervisor credentials using the
+approved secret process, and continue to keep the integration disabled until
+its independent acceptance gates pass. The migration service has no boot
+install target; never enable it as a startup service. Keep the capacity timer
+disabled until the fixed-size artifact filesystem is mounted and verified.
+
+| Unit | Unix identity | Environment files | Runtime secret boundary |
+| --- | --- | --- | --- |
+| `gpu-control-api.service` | `gpu-control-api:gpu-control-artifacts` | `gateway.env`, `api.env` | DB/API auth; artifact read and probe-only write; no provider token |
+| `gpu-control-worker.service` | `gpu-control-worker:gpu-control-artifacts` | `gateway.env`, optional `worker-secrets.env` | DB and approved execution-provider credentials; artifact read/write |
+| `gpu-control-supervisor.service` | `gpu-control-worker:gpu-control-artifacts` | `gateway.env`, optional `worker-secrets.env` | Same worker identity for exact tracked-resource recovery/cleanup |
+| `gpu-control-db-migrate.service` | `gpu-control-migrate:gpu-control-migrate` | `gateway.env` | DB credential only; no API auth/provider token |
+| `gpu-control-artifact-capacity.service` | `gpu-control-capacity:gpu-control-artifacts` | `capacity.env` | Artifact mount identity and free-space headroom via `statvfs`; no artifact or probe writes |
+| `gpu-control-capacity-bridge.service` | `gpu-control-capacity-bridge:gpu-control-capacity-bridge` plus `systemd-journal` | none | Read-only journal polling and private outbox state; no network or workload authority |
+
+Before enabling a provider or local CPU admission on the selected host, verify
+both the installed unit files and each running service's environment scope.
+Inspect environment **variable names only**; never display, save, or log values,
+and do not use `systemctl show -p Environment` or dump `/proc/*/environ` into a
+log. For running API/worker/supervisor processes, `MainPID` and a names-only
+inspection can be obtained as follows:
+
+```sh
+unit=gpu-control-api.service
+pid=$(sudo systemctl show --property=MainPID --value "$unit")
+test "$pid" -gt 1
+sudo python3 - "$pid" <<'PY'
+from pathlib import Path
+import sys
+
+items = Path(f"/proc/{sys.argv[1]}/environ").read_bytes().split(b"\0")
+for name in sorted({item.partition(b"=")[0].decode("ascii", "replace")
+                    for item in items if b"=" in item}):
+    print(name)
+PY
+```
+
+Repeat with the worker and supervisor units. For the capacity and migration
+oneshot units, which may exit before their process environment can be inspected,
+compare the configured environment-file paths in the installed units and list
+the assignment names only (for example, `awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' /etc/gpu-control/capacity.env`). Confirm that API has no
+`MODAL_TOKEN_*`, RunPod, or other provider secret; capacity monitoring has no
+database or auth variable; migration has no API auth or provider credential; and
+worker/supervisor have only the credentials needed for their reviewed backend
+and cleanup responsibilities. Record pass/fail and unit revision in the private
+acceptance record without recording values. Keep provider integrations disabled
+if any service receives an unexpected variable.
+
+When updating an installation made from the earlier single-file
+`worker.env.example`, do not point the new units at the old file or copy it
+wholesale into `gateway.env`: that file may contain API authentication values.
+During a planned, quiesced deployment, prepare three required root-owned `0600`
+files:
+move only database, hosted-mode, public-origin, workload, policy, artifact,
+provider-disable, and concurrency settings into `gateway.env`; put only cookie
+and configured OIDC settings into `api.env`; and put only artifact path and
+headroom settings into `capacity.env`. Preserve the existing cookie key and
+database URL exactly unless their rotation is separately planned. Validate
+variable names and file ownership without printing values, copy the new unit
+files, run `systemd-analyze verify`, and only then perform the reviewed service
+restart. Keep the old file root-only and mode `0600` until the new services are
+healthy and the rollback window closes; then handle it under the host's secret
+retention policy. Do not use `source` or execute a systemd environment file as
+a shell script. If the old file contains Modal, RunPod, or other provider
+credentials, do not copy them into `gateway.env`; keep those integrations
+disabled until a separately reviewed worker-only secret path is configured.
+When that path is approved, put provider credentials only in
+`/etc/gpu-control/worker-secrets.env`, readable by worker and recovery
+supervisor, and keep that integration's admission switch disabled until its
+credential, quote, quota, cancellation, and cleanup gates pass. This file is
+optional and remains absent while integrations are parked.
 
 Place the API behind a TLS-terminating reverse proxy. The API unit binds only to
 `127.0.0.1:8000` and has no Docker group membership; only the dedicated worker
@@ -23,19 +197,89 @@ resource metadata, and public MCP origin all match. Do not expose port 8000
 directly to the network.
 
 Copy the database-migration, API, worker, supervisor, capacity-check service,
-and capacity timer unit files from `gateway/deploy/` to
+capacity timer, and manual capacity-bridge service unit files from
+`gateway/deploy/` to
 `/etc/systemd/system/`, then review their paths and environment file before
 enabling them. On the target Linux host, run
-`systemd-analyze verify /etc/systemd/system/gpu-control-db-migrate.service /etc/systemd/system/gpu-control-api.service /etc/systemd/system/gpu-control-worker.service /etc/systemd/system/gpu-control-supervisor.service /etc/systemd/system/gpu-control-artifact-capacity.service /etc/systemd/system/gpu-control-artifact-capacity.timer`
+`systemd-analyze verify /etc/systemd/system/gpu-control-db-migrate.service /etc/systemd/system/gpu-control-api.service /etc/systemd/system/gpu-control-worker.service /etc/systemd/system/gpu-control-supervisor.service /etc/systemd/system/gpu-control-artifact-capacity.service /etc/systemd/system/gpu-control-artifact-capacity.timer /etc/systemd/system/gpu-control-capacity-bridge.service`
 before starting any unit. Start the API only after TLS proxy and PostgreSQL are ready. Start
 worker and supervisor only after confirming their dedicated host's Docker
 trust boundary and persistent artifact path. Enable the capacity timer only
-after the artifact filesystem is mounted and checked. `systemd-analyze verify`
-accepted all six service/timer units in an ephemeral Debian 12/systemd 252
+after the artifact filesystem is mounted and checked. At the earlier
+verification point, `systemd-analyze verify` accepted all six then-existing
+service/timer units in an ephemeral Debian 12/systemd 252
 container with placeholder installation paths, executable files, service
 accounts, groups, and environment file. This verifies unit syntax and
 references only. These templates are not yet validated on a target Linux host;
-successful unit startup alone is not deployment acceptance.
+successful unit startup alone is not deployment acceptance. After adding the
+optional `worker-secrets.env` inputs, `systemd-analyze verify` again accepted
+the six then-current templates in the same ephemeral Debian 12/systemd 252
+environment, with placeholder users/groups, environment files, and executable
+paths. This remains static verification only; no service was started or
+validated on a target Linux host.
+
+The manual capacity-bridge unit is installed and included above. The guarded
+helper passed `systemd-analyze verify` for all seven templates in the cached Debian
+12/systemd 252.39 image (`--rm --network none`, repository mounted read-only).
+See [`systemd UID boundary acceptance`](acceptance/2026-10-28-systemd-uid-boundary.md).
+
+The capacity bridge has no timer and is not for continuous service yet. Its
+initial checkpoint must be explicit. For an authorized target-host read test,
+create `/var/lib/gpu-control-capacity-bridge` as
+`gpu-control-capacity-bridge:gpu-control-capacity-bridge` mode `0700`, then run
+`capacity_event_bridge.py --bootstrap-latest` once as that identity with the
+fixed state path. Review only the safe status output; it must not print the
+cursor or event body. Subsequent manual unit invocations use `--poll-once` and
+refuse to run without that checkpoint. A retention gap reports unknown state
+and blocks ordinary polling. After reviewing the gap, an operator may explicitly
+reconcile to the latest retained capacity event under the bridge identity and
+`systemd-journal` supplementary group:
+
+```sh
+sudo -u gpu-control-capacity-bridge -g gpu-control-capacity-bridge \
+  /opt/gpu-control/venv/bin/python \
+  /opt/gpu-control/gateway/deploy/capacity_event_bridge.py \
+  --reconcile-latest \
+  --state-path /var/lib/gpu-control-capacity-bridge/state.json
+```
+
+The operation is allowed only while the
+saved cursor is actually absent, reads one latest trusted event, rechecks the
+gap, preserves every pending outbox item, and enqueues the latest status even
+when it matches the last known state. This reannouncement makes the current
+condition visible; it cannot recover transitions removed by journal retention.
+This assumes the bridge identity was added to the `systemd-journal` group as
+described in the setup steps above; sudo initializes its supplementary groups
+from that identity. Record the command output and operator decision in the
+incident record. The poller only records transitions locally and does not
+notify an operator. Keep it unscheduled until a reviewed delivery sender and
+route are configured and accepted.
+
+To inspect local bridge counters without querying journald, use
+`--show-health` with the same identity and state path:
+
+```sh
+sudo -u gpu-control-capacity-bridge -g gpu-control-capacity-bridge \
+  /opt/gpu-control/venv/bin/python \
+  /opt/gpu-control/gateway/deploy/capacity_event_bridge.py \
+  --show-health \
+  --state-path /var/lib/gpu-control-capacity-bridge/state.json
+```
+
+This returns only initialized/current status and bounded delivery counters; it
+does not print cursors, event bodies, error strings, or notification responses.
+It reports local outbox state, not journal-reader health or operator receipt.
+
+The API, worker, and supervisor use `ProtectSystem=strict`. API receives a
+`ReadWritePaths` exception only for
+`/var/lib/gpu-control/artifacts/.gpu-control-probes`; worker and supervisor
+receive the full artifact path for payload writes, pruning, and recovery. The
+`-` prefix lets these services start when the mountpoint is absent. Host mount
+changes propagate into these service namespaces; without the allowlist,
+artifact writes and the readiness probe would fail under the strict read-only
+filesystem view. The capacity unit alone has
+`RequiresMountsFor=/var/lib/gpu-control/artifacts` because it must report a
+missing mount as a failed check.
 
 `gpu-control-db-migrate.service` is a manual, oneshot unit and has no install
 target; it must not be enabled at boot. Before the first deployment or a schema
@@ -47,14 +291,28 @@ backup when artifacts exist. Only after the migration has been reviewed against
 the exact release, run:
 
 ```sh
+sudo systemctl start gpu-control-db-check.service
+sudo systemctl --no-pager --full status gpu-control-db-check.service
+sudo journalctl --no-pager -u gpu-control-db-check.service
+```
+
+Review the check unit's JSON output (`current_version`, `target_version`, and
+`planned_versions`) against the exact release and migration record. Stop if the
+observed version or plan is unexpected. The check unit is read-only and manual;
+it does not automatically start migration. After review and the backup/drain
+gates above, start the separate migration unit:
+
+```sh
 sudo systemctl start gpu-control-db-migrate.service
 sudo systemctl --no-pager --full status gpu-control-db-migrate.service
 sudo journalctl --no-pager -u gpu-control-db-migrate.service
 ```
 
-The unit runs `python -m gpu_gateway.worker --init-db` as `gpu-control` with
-the protected deployment `EnvironmentFile`. It applies the explicit
-v1-to-current migration and idempotently creates missing Gateway/OAuth tables;
+The migration unit also runs the read-only `--check-db` as `ExecStartPre`, so an
+unsupported version or malformed schema-version table prevents
+`--init-db` from running if state changed after the manual review. The unit then
+runs `python -m gpu_gateway.worker --init-db` as the same restricted identity.
+It applies the explicit v1-to-current migration and idempotently creates missing Gateway/OAuth tables;
 it does not start the API or queue workers. A nonzero start or migration error
 means do not start the application services. PostgreSQL migrations are
 forward-only; there is no automatic downgrade. After investigating, either
@@ -118,7 +376,21 @@ and no reserved slots. It refuses a missing singleton, partial cleanup schema,
 unknown cleanup, or artifact manifests without the artifact directory. These
 database checks complement the required service shutdown; they do not prove
 that ingress has been stopped, so stop the old and new API/worker/supervisor
-processes first.
+processes first. The CLI also requires all seven Gateway units to be loaded and
+inactive. Before running it, stop the capacity timer and any active capacity
+check or manual capacity bridge, and ensure the manual migration unit is not
+running. For example, after recording whether the capacity timer was active:
+
+```sh
+sudo systemctl stop gpu-control-artifact-capacity.timer \
+  gpu-control-artifact-capacity.service gpu-control-capacity-bridge.service
+```
+
+The API, worker, and supervisor must already be stopped after accepted work is
+drained and reconciled. Do not start them automatically after backup; follow
+the maintenance/change procedure. If the capacity timer was active before the
+backup, restart it only after the backup command completes and the artifact
+mount has been verified. The manual bridge remains manual-only.
 
 Create an existing mode-0700 output directory on an encrypted,
 access-controlled backup filesystem. Keep PostgreSQL connection settings in
@@ -130,8 +402,18 @@ shell after all Gateway processes have stopped:
 set -eu
 python /opt/gpu-control/gateway/deploy/backup_generation.py \
   --output-dir /secure/gateway-backups \
-  --artifact-dir /var/lib/gpu-control/artifacts
+  --artifact-dir /var/lib/gpu-control/artifacts \
+  --confirm-services-stopped
 ```
+
+`--confirm-services-stopped` is a required operator attestation for creating a
+generation and is copied into `manifest.json`. The tool also requires all seven
+installed Gateway systemd units to report `LoadState=loaded` and
+`ActiveState=inactive`, and records those observations in the manifest. This
+checks only the local systemd manager: stop ingress and every API/worker/
+supervisor instance across all hosts, and check for manually started processes
+outside these units before confirming. Database quiescence remains an
+additional fail-closed guard.
 
 Omit `--artifact-dir` only when there is no artifact volume and the database has
 no artifact manifests. The program stages the dump, optional artifact tar, and
@@ -173,17 +455,30 @@ provisioned credentials from a secret manager.
 
 ```sh
 set -eu
-sha256sum -c "$DUMP_FILE.sha256"
+generation_dir=/secure/gateway-backups/gpu-control-REPLACE_WITH_GENERATION_ID
+python /opt/gpu-control/gateway/deploy/backup_generation.py \
+  --verify-generation "$generation_dir"
 createdb --host "$RESTORE_HOST" --username "$RESTORE_ADMIN" "$RESTORE_DB"
 pg_restore --exit-on-error --no-owner --no-acl \
   --host "$RESTORE_HOST" --username "$RESTORE_ADMIN" \
-  --dbname "$RESTORE_DB" "$DUMP_FILE"
+  --dbname "$RESTORE_DB" "$generation_dir/database.dump"
 psql --host "$RESTORE_HOST" --username "$RESTORE_ADMIN" \
   --dbname "$RESTORE_DB" --set=ON_ERROR_STOP=1 --command \
   'SELECT version FROM gateway_schema_version WHERE id=1;'
-sha256sum -c "$ARTIFACT_ARCHIVE.sha256"
-tar --extract --file="$ARTIFACT_ARCHIVE" --directory="$RESTORE_ARTIFACT_DIR"
+sudo install -d -o gpu-control-worker -g gpu-control-artifacts -m 2750 \
+  "$RESTORE_ARTIFACT_DIR"
+if [ -f "$generation_dir/artifacts.tar" ]; then
+  sudo -u gpu-control-worker tar --extract --file="$generation_dir/artifacts.tar" \
+    --directory="$RESTORE_ARTIFACT_DIR"
+fi
 ```
+
+The backup tool does not create detached `.sha256` sidecar files. Its
+`--verify-generation` action checks the database and artifact archive against
+their sizes and SHA-256 digests in `manifest.json`, and validates artifact
+archive members before extraction. Restore from that verified generation using
+the exact archive names above; `artifacts.tar` is absent only when there are no
+artifact manifests and no artifact directory was included in the generation.
 
 Compare row counts for `gateway_runs_v1`, `gateway_control_v1`,
 `gateway_schema_version`, and all present `gateway_oauth_*` tables between the
@@ -226,25 +521,36 @@ The initial operational target in the roadmap is RPO 24 hours and RTO 2 hours.
 Those targets are **not yet measured**. A release claim requires a timed restore
 drill by a second operator and a documented recovery of run, approval, OAuth and
 matching artifact-volume state. The repository enforces per-run artifact count
-and size bounds but does not impose a global volume quota or emit capacity
-alerts. `experiment_capabilities` checks that the artifact directory for local
+and size bounds but does not impose a global volume quota or deliver capacity
+notifications. `experiment_capabilities` checks that the artifact directory for local
 CPU workloads exists, is writable by the Gateway process, and reports nonzero
 available space; it blocks submissions when that probe fails. When
 `GATEWAY_ARTIFACT_MIN_FREE_BYTES` is set, both capabilities and prepare also
 require the artifact path to be on a distinct filesystem and block below that
 headroom floor, so a failed capacity timer is not the only admission control.
-`statvfs` free
-space does not prove an enforced quota or provide a low-space alert. Before
-enabling artifact-producing workloads on a target host, mount the artifact
-directory as a separate fixed-size filesystem/volume. Its filesystem size then
+`statvfs` free space does not prove an enforced quota or deliver a human
+low-space alert. Before enabling artifact-producing workloads on a target
+host, mount the artifact directory as a separate fixed-size filesystem/volume.
+Its filesystem size then
 enforces a global hard ceiling across API, worker, and supervisor, while
 `GATEWAY_ARTIFACT_MIN_FREE_BYTES` preserves operational headroom. The capacity
 timer runs every five minutes and exits nonzero if the path is not a distinct
 filesystem, the probe fails, or free space is below the configured threshold;
-systemd records the structured status in the journal. Connect failed
+systemd records the structured status in the journal. Every run now emits a
+stable `status` field (`alert` or `ok`) alongside the capacity values, so a
+journal/metrics bridge can raise and clear the same alert when the filesystem
+recovers. The event is defined by
+[`capacity-event.schema.json`](../gateway/deploy/capacity-event.schema.json);
+bridges should reject unknown fields, require a nonempty reason for alerts,
+and use `check` plus `status` as the deduplication key/state. Do not forward environment variables, filesystem
+paths, or arbitrary exception text. The status event is not itself a
+notification. Connect failed
 `gpu-control-artifact-capacity.service` results to the host's alerting system
-and test notification delivery. The timer and journal output alone are not a
-human notification. Record the selected alert system and route name (never its
+and test notification delivery. The unit writes to journald with identifier
+`gpu-control-capacity`; a host bridge can consume its `MESSAGE` JSON and
+trusted `_SYSTEMD_UNIT` metadata. Do not treat user-supplied `SYSTEMD_UNIT` as
+unit identity. The timer and journal output alone are not a human
+notification. Record the selected alert system and route name (never its
 secret), the injected capacity failure and journal event timestamp, the
 delivered notification timestamp and recipient/on-call acknowledgment, and the
 recovery notification timestamp. Acceptance requires one below-threshold event
@@ -255,14 +561,65 @@ selected host with a disposable test filesystem or an injected probe fixture;
 do not fill the production volume to trigger an alert. Alert integration
 requires a reviewed sink, authenticated delivery configuration, and tested
 failure behavior for the chosen host; none is configured by these templates.
+On a systemd host, a journal consumer can select only these records with
+`journalctl --follow --output=json SYSLOG_IDENTIFIER=gpu-control-capacity`.
+Parse each record's `MESSAGE` as JSON, validate it against the schema above,
+and treat `status=ok` as a clear/update of the same alert key after previously
+observed `status=alert`. Do not alert on unrelated capacity-service stderr or
+forward the full journal record; retain timestamps and unit identity as
+delivery evidence.
 Test artifact-write behavior at the volume limit before enabling the workload.
-After mounting, set the filesystem root to owner/group
-`gpu-control:gpu-control` with mode `0700`, verify the mounted source and free
-space, and only then start API/worker/supervisor. Capabilities, prepare, and
+After mounting, set the artifact filesystem root to owner/group
+`gpu-control-worker:gpu-control-artifacts` with mode `02750`. Create
+`/var/lib/gpu-control/artifacts/.gpu-control-probes` as
+`gpu-control-worker:gpu-control-artifact-probes` mode `03770`. The root and
+run-scope directories are worker-owned, group-readable/searchable, and
+non-world-accessible; artifact blobs are mode `0640`. The probe directory is
+sticky and group-writable so the API can create and unlink its short-lived
+readiness probe without write access to artifact blobs. The capacity timer runs
+`check_artifact_capacity.py`, which checks the mounted filesystem identity and
+free-space headroom with `statvfs`; it does not perform the API's write probe.
+Capacity therefore has no supplementary probe-group membership. Verify the
+mounted source, group ownership, modes, and free space before starting
+API/worker/supervisor.
+For an existing artifact tree created with the former private modes, stop API,
+worker, supervisor, and capacity services first. Confirm the mounted source and
+inspect every entry without following links. Abort if the tree contains a
+symlink, hard link, or special file; resolve it manually before migration. The
+repository utility `gateway/deploy/migrate_artifact_permissions.py` first
+audits the tree without changing it. It rejects links, hard-linked files,
+special/nested entries, unexpected root entries or run-scope filenames, and
+nonempty probe directories.
+Review its output, ensure a current paired backup exists, then apply it as root
+while all services remain stopped:
+
+```sh
+sudo /opt/gpu-control/venv/bin/python /opt/gpu-control/gateway/deploy/migrate_artifact_permissions.py /var/lib/gpu-control/artifacts
+sudo /opt/gpu-control/venv/bin/python /opt/gpu-control/gateway/deploy/migrate_artifact_permissions.py /var/lib/gpu-control/artifacts --apply
+```
+
+The utility changes directory ownership/modes to
+`gpu-control-worker:gpu-control-artifacts`/`02750`, blob ownership/modes to the
+same owner/group/`0640`, and creates the probe directory as
+`gpu-control-worker:gpu-control-artifact-probes`/`03770`. It verifies these
+results and does not delete payload files. If it rejects an entry, stop and
+resolve that entry manually; do not use blanket recursive `chown` or `chmod`.
+Verify every manifest digest and resulting ownership/modes before restarting.
+Capabilities, prepare, and
 the worker immediately before local CPU backend start all fail closed if the
 artifact path or configured headroom is unavailable. The 7-day CPU observation period, host alert routing,
 database-provider backup configuration, and production recovery remain
 outstanding.
+
+Use [`docs/acceptance/2026-10-28-recovery-drill-record-template.md`](acceptance/2026-10-28-recovery-drill-record-template.md)
+for every timed drill. It defines RPO as the interval from disruption start
+back to the latest fully recovered acknowledged write at or before disruption,
+and records missing acknowledged writes separately. RTO runs from the first
+observed outage/recovery start through verified ingress restoration. Include
+investigation and verification time; a successful restore command does not stop
+either clock. Fill the template only with a real observed drill and have an
+independent observer review it. An isolated synthetic run records procedure
+evidence, not production RPO/RTO acceptance.
 
 ## Built-in OAuth issuer change
 

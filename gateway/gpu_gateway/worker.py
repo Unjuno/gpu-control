@@ -3,30 +3,46 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import secrets
 import time
 import uuid
 from urllib.parse import quote
 from decimal import Decimal
 
+from jsonschema import SchemaError as InvalidSchema
 from sqlalchemy import and_, or_, select, update
 
 from .artifacts import (ArtifactStore, MAX_ARTIFACTS_PER_RUN,
                         MAX_RUN_ARTIFACT_BYTES, inspect_artifact_storage)
 from .backends import Backend, Observation, build_backends
-from .config import Settings
-from .registry import default_registry
+from .config import Settings, load_workloads
+from .registry import (candidate_plan_requires_paid_authorization, default_registry,
+                       supports_candidate_execution)
 from .service import TERMINAL, digest
 from .store import Store, control, runs
-from .admission import evaluate_admission, load_local_cpu_policy
-from .contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_binding
+from .admission import (evaluate_admission, load_local_cpu_policy,
+                        matches_registered_local_workload)
+from .contracts import (PlanV2, ResultV2, plan_fingerprint,
+                        validate_candidate_gpu_success, validate_result_binding)
+from .candidate_receipts import verify_candidate_receipt
 from .health import HEARTBEAT_STALE_SECONDS, heartbeat_is_stale
+from .provider_evidence import build_signed_observation
+from .runpod_inventory import (
+    OBSERVATION_TTL_SECONDS,
+    SOURCE as RUNPOD_EVIDENCE_SOURCE,
+    collect_runpod_inventory,
+    default_client as runpod_evidence_client,
+)
+from gpu_control.providers.runpod_current_pricing import RUNPOD_GRAPHQL_SPEC_REVISION
+from .provider_selection import current_bound_candidate
 
 logger = logging.getLogger(__name__)
 # Keep the historical module constant for callers while sharing its source.
 WORKER_HEARTBEAT_STALE_SECONDS = HEARTBEAT_STALE_SECONDS
 ARTIFACT_TTL_SECONDS = 30 * 24 * 3600
 ARTIFACT_PRUNE_INTERVAL_SECONDS = 3600
+PROVIDER_EVIDENCE_POLL_INTERVAL_SECONDS = 60
 
 
 class Worker:
@@ -42,6 +58,67 @@ class Worker:
         self.registry = default_registry() if registry is None else registry
         self.role = role
         self.last_artifact_prune_at = 0
+        self.last_provider_evidence_attempt_at = 0
+
+    def _maybe_collect_runpod_evidence(self, now: int) -> None:
+        """Poll catalog only from an explicitly enabled, idle normal worker."""
+        if (self.role != "worker" or not self.settings.enable_runpod_evidence or
+                not self.settings.runpod_api_key or
+                now - self.last_provider_evidence_attempt_at < PROVIDER_EVIDENCE_POLL_INTERVAL_SECONDS):
+            return
+        try:
+            workloads = load_workloads()
+            if not any(workload.provider == "runpod" and workload.provider_resource_id and
+                       workload.provider_data_center_id for workload in workloads.values()):
+                return
+            self.last_provider_evidence_attempt_at = now
+            payload = collect_runpod_inventory(
+                workloads, runpod_evidence_client(self.settings.runpod_api_key),
+                observed_at=now, expires_at=now + OBSERVATION_TTL_SECONDS,
+            )
+            stored = self.store.read_provider_observation("runpod")
+            version = (stored["version"] if stored else 0) + 1
+            self.persist_provider_observation(
+                provider="runpod", source=RUNPOD_EVIDENCE_SOURCE,
+                source_revision=RUNPOD_GRAPHQL_SPEC_REVISION,
+                version=version, expires_at=now + OBSERVATION_TTL_SECONDS,
+                payload=payload, observed_at=now,
+            )
+        except Exception:
+            # Provider polling is advisory and must never interrupt queue work.
+            # Avoid exception text because HTTP/provider errors may include data.
+            logger.warning("RunPod capability observation was not updated")
+
+    def persist_provider_observation(self, *, provider: str, source: str,
+                                     source_revision: str, version: int,
+                                     expires_at: int, payload: dict,
+                                     observed_at: int | None = None) -> bool:
+        """Sign and persist one bounded read-only provider observation.
+
+        Only the normal worker role can publish observations. Recovery supervisor
+        ticks intentionally have no provider collection authority.
+        """
+        if self.role != "worker":
+            raise RuntimeError("provider observations may only be published by the worker")
+        private_key = self.settings.provider_evidence_signing_key_pem
+        key_id = self.settings.provider_evidence_signing_key_id
+        trusted_keys = self.settings.provider_evidence_trusted_keys
+        if private_key is None or not key_id:
+            raise RuntimeError("provider evidence signing is not configured")
+        observed_at = int(self.clock()) if observed_at is None else observed_at
+        envelope = build_signed_observation(
+            provider=provider,
+            source=source,
+            source_revision=source_revision,
+            version=version,
+            observed_at=observed_at,
+            expires_at=expires_at,
+            payload=payload,
+            key_id=key_id,
+            private_key_pem=private_key,
+        )
+        return self.store.write_provider_observation(
+            envelope, trusted_keys, now=observed_at)
 
     def _maybe_prune_artifacts(self, now: int) -> None:
         if (not self.settings.artifact_dir or
@@ -60,6 +137,20 @@ class Worker:
             # Retention maintenance must not stop queue processing. Retry on the
             # next interval; artifact reads still enforce expiry and digest.
             logger.exception("Artifact retention maintenance failed")
+
+    @staticmethod
+    def _current_local_registry_status(plan: PlanV2) -> tuple[bool, str | None]:
+        configured = bool(os.environ.get("GATEWAY_WORKLOADS_JSON") or
+                          os.environ.get("GATEWAY_WORKLOADS_FILE"))
+        if not configured:
+            return False, "local_workload_registry_unavailable"
+        try:
+            current_workloads = load_workloads()
+        except (OSError, InvalidSchema, ValueError, TypeError, RecursionError):
+            return False, "local_workload_registry_unavailable"
+        if not matches_registered_local_workload(plan, current_workloads):
+            return False, "local_workload_changed_before_start"
+        return True, None
 
     def _persist_artifacts(self, job: dict, observation: Observation) -> dict | None:
         result = observation.result
@@ -165,7 +256,7 @@ class Worker:
         if isinstance(job.get("plan"), dict) and job["plan"].get("schema_version") == 2:
             record_version = 2
             if result is not None:
-                allowed_extra = {"logs", "logs_truncated", "failure_code"}
+                allowed_extra = {"logs", "logs_truncated", "failure_code", "candidate_receipt"}
                 try:
                     if not isinstance(result, dict):
                         raise ValueError("result must be an object")
@@ -179,6 +270,8 @@ class Worker:
                     if state == "succeeded" and (validated_result.exit_code != 0 or validated_result.simulation or
                                                    validated_result.provider == "local_cpu" and validated_result.gpu_used is not False):
                         raise ValueError("terminal result does not prove local CPU success")
+                    if state == "succeeded" and validated_plan.selection_binding is not None:
+                        validate_candidate_gpu_success(validated_result)
                     result = validated_result.model_dump(mode="json") | extras
                 except (ValueError, TypeError, json.JSONDecodeError):
                     state, error = "failed", "result_integrity_failed"
@@ -204,9 +297,11 @@ class Worker:
                 cleanup_state=cleanup_state, record_version=record_version))
 
     def tick(self) -> bool:
-        self._maybe_prune_artifacts(int(self.clock()))
+        now = int(self.clock())
+        self._maybe_prune_artifacts(now)
         job = self.claim()
         if job is None:
+            self._maybe_collect_runpod_evidence(int(self.clock()))
             return False
         now = int(self.clock())
         plan = job["plan"]
@@ -225,38 +320,90 @@ class Worker:
                 return True
             local_admission = job.get("admission")
             if local_admission is not None:
+                validated_plan = None
+                policy_valid = False
                 try:
                     validated_plan = PlanV2.model_validate_json(json.dumps(plan, allow_nan=False))
                     policy = load_local_cpu_policy()
                     decision = evaluate_admission(validated_plan, policy, now)
-                    valid = (local_admission.get("mode") == "local_policy" and decision.allowed and
-                             decision.policy_digest == local_admission.get("policy_digest") and
-                             decision.valid_until == local_admission.get("valid_until") and
-                             plan_fingerprint(validated_plan) == job["fingerprint"] and
-                             job["approved_until"] > now)
+                    policy_valid = (local_admission.get("mode") == "local_policy" and
+                                    decision.allowed and
+                                    decision.policy_digest == local_admission.get("policy_digest") and
+                                    decision.valid_until == local_admission.get("valid_until") and
+                                    plan_fingerprint(validated_plan) == job["fingerprint"] and
+                                    job["approved_until"] > now)
                 except (OSError, ValueError, TypeError):
-                    valid = False
+                    policy_valid = False
+                registry_valid, registry_error = (
+                    self._current_local_registry_status(validated_plan)
+                    if validated_plan is not None else
+                    (False, "local_workload_registry_unavailable")
+                )
+                valid = policy_valid and registry_valid
                 if not valid:
-                    self.finish(job, "expired", error="local_policy_revoked_before_start")
+                    reason = (registry_error if policy_valid else
+                              "local_policy_revoked_before_start")
+                    refusal = self._missing_backend_result(job, cleanup_pending=False)
+                    refusal["failure_code"] = reason
+                    self.finish(job, "expired", refusal, error=reason)
                     return True
             else:
-                manifest = plan["workload_manifest"]
-                if digest(plan) != job["fingerprint"]:
-                    self.finish(job, "failed", error="plan_integrity_failed")
-                    return True
-                if job["approved_until"] <= now:
-                    self.finish(job, "expired", error="approval_expired_before_submission")
-                    return True
-                if Decimal(plan["max_cost_usd"]) > self.settings.max_job_cost_usd:
-                    self.finish(job, "failed", error="current_operator_cost_limit")
-                    return True
-                if plan["provider"] != "demo":
-                    if manifest["quote_expires_at"] <= now:
-                        self.finish(job, "expired", error="quote_expired_before_submission")
+                if plan.get("schema_version") == 2:
+                    try:
+                        bound_plan = PlanV2.model_validate_json(json.dumps(plan, allow_nan=False))
+                        binding_valid = (bound_plan.selection_binding is not None and
+                                         plan_fingerprint(bound_plan) == job["fingerprint"] and
+                                         job["approved_until"] > now and
+                                         Decimal(plan["max_cost_usd"]) <= self.settings.max_job_cost_usd)
+                        current = (current_bound_candidate(
+                            self.store, self.settings, load_workloads(), bound_plan, now=now,
+                        ) if binding_valid else None)
+                        binding_valid = binding_valid and current is not None and current.selected is not None
+                    except (OSError, ValueError, TypeError, KeyError, OverflowError):
+                        binding_valid = False
+                    if not binding_valid:
+                        refusal = self._missing_backend_result(job, cleanup_pending=False)
+                        refusal["failure_code"] = "provider_evidence_stale"
+                        self.finish(job, "expired", refusal, error="provider_evidence_stale")
                         return True
-                    quote = Decimal(manifest["quoted_usd_per_hour"])
-                    if quote * Decimal(plan["runtime_seconds"]) / Decimal(3600) > Decimal(plan["max_cost_usd"]):
-                        self.finish(job, "failed", error="cost_limit")
+                else:
+                    manifest = plan["workload_manifest"]
+                    if digest(plan) != job["fingerprint"]:
+                        self.finish(job, "failed", error="plan_integrity_failed")
+                        return True
+                    if job["approved_until"] <= now:
+                        self.finish(job, "expired", error="approval_expired_before_submission")
+                        return True
+                    if Decimal(plan["max_cost_usd"]) > self.settings.max_job_cost_usd:
+                        self.finish(job, "failed", error="current_operator_cost_limit")
+                        return True
+                    if plan["provider"] != "demo":
+                        if manifest["quote_expires_at"] <= now:
+                            self.finish(job, "expired", error="quote_expired_before_submission")
+                            return True
+                        quote = Decimal(manifest["quoted_usd_per_hour"])
+                        if quote * Decimal(plan["runtime_seconds"]) / Decimal(3600) > Decimal(plan["max_cost_usd"]):
+                            self.finish(job, "failed", error="cost_limit")
+                            return True
+            if plan.get("selection_binding") is not None:
+                registration = self.registry.get(plan["provider"])
+                paid_required = candidate_plan_requires_paid_authorization(plan)
+                if not supports_candidate_execution(registration, backend, plan):
+                    refusal = self._missing_backend_result(job, cleanup_pending=False)
+                    failure = ("paid_execution_contract_unavailable" if paid_required else
+                               "candidate_backend_contract_unavailable")
+                    refusal["failure_code"] = failure
+                    self.finish(job, "failed", refusal, error=failure)
+                    return True
+                if paid_required:
+                    try:
+                        paid_authorized = backend.validate_paid_authorization(job) is True
+                    except Exception:
+                        paid_authorized = False
+                    if not paid_authorized:
+                        refusal = self._missing_backend_result(job, cleanup_pending=False)
+                        refusal["failure_code"] = "paid_authorization_invalid"
+                        self.finish(job, "failed", refusal, error="paid_authorization_invalid")
                         return True
             if plan["provider"] == "local_cpu":
                 storage = inspect_artifact_storage(
@@ -287,7 +434,10 @@ class Worker:
                             error="submission_dispatch_claim_lost", lease_until=now + 5)
                 return True
             try:
-                handle = backend.start(job)
+                if plan.get("selection_binding") is not None:
+                    handle = backend.start_candidate_bound(job)
+                else:
+                    handle = backend.start(job)
                 if not isinstance(handle, dict) or not handle:
                     raise ValueError("Missing durable provider handle")
                 json.dumps(handle, allow_nan=False)
@@ -365,6 +515,35 @@ class Worker:
                             error="cancellation_pending" if cancelling else "",
                             last_observed_at=observed_at)
             else:
+                if plan.get("selection_binding") is not None:
+                    try:
+                        verified = backend.validate_candidate_observation(job, observation) is True
+                        verified_receipt = None
+                        if verified and observation.state == "succeeded":
+                            validated_plan = PlanV2.model_validate_json(json.dumps(plan, allow_nan=False))
+                            verified_receipt = verify_candidate_receipt(
+                                observation.candidate_receipt,
+                                self.settings.candidate_receipt_trusted_keys,
+                                now=int(self.clock()), plan=validated_plan,
+                                fingerprint=job["fingerprint"], run_id=job["id"],
+                                result=observation.result,
+                            )
+                    except Exception:
+                        verified = False
+                    if not verified:
+                        result = self._missing_backend_result(job, cleanup_pending=True)
+                        result["failure_code"] = "candidate_result_evidence_invalid"
+                        observation = Observation("failed", result)
+                    elif verified_receipt is not None:
+                        result = dict(observation.result)
+                        checks = result.get("checks", [])
+                        if not isinstance(checks, list):
+                            checks = []
+                        result["checks"] = list(dict.fromkeys(
+                            checks + ["candidate_resource_verified", "device_identity_verified"]))
+                        result["candidate_receipt"] = verified_receipt
+                        observation = Observation("succeeded", result, observation.artifacts,
+                                                  verified_receipt)
                 state = "cancelled" if cancelling else observation.state
                 terminal_error = ""
                 if observation.result is None:
@@ -432,6 +611,8 @@ def main():
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--init-db", action="store_true")
+    mode.add_argument("--check-db", action="store_true",
+                      help="report schema migration status without modifying the database")
     mode.add_argument("--bootstrap-auth", action="store_true")
     mode.add_argument("--supervise", action="store_true",
                       help="run recovery-only ticks; never claim newly queued jobs")
@@ -441,6 +622,14 @@ def main():
     args = parser.parse_args()
     settings = Settings.from_env()
     store = Store(settings.database_url)
+    if args.check_db:
+        from .migrations import migration_status
+        status = migration_status(store.engine)
+        print(json.dumps(status, sort_keys=True, allow_nan=False))
+        store.engine.dispose()
+        if not status["supported"]:
+            raise SystemExit(1)
+        return
     if args.init_db:
         store.initialize()
         return
@@ -460,7 +649,8 @@ def main():
         return
     if args.poll_seconds < 0.5:
         parser.error("poll-seconds must be at least 0.5")
-    worker = Worker(store, settings, build_backends(settings), role="supervisor" if args.supervise else "worker")
+    worker = Worker(store, settings, build_backends(settings),
+                    role="supervisor" if args.supervise else "worker")
     while True:
         worker.tick()
         if args.once:

@@ -1,6 +1,8 @@
 name: Project bridge tests
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths: ['gateway/project_control/**', '.github/workflows/project-checks*.yml']

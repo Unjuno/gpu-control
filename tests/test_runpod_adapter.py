@@ -13,6 +13,7 @@ from gpu_control.lifecycle import JobState
 from gpu_control.providers.controller import cleanup_provider_job, observe_provider_job, submit_approved_plan
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
 from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
+from gpu_control.providers.runpod_network_volume import RunPodNetworkVolumeEvidence
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
 from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodV2Error
 
@@ -98,6 +99,7 @@ class FakeClient:
     def __init__(self, value: ApprovedExecutionPlan) -> None:
         self.value = value
         self.create_calls = 0
+        self.create_payloads = []
         self.get_calls = 0
         self.terminate_calls: list[str] = []
         self.create_response = pod_payload(value)
@@ -107,6 +109,7 @@ class FakeClient:
 
     def create_pod(self, payload):  # type: ignore[no-untyped-def]
         self.create_calls += 1
+        self.create_payloads.append(payload)
         if self.create_error is not None:
             raise self.create_error
         return self.create_response
@@ -144,7 +147,10 @@ class FakeOccupancyProbe:
         )
 
 
-def adapter(value: ApprovedExecutionPlan | None = None) -> tuple[RunPodV2Adapter, FakeClient, FakeOccupancyProbe]:
+def adapter(
+    value: ApprovedExecutionPlan | None = None,
+    network_volume: RunPodNetworkVolumeEvidence | None = None,
+) -> tuple[RunPodV2Adapter, FakeClient, FakeOccupancyProbe]:
     value = value or plan()
     client = FakeClient(value)
     occupancy = FakeOccupancyProbe(value)
@@ -156,6 +162,7 @@ def adapter(value: ApprovedExecutionPlan | None = None) -> tuple[RunPodV2Adapter
             catalog_pricing=pricing(),
             occupancy_probe=occupancy,
             live_permit=permit(value),
+            network_volume=network_volume,
             clock=lambda: SUBMITTED_AT + timedelta(seconds=1),
         ),
         client,
@@ -282,6 +289,39 @@ def test_adapter_crosses_existing_trusted_controller_and_cleans_up_failure() -> 
 
     with pytest.raises(RunPodV2AdapterError, match="network-volume result transport"):
         runpod.collect_results(submitted.receipt, finalized)
+
+
+def test_adapter_binds_network_volume_and_rejects_mismatched_create_response() -> None:
+    value = plan()
+    network_volume = RunPodNetworkVolumeEvidence(
+        network_volume_id="volume-123",
+        data_center_id="US-KS-2",
+        verification_reference="runpod-volume:test",
+    )
+    runpod, client, _occupancy = adapter(value, network_volume)
+    client.create_response = dict(
+        pod_payload(value),
+        dataCenterId="US-KS-2",
+        mounts={"network": [{"volumeId": "volume-123", "path": "/outputs"}]},
+    )
+
+    submission = runpod.submit(value)
+
+    assert submission.provider_job_id == "pod-123"
+    assert client.create_payloads[0]["dataCenterIds"] == ["US-KS-2"]
+    assert client.create_payloads[0]["mounts"] == {
+        "network": [{"volumeId": "volume-123", "path": "/outputs"}]
+    }
+
+    bad_runpod, bad_client, _bad_occupancy = adapter(value, network_volume)
+    bad_client.create_response = dict(
+        pod_payload(value),
+        dataCenterId="US-KS-2",
+        mounts={"network": [{"volumeId": "other-volume", "path": "/outputs"}]},
+    )
+    with pytest.raises(RunPodV2AdapterError, match="post-create validation failed"):
+        bad_runpod.submit(value)
+    assert bad_client.terminate_calls == ["pod-123"]
 
 
 def test_existing_non_terminated_pod_blocks_create_before_paid_allocation() -> None:

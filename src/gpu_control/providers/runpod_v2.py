@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import json
 import re
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, TYPE_CHECKING
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request
@@ -14,6 +14,9 @@ from ..completion import CompletionChallenge, CompletionEvidenceError
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
 from ..http_security import open_no_redirect, read_bounded
 from ..lifecycle import JobState
+
+if TYPE_CHECKING:
+    from .runpod_network_volume import RunPodNetworkVolumeEvidence
 
 
 RUNPOD_V2_BASE_URL = "https://api.runpod.io/v2"
@@ -173,6 +176,7 @@ def validate_created_pod(
     pod: Mapping[str, Any],
     *,
     completion: RunPodCompletionLaunch | None = None,
+    expected_network_volume: RunPodNetworkVolumeEvidence | None = None,
 ) -> str:
     """Validate RunPod's create response before it becomes lifecycle identity."""
 
@@ -186,6 +190,23 @@ def validate_created_pod(
         raise RunPodV2Error("RunPod create response is missing pod id")
     if pod.get("image") != image.image_reference:
         raise RunPodV2Error("RunPod create response image does not match published image")
+    if expected_network_volume is not None:
+        expected_network_volume.validate_shape()
+        if pod.get("cloud") != "SECURE":
+            raise RunPodV2Error("RunPod Network Volume result transport requires SECURE cloud")
+        if pod.get("dataCenterId") != expected_network_volume.data_center_id:
+            raise RunPodV2Error("RunPod Pod datacenter does not match the trusted network volume")
+        mounts = _require_mapping(pod.get("mounts"), "RunPod Pod mounts")
+        if "persistent" in mounts or "global" in mounts:
+            raise RunPodV2Error("RunPod Pod has conflicting storage mounts for the network volume")
+        network_mounts = mounts.get("network")
+        if not isinstance(network_mounts, list) or len(network_mounts) != 1:
+            raise RunPodV2Error("RunPod Pod network volume mount is missing or ambiguous")
+        network_mount = _require_mapping(network_mounts[0], "RunPod Pod network volume mount")
+        if network_mount.get("volumeId") != expected_network_volume.network_volume_id:
+            raise RunPodV2Error("RunPod Pod network volume id does not match trusted evidence")
+        if network_mount.get("path") != expected_network_volume.mount_path:
+            raise RunPodV2Error("RunPod Pod network volume mount path does not match trusted evidence")
     gpu = _require_mapping(pod.get("gpu"), "RunPod create response gpu")
     if gpu.get("id") != plan.provider_resource_id or gpu.get("count") != plan.gpu_count:
         raise RunPodV2Error("RunPod create response GPU identity does not match approved plan")

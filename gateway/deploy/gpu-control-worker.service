@@ -5,23 +5,37 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=gpu-control
-Group=gpu-control
+User=gpu-control-worker
+Group=gpu-control-artifacts
 # Configure Docker socket access on this dedicated host only. Membership in the
 # daemon's socket group grants effective host-root authority.
 SupplementaryGroups=docker
 WorkingDirectory=/opt/gpu-control/gateway
-EnvironmentFile=/etc/gpu-control/worker.env
+EnvironmentFile=/etc/gpu-control/gateway.env
+EnvironmentFile=-/etc/gpu-control/worker-secrets.env
+EnvironmentFile=-/etc/gpu-control/provider-evidence.env
 ExecStart=/opt/gpu-control/venv/bin/python -m gpu_gateway.worker --poll-seconds 3
 Restart=always
 RestartSec=3
 UMask=0077
 StateDirectory=gpu-control
-StateDirectoryMode=0700
+StateDirectoryMode=2750
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+# Artifact payloads and retention cleanup need this one writable data path.
+ReadWritePaths=-/var/lib/gpu-control/artifacts
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

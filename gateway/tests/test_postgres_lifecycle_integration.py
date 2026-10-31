@@ -6,6 +6,8 @@ import subprocess
 import time
 import uuid
 from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select, update
@@ -20,6 +22,18 @@ from gpu_gateway.worker import Worker
 
 CPU_SMOKE_SOURCE_REPOSITORY = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY", "Unjuno/gpu-control")
 CPU_SMOKE_SOURCE_SHA = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_SHA", "a" * 40)
+
+
+def fake_dedicated_filesystem(monkeypatch, root):
+    original_stat = Path.stat
+
+    def stat_with_separate_device(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        if path in {root, root / ".gpu-control-probes"}:
+            return SimpleNamespace(st_dev=2, st_mode=result.st_mode)
+        return result
+
+    monkeypatch.setattr(Path, "stat", stat_with_separate_device)
 
 
 def _docker_ready():
@@ -43,6 +57,8 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
     url = os.environ["GATEWAY_TEST_DATABASE_URL"]
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    (artifact_root / ".gpu-control-probes").mkdir(mode=0o700)
+    fake_dedicated_filesystem(monkeypatch, artifact_root)
     settings = Settings(database_url=url, artifact_dir=str(artifact_root))
     store = Store(url)
     store.initialize()
@@ -64,10 +80,12 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
             "iterations": {"type": "integer", "minimum": 1, "maximum": 20_000_000},
             "seed": {"type": "integer"}}, "required": ["iterations", "seed"],
             "additionalProperties": False})
+    monkeypatch.setenv("GATEWAY_WORKLOADS_JSON", json.dumps({
+        "cpu-smoke-v1": workload.model_dump(mode="json")}, allow_nan=False))
     service = ExperimentService(store, settings, {"cpu-smoke-v1": workload})
     candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
         repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
-        parameters={"iterations": 20_000_000, "seed": 91}, runtime_seconds=30,
+        parameters={"iterations": 1000, "seed": 91}, runtime_seconds=30,
         max_cost_usd="0.00", now=now, policy=policy)
     prepared = service.prepare_local(principal, candidate, "pg-outage-" + uuid.uuid4().hex,
         policy, evaluate_admission(candidate, policy, now))

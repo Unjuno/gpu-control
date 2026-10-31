@@ -1,24 +1,33 @@
 import json
 from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import delete, select, update
 
 from gpu_gateway.config import Workload
 from gpu_gateway.experiment_api import _gpu_requirements, invoke
 from gpu_gateway.protocol import CHATGPT_NAMES, dispatch, tools
+from gpu_gateway.provider_evidence import build_signed_observation
 from gpu_gateway.registry import ProviderRegistration
-from gpu_gateway.service import GatewayError, Prepare, Principal
+from gpu_gateway.service import GatewayError, Prepare, Principal, digest
 from gpu_gateway.store import control, runs
 from gpu_gateway.worker import Worker
+from gpu_gateway.contracts import PlanV2, plan_fingerprint
 from gpu_control.workloads import (
     AcceleratorKind,
     NetworkRequirement,
     ResultTransport,
     WorkloadRequirements,
+)
+from gpu_control.capabilities import (
+    Availability, CapabilityEvidence, CostBreakdown, CostClassification,
+    OverageBehavior,
 )
 
 REPOSITORY = "Unjuno/gpu-control"
@@ -30,16 +39,106 @@ def fake_dedicated_filesystem(monkeypatch, root):
 
     def stat_with_separate_device(path, *args, **kwargs):
         result = original_stat(path, *args, **kwargs)
-        return SimpleNamespace(st_dev=2 if path == root else result.st_dev,
+        return SimpleNamespace(st_dev=2 if path in {root, root / ".gpu-control-probes"} else result.st_dev,
                                st_mode=result.st_mode)
 
     monkeypatch.setattr("gpu_gateway.artifacts.Path.stat", stat_with_separate_device)
+
+
+def create_artifact_probe_directory(root):
+    probe = root / ".gpu-control-probes"
+    probe.mkdir(mode=0o3770)
+    probe.chmod(0o3770)
+
+
+def _seed_bound_gpu_candidate(system, *, image_digest="sha256:" + "f" * 64):
+    now = int(system.clock())
+    observed = datetime.fromtimestamp(now, timezone.utc).isoformat().replace("+00:00", "Z")
+    expires_at = now + 120
+    expires = datetime.fromtimestamp(expires_at, timezone.utc).isoformat().replace("+00:00", "Z")
+    workload = Workload(
+        provider="modal", image_id="im-fixed", image_digest=image_digest,
+        argv=("python", "run.py"), source_revision="fixed",
+        source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=True, gpu="A10G", cpu=4, memory_mib=16384,
+        max_runtime_seconds=300, max_cost_usd="0.25",
+        operating_system="linux", architecture="x86_64", gpu_count=1,
+        minimum_vram_mib=20000, network_requirement="disabled",
+        result_transport="object_storage", max_result_bytes=1024 * 1024,
+        cancellation_required=True, cleanup_proof_required=True,
+        runtime_requirements=("python:3.12", "cuda:12.4"),
+        max_queue_wait_seconds=120,
+    )
+    system.service.workloads["gpu"] = workload
+    system.service.registry["modal"] = ProviderRegistration(
+        "modal", "modal_sandbox", lambda _: True, lambda _: None,
+    )
+    evidence = CapabilityEvidence(
+        provider="modal", resource_id="gpu-type-a10g@dc-1",
+        availability=Availability.AVAILABLE,
+        cost_classification=CostClassification.PAID,
+        costs=CostBreakdown(accelerator_usd=Decimal("0.05"), cpu_usd=Decimal("0"),
+                            memory_usd=Decimal("0"), storage_usd=Decimal("0"),
+                            egress_usd=Decimal("0"), other_usd=Decimal("0")),
+        hard_spend_cap_enforced=None, overage_behavior=OverageBehavior.UNKNOWN,
+        evidence_reference="test-observation:resource-1",
+        evidence_source="test-provider-source", observed_at_utc=observed,
+        valid_until_utc=expires, supported_operating_systems=("linux",),
+        supported_architectures=("x86_64",), accelerator_kind=AcceleratorKind.GPU,
+        gpu_profiles=("a10g",), max_gpu_count=1, max_vram_mib=24576,
+        max_cpu_cores=Decimal("8"), max_memory_mib=32768, max_runtime_seconds=3600,
+        max_result_bytes=2 * 1024 * 1024,
+        network_modes_supported=(NetworkRequirement.DISABLED,),
+        result_transports=(ResultTransport.OBJECT_STORAGE,),
+        cancellation_supported=True, cleanup_proof_supported=True,
+        supported_runtime_requirements=("python:3.12", "cuda:12.4"),
+        estimated_queue_wait_seconds=30,
+    )
+    private_key = Ed25519PrivateKey.generate()
+    private_pem = private_key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    public_pem = private_key.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    key_id = "api-test-key"
+    system.service.settings = replace(
+        system.service.settings,
+        provider_evidence_public_keys_json=json.dumps({key_id: public_pem.decode("ascii")}),
+    )
+    _write_bound_gpu_candidate(system, evidence, private_pem, key_id, version=1,
+                               observed_at=now, expires_at=expires_at)
+    return workload, evidence, private_pem, key_id, expires_at
+
+
+def _write_bound_gpu_candidate(system, evidence, private_pem, key_id, *, version,
+                               observed_at, expires_at):
+    envelope = build_signed_observation(
+        provider="modal", source="test-provider-source", source_revision="fixture-v1",
+        version=version, observed_at=observed_at, expires_at=expires_at,
+        payload={"inventory_complete": True, "candidates": [evidence.to_dict()]},
+        key_id=key_id, private_key_pem=private_pem,
+    )
+    assert system.store.write_provider_observation(
+        envelope, system.service.settings.provider_evidence_trusted_keys,
+        now=int(system.clock()),
+    )
 
 
 def test_canonical_tool_surface_is_eight_tools_and_legacy_remains(system):
     listed = tools(system.owner)
     assert {tool["name"] for tool in listed} == CHATGPT_NAMES
     assert len(CHATGPT_NAMES) == 8
+    for tool in listed:
+        assert tool["inputSchema"]["type"] == "object"
+        assert tool["outputSchema"]["required"] == [
+            "schema_version", "status", "human_summary", "machine_state",
+            "next_allowed_actions", "blocking_reason"]
+        assert tool["description"]
+    descriptions = {tool["name"]: tool["description"] for tool in listed}
+    assert "untrusted data" in descriptions["experiment_status"]
+    assert "untrusted data" in descriptions["experiment_result"]
     # Existing clients can still call legacy names, but tools/list is canonical.
     response, status = dispatch(system.service, system.owner, {
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -58,10 +157,90 @@ def test_tool_visibility_follows_scopes(system):
     assert "experiment_cancel" not in names
 
 
+@pytest.mark.parametrize(
+    ("version", "supports_structured_output"),
+    [("2025-03-26", False), ("2025-06-18", True), ("2025-11-25", True),
+     ("2026-07-28", True)],
+)
+def test_protocol_version_gates_output_schema_and_structured_content(
+    system, version, supports_structured_output,
+):
+    listed, status = dispatch(system.service, system.owner, {
+        "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {},
+    }, version=version)
+    assert status == 200
+    advertised = listed["result"]["tools"]
+    assert len(advertised) == 8
+    assert all(("outputSchema" in tool) is supports_structured_output for tool in advertised)
+
+    called, status = dispatch(system.service, system.owner, {
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "experiment_capabilities", "arguments": {}},
+    }, version=version)
+    assert status == 200
+    result = called["result"]
+    assert ("structuredContent" in result) is supports_structured_output
+    assert result["content"][0]["text"].startswith("{")
+
+
 def test_capabilities_do_not_describe_demo_as_executable(system):
     result = invoke(system.service, system.owner, "experiment_capabilities", {})
     assert result["status"] == "blocked"
     assert result["blocking_reason"] == "NO_QUEUEABLE_RESOURCE"
+
+
+@pytest.mark.parametrize(("stale_role", "blocking_reason"), [
+    ("worker_seen_at", "WORKER_OFFLINE"),
+    ("supervisor_seen_at", "RECOVERY_SUPERVISOR_OFFLINE"),
+])
+def test_capabilities_stop_cpu_admission_when_worker_or_supervisor_heartbeat_is_stale(
+        system, tmp_path, monkeypatch, stale_role, blocking_reason):
+    now = int(system.clock())
+    system.service.workloads["cpu"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, max_cost_usd="0.01", max_runtime_seconds=30,
+        execution_profile="smoke", image_digest="sha256:" + "d" * 64,
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    )
+    system.service.registry["local_cpu"] = ProviderRegistration(
+        "local_cpu", "local_worker_container", lambda _: True, lambda _: None,
+    )
+    policy = {"version": "local-cpu-v1", "enabled": True,
+              "valid_until": now + 60, "workloads": ["cpu"],
+              "max_runtime_seconds": 30, "max_cost_usd": "0.00",
+              "allowed_profiles": ["smoke"]}
+    policy_path = tmp_path / "local-policy.json"
+    policy_path.write_text(json.dumps(policy))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    create_artifact_probe_directory(artifact_root)
+    system.service.settings = replace(system.settings, artifact_dir=str(artifact_root))
+    fake_dedicated_filesystem(monkeypatch, artifact_root)
+
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            worker_seen_at=now, supervisor_seen_at=now, active_count=0))
+
+    ready = invoke(system.service, system.owner, "experiment_capabilities", {})
+    cpu = next(item for item in ready["machine_state"]["resources"]
+               if item["workload"] == "cpu")
+    assert ready["status"] == "ok"
+    assert cpu["availability"] == "queue_ready"
+    assert cpu["submission_available"] is True
+
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            {stale_role: now - 15}))
+
+    blocked = invoke(system.service, system.owner, "experiment_capabilities", {})
+    cpu = next(item for item in blocked["machine_state"]["resources"]
+               if item["workload"] == "cpu")
+    assert blocked["status"] == "blocked"
+    assert cpu["availability"] == "blocked"
+    assert cpu["submission_available"] is False
+    assert blocking_reason in cpu["blocking_reasons"]
 
 
 def test_gpu_capabilities_explain_selection_boundary_without_fabricating_evidence(system):
@@ -79,6 +258,8 @@ def test_gpu_capabilities_explain_selection_boundary_without_fabricating_evidenc
     gpu = next(item for item in result["machine_state"]["resources"]
                if item["workload"] == "gpu")
     assert gpu["availability"] == "blocked"
+    assert gpu["provider_availability"] == "UNAVAILABLE"
+    assert gpu["cost_classification"] == "UNKNOWN"
     assert gpu["submission_available"] is False
     assert gpu["candidate_selection"] == {
         "status": "not_evaluated",
@@ -97,6 +278,9 @@ def test_gpu_capabilities_explain_selection_boundary_without_fabricating_evidenc
 
 
 def test_gpu_capabilities_run_selector_for_complete_manifest_and_report_missing_evidence(system):
+    system.service.registry["modal"] = ProviderRegistration(
+        "modal", "modal_sandbox", lambda _: True, lambda _: None,
+    )
     system.service.workloads["gpu"] = Workload(
         provider="modal", image_id="im-fixed", argv=("python", "run.py"),
         source_revision="fixed", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
@@ -106,6 +290,13 @@ def test_gpu_capabilities_run_selector_for_complete_manifest_and_report_missing_
         minimum_vram_mib=20000, network_requirement="disabled",
         result_transport="object_storage", max_result_bytes=1024 * 1024,
         cancellation_required=True, cleanup_proof_required=True,
+        runtime_requirements=("python:3.12", "cuda:12.4"),
+        max_queue_wait_seconds=120,
+    )
+    system.service.workloads["cpu-smoke"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, execution_profile="smoke",
+        image_digest="sha256:" + "e" * 64,
     )
     result = invoke(system.service, system.owner, "experiment_capabilities", {})
     gpu = next(item for item in result["machine_state"]["resources"]
@@ -114,7 +305,13 @@ def test_gpu_capabilities_run_selector_for_complete_manifest_and_report_missing_
     assert selection["status"] == "not_evaluated"
     assert selection["blocking_reason"] == "PROVIDER_EVIDENCE_UNAVAILABLE"
     assert selection["missing_workload_requirements"] == []
-    assert selection["provider_evidence"] == "NOT_AVAILABLE"
+    assert selection["provider_evidence"] == "NOT_CONFIGURED"
+    assert selection["alternatives"] == [
+        {"kind": "local_cpu_workload", "workload": "cpu-smoke"},
+        {"kind": "paid_gpu_path", "status": "unavailable_until_live_acceptance"},
+    ]
+    assert gpu["provider_availability"] == "UNKNOWN"
+    assert gpu["cost_classification"] == "UNKNOWN"
     expected_requirements = WorkloadRequirements(
         workload_id="gpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
         operating_system="linux", architecture="x86_64",
@@ -125,10 +322,305 @@ def test_gpu_capabilities_run_selector_for_complete_manifest_and_report_missing_
         result_transport=ResultTransport.OBJECT_STORAGE,
         max_result_bytes=1024 * 1024, cancellation_required=True,
         cleanup_proof_required=True,
+        runtime_requirements=("python:3.12", "cuda:12.4"),
+        max_queue_wait_seconds=120,
     )
     assert selection["workload_fingerprint"] == expected_requirements.fingerprint()
     assert selection["selector_result"]["workload_fingerprint"] == expected_requirements.fingerprint()
     assert selection["selector_result"]["blocking_reason"] == "PROVIDER_EVIDENCE_UNAVAILABLE"
+
+
+def test_capabilities_feed_only_verified_stored_candidates_into_selector(system):
+    now = int(system.clock())
+    observed = datetime.fromtimestamp(now, timezone.utc).isoformat().replace("+00:00", "Z")
+    expires_at = now + 120
+    expires = datetime.fromtimestamp(expires_at, timezone.utc).isoformat().replace("+00:00", "Z")
+    workload = Workload(
+        provider="modal", image_id="im-fixed", argv=("python", "run.py"),
+        source_revision="fixed", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=True, gpu="A10G", cpu=4, memory_mib=16384,
+        max_runtime_seconds=300, max_cost_usd="0.25",
+        operating_system="linux", architecture="x86_64", gpu_count=1,
+        minimum_vram_mib=20000, network_requirement="disabled",
+        result_transport="object_storage", max_result_bytes=1024 * 1024,
+        cancellation_required=True, cleanup_proof_required=True,
+        runtime_requirements=("python:3.12", "cuda:12.4"),
+        max_queue_wait_seconds=120,
+    )
+    system.service.workloads["gpu"] = workload
+    system.service.registry["modal"] = ProviderRegistration(
+        "modal", "modal_sandbox", lambda _: True, lambda _: None,
+    )
+    evidence = CapabilityEvidence(
+        provider="modal", resource_id="gpu-type-a10g@dc-1",
+        availability=Availability.AVAILABLE,
+        cost_classification=CostClassification.PAID,
+        costs=CostBreakdown(accelerator_usd=Decimal("0.05"), cpu_usd=Decimal("0"),
+                            memory_usd=Decimal("0"), storage_usd=Decimal("0"),
+                            egress_usd=Decimal("0"), other_usd=Decimal("0")),
+        hard_spend_cap_enforced=None, overage_behavior=OverageBehavior.UNKNOWN,
+        evidence_reference="test-observation:resource-1",
+        evidence_source="test-provider-source", observed_at_utc=observed,
+        valid_until_utc=expires, supported_operating_systems=("linux",),
+        supported_architectures=("x86_64",), accelerator_kind=AcceleratorKind.GPU,
+        gpu_profiles=("a10g",), max_gpu_count=1, max_vram_mib=24576,
+        max_cpu_cores=Decimal("8"), max_memory_mib=32768, max_runtime_seconds=3600,
+        max_result_bytes=2 * 1024 * 1024,
+        network_modes_supported=(NetworkRequirement.DISABLED,),
+        result_transports=(ResultTransport.OBJECT_STORAGE,),
+        cancellation_supported=True, cleanup_proof_supported=True,
+        supported_runtime_requirements=("python:3.12", "cuda:12.4"),
+        estimated_queue_wait_seconds=30,
+    )
+    private_key = Ed25519PrivateKey.generate()
+    private_pem = private_key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    public_pem = private_key.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    key_id = "api-test-key"
+    service_settings = replace(
+        system.service.settings,
+        provider_evidence_public_keys_json=json.dumps({key_id: public_pem.decode("ascii")}),
+    )
+    system.service.settings = service_settings
+    trusted_keys = service_settings.provider_evidence_trusted_keys
+    envelope = build_signed_observation(
+        provider="modal", source="test-provider-source", source_revision="fixture-v1",
+        version=1, observed_at=now, expires_at=expires_at,
+        payload={"inventory_complete": True, "candidates": [evidence.to_dict()]},
+        key_id=key_id, private_key_pem=private_pem,
+    )
+    assert system.store.write_provider_observation(envelope, trusted_keys, now=now)
+
+    result = invoke(system.service, system.owner, "experiment_capabilities", {})
+    gpu = next(item for item in result["machine_state"]["resources"]
+               if item["workload"] == "gpu")
+    selection = gpu["candidate_selection"]
+    assert selection["provider_evidence"] == "VERIFIED"
+    assert selection["status"] == "candidate_selected"
+    assert selection["blocking_reason"] is None
+    assert selection["selector_result"]["selected"] == {
+        "provider": "modal", "resource_id": evidence.resource_id,
+        "evidence_fingerprint": evidence.fingerprint(),
+    }
+    assert gpu["submission_available"] is False
+
+    system.clock.advance(121)
+    expired_result = invoke(system.service, system.owner, "experiment_capabilities", {})
+    expired_gpu = next(item for item in expired_result["machine_state"]["resources"]
+                       if item["workload"] == "gpu")
+    assert expired_gpu["candidate_selection"]["status"] == "not_evaluated"
+    assert expired_gpu["candidate_selection"]["blocking_reason"] == "PROVIDER_EVIDENCE_UNAVAILABLE"
+    assert expired_gpu["candidate_selection"]["provider_evidence"] == "INVALID_OR_STALE"
+
+
+def test_gpu_prepare_binds_exact_selected_candidate_and_submit_rejects_changed_evidence(system):
+    _, evidence, private_pem, key_id, expires_at = _seed_bound_gpu_candidate(system)
+    arguments = {
+        "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
+        "parameters": {}, "runtime_seconds": 120, "max_cost_usd": "0.10",
+        "requires_gpu": True, "idempotency_key": "bound-gpu-submit-0001",
+    }
+    prepared = invoke(system.service, system.owner, "experiment_prepare", arguments)
+    assert prepared["status"] == "pending"
+    assert prepared["blocking_reason"] == "APPROVAL_REQUIRED"
+    run_id = prepared["machine_state"]["run_id"]
+    run = system.service.get(system.owner, run_id)
+    plan = PlanV2.model_validate_json(json.dumps(run["plan"], allow_nan=False))
+    assert plan.selection_binding is not None
+    assert plan.selection_binding.provider == evidence.provider
+    assert plan.selection_binding.resource_id == evidence.resource_id
+    assert plan.selection_binding.evidence_fingerprint == evidence.fingerprint()
+    assert run["fingerprint"] == plan_fingerprint(plan)
+
+    browser = Principal(system.owner.owner, system.owner.scopes, browser=True)
+    system.service.approve(browser, run_id, run["fingerprint"])
+    changed = replace(evidence, max_cpu_cores=Decimal("9"))
+    _write_bound_gpu_candidate(system, changed, private_pem, key_id, version=2,
+                               observed_at=int(system.clock()), expires_at=expires_at)
+    with pytest.raises(GatewayError, match="exact approved GPU resource") as error:
+        system.service.submit(system.owner, run_id)
+    assert error.value.code == "provider_evidence_stale"
+    assert system.store.read(run_id)["state"] == "approved"
+    with system.store.engine.connect() as connection:
+        assert connection.execute(select(control.c.active_count)).scalar_one() == 0
+
+
+def test_gpu_prepare_idempotent_replay_returns_existing_run_after_evidence_expires(system):
+    _seed_bound_gpu_candidate(system)
+    arguments = {
+        "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
+        "parameters": {}, "runtime_seconds": 120, "max_cost_usd": "0.10",
+        "requires_gpu": True, "idempotency_key": "bound-gpu-replay-0001",
+    }
+    first = invoke(system.service, system.owner, "experiment_prepare", arguments)
+    first_state = first["machine_state"]
+    saved = system.service.get(system.owner, first_state["run_id"])
+    with system.store.transaction() as connection:
+        connection.execute(update(runs).where(runs.c.id == first_state["run_id"]).values(
+            request_hash=digest({"plan": saved["plan"],
+                                 "idempotency_key": arguments["idempotency_key"]}),
+        ))
+
+    system.clock.advance(121)
+    replay = invoke(system.service, system.owner, "experiment_prepare", arguments)
+
+    assert replay["machine_state"]["run_id"] == first_state["run_id"]
+    assert replay["machine_state"]["plan_fingerprint"] == first_state["plan_fingerprint"]
+    assert system.store.read(first_state["run_id"])["state"] == "awaiting_approval"
+    with pytest.raises(GatewayError, match="different inputs") as error:
+        invoke(system.service, system.owner, "experiment_prepare",
+               arguments | {"runtime_seconds": 121})
+    assert error.value.code == "idempotency_conflict"
+
+
+def test_worker_rejects_paid_candidate_without_run_specific_permit_before_intent(system, monkeypatch):
+    _seed_bound_gpu_candidate(system)
+    system.service.registry["modal"] = ProviderRegistration(
+        "modal", "modal_sandbox", lambda _: True, lambda _: None,
+        supports_candidate_binding=True, supports_paid_execution=True,
+    )
+    prepared = invoke(system.service, system.owner, "experiment_prepare", {
+        "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
+        "parameters": {}, "runtime_seconds": 120, "max_cost_usd": "0.10",
+        "requires_gpu": True, "idempotency_key": "paid-gpu-worker-permit-001",
+    })
+    run_id = prepared["machine_state"]["run_id"]
+    run = system.service.get(system.owner, run_id)
+    browser = Principal(system.owner.owner, system.owner.scopes, browser=True)
+    system.service.approve(browser, run_id, run["fingerprint"])
+    assert system.service.submit(system.owner, run_id)["state"] == "queued"
+    monkeypatch.setattr("gpu_gateway.worker.load_workloads", lambda: system.service.workloads)
+
+    class Backend:
+        started = 0
+
+        def start_candidate_bound(self, _job):
+            self.started += 1
+            raise AssertionError("provider must not be called without a paid permit")
+
+        def validate_paid_authorization(self, _job):
+            return False
+
+        def validate_candidate_observation(self, _job, _observation):
+            return True
+
+        def capture(self, _handle):
+            raise AssertionError("no provider handle should exist")
+
+        def cleanup(self, _handle):
+            raise AssertionError("no provider handle should exist")
+
+        def is_clean(self, _handle):
+            return False
+
+    backend = Backend()
+    worker = Worker(system.store, system.service.settings, {"modal": backend},
+                    system.clock, registry=system.service.registry)
+    assert worker.tick() is True
+    saved = system.store.read(run_id)
+    assert saved["state"] == "failed"
+    assert saved["error"] == "paid_authorization_invalid"
+    assert saved["submission_intent"] is None
+    assert backend.started == 0
+    with system.store.engine.connect() as connection:
+        assert connection.execute(select(control.c.active_count)).scalar_one() == 0
+
+
+def test_candidate_bound_plan_cannot_queue_through_unaccepted_backend(system):
+    _seed_bound_gpu_candidate(system)
+    prepared = invoke(system.service, system.owner, "experiment_prepare", {
+        "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
+        "parameters": {}, "runtime_seconds": 120, "max_cost_usd": "0.10",
+        "requires_gpu": True, "idempotency_key": "bound-gpu-gate-0001",
+    })
+    run_id = prepared["machine_state"]["run_id"]
+    run = system.service.get(system.owner, run_id)
+    browser = Principal(system.owner.owner, system.owner.scopes, browser=True)
+    system.service.approve(browser, run_id, run["fingerprint"])
+    with pytest.raises(GatewayError, match="candidate-bound execution acceptance") as error:
+        system.service.submit(system.owner, run_id)
+    assert error.value.code == "gpu_backend_unavailable"
+    assert system.store.read(run_id)["state"] == "approved"
+    with system.store.engine.connect() as connection:
+        assert connection.execute(select(control.c.active_count)).scalar_one() == 0
+
+
+def test_paid_candidate_plan_requires_separate_registry_authorization(system):
+    _seed_bound_gpu_candidate(system)
+    prepared = invoke(system.service, system.owner, "experiment_prepare", {
+        "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
+        "parameters": {}, "runtime_seconds": 120, "max_cost_usd": "0.10",
+        "requires_gpu": True, "idempotency_key": "paid-gpu-separate-gate-001",
+    })
+    run_id = prepared["machine_state"]["run_id"]
+    run = system.service.get(system.owner, run_id)
+    system.service.registry["modal"] = ProviderRegistration(
+        "modal", "modal_sandbox", lambda _: True, lambda _: None,
+        supports_candidate_binding=True,
+    )
+    browser = Principal(system.owner.owner, system.owner.scopes, browser=True)
+    system.service.approve(browser, run_id, run["fingerprint"])
+    with pytest.raises(GatewayError) as error:
+        system.service.submit(system.owner, run_id)
+    assert error.value.code == "paid_authorization_required"
+    assert system.store.read(run_id)["state"] == "approved"
+    with system.store.engine.connect() as connection:
+        assert connection.execute(select(control.c.active_count)).scalar_one() == 0
+
+
+def test_worker_rechecks_bound_gpu_evidence_immediately_before_backend_start(system, monkeypatch):
+    _, evidence, private_pem, key_id, expires_at = _seed_bound_gpu_candidate(system)
+    system.service.registry["modal"] = ProviderRegistration(
+        "modal", "modal_sandbox", lambda _: True, lambda _: None,
+        supports_candidate_binding=True, supports_paid_execution=True,
+    )
+    prepared = invoke(system.service, system.owner, "experiment_prepare", {
+        "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
+        "parameters": {}, "runtime_seconds": 120, "max_cost_usd": "0.10",
+        "requires_gpu": True, "idempotency_key": "bound-gpu-worker-0001",
+    })
+    run_id = prepared["machine_state"]["run_id"]
+    run = system.service.get(system.owner, run_id)
+    browser = Principal(system.owner.owner, system.owner.scopes, browser=True)
+    system.service.approve(browser, run_id, run["fingerprint"])
+    assert system.service.submit(system.owner, run_id)["state"] == "queued"
+
+    changed = replace(evidence, max_cpu_cores=Decimal("9"))
+    _write_bound_gpu_candidate(system, changed, private_pem, key_id, version=2,
+                               observed_at=int(system.clock()), expires_at=expires_at)
+    monkeypatch.setattr("gpu_gateway.worker.load_workloads",
+                        lambda: system.service.workloads)
+
+    class Backend:
+        started = 0
+
+        def start(self, _job):
+            self.started += 1
+            return {"id": "must-not-start"}
+
+        def inspect(self, _handle):
+            raise AssertionError("not expected")
+
+        def cancel(self, _handle):
+            raise AssertionError("not expected")
+
+        def reconcile(self, _job):
+            raise AssertionError("not expected")
+
+    backend = Backend()
+    worker = Worker(system.store, system.service.settings, {"modal": backend},
+                    system.clock, registry=system.service.registry)
+    assert worker.tick() is True
+    saved = system.store.read(run_id)
+    assert backend.started == 0
+    assert saved["state"] == "expired"
+    assert saved["error"] == "provider_evidence_stale"
+    with system.store.engine.connect() as connection:
+        assert connection.execute(select(control.c.active_count)).scalar_one() == 0
 
 
 def test_example_gpu_manifest_states_p4_requirements_but_stays_blocked_until_source_identity():
@@ -153,6 +645,7 @@ def test_capabilities_block_artifact_producing_cpu_without_available_storage(sys
     cpu = next(resource for resource in state["resources"] if resource["workload"] == "cpu")
     assert state["artifact_storage"]["reason"] == "not_configured"
     assert cpu["submission_available"] is False
+    assert cpu["provider_availability"] == "UNAVAILABLE"
     assert "ARTIFACT_STORAGE_UNAVAILABLE" in cpu["blocking_reasons"]
     assert cpu["quota_status"] == "LOCAL_CAPACITY_UNVERIFIED"
 
@@ -168,6 +661,7 @@ def test_capabilities_block_when_artifact_headroom_is_below_configured_floor(sys
     )
     root = tmp_path / "artifacts"
     root.mkdir()
+    create_artifact_probe_directory(root)
     system.service.settings = replace(system.settings, artifact_dir=str(root),
                                       artifact_min_free_bytes=10 * 1024 * 1024)
     fake_dedicated_filesystem(monkeypatch, root)
@@ -192,6 +686,8 @@ def test_capabilities_fail_closed_when_artifact_capacity_query_raises(system, tm
     )
     root = tmp_path / "artifacts"
     root.mkdir()
+    create_artifact_probe_directory(root)
+    fake_dedicated_filesystem(monkeypatch, root)
 
     def capacity_failure(_path):
         raise OSError("simulated statvfs failure")
@@ -204,6 +700,7 @@ def test_capabilities_fail_closed_when_artifact_capacity_query_raises(system, tm
     assert result["status"] == "blocked"
     assert result["machine_state"]["artifact_storage"]["reason"] == "unavailable"
     assert cpu["submission_available"] is False
+    assert cpu["provider_availability"] == "UNAVAILABLE"
     assert "ARTIFACT_STORAGE_UNAVAILABLE" in cpu["blocking_reasons"]
     assert cpu["quota_status"] == "LOCAL_CAPACITY_UNVERIFIED"
 
@@ -379,6 +876,7 @@ def test_prepare_rechecks_artifact_storage_headroom_before_creating_run(system, 
     monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    create_artifact_probe_directory(artifact_root)
     system.service.settings = replace(system.settings, artifact_dir=str(artifact_root),
                                       artifact_min_free_bytes=10 * 1024 * 1024)
     fake_dedicated_filesystem(monkeypatch, artifact_root)
@@ -412,6 +910,8 @@ def test_prepare_persists_distinct_operator_local_authorization(tmp_path, monkey
     policy_path.write_text(json.dumps(local_policy))
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    create_artifact_probe_directory(artifact_root)
+    fake_dedicated_filesystem(monkeypatch, artifact_root)
     system.service.settings = replace(system.settings, artifact_dir=str(artifact_root))
     monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
     args = {"repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "cpu",
@@ -463,6 +963,21 @@ def test_pending_result_does_not_claim_success_and_cancel_is_owner_scoped(system
     assert error.value.status == 404
 
 
+def test_owner_isolation_for_status_result_list_and_cancel(system):
+    prepared = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="owner-isolation-ops-0001"))
+    other = replace(system.owner, owner="different-owner")
+
+    for tool in ("experiment_status", "experiment_result", "experiment_cancel"):
+        with pytest.raises(GatewayError) as error:
+            invoke(system.service, other, tool, {"run_id": prepared["id"]})
+        assert error.value.status == 404
+
+    listing = invoke(system.service, other, "experiment_list", {})
+    assert listing["experiments"] == []
+    assert listing["machine_state"]["count"] == 0
+
+
 def test_last_backend_observation_is_owner_scoped_in_status_and_lists(system):
     prepared = system.service.prepare(system.owner, Prepare(
         workload="demo", idempotency_key="last-backend-observation-0001"))
@@ -485,6 +1000,47 @@ def test_last_backend_observation_is_owner_scoped_in_status_and_lists(system):
     assert error.value.status == 404
 
 
+def test_status_returns_only_bounded_tail_of_owned_result_logs(system):
+    prepared = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="bounded-status-logs-0001"))
+    raw_logs = "x" * 5000
+    with system.store.transaction() as connection:
+        connection.execute(update(runs).where(runs.c.id == prepared["id"]).values(
+            state="succeeded", result={"logs": raw_logs}))
+
+    status = invoke(system.service, system.owner, "experiment_status", {"run_id": prepared["id"]})
+    assert status["machine_state"]["logs"] == raw_logs[-4096:]
+    assert status["machine_state"]["logs_truncated"] is True
+    other = replace(system.owner, owner="other")
+    with pytest.raises(GatewayError) as error:
+        invoke(system.service, other, "experiment_status", {"run_id": prepared["id"]})
+    assert error.value.status == 404
+
+
+def test_omitted_oversized_result_is_not_reported_as_retrieved(system):
+    prepared = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="oversized-result-read-0001"))
+    with system.store.transaction() as connection:
+        connection.execute(update(runs).where(runs.c.id == prepared["id"]).values(
+            state="succeeded",
+            result={"result_omitted": True, "reason": "result_size_limit"},
+        ))
+
+    status = invoke(system.service, system.owner, "experiment_status", {"run_id": prepared["id"]})
+    assert status["status"] == "ok"
+    assert status["machine_state"]["state"] == "succeeded"
+    assert status["machine_state"]["result_omitted"] is True
+    assert status["machine_state"]["error_code"] == "result_size_limit"
+    assert "サイズ上限" in status["human_summary"]
+
+    read = invoke(system.service, system.owner, "experiment_result", {"run_id": prepared["id"]})
+    assert read["status"] == "blocked"
+    assert read["blocking_reason"] == "RESULT_OMITTED"
+    assert read["machine_state"]["state"] == "succeeded"
+    assert read["machine_state"]["result"] is None
+    assert read["machine_state"]["result_omitted"] is True
+
+
 def test_gpu_required_workload_cannot_fall_back_to_cpu(system):
     system.service.workloads["gpu"] = Workload(
         provider="modal", image_id="im-fixed", argv=("python", "run.py"),
@@ -496,7 +1052,8 @@ def test_gpu_required_workload_cannot_fall_back_to_cpu(system):
         "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
         "max_cost_usd": "0.00", "requires_gpu": True, "idempotency_key": "gpu-plan-0001",
     })
-    assert result["blocking_reason"] == "GPU_BACKEND_UNAVAILABLE"
+    assert result["blocking_reason"] == "WORKLOAD_REQUIREMENTS_INCOMPLETE"
+    assert result["machine_state"]["requires_gpu"] is True
     assert result["machine_state"]["provider"] == "modal"
     with system.store.engine.connect() as connection:
         assert connection.execute(select(runs.c.id)).first() is None

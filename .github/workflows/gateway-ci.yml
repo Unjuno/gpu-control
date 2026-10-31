@@ -2,9 +2,11 @@ name: Gateway offline tests
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
-    paths: ["gateway/**", ".github/workflows/gateway-ci.yml"]
+    paths: ["gateway/**", "src/gpu_control/**", "pyproject.toml", "README.md", ".github/workflows/gateway-ci.yml"]
 
 permissions:
   contents: read
@@ -14,21 +16,10 @@ jobs:
     name: Gateway offline tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: local-ci-only
-          POSTGRES_DB: gateway_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
         working-directory: gateway
     env:
-      GATEWAY_TEST_DATABASE_URL: postgresql+psycopg://postgres:local-ci-only@localhost:5432/gateway_test
       GATEWAY_ENABLE_MODAL: "false"
       GATEWAY_ENABLE_RUNPOD_BRIDGE: "false"
     steps:
@@ -38,13 +29,63 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
+      - name: Set up uv for deployment package build
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.10.0"
       - name: Install isolated gateway test dependencies
         run: python -m pip install -r requirements-test.txt -r requirements-worker.txt
       - name: Install the repository package under test
         run: python -m pip install -e ..
-      - name: CPU and mocked-provider tests only
+      - name: Verify Linux systemd deployment templates
+        run: bash deploy/verify_systemd_units_ci.sh
+      - name: Build Gateway wheel from PEP 621 metadata
+        working-directory: ${{ github.workspace }}
+        run: uv build gateway --wheel --out-dir "$RUNNER_TEMP/gateway-wheel"
+      - name: Verify Vercel-style locked runtime installation
+        working-directory: ${{ github.workspace }}
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/gateway-runtime-venv
+        run: |
+          uv sync --project gateway --locked --no-dev
+          uv run --project gateway --locked --no-dev python -c 'import gpu_control, gpu_gateway; print("runtime imports ok")'
+      - name: Start a dedicated stoppable PostgreSQL test container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name gpu-control-ci-postgres --restart=no \
+            -e POSTGRES_PASSWORD=local-ci-only -e POSTGRES_DB=gateway_test \
+            -p 127.0.0.1:5432:5432 \
+            postgres@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+          for attempt in $(seq 1 30); do
+            if docker exec gpu-control-ci-postgres pg_isready -U postgres -d gateway_test; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec gpu-control-ci-postgres pg_isready -U postgres -d gateway_test
+          echo "GATEWAY_TEST_DATABASE_URL=postgresql+psycopg://postgres:local-ci-only@127.0.0.1:5432/gateway_test" >> "$GITHUB_ENV"
+          echo "GPU_CONTROL_POSTGRES_CONTAINER=gpu-control-ci-postgres" >> "$GITHUB_ENV"
+      - name: Build digest-pinned CPU smoke image
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_repository="${GITHUB_REPOSITORY}"
+          source_sha="${GITHUB_SHA}"
+          docker build --file workloads/cpu-smoke/Dockerfile \
+            --build-arg SOURCE_REPOSITORY="$source_repository" \
+            --build-arg SOURCE_SHA="$source_sha" \
+            --tag gpu-control-cpu-smoke-ci workloads/cpu-smoke
+          image_id="$(docker image inspect gpu-control-cpu-smoke-ci --format '{{.Id}}')"
+          echo "GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST=$image_id" >> "$GITHUB_ENV"
+          echo "GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY=$source_repository" >> "$GITHUB_ENV"
+          echo "GPU_CONTROL_CPU_SMOKE_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+      - name: Gateway tests with real local CPU and PostgreSQL lifecycle
         run: python -m pytest -o addopts= -q
       - name: WebMCP registration contract
         run: node --test tests/webmcp.test.js
       - name: Python entrypoint compilation
         run: python -m compileall -q app.py gpu_gateway modal_worker.py
+      - name: Remove disposable integration containers
+        if: always()
+        run: docker rm --force gpu-control-ci-postgres || true

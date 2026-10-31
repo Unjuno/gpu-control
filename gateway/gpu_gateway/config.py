@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import base64
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 
 class Workload(BaseModel):
@@ -24,6 +27,8 @@ class Workload(BaseModel):
     requires_gpu: bool = True
     argv: tuple[str, ...] = ()
     gpu: str = "T4"
+    provider_resource_id: str | None = None
+    provider_data_center_id: str | None = None
     # Explicit P4 compatibility requirements. None means unknown, never inferred.
     operating_system: str | None = None
     architecture: str | None = None
@@ -34,6 +39,8 @@ class Workload(BaseModel):
     max_result_bytes: int | None = Field(default=None, ge=1, le=1_073_741_824)
     cancellation_required: bool | None = None
     cleanup_proof_required: bool | None = None
+    runtime_requirements: tuple[str, ...] = ()
+    max_queue_wait_seconds: int | None = Field(default=None, ge=0, le=604800)
     cpu: float = Field(default=1, ge=0.125, le=8)
     memory_mib: int = Field(default=4096, ge=128, le=65536)
     max_runtime_seconds: int = Field(default=600, ge=1, le=3600)
@@ -63,6 +70,12 @@ class Workload(BaseModel):
             raise ValueError("parameter_schema must reject unknown parameters")
         if any(not isinstance(x, str) or not x or "\x00" in x for x in self.argv):
             raise ValueError("argv must contain nonempty NUL-free arguments")
+        if (not isinstance(self.runtime_requirements, tuple) or
+                any(not isinstance(item, str) or not item or item != item.strip() or
+                    any(ord(char) < 32 or ord(char) == 127 for char in item)
+                    for item in self.runtime_requirements) or
+                len(set(self.runtime_requirements)) != len(self.runtime_requirements)):
+            raise ValueError("runtime_requirements must be unique canonical strings")
         if self.provider == "modal":
             if not self.image_id.startswith("im-") or not self.argv or not self.source_revision:
                 raise ValueError("Modal requires a prebuilt image ID, fixed argv and source revision")
@@ -77,6 +90,14 @@ class Workload(BaseModel):
                 raise ValueError("local_cpu policy only supports the smoke profile")
         if bool(self.source_repository) != bool(self.source_sha):
             raise ValueError("source_repository and source_sha must be configured together")
+        if bool(self.provider_resource_id) != bool(self.provider_data_center_id):
+            raise ValueError("provider_resource_id and provider_data_center_id must be configured together")
+        for field_name, value in (("provider_resource_id", self.provider_resource_id),
+                                  ("provider_data_center_id", self.provider_data_center_id)):
+            if value is not None and (not isinstance(value, str) or not value or
+                                      value != value.strip() or len(value) > 128 or
+                                      any(ord(char) < 32 or ord(char) == 127 for char in value)):
+                raise ValueError(f"{field_name} must be bounded canonical text")
         if self.source_repository and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.source_repository):
             raise ValueError("source_repository must be owner/name")
         if self.source_sha and not re.fullmatch(r"[0-9a-f]{40}", self.source_sha):
@@ -98,6 +119,8 @@ class Settings:
     allowed_subjects: tuple[str, ...] = ()
     enable_modal: bool = False
     enable_runpod_bridge: bool = False
+    enable_runpod_evidence: bool = False
+    runpod_api_key: str = field(default="", repr=False, compare=False)
     runpod_factory: str = ""
     modal_app: str = "gpu-control"
     max_inflight: int = 1
@@ -109,6 +132,10 @@ class Settings:
     max_job_cost_usd: Decimal = Decimal("1")
     max_open_requests: int = 100
     hosted: bool = False
+    provider_evidence_public_keys_json: str = "{}"
+    candidate_receipt_public_keys_json: str = "{}"
+    provider_evidence_signing_key_id: str = ""
+    provider_evidence_signing_key_pem: bytes | None = field(default=None, repr=False, compare=False)
 
     @property
     def resource(self) -> str:
@@ -121,6 +148,51 @@ class Settings:
     @property
     def web_auth_ready(self) -> bool:
         return self.auth_ready and bool(self.cookie_key and self.client_id and self.authorization_endpoint and self.token_endpoint)
+
+    @property
+    def provider_evidence_trusted_keys(self) -> dict[str, bytes]:
+        try:
+            raw = json.loads(self.provider_evidence_public_keys_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("provider evidence public-key configuration is invalid JSON") from exc
+        if not isinstance(raw, dict) or len(raw) > 16:
+            raise ValueError("provider evidence public-key configuration must be an object of at most 16 keys")
+        keys = {}
+        for key_id, pem in raw.items():
+            if (not isinstance(key_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", key_id)
+                    or not isinstance(pem, str) or not pem or len(pem) > 8192):
+                raise ValueError("provider evidence public-key entry is invalid")
+            try:
+                key = serialization.load_pem_public_key(pem.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError) as exc:
+                raise ValueError("provider evidence public key is invalid PEM") from exc
+            if not isinstance(key, Ed25519PublicKey):
+                raise ValueError("provider evidence public key must be Ed25519")
+            keys[key_id] = pem.encode("ascii")
+        return keys
+
+    @property
+    def candidate_receipt_trusted_keys(self) -> dict[str, bytes]:
+        try:
+            raw = json.loads(self.candidate_receipt_public_keys_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("candidate receipt public-key configuration is invalid JSON") from exc
+        if not isinstance(raw, dict) or len(raw) > 16:
+            raise ValueError("candidate receipt public-key configuration must be an object of at most 16 keys")
+        keys = {}
+        for key_id, pem in raw.items():
+            if (not isinstance(key_id, str) or not re.fullmatch(
+                    r"(?:provider|adapter):[a-z][a-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", key_id)
+                    or not isinstance(pem, str) or not pem or len(pem) > 8192):
+                raise ValueError("candidate receipt public-key entry is invalid")
+            try:
+                key = serialization.load_pem_public_key(pem.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError) as exc:
+                raise ValueError("candidate receipt public key is invalid PEM") from exc
+            if not isinstance(key, Ed25519PublicKey):
+                raise ValueError("candidate receipt public key must be Ed25519")
+            keys[key_id] = pem.encode("ascii")
+        return keys
 
     def validate(self) -> None:
         parsed = urlsplit(self.public_url)
@@ -150,6 +222,32 @@ class Settings:
             raise ValueError("approval TTL must be between 1 and 900 seconds")
         if type(self.artifact_min_free_bytes) is not int or self.artifact_min_free_bytes < 0:
             raise ValueError("artifact_min_free_bytes must be a nonnegative integer")
+        trusted_keys = self.provider_evidence_trusted_keys
+        self.candidate_receipt_trusted_keys
+        if self.provider_evidence_signing_key_pem is not None:
+            if not self.provider_evidence_signing_key_id or self.provider_evidence_signing_key_id not in trusted_keys:
+                raise ValueError("worker provider evidence signing key ID must be present in the trusted key set")
+            try:
+                private_key = serialization.load_pem_private_key(
+                    self.provider_evidence_signing_key_pem, password=None)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("worker provider evidence private key is invalid PEM") from exc
+            if not isinstance(private_key, Ed25519PrivateKey):
+                raise ValueError("worker provider evidence signing key must be Ed25519")
+            expected = serialization.load_pem_public_key(trusted_keys[self.provider_evidence_signing_key_id])
+            derived = private_key.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            trusted = expected.public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            if derived != trusted:
+                raise ValueError("worker private key does not match configured trusted public key")
+        elif self.provider_evidence_signing_key_id:
+            raise ValueError("provider evidence signing key ID is set without a private key")
+        if self.enable_runpod_evidence:
+            if not self.runpod_api_key or any(character.isspace() for character in self.runpod_api_key):
+                raise ValueError("RunPod evidence collection requires a worker-only API key")
+            if self.provider_evidence_signing_key_pem is None:
+                raise ValueError("RunPod evidence collection requires a worker signing key")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -166,6 +264,13 @@ class Settings:
             production_host = e.get("VERCEL_PROJECT_PRODUCTION_URL")
             public_url = f"https://{production_host}" if production_host else "http://127.0.0.1:8000"
 
+        evidence_private = e.get("GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64", "")
+        try:
+            evidence_private_pem = (base64.b64decode(evidence_private, validate=True)
+                                    if evidence_private else None)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("provider evidence signing key must be valid base64") from exc
+
         value = cls(
             database_url=database_url,
             public_url=public_url.rstrip("/"),
@@ -179,6 +284,8 @@ class Settings:
             allowed_subjects=tuple(s.strip() for s in e.get("GATEWAY_ALLOWED_SUBJECTS", "").split(",") if s.strip()),
             enable_modal=e.get("GATEWAY_ENABLE_MODAL") == "true",
             enable_runpod_bridge=e.get("GATEWAY_ENABLE_RUNPOD_BRIDGE") == "true",
+            enable_runpod_evidence=e.get("GATEWAY_ENABLE_RUNPOD_EVIDENCE") == "true",
+            runpod_api_key=e.get("RUNPOD_API_KEY", ""),
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),
             modal_app=e.get("GATEWAY_MODAL_APP", "gpu-control"),
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
@@ -186,6 +293,10 @@ class Settings:
             artifact_dir=e.get("GATEWAY_ARTIFACT_DIR", ""),
             artifact_min_free_bytes=int(e.get("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "0")),
             hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
+            provider_evidence_public_keys_json=e.get("GATEWAY_PROVIDER_EVIDENCE_PUBLIC_KEYS_JSON", "{}"),
+            candidate_receipt_public_keys_json=e.get("GATEWAY_CANDIDATE_RECEIPT_PUBLIC_KEYS_JSON", "{}"),
+            provider_evidence_signing_key_id=e.get("GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_ID", ""),
+            provider_evidence_signing_key_pem=evidence_private_pem,
         )
         value.validate()
         return value

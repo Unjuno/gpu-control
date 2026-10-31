@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -227,12 +228,22 @@ class LocalOAuth:
             p = urlsplit(uri)
         except ValueError:
             raise GatewayError("invalid_client_metadata", "Invalid redirect URI", 400)
-        host = (p.hostname or "").lower()
-        if p.fragment or p.username or p.password:
+        if p.fragment or p.username or p.password or not uri.isascii():
             raise GatewayError("invalid_client_metadata", "Invalid redirect URI", 400)
-        trusted = host == "chatgpt.com" or host.endswith(".chatgpt.com") or host == "openai.com" or host.endswith(".openai.com")
+        host = (p.hostname or "").lower()
+        stable_chatgpt_callback = (
+            p.scheme == "https" and p.netloc == "chatgpt.com" and not p.query and
+            p.path == "/connector_platform_oauth_redirect"
+        )
+        callback_id = p.path.removeprefix("/connector/oauth/")
+        callback_id_chatgpt_callback = (
+            p.scheme == "https" and p.netloc == "chatgpt.com" and not p.query and
+            p.path.startswith("/connector/oauth/") and
+            bool(re.fullmatch(r"[A-Za-z0-9._~+-]{1,200}", callback_id)) and
+            callback_id not in {".", ".."}
+        )
         local = host in {"localhost", "127.0.0.1", "::1"} and p.scheme == "http" and not self.settings.hosted
-        if not ((p.scheme == "https" and trusted) or local):
+        if not (stable_chatgpt_callback or callback_id_chatgpt_callback or local):
             raise GatewayError("invalid_client_metadata", "OAuth redirect host is not allowed", 400)
         return uri
 
@@ -306,9 +317,12 @@ class LocalOAuth:
             raise GatewayError("invalid_scope", "Unsupported OAuth scope", 400)
         return " ".join(dict.fromkeys(requested))
 
-    def authorize(self, params: dict, session_token: str) -> str:
+    def authorization_details(self, params: dict, session_token: str) -> dict:
         client_id = params.get("client_id", "")
         redirect_uri = params.get("redirect_uri", "")
+        state = params.get("state", "")
+        if not isinstance(client_id, str) or not isinstance(redirect_uri, str):
+            raise GatewayError("invalid_request", "OAuth client and redirect URI are required", 400)
         if params.get("response_type") != "code":
             raise GatewayError("unsupported_response_type", "Only response_type=code is supported", 400)
         client = self._client(client_id)
@@ -323,15 +337,24 @@ class LocalOAuth:
             raise GatewayError("invalid_target", "OAuth resource must match the MCP resource", 400)
         self.session(session_token)
         scope = self._scope(params.get("scope"))
+        if (not isinstance(state, str) or len(state) > 2048 or
+                any(ord(char) < 0x20 or ord(char) == 0x7f for char in state)):
+            raise GatewayError("invalid_request", "Invalid OAuth state", 400)
+        return {"client_id": client_id, "client_name": client["client_name"],
+                "redirect_uri": redirect_uri, "scope": scope, "state": state}
+
+    def authorize(self, params: dict, session_token: str) -> str:
+        details = self.authorization_details(params, session_token)
         raw = "gc_" + secrets.token_urlsafe(32)
         now = int(time.time())
         with self.store.transaction() as c:
             c.execute(update(oauth_clients).where(
-                oauth_clients.c.client_id == client_id
+                oauth_clients.c.client_id == details["client_id"]
             ).values(expires_at=now + 30 * 86400))
             c.execute(insert(oauth_codes).values(
-                code_hash=_sha(raw), client_id=client_id, redirect_uri=redirect_uri,
-                scope=scope, resource=self.resource, code_challenge=challenge,
+                code_hash=_sha(raw), client_id=details["client_id"], redirect_uri=details["redirect_uri"],
+                scope=details["scope"], resource=self.resource,
+                code_challenge=params["code_challenge"],
                 subject="owner", expires_at=now + 300, created_at=now
             ))
         return raw
@@ -347,40 +370,37 @@ class LocalOAuth:
             raise GatewayError("invalid_grant", "Authorization code expired", 400)
         return dict(row)
 
-    def _store_token(self, raw: str, *, kind: str, client_id: str, subject: str, scope: str,
-                     resource: str, expires_at: int, grant_id: str, connection=None) -> None:
-        statement = insert(oauth_tokens).values(
+    @staticmethod
+    def _insert_token(connection, raw: str, *, kind: str, client_id: str, subject: str,
+                      scope: str, resource: str, expires_at: int, grant_id: str) -> None:
+        connection.execute(insert(oauth_tokens).values(
             token_hash=_sha(raw), kind=kind, client_id=client_id, subject=subject,
             scope=scope, resource=resource, expires_at=expires_at,
             created_at=int(time.time()), revoked=False, grant_id=grant_id,
-        )
-        if connection is not None:
-            connection.execute(statement)
-            return
-        with self.store.transaction() as c:
-            c.execute(statement)
+        ))
 
     def _new_token_pair(self, *, client_id: str, subject: str, scope: str, resource: str,
                         grant_id: str | None = None, connection=None) -> dict:
-        if connection is None:
-            with self.store.transaction() as c:
-                return self._new_token_pair(
-                    client_id=client_id, subject=subject, scope=scope,
-                    resource=resource, grant_id=grant_id, connection=c,
-                )
         now = int(time.time())
         grant_id = grant_id or secrets.token_hex(32)
         access = "ga_" + secrets.token_urlsafe(32)
-        self._store_token(access, kind="access", client_id=client_id, subject=subject,
-                          scope=scope, resource=resource, expires_at=now + 3600, grant_id=grant_id,
-                          connection=connection)
+        tokens = [(access, "access", now + 3600)]
         value = {"access_token": access, "token_type": "Bearer", "expires_in": 3600, "scope": scope}
         if "offline_access" in scope.split():
             refresh = "gr_" + secrets.token_urlsafe(40)
-            self._store_token(refresh, kind="refresh", client_id=client_id, subject=subject,
-                              scope=scope, resource=resource, expires_at=now + 30 * 86400,
-                              grant_id=grant_id, connection=connection)
+            tokens.append((refresh, "refresh", now + 30 * 86400))
             value["refresh_token"] = refresh
+        if connection is None:
+            with self.store.transaction() as transaction:
+                for raw, kind, expires_at in tokens:
+                    self._insert_token(transaction, raw, kind=kind, client_id=client_id,
+                                       subject=subject, scope=scope, resource=resource,
+                                       expires_at=expires_at, grant_id=grant_id)
+        else:
+            for raw, kind, expires_at in tokens:
+                self._insert_token(connection, raw, kind=kind, client_id=client_id,
+                                   subject=subject, scope=scope, resource=resource,
+                                   expires_at=expires_at, grant_id=grant_id)
         return value
 
     def token(self, form: dict) -> dict:
