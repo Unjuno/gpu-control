@@ -14,8 +14,13 @@ Using the current Gateway virtualenv against this candidate source:
 
 ```text
 PYTHONPATH="$PWD/gateway:$PWD/src" /Users/taka/Documents/ChatGPT/Gpuラッパリポジトリ/gpu-control/gateway/.venv/bin/python -m pytest -q gateway/tests/test_http_auth.py
-34 passed, 1 existing Starlette deprecation warning
+35 passed, 1 existing Starlette deprecation warning
 ```
+
+The suite imports the actual `gateway/app.py` Vercel entrypoint under a
+missing-workload-file environment and verifies both health responses after
+`install_ci_routes()` runs. This complements the direct `create_app()` test;
+it still does not reproduce the Vercel runtime environment.
 
 `git diff --check` passed before the commit. The PR contains only
 `gateway/gpu_gateway/app.py` and `gateway/tests/test_http_auth.py` at this
@@ -28,7 +33,7 @@ The PR's current GitHub checks all passed: Python 3.11/3.12/3.13, trusted
 reference container, Gateway offline tests, Gateway comment bridge tests,
 Project bridge tests, Vercel deployment, and Vercel Preview Comments.
 
-The READY Preview deployment sourced from the exact PR head is
+The READY Preview deployment sourced from the exact source-fix commit is
 `dpl_2CUftHSvpFSSY38uuqsm3Ggn8gZh` (`gpu-control-cqk7pa8m7-unjunos-projects.vercel.app`).
 Protected GET requests on 2026-10-31 to `/healthz` and `/readyz` both returned
 HTTP 500 `FUNCTION_INVOCATION_FAILED` before an application response. Sample
@@ -39,9 +44,12 @@ request IDs:
 
 Vercel runtime-log queries scoped to the deployment and request ID returned no
 records. Thus the missing-workload-file exception path is fixed and locally
-covered, but it does not explain the observed Vercel invocation failure. Its
-startup cause remains undiagnosed. Do not count the Preview deployment's
-`READY` state as function-runtime or ChatGPT acceptance.
+covered through the deployment entrypoint, but it does not explain the
+observed Vercel invocation failure. Its startup cause remains undiagnosed. Do
+not count the Preview deployment's `READY` state as function-runtime or
+ChatGPT acceptance. The entrypoint regression test was added after this
+deployment probe; application source is unchanged, but the test-only follow-up
+needs its own CI run.
 
 ## Remaining acceptance
 

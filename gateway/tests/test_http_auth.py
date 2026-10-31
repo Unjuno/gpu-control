@@ -1,4 +1,5 @@
 from dataclasses import replace
+import importlib.util
 import json
 from pathlib import Path
 import time
@@ -119,6 +120,30 @@ def test_missing_workload_file_keeps_health_routes_available(monkeypatch, tmp_pa
     monkeypatch.delenv("GATEWAY_WORKLOADS_JSON", raising=False)
     monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(tmp_path / "missing-workloads.json"))
     client = TestClient(create_app())
+    health = client.get("/healthz")
+    readiness = client.get("/readyz")
+    assert health.status_code == 200
+    assert health.json()["configured"] is False
+    assert readiness.status_code == 503
+    assert readiness.json()["ready"] is False
+
+
+def test_vercel_entrypoint_keeps_health_routes_available_with_missing_workload_file(
+    monkeypatch, tmp_path
+):
+    monkeypatch.delenv("GATEWAY_WORKLOADS_JSON", raising=False)
+    monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(tmp_path / "missing-workloads.json"))
+    monkeypatch.delenv("GATEWAY_HOSTED", raising=False)
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("GATEWAY_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    entrypoint = Path(__file__).parents[1] / "app.py"
+    spec = importlib.util.spec_from_file_location("gpu_control_vercel_entrypoint", entrypoint)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    client = TestClient(module.app)
     health = client.get("/healthz")
     readiness = client.get("/readyz")
     assert health.status_code == 200
