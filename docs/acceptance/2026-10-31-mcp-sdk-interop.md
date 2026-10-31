@@ -4,7 +4,7 @@ Status: **PASS for local Streamable HTTP protocol interoperability only; real Ch
 
 ## Evidence
 
-- Gateway candidate base: `316c1bdd633b2bcc8251544e0b8738af76eb244f` plus the uncommitted protocol change recorded in this candidate.
+- Gateway candidate revision: `2c4ef03f27ab74af694cdc54731c2ae1d30d9b84` plus the SDK regression test subsequently added to this candidate.
 - Client: official `mcp` Python SDK `2.3.0`, with `httpx2` Streamable HTTP transport.
 - Server: local Uvicorn process bound to `127.0.0.1`; request crossed the real HTTP transport and MCP negotiation path.
 - Negotiated protocol: `2026-07-28`.
@@ -13,9 +13,11 @@ Status: **PASS for local Streamable HTTP protocol interoperability only; real Ch
 - Authentication: a short-lived local fixture JWT and test signing key were used. This does not exercise browser OAuth, ChatGPT OAuth, refresh, or revocation.
 - Guardrail: only the read-only capabilities tool was called; no experiment was prepared or submitted, and no provider was contacted.
 - Commands:
-  - `PYTHONPATH=gateway gateway/.venv/bin/python /tmp/gpu-control-mcp-sdk-smoke.py`
+  - `PYTHONPATH=gateway gateway/.venv/bin/python /tmp/gpu-control-mcp-sdk-smoke.py` (standalone loopback smoke; the temporary script is not part of the repository)
+  - `gateway/.venv/bin/python -m pytest gateway/tests/test_official_mcp_sdk.py gateway/tests/test_http_auth.py -q`
   - `gateway/.venv/bin/python -m pytest gateway/tests/test_http_auth.py -q`
 - Outcome: SDK smoke passed after adding modern cache hints. The HTTP authentication/protocol regression suite passed.
+- Long-term check: `gateway/tests/test_official_mcp_sdk.py` now uses the pinned SDK against the Gateway ASGI HTTP app and is included in the existing Gateway CI test run through `requirements-test.txt`.
 
 ## Finding and correction
 
