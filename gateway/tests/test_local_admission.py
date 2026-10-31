@@ -320,7 +320,7 @@ def test_worker_rechecks_artifact_headroom_before_start(tmp_path, monkeypatch, s
 
     backend = Backend()
     worker = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock,
-                    registry=system.service.registry)
+                    registry=system.service.registry, workloads={"cpu-smoke-v1": workload})
     assert worker.tick()
     final = system.store.read(prepared["id"])
     with system.store.engine.connect() as connection:
