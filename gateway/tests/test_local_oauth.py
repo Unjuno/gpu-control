@@ -1,6 +1,9 @@
 import base64
 import hashlib
 import secrets
+import threading
+import time
+from contextlib import contextmanager
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -10,13 +13,101 @@ from sqlalchemy import select
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
 from gpu_gateway.config import Settings, Workload
-from gpu_gateway.local_oauth import oauth_tokens
+from gpu_gateway.local_oauth import LocalOAuth, oauth_tokens
 from gpu_gateway.service import ExperimentService, GatewayError
 from gpu_gateway.store import Store
 
 
 def challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+
+
+def test_refresh_rotation_and_grant_revocation_are_atomic(tmp_path, monkeypatch):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'oauth-revoke-race.db'}",
+        public_url="https://gateway.example",
+    )
+    store = Store(settings.database_url)
+    store.initialize()
+    oauth = LocalOAuth(settings, store)
+    client_id = oauth.register_client({
+        "client_name": "ChatGPT test",
+        "redirect_uris": ["https://chatgpt.com/oauth/callback/test"],
+    })["client_id"]
+    initial = oauth._new_token_pair(
+        client_id=client_id, subject="owner",
+        scope="experiments:read offline_access", resource=settings.resource,
+    )
+    pair_entered = threading.Event()
+    allow_pair_to_finish = threading.Event()
+    revoke_transaction_acquired = threading.Event()
+    original_new_pair = oauth._new_token_pair
+    original_transaction = store.transaction
+    errors = []
+    refreshed = []
+
+    @contextmanager
+    def observe_revoke_transaction():
+        if threading.current_thread().name == "oauth-revoke-race":
+            with original_transaction() as connection:
+                revoke_transaction_acquired.set()
+                yield connection
+        else:
+            with original_transaction() as connection:
+                yield connection
+
+    def pause_replacement_pair(**kwargs):
+        pair_entered.set()
+        if not allow_pair_to_finish.wait(timeout=5):
+            raise TimeoutError("test did not release replacement token pair")
+        return original_new_pair(**kwargs)
+
+    monkeypatch.setattr(store, "transaction", observe_revoke_transaction)
+    monkeypatch.setattr(oauth, "_new_token_pair", pause_replacement_pair)
+
+    def refresh():
+        try:
+            refreshed.append(oauth.token({
+                "grant_type": "refresh_token", "client_id": client_id,
+                "refresh_token": initial["refresh_token"], "resource": settings.resource,
+            }))
+        except Exception as exc:  # surface worker-thread failures in the test thread
+            errors.append(exc)
+
+    def revoke():
+        try:
+            oauth.revoke({"client_id": client_id, "token": initial["refresh_token"]})
+        except Exception as exc:
+            errors.append(exc)
+
+    refresh_thread = threading.Thread(target=refresh, name="oauth-refresh-race")
+    refresh_thread.start()
+    assert pair_entered.wait(timeout=5)
+    revoke_thread = threading.Thread(target=revoke, name="oauth-revoke-race")
+    revoke_thread.start()
+    # Give the revoker a chance to reach BEGIN IMMEDIATE while rotation still
+    # owns the write transaction. With split transactions it acquires and
+    # completes in this gap, before replacement rows exist.
+    time.sleep(0.05)
+    blocked_until_rotation_commits = not revoke_transaction_acquired.is_set()
+    allow_pair_to_finish.set()
+    refresh_thread.join(timeout=5)
+    revoke_thread.join(timeout=5)
+
+    assert not refresh_thread.is_alive() and not revoke_thread.is_alive()
+    assert not errors
+    assert blocked_until_rotation_commits
+    assert revoke_transaction_acquired.is_set()
+    assert len(refreshed) == 1
+    with pytest.raises(GatewayError) as error:
+        oauth.verify_access(refreshed[0]["access_token"])
+    assert error.value.code == "invalid_token"
+    with pytest.raises(GatewayError) as error:
+        oauth.token({
+            "grant_type": "refresh_token", "client_id": client_id,
+            "refresh_token": refreshed[0]["refresh_token"], "resource": settings.resource,
+        })
+    assert error.value.code == "invalid_grant"
 
 
 def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
@@ -158,7 +249,9 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
 
     revoked_refresh = client.post("/oauth/revoke", data={
         "client_id": client_id,
-        "token": refreshed_tokens["refresh_token"],
+        # Rotation marks the presented refresh token revoked. Repeating revoke
+        # with that prior token must still revoke every credential in its grant.
+        "token": token_data["refresh_token"],
         "token_type_hint": "refresh_token",
     })
     assert revoked_refresh.status_code == 200
@@ -176,6 +269,11 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
         "Accept": "application/json, text/event-stream",
     }, json={"jsonrpc":"2.0","id":5,"method":"tools/list"})
     assert rejected_cascaded_access.status_code == 401
+    with store.engine.connect() as connection:
+        revoked_states = connection.execute(select(oauth_tokens.c.revoked).where(
+            oauth_tokens.c.token_hash.in_(token_hashes)
+        )).scalars().all()
+    assert revoked_states == [True, True, True]
 
     unknown = client.post("/oauth/revoke", data={"client_id": client_id, "token": "unknown-token"})
     assert unknown.status_code == 200

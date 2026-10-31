@@ -348,27 +348,38 @@ class LocalOAuth:
         return dict(row)
 
     def _store_token(self, raw: str, *, kind: str, client_id: str, subject: str, scope: str,
-                     resource: str, expires_at: int, grant_id: str) -> None:
+                     resource: str, expires_at: int, grant_id: str, connection=None) -> None:
+        statement = insert(oauth_tokens).values(
+            token_hash=_sha(raw), kind=kind, client_id=client_id, subject=subject,
+            scope=scope, resource=resource, expires_at=expires_at,
+            created_at=int(time.time()), revoked=False, grant_id=grant_id,
+        )
+        if connection is not None:
+            connection.execute(statement)
+            return
         with self.store.transaction() as c:
-            c.execute(insert(oauth_tokens).values(
-                token_hash=_sha(raw), kind=kind, client_id=client_id, subject=subject,
-                scope=scope, resource=resource, expires_at=expires_at,
-                created_at=int(time.time()), revoked=False, grant_id=grant_id,
-            ))
+            c.execute(statement)
 
     def _new_token_pair(self, *, client_id: str, subject: str, scope: str, resource: str,
-                        grant_id: str | None = None) -> dict:
+                        grant_id: str | None = None, connection=None) -> dict:
+        if connection is None:
+            with self.store.transaction() as c:
+                return self._new_token_pair(
+                    client_id=client_id, subject=subject, scope=scope,
+                    resource=resource, grant_id=grant_id, connection=c,
+                )
         now = int(time.time())
         grant_id = grant_id or secrets.token_hex(32)
         access = "ga_" + secrets.token_urlsafe(32)
         self._store_token(access, kind="access", client_id=client_id, subject=subject,
-                          scope=scope, resource=resource, expires_at=now + 3600, grant_id=grant_id)
+                          scope=scope, resource=resource, expires_at=now + 3600, grant_id=grant_id,
+                          connection=connection)
         value = {"access_token": access, "token_type": "Bearer", "expires_in": 3600, "scope": scope}
         if "offline_access" in scope.split():
             refresh = "gr_" + secrets.token_urlsafe(40)
             self._store_token(refresh, kind="refresh", client_id=client_id, subject=subject,
                               scope=scope, resource=resource, expires_at=now + 30 * 86400,
-                              grant_id=grant_id)
+                              grant_id=grant_id, connection=connection)
             value["refresh_token"] = refresh
         return value
 
@@ -405,16 +416,28 @@ class LocalOAuth:
                 ).with_for_update()).mappings().first()
                 if row is None:
                     raise GatewayError("invalid_grant", "Refresh token is invalid or expired", 400)
-                c.execute(update(oauth_tokens).where(oauth_tokens.c.token_hash == _sha(raw)).values(revoked=True))
-            scope = row["scope"]
-            if form.get("scope"):
-                narrowed = self._scope(form["scope"])
-                if not set(narrowed.split()).issubset(set(scope.split())):
-                    raise GatewayError("invalid_scope", "Refresh scope cannot be expanded", 400)
-                scope = narrowed
-            return self._new_token_pair(client_id=client_id, subject=row["subject"],
-                                        scope=scope, resource=resource,
-                                        grant_id=row.get("grant_id"))
+                scope = row["scope"]
+                if form.get("scope"):
+                    narrowed = self._scope(form["scope"])
+                    if not set(narrowed.split()).issubset(set(scope.split())):
+                        raise GatewayError("invalid_scope", "Refresh scope cannot be expanded", 400)
+                    scope = narrowed
+                changed = c.execute(update(oauth_tokens).where(
+                    oauth_tokens.c.token_hash == _sha(raw),
+                    oauth_tokens.c.kind == "refresh",
+                    oauth_tokens.c.client_id == client_id,
+                    oauth_tokens.c.resource == resource,
+                    oauth_tokens.c.revoked.is_(False),
+                ).values(revoked=True))
+                if changed.rowcount != 1:
+                    raise GatewayError("invalid_grant", "Refresh token is invalid or expired", 400)
+                # Consume the presented token and persist its replacement pair
+                # in one transaction so revocation cannot land between them.
+                value = self._new_token_pair(
+                    client_id=client_id, subject=row["subject"], scope=scope,
+                    resource=resource, grant_id=row.get("grant_id"), connection=c,
+                )
+            return value
         raise GatewayError("unsupported_grant_type", "Unsupported OAuth grant type", 400)
 
     def revoke(self, form: dict) -> None:
@@ -429,7 +452,6 @@ class LocalOAuth:
             row = c.execute(select(oauth_tokens).where(
                 oauth_tokens.c.token_hash == _sha(token),
                 oauth_tokens.c.client_id == client_id,
-                oauth_tokens.c.revoked.is_(False),
             ).with_for_update()).mappings().first()
             if row is None:
                 return
