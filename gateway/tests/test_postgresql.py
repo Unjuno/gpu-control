@@ -104,7 +104,7 @@ def test_postgres_refresh_rotation_and_grant_revocation_race():
     oauth = LocalOAuth(settings, store)
     client_id = oauth.register_client({
         'client_name': 'ChatGPT race ' + uuid4().hex,
-        'redirect_uris': ['https://chatgpt.com/oauth/callback/test'],
+        'redirect_uris': ['https://chatgpt.com/connector_platform_oauth_redirect'],
     })['client_id']
     initial = oauth._new_token_pair(
         client_id=client_id, subject='owner',
