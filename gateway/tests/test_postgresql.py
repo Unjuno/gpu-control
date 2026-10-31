@@ -308,7 +308,7 @@ def test_postgres_v1_to_current_preserves_legacy_run_and_oauth_rows():
         admin.dispose()
 
 
-def test_postgres_v8_oauth_client_migration_preserves_used_dcr_clients():
+def test_postgres_v8_oauth_client_migration_does_not_infer_consent():
     url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
     if not url:
         pytest.skip('requires a dedicated PostgreSQL test database')
@@ -346,7 +346,7 @@ def test_postgres_v8_oauth_client_migration_preserves_used_dcr_clients():
         with store.engine.connect() as connection:
             assert connection.execute(select(oauth_clients.c.persistent).where(
                 oauth_clients.c.client_id == client_id
-            )).scalar_one() is True
+            )).scalar_one() is False
     finally:
         store.engine.dispose()
         with admin.begin() as connection:
@@ -626,7 +626,7 @@ def test_postgres_v1_to_current_preserves_legacy_run_and_oauth_rows():
         admin.dispose()
 
 
-def test_postgres_v8_oauth_client_migration_preserves_used_dcr_clients():
+def test_postgres_v8_oauth_client_migration_does_not_infer_consent():
     url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
     if not url:
         pytest.skip('requires a dedicated PostgreSQL test database')
@@ -664,7 +664,45 @@ def test_postgres_v8_oauth_client_migration_preserves_used_dcr_clients():
         with store.engine.connect() as connection:
             assert connection.execute(select(oauth_clients.c.persistent).where(
                 oauth_clients.c.client_id == client_id
-            )).scalar_one() is True
+            )).scalar_one() is False
+    finally:
+        store.engine.dispose()
+        with admin.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+        admin.dispose()
+
+
+def test_postgres_v12_migration_revokes_legacy_inferred_persistence():
+    url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('requires a dedicated PostgreSQL test database')
+
+    admin = create_engine(url)
+    schema = f"oauth_v12_remediation_{uuid4().hex}"
+    with admin.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    scoped_url = make_url(url).set(query={
+        **make_url(url).query,
+        'options': f'-csearch_path={schema}',
+    })
+    store = Store(scoped_url.render_as_string(hide_password=False))
+    try:
+        store.initialize()
+        client_id = "mcp_legacy_inferred_postgres"
+        with store.engine.begin() as connection:
+            connection.execute(oauth_clients.insert().values(
+                client_id=client_id,
+                redirect_uris=["https://chatgpt.com/connector_platform_oauth_redirect"],
+                client_name="Legacy inferred client", created_at=1,
+                expires_at=100, persistent=True,
+            ))
+            connection.execute(schema_version.update().values(version=12))
+
+        assert migrate(store.engine) == SCHEMA_VERSION
+        with store.engine.connect() as connection:
+            assert connection.execute(select(oauth_clients.c.persistent).where(
+                oauth_clients.c.client_id == client_id
+            )).scalar_one() is False
     finally:
         store.engine.dispose()
         with admin.begin() as connection:

@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
@@ -435,7 +435,13 @@ def test_authorized_dcr_client_survives_expired_refresh_grant_for_reauthorizatio
         "state": "rolling-refresh", "code_challenge": challenge(verifier),
         "code_challenge_method": "S256",
     }
-    code = local.authorize(params, owner_session.token)
+    with pytest.raises(GatewayError) as missing_consent:
+        local.authorize(params, owner_session.token)
+    assert missing_consent.value.code == "csrf_failed"
+    with pytest.raises(GatewayError) as missing_decision:
+        local.authorize(params, owner_session.token, owner_session.csrf)
+    assert missing_decision.value.code == "consent_required"
+    code = local.authorize(params, owner_session.token, owner_session.csrf, "approve")
     tokens = local.token({
         "grant_type": "authorization_code", "client_id": client_id,
         "code": code, "redirect_uri": params["redirect_uri"],
@@ -455,7 +461,7 @@ def test_authorized_dcr_client_survives_expired_refresh_grant_for_reauthorizatio
     new_verifier = secrets.token_urlsafe(48)
     params["state"] = "reauthorization"
     params["code_challenge"] = challenge(new_verifier)
-    code = local.authorize(params, renewed_session.token)
+    code = local.authorize(params, renewed_session.token, renewed_session.csrf, "approve")
     renewed = local.token({
         "grant_type": "authorization_code", "client_id": client_id,
         "code": code, "redirect_uri": params["redirect_uri"],
@@ -487,6 +493,34 @@ def test_expired_provisional_dcr_client_is_pruned_on_registration(tmp_path, monk
         assert connection.execute(select(oauth_clients.c.client_id).where(
             oauth_clients.c.client_id == first
         )).first() is None
+
+
+def test_revocation_remains_available_after_persistence_remediation(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'revocation-after-v13.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    client_id = local.register_client({
+        "client_name": "Migrated consented client",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })["client_id"]
+    tokens = local._new_token_pair(
+        client_id=client_id, subject="owner",
+        scope="experiments:read offline_access", resource=settings.resource,
+    )
+    with store.engine.begin() as connection:
+        connection.execute(update(oauth_clients).where(
+            oauth_clients.c.client_id == client_id
+        ).values(expires_at=now[0] - 1, persistent=False))
+
+    local.revoke({"client_id": client_id, "token": tokens["refresh_token"]})
+    with store.engine.connect() as connection:
+        assert all(connection.execute(select(oauth_tokens.c.revoked).where(
+            oauth_tokens.c.client_id == client_id
+        )).scalars())
 
 
 def test_local_oauth_failed_login_rate_limit_persists_and_expires(tmp_path, monkeypatch):

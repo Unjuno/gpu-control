@@ -1,10 +1,14 @@
+import pytest
 from sqlalchemy import create_engine, inspect, select, text, update
 
+from gpu_gateway.auth import Auth
+from gpu_gateway.config import Settings
 from gpu_gateway.migrations import (
     SCHEMA_VERSION, UnsupportedSchemaVersion, migrate, migration_status,
     schema_version,
 )
 from gpu_gateway.local_oauth import oauth_clients, oauth_tokens
+from gpu_gateway.service import GatewayError
 from gpu_gateway.store import Store
 
 
@@ -237,7 +241,7 @@ def test_unknown_future_schema_fails_closed(tmp_path):
     engine.dispose()
 
 
-def test_v8_oauth_migration_preserves_previously_used_clients(tmp_path):
+def test_v8_oauth_migration_does_not_infer_consent_from_historical_tokens(tmp_path):
     store = Store(f"sqlite:///{tmp_path / 'oauth-v8.db'}")
     store.initialize()
     client_id = "mcp_existing_client"
@@ -261,5 +265,46 @@ def test_v8_oauth_migration_preserves_previously_used_clients(tmp_path):
         row = connection.execute(select(oauth_clients).where(
             oauth_clients.c.client_id == client_id
         )).mappings().one()
-        assert row["persistent"] is True
+        assert row["persistent"] is False
     store.engine.dispose()
+
+
+def test_current_schema_revokes_legacy_inferred_client_persistence(tmp_path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'oauth-current.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    local.seed_bootstrap("setup-token")
+    local.bootstrap_admin("setup-token", "correct horse battery staple")
+    session = local.login("correct horse battery staple")
+    client_metadata = {
+        "client_name": "Legacy inferred client",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    }
+    client_id = local.register_client(client_metadata)["client_id"]
+    with store.engine.begin() as connection:
+        connection.execute(update(oauth_clients).where(
+            oauth_clients.c.client_id == client_id
+        ).values(expires_at=100, persistent=True))
+        connection.execute(schema_version.update().values(version=12))
+
+    assert migrate(store.engine) == SCHEMA_VERSION
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is False
+
+    with pytest.raises(GatewayError) as expired:
+        local._client(client_id)
+    assert expired.value.code == "invalid_client"
+    assert local.register_client(client_metadata)["client_id"] == client_id
+    local.authorize({
+        "response_type": "code", "client_id": client_id,
+        "redirect_uri": client_metadata["redirect_uris"][0],
+        "scope": "experiments:read offline_access", "resource": settings.resource,
+        "state": "reauthorize", "code_challenge": "a" * 43,
+        "code_challenge_method": "S256",
+    }, session.token, session.csrf, "approve")
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is True

@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy import (JSON, Column, Integer, MetaData, String, Table,
                         UniqueConstraint, inspect, insert, select, update)
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -275,4 +275,16 @@ def migrate(engine) -> int:
             paid_authorizations.create(connection, checkfirst=True)
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=12))
             current = 12
+        if current < 13:
+            tables = set(inspect(connection).get_table_names())
+            clients = "gateway_oauth_clients_v1"
+            if clients in tables and "persistent" in _columns(connection, clients):
+                # Schema v9 inferred owner consent from arbitrary historical
+                # token rows. Legacy state cannot prove an explicit consent
+                # POST, so require reauthorization before persistence.
+                connection.execute(update(Table(
+                    clients, MetaData(), autoload_with=connection
+                )).values(persistent=False))
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=13))
+            current = 13
     return current

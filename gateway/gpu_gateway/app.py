@@ -353,7 +353,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
             return response
         if decision != "approve":
             raise GatewayError("invalid_request", "Choose whether to approve this connection", 400)
-        code = auth.local.authorize(params, session_token)
+        code = auth.local.authorize(params, session_token, csrf, decision)
         query = {"code": code}
         if details["state"]:
             query["state"] = details["state"]

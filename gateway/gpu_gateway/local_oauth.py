@@ -346,8 +346,14 @@ class LocalOAuth:
         return {"client_id": client_id, "client_name": client["client_name"],
                 "redirect_uri": redirect_uri, "scope": scope, "state": state}
 
-    def authorize(self, params: dict, session_token: str) -> str:
+    def authorize(self, params: dict, session_token: str, csrf: str = "",
+                  decision: str = "") -> str:
         details = self.authorization_details(params, session_token)
+        expected_csrf = self.session(session_token)["csrf"]
+        if not isinstance(csrf, str) or not csrf or not secrets.compare_digest(csrf, expected_csrf):
+            raise GatewayError("csrf_failed", "OAuth authorization confirmation failed CSRF validation", 403)
+        if decision != "approve":
+            raise GatewayError("consent_required", "Explicit owner approval is required", 403)
         raw = "gc_" + secrets.token_urlsafe(32)
         now = int(time.time())
         with self.store.transaction() as c:
@@ -468,9 +474,10 @@ class LocalOAuth:
         if not isinstance(token, str) or not token:
             raise GatewayError("invalid_request", "A token is required", 400)
         client_id = form.get("client_id", "")
-        self._client(client_id)
         # Public PKCE clients have no client secret. Scope lookup to the
-        # registered client so one client cannot revoke another's credentials.
+        # token's stored client so one client cannot revoke another's
+        # credentials. Revocation remains available after a registration
+        # expires or a consent-remediation migration resets persistence.
         with self.store.transaction() as c:
             row = c.execute(select(oauth_tokens).where(
                 oauth_tokens.c.token_hash == _sha(token),
