@@ -1416,9 +1416,8 @@ def test_worker_recovery_releases_reserved_runpod_lease_before_provider_submissi
         def start_candidate_bound_with_account_lease(self, _job, _challenge):
             raise AssertionError("recovery must never create a provider resource")
 
-        def reconcile_candidate_bound_with_account_lease(self, _job, recovered_challenge):
-            assert recovered_challenge == challenge
-            return None
+        def reconcile_candidate_bound_with_account_lease(self, _job, _recovered_challenge):
+            raise AssertionError("reserved proves provider create never began; do not query the provider")
 
         def provider_job_id(self, handle): return handle["pod_id"]
         def start_candidate_bound(self, _job): raise AssertionError("legacy create path is forbidden")

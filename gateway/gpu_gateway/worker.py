@@ -731,6 +731,40 @@ class Worker:
                         self.update(job, state="submit_unknown", error="provider_account_lease_unavailable",
                                     lease_until=now + 30)
                         return True
+                    if lease.state == "reserved":
+                        # Reservation commits before the reserved→submitting
+                        # transition, and provider create follows that transition.
+                        # Therefore this durable state proves create never began;
+                        # close it locally without depending on a provider lookup.
+                        observed_at = int(self.clock())
+                        latest = self.store.read(job["id"])
+                        cancelled = latest is not None and latest.get("cancel_requested") is True
+                        terminal_state = "cancelled" if cancelled else "failed"
+                        failure_code = ("cancelled_before_submission" if cancelled
+                                        else "provider_submission_not_started")
+                        result = self._missing_backend_result(job, cleanup_pending=False)
+                        result["failure_code"] = failure_code
+                        (terminal_state, result, failure_code,
+                         record_version) = self._terminal_record(
+                            job, terminal_state, result, failure_code)
+                        finished = self.store.finish_run_after_pre_submission_abort(
+                            account_scope=lease.account_scope,
+                            run_id=job["id"], owner=job["owner"],
+                            plan_fingerprint=job["fingerprint"],
+                            lease_token=lease.lease_token,
+                            run_lease_token=job["lease_token"],
+                            core_plan_fingerprint=lease.core_plan_fingerprint,
+                            authorization_id=lease.authorization_id,
+                            state=terminal_state, result=result, error=failure_code,
+                            record_version=record_version, now=observed_at,
+                            provider="runpod",
+                        )
+                        if finished:
+                            return True
+                        self.update(job, state="submit_unknown",
+                                    error="provider_account_lease_abort_pending", lease_until=now + 5,
+                                    last_observed_at=observed_at)
+                        return True
                     try:
                         handle = backend.reconcile_candidate_bound_with_account_lease(
                             job, lease.request_challenge,
@@ -761,29 +795,6 @@ class Worker:
                     handle = backend.reconcile(job)
                 observed_at = int(self.clock())
                 if handle is None:
-                    if account_lease_intent and lease.state == "reserved":
-                        latest = self.store.read(job["id"])
-                        cancelled = latest is not None and latest.get("cancel_requested") is True
-                        result = self._missing_backend_result(job, cleanup_pending=False)
-                        failure_code = ("cancelled_before_submission" if cancelled
-                                        else "provider_submission_not_started")
-                        result["failure_code"] = failure_code
-                        finished = self.store.finish_run_after_pre_submission_abort(
-                            account_scope=lease.account_scope, run_id=job["id"], owner=job["owner"],
-                            plan_fingerprint=job["fingerprint"], lease_token=lease.lease_token,
-                            run_lease_token=job["lease_token"],
-                            core_plan_fingerprint=lease.core_plan_fingerprint,
-                            authorization_id=lease.authorization_id,
-                            state="cancelled" if cancelled else "failed", result=result,
-                            error=failure_code, record_version=2 if job.get("plan", {}).get("schema_version") == 2 else 1,
-                            now=observed_at, provider="runpod",
-                        )
-                        if finished:
-                            return True
-                        self.update(job, state="submit_unknown",
-                                    error="provider_account_lease_abort_pending", lease_until=now + 5,
-                                    last_observed_at=observed_at)
-                        return True
                     self.update(job, state="submit_unknown", error="operator_reconciliation_required",
                                 lease_until=now + 30, last_observed_at=observed_at)
                     return True
