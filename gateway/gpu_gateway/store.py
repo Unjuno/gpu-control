@@ -328,7 +328,7 @@ class Store:
             def contains_secret_key(value):
                 if isinstance(value, dict):
                     return any(
-                        re.search(r"(secret|credential|password|api.?key|access.?token|bearer|token)", str(key), re.I)
+                        re.search(r"(secret|credential|password|api.?key|access.?token|bearer|token|completion.?key|signing.?key|private.?key)", str(key), re.I)
                         or contains_secret_key(item)
                         for key, item in value.items()
                     )

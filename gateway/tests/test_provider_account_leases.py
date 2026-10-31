@@ -40,6 +40,13 @@ def test_provider_account_lease_excludes_a_second_run_until_confirmed_release(tm
         authorization_id="auth-test", lease_token=lease.lease_token,
         request_challenge={"spec": {"api_key": "must-not-persist"}}, now=100,
     )
+    for key_name in ("GPU_CONTROL_COMPLETION_KEY_B64", "adapter_signing_key", "private_key_pem"):
+        assert not store.bind_provider_account_lease_challenge(
+            account_scope=scope, run_id=first_run, owner="owner-a",
+            plan_fingerprint=plan, core_plan_fingerprint="e" * 64,
+            authorization_id="auth-test", lease_token=lease.lease_token,
+            request_challenge={"env": {key_name: "test-placeholder"}}, now=100,
+        )
     assert store.bind_provider_account_lease_challenge(
         account_scope=scope, run_id=first_run, owner="owner-a",
         plan_fingerprint=plan, core_plan_fingerprint="e" * 64,
