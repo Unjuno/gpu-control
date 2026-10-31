@@ -74,7 +74,7 @@ on `main` or passed independent GitHub review.
 | Requirement | Evidence/status |
 | --- | --- |
 | Parked mode and paid/live flags | Current `policies/repository-state.yaml` says `mode: parked` and keeps paid workflow, live paid compute, and RunPod calls disallowed. Preserve this. |
-| Main branch protection | `docs/STATUS.md` reports that `main` is unprotected. The connected GitHub account's repository metadata confirms `admin: true`, but does not expose branch protection. The connected API returns an empty repository-ruleset list, while its legacy branch-protection endpoint returns HTTP 403 `Resource not accessible by integration`; the browser settings page is logged out. A separate `gh api` attempt was rate-limited. Current settings are therefore **unverified** in this audit. |
+| Main branch protection | Verified with `gh api repos/Unjuno/gpu-control/branches/main/protection` on 2026-10-31. Requires one approving review including approval after the latest push; dismisses stale approvals; requires strict checks `Python 3.11`, `Python 3.12`, `Python 3.13`, `Trusted reference container`, `Gateway offline tests`, `Gateway comment bridge tests`, and `Project bridge tests`. Admin enforcement, linear history, and conversation resolution are enabled; force-push and deletion are disabled. No settings were changed. |
 | ChatGPT custom MCP entitlement and account setup | OpenAI's current Help Center says full custom MCP is available on ChatGPT Business and Enterprise/Edu on web; Pro is limited to read/fetch permissions. Workspace role and account policy still control creation and publishing. The intended account/plan/role has not been verified. [OpenAI setup and availability](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) |
 | OAuth refresh | The Gateway advertises `offline_access` and `refresh_token`; OpenAI's setup guidance says OAuth providers should issue refresh tokens and advertise the offline scope. The real ChatGPT authorization and refresh cycle is unverified. [OpenAI OAuth guidance](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) |
 | Production HTTPS endpoint, OAuth, and persistent runtime | On 2026-10-31, Vercel lists production deployment `dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ` READY, sourced from `main` SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`, with alias `gpu-control.vercel.app`. Read-only requests return `/healthz` configured/auth configured and built-in OAuth, `/readyz` 404, and OAuth discovery with PKCE S256/refresh/`offline_access`. This is not the P1 candidate and does not prove DB, worker, supervisor, artifacts, or ChatGPT OAuth. **P1 deployment unverified**. |
@@ -83,23 +83,21 @@ on `main` or passed independent GitHub review.
 ## P0 decision
 
 **P0 is partially complete; keep it open.** Exact repository references and the
-PR #43 disposition are recorded. The public account/workspace connection,
-production runtime, end-user ChatGPT acceptance, and current GitHub protection
-settings still lack authoritative evidence. PR #43's CPU/MCP-relevant code
-must proceed through the current P1 stack as a reviewed port; its RunPod
-changes remain deferred.
+PR #43 disposition are recorded, and `main` protection is now verified. The
+intended ChatGPT account/workspace connection, production runtime, and
+end-user ChatGPT acceptance still lack authoritative evidence. PR #43's
+CPU/MCP-relevant code must proceed through the current P1 stack as a reviewed
+port; its RunPod changes remain deferred.
 
 ## Next evidence to collect
 
-1. Verify branch protection and required checks from an authorized GitHub
-   settings view or a non-rate-limited API response; do not infer it from docs.
-2. Verify custom Remote MCP access in the intended ChatGPT account/workspace
+1. Verify custom Remote MCP access in the intended ChatGPT account/workspace
    and record its actual OAuth and callback constraints without storing tokens.
-3. Confirm the intended account has Business or Enterprise/Edu web MCP access
+2. Confirm the intended account has Business or Enterprise/Edu web MCP access
    and the required admin/owner or delegated setup permission. Review the exact
    P1 stack head, complete its security and CI gates, and only then test the
    production HTTPS/OAuth/worker configuration.
-4. Record a real ChatGPT CPU smoke acceptance with run identity, state,
+3. Record a real ChatGPT CPU smoke acceptance with run identity, state,
    cancellation/recovery, second-conversation result lookup, artifact digest,
    and cleanup evidence. Keep GPU and paid acceptance separate.
 
