@@ -200,10 +200,14 @@ class Worker:
             if not self.store.confirm_submission_dispatch(
                     run_id=job["id"], owner=job["owner"],
                     plan_fingerprint=job["fingerprint"],
-                    run_lease_token=job["lease_token"], attempt=attempt, now=now):
+                    run_lease_token=job["lease_token"], attempt=attempt, now=now,
+                    clock=self.clock):
                 latest = self.store.read(job["id"])
                 if latest and latest.get("cancel_requested") is True:
                     self.finish(job, "cancelled", error="cancelled_before_submission")
+                    return True
+                if latest and latest.get("approved_until", 0) <= int(self.clock()):
+                    self.finish(job, "expired", error="approval_expired_before_submission")
                     return True
                 self.update(job, state="submit_unknown",
                             error="submission_dispatch_claim_lost", lease_until=now + 5)

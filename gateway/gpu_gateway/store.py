@@ -95,8 +95,8 @@ class Store:
 
     def confirm_submission_dispatch(self, *, run_id: str, owner: str,
                                     plan_fingerprint: str, run_lease_token: str,
-                                    attempt: int, now: int) -> bool:
-        """Claim the provider-call boundary only if cancellation has not won."""
+                                    attempt: int, now: int, clock=None) -> bool:
+        """Claim dispatch only while the worker lease and approval remain live."""
         if (not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None or
                 not isinstance(owner, str) or not owner or len(owner) > 128 or
                 not isinstance(plan_fingerprint, str) or
@@ -115,6 +115,12 @@ class Store:
             ).with_for_update()).mappings().first()
             if row is None:
                 return False
+            # Read time after acquiring the row lock so work spent waiting for
+            # the lock cannot make a stale lease or approval look current.
+            dispatch_now = int(clock()) if clock is not None else now
+            if (dispatch_now < 0 or row["lease_until"] <= dispatch_now or
+                    row["approved_until"] <= dispatch_now):
+                return False
             intent = row["submission_intent"]
             if (not isinstance(intent, dict) or intent.get("run_id") != run_id or
                     intent.get("owner") != owner or
@@ -129,7 +135,7 @@ class Store:
                 runs.c.id == run_id, runs.c.owner == owner,
                 runs.c.fingerprint == plan_fingerprint,
                 runs.c.lease_token == run_lease_token,
-                runs.c.lease_until > now, runs.c.state == "submitting",
+                runs.c.lease_until > dispatch_now, runs.c.state == "submitting",
                 runs.c.attempt == attempt, runs.c.cancel_requested.is_(False),
             ).values(submission_intent=intent | {"phase": "provider_call_started"}))
             return changed.rowcount == 1
