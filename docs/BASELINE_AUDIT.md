@@ -138,3 +138,40 @@ readiness contract therefore remain unobserved on that candidate. This is
 consistent with deployment protection, not evidence that the route itself
 fails. Production `/readyz` remains 404. No share/bypass token, Vercel
 configuration, deployment, or authentication credential was created or used.
+
+### P0/P1 gate refresh — 2026-10-31 16:18 JST
+
+- Refreshed `main` remains `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`.
+  The exact PR #43 base/head remain
+  `a96a24818a5f8bc03b479c35b5e3f957f08dbe04` /
+  `1699b75df8262023501d41279e83bf429dca1be4`; PR #43 is OPEN/DRAFT,
+  BEHIND, and REVIEW_REQUIRED.
+- PR #63 remains OPEN/DRAFT at
+  `97923469b86550394f59845e3a48bea1b1a5dc09`, based on current `main`;
+  GitHub reports BLOCKED/REVIEW_REQUIRED and no reviews. Its CI/Vercel
+  rollup is successful. Its audit is still only a partial P0 result.
+- PR #65 is OPEN/DRAFT at
+  `4ae46ab5478c6c5c4037ea1c493e80536cce48c0`, based on the exact PR #62 head
+  `317240d2224e05e23aa5bb190ce7a4f0fc101c01`. All seven Actions contexts,
+  Vercel deployment, and Vercel Preview Comments succeeded after the latest
+  docs commit. No GitHub review is submitted. Its local missing-workload-file
+  regression fix does not resolve the Preview runtime failure: protected
+  `/healthz` and `/readyz` requests to the source-matched code returned HTTP
+  500 `FUNCTION_INVOCATION_FAILED` at 07:15 UTC, and request-ID-scoped Vercel
+  log queries returned no records. This failure's cause remains unknown.
+- Fresh unauthenticated requests to the production alias returned
+  `/healthz`=200, `/readyz`=404, `/mcp`=401, and both OAuth discovery routes=200.
+  These establish route reachability only; no OAuth grant, ChatGPT tool
+  discovery, CPU execution, or result retrieval was exercised.
+- A fresh `main` branch-protection read still requires one approval, stale
+  review dismissal, strict required checks (`Python 3.11`, `Python 3.12`,
+  `Python 3.13`, `Trusted reference container`, `Gateway offline tests`,
+  `Gateway comment bridge tests`, and `Project bridge tests`), admin
+  enforcement, and conversation resolution. `origin/main` continues to
+  declare `mode: parked`, with paid workflow, live paid compute, and RunPod
+  live calls disallowed.
+
+P0 remains partially complete and open. The repository audit is current, but
+independent review/merge, readiness-capable production deployment, eligible
+ChatGPT OAuth, and the real CPU lifecycle acceptance remain outstanding. Keep
+all GPU and spending gates closed.
