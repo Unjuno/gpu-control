@@ -265,6 +265,20 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         except GatewayError as exc:
             return JSONResponse({"error": exc.code, "error_description": exc.message}, exc.status, headers={"Cache-Control":"no-store"})
 
+    @app.post("/oauth/revoke")
+    async def oauth_revoke(request: Request):
+        ready()
+        if auth.external or auth.local is None:
+            raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
+        try:
+            auth.local.revoke(await form(request))
+            return Response(status_code=200, headers={
+                "Cache-Control": "no-store", "Pragma": "no-cache",
+            })
+        except GatewayError as exc:
+            return JSONResponse({"error": exc.code, "error_description": exc.message}, exc.status,
+                                headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+
     @app.get("/api/session")
     def session(request: Request):
         ready()

@@ -17,6 +17,43 @@ MAX_ARTIFACTS_PER_RUN = 10
 ARTIFACT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
+def inspect_artifact_storage(root: str, minimum_free_bytes: int = 0) -> dict:
+    """Report whether the configured artifact filesystem can accept writes."""
+    if type(minimum_free_bytes) is not int or minimum_free_bytes < 0:
+        return {"configured": bool(root), "available": False, "free_bytes": None,
+                "reason": "invalid_minimum_free_bytes"}
+    if not isinstance(root, str) or not root:
+        return {"configured": False, "available": False, "free_bytes": None,
+                "reason": "not_configured"}
+    try:
+        path = Path(root).expanduser()
+        if path.is_symlink():
+            return {"configured": True, "available": False, "free_bytes": None,
+                    "reason": "symlink"}
+        if not path.is_dir():
+            return {"configured": True, "available": False, "free_bytes": None,
+                    "reason": "not_directory"}
+        if (minimum_free_bytes > 0 and
+                path.stat().st_dev == path.parent.stat().st_dev):
+            return {"configured": True, "available": False, "free_bytes": None,
+                    "minimum_free_bytes": minimum_free_bytes,
+                    "reason": "not_dedicated_filesystem"}
+        if not os.access(path, os.R_OK | os.W_OK | os.X_OK):
+            return {"configured": True, "available": False, "free_bytes": None,
+                    "reason": "permissions"}
+        values = os.statvfs(path)
+        free_bytes = values.f_bavail * values.f_frsize
+        available = free_bytes > 0 and free_bytes >= minimum_free_bytes
+        return {"configured": True, "available": available,
+                "free_bytes": free_bytes,
+                "minimum_free_bytes": minimum_free_bytes,
+                "reason": (None if available else "no_free_space" if free_bytes == 0
+                           else "below_minimum_free_bytes")}
+    except Exception:
+        return {"configured": True, "available": False, "free_bytes": None,
+                "reason": "unavailable"}
+
+
 class ArtifactStore:
     """Filesystem blob store; callers must establish run ownership in the DB."""
 

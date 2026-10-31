@@ -11,7 +11,8 @@ from decimal import Decimal
 
 from sqlalchemy import and_, or_, select, update
 
-from .artifacts import ArtifactStore, MAX_ARTIFACTS_PER_RUN, MAX_RUN_ARTIFACT_BYTES
+from .artifacts import (ArtifactStore, MAX_ARTIFACTS_PER_RUN,
+                        MAX_RUN_ARTIFACT_BYTES, inspect_artifact_storage)
 from .backends import Backend, Observation, build_backends
 from .config import Settings, load_workloads
 from .registry import default_registry
@@ -104,6 +105,7 @@ class Worker:
             "source_sha": plan["source_sha"],
             "plan_fingerprint": job["fingerprint"],
             "provider": plan["provider"],
+            "image_digest": plan.get("image_digest"),
             "simulation": False,
             "gpu_used": None,
             "device": None,
@@ -273,6 +275,12 @@ class Worker:
                     if quote * Decimal(plan["runtime_seconds"]) / Decimal(3600) > Decimal(plan["max_cost_usd"]):
                         self.finish(job, "failed", error="cost_limit")
                         return True
+            if plan["provider"] == "local_cpu":
+                storage = inspect_artifact_storage(
+                    self.settings.artifact_dir, self.settings.artifact_min_free_bytes)
+                if not storage["available"]:
+                    self.finish(job, "failed", error="ARTIFACT_STORAGE_UNAVAILABLE")
+                    return True
             attempt = int(job.get("attempt") or 0) + 1
             intent = {"provider": plan["provider"], "owner": job["owner"], "run_id": job["id"],
                       "attempt": attempt, "plan_fingerprint": job["fingerprint"],

@@ -90,6 +90,9 @@ class ResultV2(StrictContract):
     source_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     plan_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    # Optional for already-persisted schema-v2 records; new local CPU results
+    # must bind this value to the immutable image in the plan.
+    image_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     simulation: bool
     gpu_used: bool | None
     device: str | None
@@ -139,5 +142,6 @@ def plan_fingerprint(plan: PlanV2) -> str:
 def validate_result_binding(plan: PlanV2, fingerprint: str, result: ResultV2) -> None:
     """Reject result identity that disagrees with its persisted run plan."""
     if (fingerprint != plan_fingerprint(plan) or result.source_sha != plan.source_sha or
-            result.plan_fingerprint != fingerprint):
+            result.plan_fingerprint != fingerprint or
+            plan.provider == "local_cpu" and result.image_digest != plan.image_digest):
         raise ValueError("result identity does not match the persisted plan")

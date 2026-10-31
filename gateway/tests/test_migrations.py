@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, inspect, select, text
 
 from gpu_gateway.migrations import (
     UnsupportedSchemaVersion, migrate, schema_version,
@@ -55,8 +55,8 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
     _legacy_v1(engine)
 
-    assert migrate(engine) == 6
-    assert migrate(engine) == 6
+    assert migrate(engine) == 7
+    assert migrate(engine) == 7
     store = Store(str(engine.url))
     store.initialize()
 
@@ -78,32 +78,43 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     with engine.connect() as connection:
         assert connection.execute(text("SELECT token_hash FROM gateway_oauth_tokens_v1")).scalar_one() == "secret-hash"
         assert connection.execute(text("SELECT worker_seen_at, supervisor_seen_at FROM gateway_control_v1 WHERE id=1")).one() == (123, 0)
+        assert "grant_id" in {column["name"] for column in inspect(connection).get_columns("gateway_oauth_tokens_v1")}
     engine.dispose()
 
 
 def test_fresh_database_migrates_before_table_creation(tmp_path):
     database = f"sqlite:///{tmp_path / 'fresh.db'}"
     store = Store(database)
-    assert migrate(store.engine) == 6
+    assert migrate(store.engine) == 7
     store.initialize()
     assert store.read("no-such-run") is None
     engine = store.engine
     engine.dispose()
 
 
-def test_v5_migration_adds_nullable_last_observed_at(tmp_path):
-    store = Store(f"sqlite:///{tmp_path / 'v5.db'}")
+def test_v6_migration_adds_oauth_grant_id_without_rewriting_existing_tokens(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'v6.db'}")
     store.initialize()
     with store.engine.begin() as connection:
-        connection.exec_driver_sql('ALTER TABLE gateway_runs_v1 DROP COLUMN "last_observed_at"')
-        connection.execute(schema_version.update().values(version=5))
+        connection.exec_driver_sql('ALTER TABLE gateway_oauth_tokens_v1 DROP COLUMN "grant_id"')
+        connection.exec_driver_sql("""
+            INSERT INTO gateway_oauth_tokens_v1
+            (token_hash, kind, client_id, subject, scope, resource, expires_at, created_at, revoked)
+            VALUES ('token-hash', 'refresh', 'client', 'owner', 'offline_access',
+                    'https://gateway.example/mcp', 1000, 10, 0)
+        """)
+        connection.execute(schema_version.update().values(version=6))
 
-    assert migrate(store.engine) == 6
-    assert migrate(store.engine) == 6
-    row = store.read("missing")
-    assert row is None
+    assert migrate(store.engine) == 7
+    assert migrate(store.engine) == 7
     with store.engine.connect() as connection:
-        assert connection.execute(select(schema_version.c.version)).scalar_one() == 6
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == 7
+        assert "grant_id" in {column["name"] for column in
+                              inspect(store.engine).get_columns("gateway_oauth_tokens_v1")}
+        token = connection.exec_driver_sql(
+            "SELECT token_hash, grant_id FROM gateway_oauth_tokens_v1"
+        ).one()
+        assert token == ("token-hash", None)
     store.engine.dispose()
 
 

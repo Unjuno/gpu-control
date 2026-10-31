@@ -1,19 +1,39 @@
 import json
 from dataclasses import replace
+from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import delete, select, update
 
 from gpu_gateway.config import Workload
-from gpu_gateway.experiment_api import invoke
+from gpu_gateway.experiment_api import _gpu_requirements, invoke
 from gpu_gateway.protocol import CHATGPT_NAMES, dispatch, tools
 from gpu_gateway.registry import ProviderRegistration
 from gpu_gateway.service import GatewayError, Prepare, Principal
 from gpu_gateway.store import control, runs
 from gpu_gateway.worker import Worker
+from gpu_control.workloads import (
+    AcceleratorKind,
+    NetworkRequirement,
+    ResultTransport,
+    WorkloadRequirements,
+)
 
 REPOSITORY = "Unjuno/gpu-control"
 SOURCE_SHA = "a" * 40
+
+
+def fake_dedicated_filesystem(monkeypatch, root):
+    original_stat = Path.stat
+
+    def stat_with_separate_device(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        return SimpleNamespace(st_dev=2 if path == root else result.st_dev,
+                               st_mode=result.st_mode)
+
+    monkeypatch.setattr("gpu_gateway.artifacts.Path.stat", stat_with_separate_device)
 
 
 def test_canonical_tool_surface_is_eight_tools_and_legacy_remains(system):
@@ -42,6 +62,150 @@ def test_capabilities_do_not_describe_demo_as_executable(system):
     result = invoke(system.service, system.owner, "experiment_capabilities", {})
     assert result["status"] == "blocked"
     assert result["blocking_reason"] == "NO_QUEUEABLE_RESOURCE"
+
+
+def test_gpu_capabilities_explain_selection_boundary_without_fabricating_evidence(system):
+    system.service.workloads["gpu"] = Workload(
+        provider="modal", image_id="im-fixed", argv=("python", "run.py"),
+        source_revision="fixed", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=True, max_cost_usd="0.01",
+    )
+    system.service.workloads["cpu"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, execution_profile="smoke",
+        image_digest="sha256:" + "e" * 64,
+    )
+    result = invoke(system.service, system.owner, "experiment_capabilities", {})
+    gpu = next(item for item in result["machine_state"]["resources"]
+               if item["workload"] == "gpu")
+    assert gpu["availability"] == "blocked"
+    assert gpu["submission_available"] is False
+    assert gpu["candidate_selection"] == {
+        "status": "not_evaluated",
+        "blocking_reason": "WORKLOAD_REQUIREMENTS_INCOMPLETE",
+        "missing_workload_requirements": [
+            "operating_system", "architecture", "gpu_count", "minimum_vram_mib",
+            "network_requirement", "result_transport", "max_result_bytes",
+            "cancellation_required", "cleanup_proof_required",
+        ],
+        "provider_evidence": "NOT_AVAILABLE",
+        "alternatives": [
+            {"kind": "local_cpu_workload", "workload": "cpu"},
+            {"kind": "paid_gpu_path", "status": "unavailable_until_live_acceptance"},
+        ],
+    }
+
+
+def test_gpu_capabilities_run_selector_for_complete_manifest_and_report_missing_evidence(system):
+    system.service.workloads["gpu"] = Workload(
+        provider="modal", image_id="im-fixed", argv=("python", "run.py"),
+        source_revision="fixed", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=True, gpu="A10G", cpu=4, memory_mib=16384,
+        max_runtime_seconds=300, max_cost_usd="0.25",
+        operating_system="linux", architecture="x86_64", gpu_count=1,
+        minimum_vram_mib=20000, network_requirement="disabled",
+        result_transport="object_storage", max_result_bytes=1024 * 1024,
+        cancellation_required=True, cleanup_proof_required=True,
+    )
+    result = invoke(system.service, system.owner, "experiment_capabilities", {})
+    gpu = next(item for item in result["machine_state"]["resources"]
+               if item["workload"] == "gpu")
+    selection = gpu["candidate_selection"]
+    assert selection["status"] == "not_evaluated"
+    assert selection["blocking_reason"] == "PROVIDER_EVIDENCE_UNAVAILABLE"
+    assert selection["missing_workload_requirements"] == []
+    assert selection["provider_evidence"] == "NOT_AVAILABLE"
+    expected_requirements = WorkloadRequirements(
+        workload_id="gpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        operating_system="linux", architecture="x86_64",
+        accelerator_kind=AcceleratorKind.GPU, gpu_profile="a10g", gpu_count=1,
+        minimum_vram_mib=20000, minimum_cpu_cores=Decimal("4"),
+        minimum_memory_mib=16384, max_runtime_seconds=300,
+        network_requirement=NetworkRequirement.DISABLED,
+        result_transport=ResultTransport.OBJECT_STORAGE,
+        max_result_bytes=1024 * 1024, cancellation_required=True,
+        cleanup_proof_required=True,
+    )
+    assert selection["workload_fingerprint"] == expected_requirements.fingerprint()
+    assert selection["selector_result"]["workload_fingerprint"] == expected_requirements.fingerprint()
+    assert selection["selector_result"]["blocking_reason"] == "PROVIDER_EVIDENCE_UNAVAILABLE"
+
+
+def test_example_gpu_manifest_states_p4_requirements_but_stays_blocked_until_source_identity():
+    payload = json.loads((Path(__file__).parent.parent / "examples/workloads.json").read_text())
+    workload = Workload.model_validate(payload["gpu-smoke"])
+    requirements, missing = _gpu_requirements("gpu-smoke", workload)
+    assert requirements is None
+    assert missing == ["source_repository", "source_sha"]
+
+
+def test_capabilities_block_artifact_producing_cpu_without_available_storage(system):
+    system.service.workloads["cpu"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, max_cost_usd="0.01", execution_profile="smoke",
+        image_digest="sha256:" + "d" * 64,
+    )
+    system.service.registry["local_cpu"] = ProviderRegistration(
+        "local_cpu", "local_worker_container", lambda _: True, lambda _: None,
+    )
+    result = invoke(system.service, system.owner, "experiment_capabilities", {})
+    state = result["machine_state"]
+    cpu = next(resource for resource in state["resources"] if resource["workload"] == "cpu")
+    assert state["artifact_storage"]["reason"] == "not_configured"
+    assert cpu["submission_available"] is False
+    assert "ARTIFACT_STORAGE_UNAVAILABLE" in cpu["blocking_reasons"]
+    assert cpu["quota_status"] == "LOCAL_CAPACITY_UNVERIFIED"
+
+
+def test_capabilities_block_when_artifact_headroom_is_below_configured_floor(system, tmp_path, monkeypatch):
+    system.service.workloads["cpu"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, max_cost_usd="0.01", execution_profile="smoke",
+        image_digest="sha256:" + "d" * 64,
+    )
+    system.service.registry["local_cpu"] = ProviderRegistration(
+        "local_cpu", "local_worker_container", lambda _: True, lambda _: None,
+    )
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    system.service.settings = replace(system.settings, artifact_dir=str(root),
+                                      artifact_min_free_bytes=10 * 1024 * 1024)
+    fake_dedicated_filesystem(monkeypatch, root)
+    monkeypatch.setattr("gpu_gateway.artifacts.os.statvfs", lambda _: SimpleNamespace(
+        f_bavail=8, f_frsize=1024 * 1024))
+    result = invoke(system.service, system.owner, "experiment_capabilities", {})
+    state = result["machine_state"]
+    cpu = next(resource for resource in state["resources"] if resource["workload"] == "cpu")
+    assert state["artifact_storage"]["reason"] == "below_minimum_free_bytes"
+    assert state["artifact_storage"]["minimum_free_bytes"] == 10 * 1024 * 1024
+    assert "ARTIFACT_STORAGE_UNAVAILABLE" in cpu["blocking_reasons"]
+
+
+def test_capabilities_fail_closed_when_artifact_capacity_query_raises(system, tmp_path, monkeypatch):
+    system.service.workloads["cpu"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, max_cost_usd="0.01", execution_profile="smoke",
+        image_digest="sha256:" + "d" * 64,
+    )
+    system.service.registry["local_cpu"] = ProviderRegistration(
+        "local_cpu", "local_worker_container", lambda _: True, lambda _: None,
+    )
+    root = tmp_path / "artifacts"
+    root.mkdir()
+
+    def capacity_failure(_path):
+        raise OSError("simulated statvfs failure")
+
+    system.service.settings = replace(system.settings, artifact_dir=str(root))
+    monkeypatch.setattr("gpu_gateway.artifacts.os.statvfs", capacity_failure)
+    result = invoke(system.service, system.owner, "experiment_capabilities", {})
+    cpu = next(resource for resource in result["machine_state"]["resources"]
+               if resource["workload"] == "cpu")
+    assert result["status"] == "blocked"
+    assert result["machine_state"]["artifact_storage"]["reason"] == "unavailable"
+    assert cpu["submission_available"] is False
+    assert "ARTIFACT_STORAGE_UNAVAILABLE" in cpu["blocking_reasons"]
+    assert cpu["quota_status"] == "LOCAL_CAPACITY_UNVERIFIED"
 
 
 @pytest.mark.parametrize("failure", ["connection", "missing_control_row"])
@@ -198,6 +362,40 @@ def test_prepare_blocks_unregistered_or_unsafe_backend_without_creating_run(syst
         assert connection.execute(select(runs.c.id)).first() is None
 
 
+def test_prepare_rechecks_artifact_storage_headroom_before_creating_run(system, tmp_path, monkeypatch):
+    system.service.workloads["cpu"] = Workload(
+        provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
+        requires_gpu=False, max_cost_usd="0.01", execution_profile="smoke",
+        image_digest="sha256:" + "d" * 64,
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    )
+    system.service.registry = {"local_cpu": ProviderRegistration("local_cpu", "local_cpu", lambda _: True, lambda _: None)}
+    policy = {"version": "local-cpu-v1", "enabled": True,
+              "valid_until": int(system.clock()) + 60, "workloads": ["cpu"],
+              "max_runtime_seconds": 30, "max_cost_usd": "0.00",
+              "allowed_profiles": ["smoke"]}
+    policy_path = tmp_path / "local-policy.json"
+    policy_path.write_text(json.dumps(policy))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    system.service.settings = replace(system.settings, artifact_dir=str(artifact_root),
+                                      artifact_min_free_bytes=10 * 1024 * 1024)
+    fake_dedicated_filesystem(monkeypatch, artifact_root)
+    monkeypatch.setattr("gpu_gateway.artifacts.os.statvfs", lambda _: SimpleNamespace(
+        f_bavail=8, f_frsize=1024 * 1024))
+    args = {"repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "cpu",
+            "parameters": {}, "runtime_seconds": 20, "max_cost_usd": "0.00", "requires_gpu": False,
+            "idempotency_key": "cpu-storage-0001"}
+    result = invoke(system.service, system.owner, "experiment_prepare", args)
+    assert result["blocking_reason"] == "ARTIFACT_STORAGE_UNAVAILABLE"
+    assert result["machine_state"]["artifact_storage"]["reason"] == "below_minimum_free_bytes"
+    assert result["machine_state"]["artifact_storage"]["free_bytes"] == 8 * 1024 * 1024
+    assert result["machine_state"]["artifact_storage"]["minimum_free_bytes"] == 10 * 1024 * 1024
+    with system.store.engine.connect() as connection:
+        assert connection.execute(select(runs.c.id)).first() is None
+
+
 def test_prepare_persists_distinct_operator_local_authorization(tmp_path, monkeypatch, system):
     system.service.workloads["cpu"] = Workload(
         provider="local_cpu", source_repository=REPOSITORY, source_sha=SOURCE_SHA,
@@ -212,6 +410,9 @@ def test_prepare_persists_distinct_operator_local_authorization(tmp_path, monkey
                     "allowed_profiles": ["smoke"]}
     policy_path = tmp_path / "local-policy.json"
     policy_path.write_text(json.dumps(local_policy))
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    system.service.settings = replace(system.settings, artifact_dir=str(artifact_root))
     monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
     args = {"repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "cpu",
             "runtime_seconds": 20, "max_cost_usd": "0.00", "requires_gpu": False,

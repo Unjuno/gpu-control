@@ -13,6 +13,9 @@ from gpu_gateway.config import Settings
 from gpu_gateway.contracts import PlanV2, plan_fingerprint
 from gpu_gateway.local_backend import LocalContainerBackend
 
+CPU_SMOKE_SOURCE_REPOSITORY = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY", "Unjuno/gpu-control")
+CPU_SMOKE_SOURCE_SHA = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_SHA", "a" * 40)
+
 
 def _docker_ready():
     docker = shutil.which("docker")
@@ -28,7 +31,7 @@ def _docker_ready():
 def test_real_cpu_smoke_result():
     now = int(time.time())
     plan = PlanV2(
-        schema_version=2, repository="Unjuno/gpu-control", source_sha="a" * 40,
+        schema_version=2, repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
         workload="cpu-smoke-v1", workload_manifest_digest="b" * 64,
         image_digest=os.environ["GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST"],
         parameters={"iterations": 1000, "seed": 17}, provider="local_cpu",

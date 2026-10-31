@@ -24,6 +24,16 @@ class Workload(BaseModel):
     requires_gpu: bool = True
     argv: tuple[str, ...] = ()
     gpu: str = "T4"
+    # Explicit P4 compatibility requirements. None means unknown, never inferred.
+    operating_system: str | None = None
+    architecture: str | None = None
+    gpu_count: int | None = Field(default=None, ge=1, le=16)
+    minimum_vram_mib: int | None = Field(default=None, ge=1, le=1_048_576)
+    network_requirement: str | None = Field(default=None, pattern=r"^(disabled|restricted|required)$")
+    result_transport: str | None = Field(default=None, pattern=r"^(shared_filesystem|object_storage|database|stdout)$")
+    max_result_bytes: int | None = Field(default=None, ge=1, le=1_073_741_824)
+    cancellation_required: bool | None = None
+    cleanup_proof_required: bool | None = None
     cpu: float = Field(default=1, ge=0.125, le=8)
     memory_mib: int = Field(default=4096, ge=128, le=65536)
     max_runtime_seconds: int = Field(default=600, ge=1, le=3600)
@@ -95,6 +105,7 @@ class Settings:
     max_request_bytes: int = 65536
     max_output_bytes: int = 65536
     artifact_dir: str = ""
+    artifact_min_free_bytes: int = 0
     max_job_cost_usd: Decimal = Decimal("1")
     max_open_requests: int = 100
     hosted: bool = False
@@ -137,6 +148,8 @@ class Settings:
             raise ValueError("max_inflight must be between 1 and 10")
         if not 1 <= self.approval_ttl_seconds <= 900:
             raise ValueError("approval TTL must be between 1 and 900 seconds")
+        if type(self.artifact_min_free_bytes) is not int or self.artifact_min_free_bytes < 0:
+            raise ValueError("artifact_min_free_bytes must be a nonnegative integer")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -171,6 +184,7 @@ class Settings:
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
             max_job_cost_usd=Decimal(e.get("GATEWAY_MAX_JOB_COST_USD", "1")),
             artifact_dir=e.get("GATEWAY_ARTIFACT_DIR", ""),
+            artifact_min_free_bytes=int(e.get("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "0")),
             hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
         )
         value.validate()

@@ -18,6 +18,9 @@ from gpu_gateway.service import ExperimentService, Principal
 from gpu_gateway.store import Store, control, runs
 from gpu_gateway.worker import Worker
 
+CPU_SMOKE_SOURCE_REPOSITORY = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY", "Unjuno/gpu-control")
+CPU_SMOKE_SOURCE_SHA = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_SHA", "a" * 40)
+
 
 def _docker_ready():
     docker = shutil.which("docker")
@@ -38,7 +41,9 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
     docker = shutil.which("docker") or "docker"
     pg_container = os.environ["GPU_CONTROL_POSTGRES_CONTAINER"]
     url = os.environ["GATEWAY_TEST_DATABASE_URL"]
-    settings = Settings(database_url=url, artifact_dir=str(tmp_path / "artifacts"))
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    settings = Settings(database_url=url, artifact_dir=str(artifact_root))
     store = Store(url)
     store.initialize()
     scopes = frozenset({"experiments:read", "experiments:run", "experiments:cancel"})
@@ -53,7 +58,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
     monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
 
     workload = Workload(provider="local_cpu", image_digest=image, execution_profile="smoke",
-        requires_gpu=False, source_repository="Unjuno/gpu-control", source_sha="a" * 40,
+        requires_gpu=False, source_repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
         max_runtime_seconds=30, max_cost_usd=Decimal("0.01"),
         parameter_schema={"type": "object", "properties": {
             "iterations": {"type": "integer", "minimum": 1, "maximum": 20_000_000},
@@ -61,7 +66,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
             "additionalProperties": False})
     service = ExperimentService(store, settings, {"cpu-smoke-v1": workload})
     candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
-        repository="Unjuno/gpu-control", source_sha="a" * 40,
+        repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
         parameters={"iterations": 20_000_000, "seed": 91}, runtime_seconds=30,
         max_cost_usd="0.00", now=now, policy=policy)
     prepared = service.prepare_local(principal, candidate, "pg-outage-" + uuid.uuid4().hex,
@@ -90,7 +95,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
         def is_clean(self, handle): return base_backend.is_clean(handle)
 
     outage_backend = StopDatabaseAfterTerminalCapture()
-    outage_worker = Worker(store, settings, {"local_cpu": outage_backend})
+    outage_worker = Worker(store, settings, {"local_cpu": outage_backend}, workloads=service.workloads)
     try:
         assert outage_worker.tick()  # Submit the real container.
         deadline = time.monotonic() + 40
@@ -123,7 +128,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
         with store.transaction() as connection:
             connection.execute(update(runs).where(runs.c.id == run_id).values(lease_until=0))
 
-        recovery_worker = Worker(store, settings, build_backends(settings))
+        recovery_worker = Worker(store, settings, build_backends(settings), workloads=service.workloads)
         deadline = time.monotonic() + 40
         while time.monotonic() < deadline:
             assert recovery_worker.tick()

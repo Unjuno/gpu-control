@@ -111,7 +111,8 @@ def test_restarted_supervisor_finishes_cancel_after_crash_during_cleanup_pending
     handle = {"container_id": "a" * 64}
     result = {
         "schema_version": 2, "run_id": created["id"], "source_sha": candidate.source_sha,
-        "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+        "plan_fingerprint": fingerprint, "provider": "local_cpu",
+        "image_digest": candidate.image_digest, "simulation": False,
         "gpu_used": False, "device": "cpu", "exit_code": 0,
         "started_at": now - 3, "finished_at": now - 1, "runtime_seconds": 2.0,
         "metrics": {}, "checks": [], "checksum": None, "artifacts": [],

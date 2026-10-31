@@ -1,13 +1,15 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+WORKDIR /app/gateway
 
-COPY requirements.txt requirements-test.txt requirements-worker.txt ./
+COPY gateway/requirements.txt gateway/requirements-test.txt gateway/requirements-worker.txt ./
+COPY pyproject.toml README.md /app/
+COPY src/ /app/src/
 RUN pip install --no-cache-dir -r requirements.txt
 RUN useradd --uid 10001 --create-home gateway
 
-COPY gpu_gateway ./gpu_gateway
-COPY app.py ./app.py
+COPY gateway/gpu_gateway ./gpu_gateway
+COPY gateway/app.py ./app.py
 
 USER gateway
 

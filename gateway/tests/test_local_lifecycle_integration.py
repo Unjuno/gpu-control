@@ -13,11 +13,14 @@ from sqlalchemy import update
 
 from gpu_gateway.backends import build_backends
 from gpu_gateway.artifacts import ArtifactStore
-from gpu_gateway.config import Settings, Workload
+from gpu_gateway.config import Settings, Workload, load_workloads
 from gpu_gateway.admission import evaluate_admission, plan_for_workload
 from gpu_gateway.contracts import plan_fingerprint
 from gpu_gateway.store import runs
 from gpu_gateway.worker import Worker
+
+CPU_SMOKE_SOURCE_REPOSITORY = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY", "Unjuno/gpu-control")
+CPU_SMOKE_SOURCE_SHA = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_SHA", "a" * 40)
 
 
 def _docker_ready():
@@ -30,8 +33,11 @@ def _docker_ready():
 @pytest.mark.skipif(not os.environ.get("GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST"),
                     reason="prebuilt digest-pinned CPU smoke image is not configured")
 def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_path, monkeypatch):
-    system.settings = replace(system.settings, artifact_dir=str(tmp_path / "artifacts"))
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    system.settings = replace(system.settings, artifact_dir=str(artifact_root))
     system.service.settings = system.settings
+    monkeypatch.setenv("GATEWAY_ARTIFACT_DIR", str(artifact_root))
     image = os.environ["GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST"]
     now = int(system.clock())
     policy = {"version": "local-cpu-v1", "enabled": True, "valid_until": now + 60,
@@ -41,15 +47,18 @@ def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_p
     policy_path.write_text(json.dumps(policy))
     monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
     workload = Workload(provider="local_cpu", image_digest=image, execution_profile="smoke",
-        requires_gpu=False, source_repository="Unjuno/gpu-control", source_sha="a" * 40,
+        requires_gpu=False, source_repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
         max_runtime_seconds=30, max_cost_usd="0.01",
         parameter_schema={"type": "object", "properties": {
             "iterations": {"type": "integer", "minimum": 1, "maximum": 20_000_000},
             "seed": {"type": "integer"}}, "required": ["iterations", "seed"],
             "additionalProperties": False})
     system.service.workloads["cpu-smoke-v1"] = workload
+    registry_path = tmp_path / "workloads.json"
+    registry_path.write_text(json.dumps({"cpu-smoke-v1": workload.model_dump(mode="json")}))
+    monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(registry_path))
     candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
-        repository="Unjuno/gpu-control", source_sha="a" * 40,
+        repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
         parameters={"iterations": 1000, "seed": 17}, runtime_seconds=30,
         max_cost_usd="0.00", now=now, policy=policy)
     prepared = system.service.prepare_local(system.owner, candidate, "os-crash-recovery-0001",
@@ -63,17 +72,18 @@ def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_p
     child = r'''
 import os, sys
 from gpu_gateway.backends import build_backends
-from gpu_gateway.config import Settings
+from gpu_gateway.config import Settings, load_workloads
 from gpu_gateway.store import Store
 from gpu_gateway.worker import Worker
-settings = Settings(database_url=sys.argv[1])
+settings = Settings(database_url=sys.argv[1], artifact_dir=os.environ.get("GATEWAY_ARTIFACT_DIR", ""))
 class CrashAfterDockerStart:
     def __init__(self): self.backend = build_backends(settings)["local_cpu"]
     def start(self, job):
         self.backend.start(job)
         os._exit(73)
     def __getattr__(self, name): return getattr(self.backend, name)
-Worker(Store(settings.database_url), settings, {"local_cpu": CrashAfterDockerStart()}).tick()
+Worker(Store(settings.database_url), settings, {"local_cpu": CrashAfterDockerStart()},
+       workloads=load_workloads()).tick()
 os._exit(74)
 '''
     process = subprocess.run([sys.executable, "-c", child, system.settings.database_url],
@@ -87,7 +97,7 @@ os._exit(74)
                            check=True, capture_output=True, text=True, timeout=10).stdout.split()
     assert len(found) == 1
     crashed_row = system.store.read(created["id"])
-    assert crashed_row["submission_intent"]["phase"] == "dispatching"
+    assert crashed_row["submission_intent"]["phase"] == "provider_call_started"
     assert crashed_row["submission_intent"]["attempt"] == 1
 
     # Force the persisted lease to expire, as would happen after process death.
@@ -98,7 +108,7 @@ os._exit(74)
 
     recovery_supervisor = Worker(system.store, system.settings,
                                  build_backends(system.settings), system.clock,
-                                 role="supervisor")
+                                 workloads=system.service.workloads, role="supervisor")
     cancel_run_id = None
     try:
         deadline = time.monotonic() + 35
@@ -128,11 +138,12 @@ os._exit(74)
 
         # New submissions are disabled after this second run starts. Cancellation
         # and cleanup must still work for an already-admitted resource.
-        worker = Worker(system.store, system.settings, build_backends(system.settings), system.clock)
+        worker = Worker(system.store, system.settings, build_backends(system.settings), system.clock,
+                        workloads=system.service.workloads)
         next_now = int(system.clock())
         cancel_candidate = plan_for_workload(workload_name="cpu-smoke-v1",
-            workload_manifest=workload.model_dump(mode="json"), repository="Unjuno/gpu-control",
-            source_sha="a" * 40, parameters={"iterations": 20_000_000, "seed": 18},
+            workload_manifest=workload.model_dump(mode="json"), repository=CPU_SMOKE_SOURCE_REPOSITORY,
+            source_sha=CPU_SMOKE_SOURCE_SHA, parameters={"iterations": 20_000_000, "seed": 18},
             runtime_seconds=30, max_cost_usd="0.00", now=next_now, policy=policy)
         cancel_prepared = system.service.prepare_local(system.owner, cancel_candidate,
             "cancel-after-policy-off-0001", policy, evaluate_admission(cancel_candidate, policy, next_now))
@@ -148,7 +159,7 @@ os._exit(74)
             connection.execute(update(runs).where(runs.c.id == cancel_queued["id"]).values(lease_until=0))
         recovery_supervisor = Worker(system.store, system.settings,
                                      build_backends(system.settings), system.clock,
-                                     role="supervisor")
+                                     workloads=system.service.workloads, role="supervisor")
         assert recovery_supervisor.tick()
         cancelled = system.store.read(cancel_queued["id"])
         assert cancelled["state"] == "cancelled"
