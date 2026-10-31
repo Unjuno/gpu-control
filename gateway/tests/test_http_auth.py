@@ -115,6 +115,18 @@ def test_configuration_failure_is_closed():
     assert client.post("/mcp", json={}).status_code == 503
 
 
+def test_missing_workload_file_keeps_health_routes_available(monkeypatch, tmp_path):
+    monkeypatch.delenv("GATEWAY_WORKLOADS_JSON", raising=False)
+    monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(tmp_path / "missing-workloads.json"))
+    client = TestClient(create_app())
+    health = client.get("/healthz")
+    readiness = client.get("/readyz")
+    assert health.status_code == 200
+    assert health.json()["configured"] is False
+    assert readiness.status_code == 503
+    assert readiness.json()["ready"] is False
+
+
 def _readiness_headers(web):
     return {"Authorization": "Bearer " + web.token(scope="gateway:ops:read")}
 
