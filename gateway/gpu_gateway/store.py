@@ -864,6 +864,113 @@ class Store:
             return False
         return True
 
+    def finish_run_after_pre_submission_abort(
+            self, *, account_scope: str, run_id: str, owner: str,
+            plan_fingerprint: str, lease_token: str, run_lease_token: str,
+            core_plan_fingerprint: str, authorization_id: str,
+            state: str, result: dict, error: str, record_version: int, now: int,
+            provider: str = "runpod") -> bool:
+        """Release a reserved account lease when recovery proves create never began.
+
+        A reserved lease is persisted before the worker's reserved→submitting
+        transition, which itself precedes provider creation. Releasing it is
+        safe only when the exact run intent is still in its dispatching phase
+        and the durable lease is still reserved with no provider resource.
+        Lease release and terminal run accounting are one transaction.
+        """
+        self._validate_provider_lease_identity(provider, account_scope, run_id, owner, plan_fingerprint)
+        if (not isinstance(core_plan_fingerprint, str) or
+                re.fullmatch(r"[0-9a-f]{64}", core_plan_fingerprint) is None or
+                not isinstance(authorization_id, str) or
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", authorization_id) is None or
+                not isinstance(lease_token, str) or re.fullmatch(r"[0-9a-f]{64}", lease_token) is None or
+                not isinstance(run_lease_token, str) or re.fullmatch(r"[0-9a-f]{32}", run_lease_token) is None or
+                type(now) is not int or now < 0 or
+                state not in {"failed", "cancelled"} or
+                not isinstance(result, dict) or result.get("cleanup_state") != "not_required" or
+                not isinstance(error, str) or len(error) > 4096 or
+                type(record_version) is not int or record_version not in {1, 2}):
+            return False
+
+        class _AbortPreSubmissionFinish(Exception):
+            pass
+
+        try:
+            with self.transaction() as connection:
+                lease_row = connection.execute(select(provider_account_leases).where(
+                    provider_account_leases.c.account_scope == account_scope,
+                ).with_for_update()).mappings().first()
+                control_row = self.lock_control(connection)
+                run_row = connection.execute(select(runs).where(
+                    runs.c.id == run_id, runs.c.owner == owner,
+                    runs.c.fingerprint == plan_fingerprint,
+                    runs.c.lease_token == run_lease_token,
+                    runs.c.lease_until > now,
+                    runs.c.state.in_(("submitting", "submit_unknown")),
+                ).with_for_update()).mappings().first()
+                if lease_row is None or run_row is None:
+                    raise _AbortPreSubmissionFinish()
+                intent = run_row["submission_intent"]
+                challenge_binding = self._canonical_provider_challenge(lease_row["request_challenge"])
+                if (not isinstance(intent, dict) or intent.get("provider") != provider or
+                        intent.get("account_scope") != account_scope or
+                        intent.get("run_id") != run_id or intent.get("owner") != owner or
+                        intent.get("plan_fingerprint") != plan_fingerprint or
+                        intent.get("core_plan_fingerprint") != core_plan_fingerprint or
+                        intent.get("authorization_id") != authorization_id or
+                        type(intent.get("attempt")) is not int or
+                        intent.get("attempt") != run_row["attempt"] or
+                        intent.get("phase") != "dispatching" or
+                        intent.get("provider_challenge_sha256") != lease_row["request_challenge_sha256"] or
+                        challenge_binding is None or challenge_binding[1] != lease_row["request_challenge_sha256"] or
+                        lease_row["provider"] != provider or lease_row["run_id"] != run_id or
+                        lease_row["owner"] != owner or lease_row["plan_fingerprint"] != plan_fingerprint or
+                        lease_row["core_plan_fingerprint"] != core_plan_fingerprint or
+                        lease_row["authorization_id"] != authorization_id or
+                        lease_row["lease_token"] != lease_token or lease_row["state"] != "reserved" or
+                        lease_row["provider_job_id"] is not None or run_row["handle"] is not None or
+                        run_row["slot_reserved"] is not True or
+                        run_row["cancel_requested"] is not (state == "cancelled") or
+                        type(control_row["active_count"]) is not int or control_row["active_count"] < 1):
+                    raise _AbortPreSubmissionFinish()
+
+                import json
+                json.dumps(result, allow_nan=False)
+                released = connection.execute(update(provider_account_leases).where(
+                    provider_account_leases.c.account_scope == account_scope,
+                    provider_account_leases.c.provider == provider,
+                    provider_account_leases.c.run_id == run_id,
+                    provider_account_leases.c.owner == owner,
+                    provider_account_leases.c.plan_fingerprint == plan_fingerprint,
+                    provider_account_leases.c.core_plan_fingerprint == core_plan_fingerprint,
+                    provider_account_leases.c.authorization_id == authorization_id,
+                    provider_account_leases.c.lease_token == lease_token,
+                    provider_account_leases.c.state == "reserved",
+                    provider_account_leases.c.provider_job_id.is_(None),
+                ).values(state="released", updated_at=now))
+                finished = connection.execute(update(runs).where(
+                    runs.c.id == run_id, runs.c.owner == owner,
+                    runs.c.fingerprint == plan_fingerprint,
+                    runs.c.lease_token == run_lease_token,
+                    runs.c.state.in_(("submitting", "submit_unknown")),
+                    runs.c.cancel_requested.is_(state == "cancelled"),
+                    runs.c.slot_reserved.is_(True),
+                ).values(
+                    state=state, result=result, error=error, slot_reserved=False,
+                    lease_until=0, lease_token="", finished_at=now,
+                    cleanup_state="not_required", record_version=record_version,
+                ))
+                if released.rowcount != 1 or finished.rowcount != 1:
+                    raise _AbortPreSubmissionFinish()
+                decremented = connection.execute(update(control).where(
+                    control.c.id == 1, control.c.active_count >= 1,
+                ).values(active_count=control.c.active_count - 1))
+                if decremented.rowcount != 1:
+                    raise _AbortPreSubmissionFinish()
+        except _AbortPreSubmissionFinish:
+            return False
+        return True
+
     def release_provider_account_lease(self, *, account_scope: str, run_id: str, owner: str,
                                        plan_fingerprint: str, lease_token: str,
                                        core_plan_fingerprint: str, authorization_id: str,

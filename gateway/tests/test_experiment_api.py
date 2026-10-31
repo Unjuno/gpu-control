@@ -1365,6 +1365,88 @@ def test_worker_cleanup_releases_provider_lease_with_terminal_commit(
     assert backend.cleanup_calls == (2 if recover_after_unconfirmed_cleanup else 1)
 
 
+@pytest.mark.parametrize(
+    ("cancel_requested", "expected_state", "expected_error"),
+    [(False, "failed", "provider_submission_not_started"),
+     (True, "cancelled", "cancelled_before_submission")],
+)
+def test_worker_recovery_releases_reserved_runpod_lease_before_provider_submission(
+        system, cancel_requested, expected_state, expected_error):
+    run_id = "9" * 32
+    owner = system.owner.owner
+    now = int(system.clock())
+    worker_token = "1" * 32
+    scope = "b" * 64
+    fingerprint = "a" * 64
+    challenge = {"template_id": "template-recovery", "name": "gpu-control-" + run_id}
+    plan = {
+        "schema_version": 1, "provider": "runpod", "runtime_seconds": 120,
+        "max_cost_usd": "0.10",
+        "selection_binding": {"provider": "runpod", "resource_id": "gpu-resource-1"},
+        "cost_evidence": {"classification": "FREE", "additional_cost_usd": "0"},
+        "workload_manifest": {"quote_expires_at": now + 600,
+                              "quoted_usd_per_hour": "0"},
+    }
+    with system.store.transaction() as connection:
+        connection.execute(runs.insert().values(
+            id=run_id, owner=owner, idempotency_key="runpod-pre-submit-recovery-test",
+            request_hash="c" * 64, fingerprint=fingerprint, plan=plan,
+            state="submitting", created_at=now, started_at=now,
+            approved_until=now + 600, approval_id="approval-test",
+            handle=None, result=None, error="", lease_until=now + 120,
+            lease_token=worker_token, cancel_requested=False, slot_reserved=True,
+            record_version=1, cleanup_state="unknown", finished_at=None,
+            result_manifest=None, admission=None, attempt=0, submission_intent=None,
+            last_observed_at=None,
+        ))
+        connection.execute(control.update().where(control.c.id == 1).values(active_count=1))
+    lease = system.store.reserve_provider_account_lease_with_submission_intent(
+        provider="runpod", account_scope=scope, run_id=run_id, owner=owner,
+        plan_fingerprint=fingerprint, core_plan_fingerprint="c" * 64,
+        authorization_id="allocation-decision-1", run_lease_token=worker_token,
+        attempt=1, request_challenge=challenge, now=now,
+    )
+    assert lease is not None and lease.state == "reserved"
+    with system.store.transaction() as connection:
+        connection.execute(runs.update().where(runs.c.id == run_id).values(
+            state="submit_unknown", lease_until=0, cancel_requested=cancel_requested,
+        ))
+
+    class FakeRunPodCandidateBackend:
+        def start_candidate_bound_with_account_lease(self, _job, _challenge):
+            raise AssertionError("recovery must never create a provider resource")
+
+        def reconcile_candidate_bound_with_account_lease(self, _job, _recovered_challenge):
+            raise AssertionError("reserved proves provider create never began; do not query the provider")
+
+        def provider_job_id(self, handle): return handle["pod_id"]
+        def start_candidate_bound(self, _job): raise AssertionError("legacy create path is forbidden")
+        def validate_candidate_observation(self, _job, _observation): return True
+        def capture(self, _handle): return Observation("running")
+        def cancel(self, _handle): pass
+        def reconcile(self, _job): raise AssertionError("candidate-bound recovery is required")
+        def cleanup(self, _handle): pass
+        def is_clean(self, _handle): return True
+
+    backend = FakeRunPodCandidateBackend()
+    registration = ProviderRegistration(
+        "runpod", "fake_runpod_candidate", lambda _settings: True,
+        lambda _settings: backend, supports_candidate_binding=True,
+    )
+    worker = Worker(system.store, system.service.settings, {"runpod": backend},
+                    system.clock, registry={"runpod": registration})
+    assert worker.tick() is True
+
+    saved = system.store.read(run_id)
+    with system.store.engine.connect() as connection:
+        lease_state = connection.execute(select(provider_account_leases.c.state)).scalar_one()
+        active_count = connection.execute(select(control.c.active_count)).scalar_one()
+    assert saved["error"] == expected_error
+    assert saved["state"] == expected_state
+    assert lease_state == "released"
+    assert active_count == 0
+
+
 def test_worker_runpod_candidate_reserves_hmac_lease_and_uses_persisted_challenge(system):
     run_id = "d" * 32
     owner = system.owner.owner
