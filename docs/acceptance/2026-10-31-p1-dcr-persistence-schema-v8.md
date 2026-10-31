@@ -6,6 +6,9 @@ This focused slice removes the OAuth persistence change from the broad PR #51
 aggregate. It applies directly to the current P1 CPU/OAuth branch and upgrades
 the Gateway schema from v7 to v8.
 
+Published review target: PR #58, based on
+`codex/gpu-control-p1-04-cpu-oauth-recovery`.
+
 Dynamic Client Registration entries remain provisional for one hour until the
 owner successfully authorizes that client. Authorization marks the client
 persistent. Registration cleanup removes only expired provisional clients.
