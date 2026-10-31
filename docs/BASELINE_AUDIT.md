@@ -146,19 +146,26 @@ configuration, deployment, or authentication credential was created or used.
   `a96a24818a5f8bc03b479c35b5e3f957f08dbe04` /
   `1699b75df8262023501d41279e83bf429dca1be4`; PR #43 is OPEN/DRAFT,
   BEHIND, and REVIEW_REQUIRED.
-- PR #63 remains OPEN/DRAFT at
-  `97923469b86550394f59845e3a48bea1b1a5dc09`, based on current `main`;
-  GitHub reports BLOCKED/REVIEW_REQUIRED and no reviews. Its CI/Vercel
-  rollup is successful. Its audit is still only a partial P0 result.
-- PR #65 is OPEN/DRAFT at
-  `4ae46ab5478c6c5c4037ea1c493e80536cce48c0`, based on the exact PR #62 head
-  `317240d2224e05e23aa5bb190ce7a4f0fc101c01`. All seven Actions contexts,
-  Vercel deployment, and Vercel Preview Comments succeeded after the latest
-  docs commit. No GitHub review is submitted. Its local missing-workload-file
-  regression fix does not resolve the Preview runtime failure: protected
-  `/healthz` and `/readyz` requests to the source-matched code returned HTTP
-  500 `FUNCTION_INVOCATION_FAILED` at 07:15 UTC, and request-ID-scoped Vercel
-  log queries returned no records. This failure's cause remains unknown.
+- PR #63's prior audit-only head was
+  `97923469b86550394f59845e3a48bea1b1a5dc09`, based on current `main`.
+  This refresh is committed on its follow-up head; the PR remains OPEN/DRAFT,
+  BLOCKED/REVIEW_REQUIRED, with no reviews. Its latest CI/Vercel rollup
+  succeeded. The audit remains only a partial P0 result.
+- PR #65's source/test commit is
+  `36a26af4b4f5abfb667d177b560e5b0e37e52a77`; its latest docs-only head is
+  `fc4c4317241c3961a0cd84aff66eb20c07ebed40`. It is based on the exact PR #62
+  head `317240d2224e05e23aa5bb190ce7a4f0fc101c01`. All seven Actions contexts,
+  Vercel deployment, and Vercel Preview Comments succeeded on the preceding
+  head; the docs-only latest commit is awaiting its CI refresh. No GitHub
+  review is submitted. The locally tested missing-workload-file regression
+  fix does not resolve the Preview runtime failure: protected `/healthz` and
+  `/readyz` requests to the source/test commit's READY deployment returned HTTP
+  500 `FUNCTION_INVOCATION_FAILED` at 07:21 UTC. Request-ID-scoped runtime log
+  queries returned no records. This failure's cause remains unknown.
+- Listing PR #65 Preview environment-variable metadata with decryption
+  explicitly disabled returned HTTP 403. The Vercel CLI is not installed in
+  this environment. No variable names or values were retrieved, so the
+  Preview's required configuration remains unverified.
 - Fresh unauthenticated requests to the production alias returned
   `/healthz`=200, `/readyz`=404, `/mcp`=401, and both OAuth discovery routes=200.
   These establish route reachability only; no OAuth grant, ChatGPT tool
