@@ -1,8 +1,8 @@
 # P4 capability and selection contract
 
-Status: **pure core models and selector are implemented; Gateway converts
-explicit GPU workload requirements and calls the selector, but provider
-inventory/evidence and live acceptance remain incomplete**. This contract turns the P4 roadmap
+Status (2026-10-31): **offline selection and exact-plan evidence revalidation
+are wired through Gateway; provider inventory is partial and no candidate-bound
+GPU execution backend is accepted**. This contract turns the P4 roadmap
 into interfaces and observable decisions while keeping provider selection,
 cost classification, and authorization separate.
 
@@ -121,10 +121,10 @@ Unit tests must cover at least:
    compatibility and quota checks on the exact candidate, and returns
    `APPROVED_PLAN_STALE` instead of selecting a replacement. `PlanV2` now
    persists an optional strict `selection_binding` and includes it in the plan
-   fingerprint, while preserving legacy unbound v2 fingerprints. Gateway does
-   not yet ingest provenance-checked provider evidence, create bound GPU plans,
-   or invoke revalidation at submit/worker launch; live GPU submission must
-   remain blocked until those links exist. The local CPU admission lane now
+   fingerprint, while preserving legacy unbound v2 fingerprints. Gateway now
+   verifies signed provider observations, creates bound GPU plans, and
+   revalidates before prepare persistence, inside submit's transaction, and
+   before worker submission intent. The local CPU admission lane now
    rejects any candidate-bound `PlanV2`, because that path uses its separate
    static CPU policy and does not revalidate provider-selection evidence.
 8. deterministic canonical serialization/fingerprint and rejection of unknown
@@ -141,10 +141,11 @@ paid calls disabled until those external gates pass.
 
 ## Implementation order
 
-1. [ ] Thread the registered workload manifest into the new core types without
+1. [x] Thread the registered workload manifest into the new core types without
    changing the MCP payload. Pure `WorkloadRequirements`, `CapabilityEvidence`,
-   `CostBreakdown`, and `SelectionResult` types now exist; registry wiring is
-   still open.
+   `CostBreakdown`, and `SelectionResult` types exist; Gateway maps complete
+   operator manifests into requirements and invokes the selector. Provider
+   inventory gaps remain unknown and therefore non-selectable.
 2. [x] Add gross cost decomposition and evidence freshness while leaving the current
    `PricingVerificationResult`/`ApprovedExecutionPlan` authorization boundary
    unchanged.
@@ -153,8 +154,9 @@ paid calls disabled until those external gates pass.
    selector accepts zero-additional-cost `CREDIT_BACKED` candidates only when
    current credits cover every gross component, the hard spend cap is enforced,
    and overage stops; insufficient/stale balances return `QUOTA_UNKNOWN`, and
-   uncovered costs fail closed. Gateway/provider evidence ingestion and
-   prepare/approval/submit/worker-launch rechecks remain unimplemented.
+   uncovered costs fail closed. Gateway verifies and rechecks signed candidate
+   evidence, but the Modal billing collector deliberately emits no quota
+   evidence; no Modal credit-backed candidate is eligible.
 3. [x] Add deterministic candidate selection and structured refusal reasons.
 4. [partial] Surface selection and registered CPU alternatives in the
    Gateway read-only capability response; do not permit prepare/submit to
@@ -162,15 +164,16 @@ paid calls disabled until those external gates pass.
    architecture, GPU count/VRAM, network, result transport/size, cancellation,
    and cleanup requirements. Missing fields remain unknown. Complete manifests
    are converted to `WorkloadRequirements` and passed to the pure selector.
-   The selector is called with `inventory_complete=false` and fails closed with
-   `PROVIDER_EVIDENCE_UNAVAILABLE`; the API labels this `not_evaluated` and
-   does not imply that no free GPU exists. The repository has a RunPod source
-   (`src/gpu_control/providers/runpod_current_pricing.py`) for GPU type, VRAM,
-   secure price, and exact datacenter stock, but it is not wired into Gateway
-   and cannot establish the remaining capability or all-in cost fields. Do not
-   call that partial quote/stock observation complete capability evidence.
-   Provider credentials stay out of the API process; a worker-produced,
-   provenance-preserving observation path is required. `gpu-control` is installed as a
+   The worker publishes signed RunPod catalog observations, and Gateway maps
+   them into selector evidence. Inventory completeness means every configured
+   GPU/datacenter mapping returned an unambiguous catalog row; it does not
+   establish runtime, OS, CPU/RAM, result transport, cleanup, quota, or total
+   cost. Those fields remain unknown, so the candidate is still rejected as
+   non-runnable. Do not call the partial quote/stock observation complete
+   capability evidence.
+   Provider credentials stay out of the API process. A worker-produced,
+   provenance-preserving observation path is implemented for partial RunPod
+   catalog evidence. `gpu-control` is installed as a
    local dependency in Gateway tests/containers; the Vercel project has not
    been redeployed to verify its outside-root source inclusion setting. The
    capability response now also exposes `provider_availability` separately
@@ -189,8 +192,8 @@ paid calls disabled until those external gates pass.
 
 ## Gateway integration boundary
 
-The first Gateway integration must be split into these independently
-reviewable steps:
+The offline Gateway integration now implements the following independently
+reviewable steps; its external acceptance remains open:
 
 1. A worker-only collector performs bounded, read-only provider observations
    using a dedicated environment file loaded by the normal worker only. The API
@@ -206,17 +209,12 @@ reviewable steps:
    remain unavailable to selection even if the provider API is down. The
    current systemd templates give API and worker the same database URL, so
    worker-only provider credentials do not authenticate who wrote a database
-   row. Before trusting the persisted observation, either (a) sign its
-   canonical envelope with a worker-only signing key and verify it in API via
-   a pinned public key/key ID, including rotation and rollback rules, or (b)
-   split database roles so API can read but cannot insert/update the evidence
-   table and worker can write it. A plain digest detects accidental changes,
-   not a malicious or mistaken writer. If using signatures, the signed
-   envelope must bind the monotonic provider version and all observation
-   fields. Persist the highest accepted version and reject equal/lower versions
-   to prevent replay; keep retired public keys trusted only long enough to
-   validate already-issued unexpired envelopes (maximum observation TTL plus
-   the configured clock-skew allowance), then remove them.
+   row. The implemented path signs the canonical envelope with a worker-only
+   Ed25519 key and verifies it against API-pinned public keys. It binds the
+   monotonic provider version and all observation fields, rejects equal/lower
+   versions atomically, and enforces the observation TTL. Operational key
+   rotation and retirement still need acceptance; a plain digest alone is not
+   trusted as provenance.
 3. The signed payload shape is exactly
    `{ "inventory_complete": boolean, "candidates": [CapabilityEvidence.to_dict()] }`
    with at most 256 candidates. The API capability response reads only the
@@ -246,15 +244,14 @@ The repository has the pure Ed25519 signed-envelope builder/verifier in
 `gateway/gpu_gateway/provider_evidence.py` and schema v8 table
 `gateway_provider_observations_v1`. Store methods verify signatures before
 write, reject non-increasing provider versions atomically, detect row/index
-digest mismatch, and verify signature/freshness on verified read. Neither the
-collector or capability mapping nor Gateway binding revalidation is wired.
-Public-key JSON parsing and worker private-key configuration are available in
-`Settings`, and `Worker.persist_provider_observation` restricts publication to
-the normal worker role. The API and worker still share the database credential;
-the API capability path must call the verified-read helper with its pinned key
-set before using stored evidence. These are implementation dependencies, not
-reasons to read provider secrets in the API process or to use the provider
-during MCP discovery. The API selection and revalidation helpers are in
+digest mismatch, and verify signature/freshness on verified read. The idle
+normal-worker RunPod collector, strict capability mapping, and Gateway binding
+revalidation are wired. Public-key JSON parsing and worker private-key
+configuration are available in `Settings`, and
+`Worker.persist_provider_observation` restricts publication to the normal
+worker role. The API and worker still share the database credential, so
+provenance depends on protecting the worker signing key and API-pinned key set.
+The API selection and revalidation helpers are in
 `gateway/gpu_gateway/provider_selection.py`. A selected candidate is bound to
 the v2 plan fingerprint; prepare rechecks before persistence, submit locks and
 rechecks the provider observation in its transaction, and the worker rechecks
@@ -262,6 +259,14 @@ again immediately before writing submission intent. Any changed fingerprint,
 manifest, cost evidence, or exact resource fails closed. Current provider
 registrations still have `supports_candidate_binding=False`, so no such plan
 can reserve a queue slot or reach an execution backend yet.
+
+The runtime readiness check now requires candidate-bound start, authenticated
+observation validation, capture, cancellation, no-create reconciliation,
+cleanup, and independent clean-state confirmation. This closes a shape-check
+gap where a backend could pass registration checks but lack the operations the
+worker needs during cancellation or ambiguous-start recovery. The typed
+`CandidateBoundBackend` protocol documents this adapter boundary. It does not
+make either provider ready or verify a live adapter.
 
 The current worker collector implementation is `gateway/gpu_gateway/runpod_inventory.py`.
 It queries the official RunPod GraphQL GPU catalog and datacenter availability

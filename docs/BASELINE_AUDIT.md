@@ -6,10 +6,10 @@ Date: 2026-10-28 (Asia/Tokyo)
 
 - Repository: `Unjuno/gpu-control`
 - Main commit: `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e` (`Tolerate bounded GitHub runner queue delays (#50)`)
-- Main protection read from GitHub API: disabled (`protected: false`). This is recorded only; no settings changed.
+- Initial main protection read from GitHub API on 2026-10-28: disabled (`protected: false`). GitHub protection was configured and independently re-read later that day; the current 2026-10-31 read is recorded in the final refresh below.
 - Follow-up settings read: repository rulesets are empty; GitHub `Production` and `Preview` Environments have no protection rules or deployment-branch policy. Connected account has repository admin permission; no settings or secrets were changed/read.
-- Additional GitHub connector refresh on 2026-10-28: PR #43 is still OPEN/DRAFT at the same base/head SHAs, and the repository rulesets endpoint still returns an empty list. The connector receives HTTP 403 for the `main` branch-protection endpoint, so this connection cannot independently confirm the current legacy branch-protection setting. The earlier direct settings read above remains the recorded source for `protected: false`; recheck through an authorized settings view before relying on that value.
-- Current pushed branch head (refreshed 2026-10-28): `codex/chatgpt-cpu-vertical` at `f054aebe96460fe033dde8d91d7e3bbab0255655`, Draft PR [#51](https://github.com/Unjuno/gpu-control/pull/51) against unchanged main `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. GitHub reports all listed checks successful at this pushed head and no submitted reviews. The local worktree has additional uncommitted changes, so those remote checks do not cover current worktree state. The previously inspected Vercel preview had liveness/package imports but no configured DB/OAuth/worker and is not ChatGPT acceptance. Main protection still needs an authorized settings-path recheck because the connected integration returned HTTP 403 for that endpoint.
+- Additional GitHub connector refresh on 2026-10-28: PR #43 was OPEN/DRAFT at the same base/head SHAs, and the repository rulesets endpoint returned an empty list. The connector received HTTP 403 for the `main` branch-protection endpoint and could not independently confirm the legacy setting; a direct authorized API read later configured and confirmed branch protection as recorded below.
+- Pushed branch head (2026-10-31 snapshot): `codex/chatgpt-cpu-vertical` at `aa681f4062dac6b73bcf380a38a4258b96a47e1`, Draft PR [#51](https://github.com/Unjuno/gpu-control/pull/51) against main `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. The seven required Actions checks and Vercel statuses were successful at that pushed head, with no submitted reviews. The then-current local inventory of 19 modified tracked files and 3 untracked files is superseded by the latest read-only refresh at the end of this audit. Preview and ChatGPT acceptance limits are recorded in the dated refresh sections below.
 - PR #43: OPEN, DRAFT, base `main`, head `1699b75df8262023501d41279e83bf429dca1be4`, base SHA `a96a24818a5f8bc03b479c35b5e3f957f08dbe04`, 35 changed files.
 - PR #51 live review refresh on 2026-10-28: no submitted reviews and no review threads. Its checks are current-head runs listed above. PR #43 retains its historical review/check state and remains a separate Draft audit input.
 - PR #43 merge base is `a96a24818a5f8bc03b479c35b5e3f957f08dbe04`.
@@ -72,7 +72,7 @@ The pytest dependency update addresses [GHSA-6w46-j5rx-g56g / CVE-2025-71176](ht
 
 ## Next implementation action
 
-The current 116-path worktree is assigned to five sequential review slices in [`2026-10-28-gpu-control-worktree-slices.md`](superpowers/plans/2026-10-28-gpu-control-worktree-slices.md); the latest machine check found exactly 116 actual and 116 assigned paths, with no missing or stale entries. Current local evidence is 423 Gateway tests passed / 2 optional SDK skips with PostgreSQL 16 and local Docker CPU, plus 550 root/core tests passed / 1 skip. PR #51 remains Draft on remote head `f054aebe`; its checks do not include the local worktree and no independent GitHub review is present. The ChatGPT web session is currently logged out, so the intended workspace role/permissions remain unknown. The product owner still needs to provide authenticated target-workspace access and select the persistent host, region, public HTTPS origin, notification route/SLO, and cost ceiling for live P0/P1/P3 acceptance. Keep those gates open, continue offline work, and keep the admission policy parked with no paid providers enabled.
+The 116-path count and matching five-slice map in this paragraph are a historical 2026-10-28 snapshot. The current 2026-10-31 state is recorded in the refresh at the end of this audit; the old local test counts and PR head below are historical evidence only. The ChatGPT workspace and P3 host/origin/cost/notification choices remain unresolved. Keep those gates open, continue offline work, and keep the admission policy parked with no paid providers enabled.
 
 ## Latest read-only baseline refresh (2026-10-28 11:27 UTC)
 
@@ -166,7 +166,7 @@ ChatGPT connection, deployment/configuration change, or paid resource was used.
 Production alias observation remains separate; `policies/repository-state.yaml`
 remains `mode: parked`.
 
-## P0 baseline recheck (2026-10-28 09:43 UTC)
+## Historical P0 baseline recheck (2026-10-28 09:43 UTC)
 
 Read-only GitHub API refresh confirmed repository `Unjuno/gpu-control` is
 public, `main` is the default branch, and the connected account has repository
@@ -212,3 +212,126 @@ non-required deployment status. The dirty local worktree is not covered by
 those checks and has not been pushed. The protection change does not alter
 `policies/repository-state.yaml`, which remains parked; no deployment, provider
 call, GPU allocation, or paid execution occurred.
+
+## Current P0 and PR refresh (2026-10-31)
+
+Read-only GitHub API verification on this date confirms `main` protection is
+enabled. The rule requires one approving review, strict/up-to-date branches,
+all seven required Actions checks, and applies to administrators. Force-push
+and branch deletion are disabled (see the detailed settings captured in the
+2026-10-28 configuration record above).
+
+PR #51 remains OPEN/DRAFT at base `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`
+and head `aa681f4062dac6b73bcf380a38a4258b96a47e1`. Its required checks
+currently pass: Python 3.11, Python 3.12, Python 3.13, Trusted reference
+container, Gateway offline tests, Gateway comment bridge tests, and Project
+bridge tests. Vercel preview statuses also pass as build/deployment statuses;
+they are not required checks or runtime-readiness evidence. GitHub reports no
+submitted review, so the PR remains `REVIEW_REQUIRED`.
+
+The local checkout is on the same commit but has 19 modified tracked files and
+3 untracked files. Those changes have no GitHub CI or PR review coverage yet.
+The latest local Gateway evidence and scope are recorded in
+`docs/IMPLEMENTATION_PROGRESS.md`; real ChatGPT OAuth/tool execution, CPU
+experiment/result retrieval, and target-host acceptance remain unverified.
+`policies/repository-state.yaml` remains `mode: parked`; no deployment,
+provider call, GPU allocation, paid execution, or repository setting change
+was made during this refresh.
+
+## Latest read-only GitHub and worktree recheck (2026-10-31)
+
+- Live GitHub `main` remains `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`.
+  The protection API is reachable and confirms strict/up-to-date checks, all
+  seven required Actions contexts, one approval, last-push approval, stale
+  review dismissal, admin enforcement, conversation resolution, linear
+  history, and force-push/deletion disabled. Production and Preview GitHub
+  Environments still have no protection rules or deployment-branch policy;
+  repository rulesets are empty.
+- Current Draft PRs #52–#59 are OPEN. PR #52 targets `main` at
+  `bc9b0305e6b2e86f9d8c214161b10511ce9f012c`; #57 is at
+  `51b88f6110e2fc12de1c475e6e3d07c5438eaa3b`; #58 at
+  `561a6c7ac697dfdf22f304b60e313fccb2c806a4`; and #59 at
+  `76c2a1a1b4439cf093c4e6efdd39d5121eb08959`. Their current required Actions
+  checks and Vercel statuses are successful. Each has an empty GitHub review
+  list. PR #52 is `REVIEW_REQUIRED`; #57–#59 are based on earlier unmerged PRs
+  and are not an independently integrated release.
+- Local branch `codex/chatgpt-cpu-vertical` remains at
+  `a794438f42bd7246f463eaaa40d963af0aae9d13`; the dirty working tree has 31
+  modified tracked paths and 16 untracked paths (47 total), none staged.
+  `git diff --check` passes. These local changes are not covered by the remote
+  PR checks or reviews.
+- ChatGPT workspace/write-action eligibility and real ChatGPT acceptance
+  remain unverified. `policies/repository-state.yaml` remains `mode: parked`.
+  No GitHub setting, PR, deployment, or provider state was changed in this
+  refresh.
+
+## Historical read-only GitHub and worktree recheck (2026-10-30 18:24 UTC)
+
+- `origin/main` and the live GitHub `main` ref both resolve to
+  `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. The direct branch-protection API
+  confirms one required approval, stale-review dismissal, strict/up-to-date
+  checks, all seven required Actions contexts, admin enforcement, conversation
+  resolution, linear history, and force-push/deletion disabled.
+- PR #51 remains OPEN/DRAFT, base `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`,
+  pushed head `aa681f4062dac6b73bcf380a38a4258b96a47e1`,
+  `REVIEW_REQUIRED`. Its seven required Actions checks and Vercel statuses
+  currently pass; Vercel is not a required branch check. No review is recorded.
+- Local branch `codex/chatgpt-cpu-vertical` is at
+  `a794438f42bd7246f463eaaa40d963af0aae9d13`, 68 commits ahead of `main`, with
+  40 modified/untracked paths and no staged changes. It is 2 commits ahead of
+  the PR's pushed branch head; those commits and all dirty paths are absent
+  from the PR and have no GitHub CI or review coverage.
+- ChatGPT workspace/write-action eligibility and real ChatGPT acceptance remain
+  unverified. No GitHub setting was changed in this recheck;
+  `policies/repository-state.yaml` remains parked.
+
+## Latest baseline recheck (2026-10-31 09:41 JST)
+
+- Local branch `codex/chatgpt-cpu-vertical` is at
+  `a794438f42bd7246f463eaaa40d963af0aae9d13`, 55 commits ahead and 56 behind
+  its configured upstream. The worktree has 48 modified tracked paths and 30
+  untracked paths; none are staged. `git diff --check` passes. The exact
+  worktree is not represented by any published PR head or its checks.
+- Read-only GitHub CLI rechecks show PR #51 (`e3ffcef`), #58 (`561a6c7`), and
+  #59 (`76c2a1a`) remain OPEN/DRAFT. Each has seven successful required Actions
+  checks and a successful Vercel status on its published head, with no
+  submitted review decision. Those results do not cover local changes.
+- Fresh unauthenticated production probes returned `/healthz`=200,
+  `/readyz`=404, OAuth authorization-server metadata=200, and unauthenticated
+  MCP `tools/list`=401. The production alias is reachable, but its current
+  readiness contract is absent; no authenticated request was made.
+- A fresh ChatGPT browser session displayed **Log in** and **Sign up for free**.
+  The authenticated workspace, plan, role, custom-MCP permission, OAuth
+  connection, tool discovery and experiment call remain unverified.
+- The current OpenAI Help Center page says full custom-MCP write actions are
+  available for Business, Enterprise and Edu workspaces; Pro custom MCP is
+  limited to read/fetch. It documents public HTTPS or Secure MCP Tunnel and a
+  frozen tool/input snapshot that must be refreshed after app changes:
+  <https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt>.
+- Repository policy remains `mode: parked`. No PR, branch protection,
+  deployment, credential, provider or billing configuration was changed.
+
+## Latest baseline recheck (2026-10-31 09:51 JST)
+
+- The local branch remains `codex/chatgpt-cpu-vertical` at
+  `a794438f42bd7246f463eaaa40d963af0aae9d13`, with 48 modified tracked and 30
+  untracked paths, none staged. `git diff --check` passes. Current tracked diff
+  SHA-256 at the test checkpoint is
+  `b665bbcb1989b82a6491d35c7f1a17facb80718d65b7ee68e851cd2f2cd913c1`.
+- Fresh GitHub CLI listing shows PR #51 (`e3ffcef`), #57 (`51b88f6`), #58
+  (`561a6c7`), and #59 (`76c2a1a`) still OPEN/DRAFT with no submitted review
+  decision; PR #52 (`bc9b030`) remains OPEN/DRAFT and `REVIEW_REQUIRED`.
+  Published PR heads do not contain or check the current dirty snapshot. No
+  PR or GitHub setting was changed.
+- The current Gateway suite passed **513 tests, 2 optional skips** against a
+  task-created PostgreSQL 16 instance and a digest-pinned CPU image whose OCI
+  labels bind it to the exact HEAD. The same local MCP integration exercised
+  registered CPU prepare/submit, Worker execution, and cross-client result and
+  artifact retrieval. Full commands, source hashes, skips, and cleanup evidence
+  are recorded in `docs/acceptance/2026-10-31-current-snapshot-full-suite.md`.
+- Fresh unauthenticated production requests returned `/healthz`=200,
+  `/readyz`=404, authorization-server metadata=200, and MCP POST=401. The fresh
+  ChatGPT in-app browser session remains logged out. Thus deployed readiness
+  and real ChatGPT OAuth/workspace/tool acceptance remain open.
+- Repository policy remains `mode: parked`. No deployment, provider, GPU,
+  billing, credential or GitHub write action occurred.

@@ -232,3 +232,31 @@ startup, mount filtering, database reachability, and migration remain untested.
 - This remains local test and systemd syntax/reference evidence. It does not
   verify target-host mount filtering, installed identities, journal access,
   alert delivery, quota behavior, or production recovery.
+
+## Current template verification — 2026-10-30
+
+At control-plane commit `aa681f4062dac6b73bcf380a38a4258b96a47e1`, manually
+reproduced the CI helper's inert placeholder setup inside the cached
+`mixed-formal-2992-debian:20260920` container (Debian 12, systemd 252.39).
+The container used `--network none`; only `gateway/` was mounted and it was
+read-only. Placeholder service users/groups, empty environment files, and
+executable paths were created in the disposable container. `systemd-analyze
+verify` accepted all eight service/timer templates with exit code 0 and no
+diagnostics. No unit started; the container was removed. The GitHub-Actions-
+only helper was not invoked or bypassed. This is template syntax/reference
+validation, not target-host startup, sandbox mount behavior, or runtime
+acceptance.
+
+## Current-worktree CI helper rerun — 2026-10-31
+
+Re-ran `deploy/verify_systemd_units_ci.sh` against the current Gateway tree in
+the cached `mixed-formal-2992-debian:20260920` image, whose image digest is
+`sha256:766abfd10382ab8b59ed793094a685481190f840d338b7bc4664ca162a2da619`
+(Debian 12/systemd 252.39). The container used `--network none`, mounted
+`gateway/` read-only, supplied only the helper's inert Linux CI guard values,
+and was automatically removed. The helper exited 0 with no diagnostics for
+all eight current service/timer templates. Its SHA-256 was
+`569261ffcd54de9d921d2d1361fa6deec044598e9ae4bbe3f312ed5bcf683d34`.
+Post-run container inventory found no matching container. No unit started;
+this is syntax/reference evidence only, not target-host runtime, mount,
+permissions, journal, alert-delivery, or production recovery acceptance.

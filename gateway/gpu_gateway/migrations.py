@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, inspect, insert, select, update
+from sqlalchemy import (JSON, Column, Integer, MetaData, String, Table,
+                        UniqueConstraint, inspect, insert, select, update)
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 12
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -25,6 +26,35 @@ provider_observations = Table(
     Column("expires_at", Integer, nullable=False),
     Column("envelope", JSON, nullable=False),
     Column("envelope_sha256", String(64), nullable=False),
+)
+provider_account_leases = Table(
+    "gateway_provider_account_leases_v1", MetaData(),
+    Column("account_scope", String(64), primary_key=True),
+    Column("provider", String(32), nullable=False),
+    Column("run_id", String(40), nullable=False),
+    Column("owner", String(128), nullable=False),
+    Column("plan_fingerprint", String(64), nullable=False),
+    Column("core_plan_fingerprint", String(64), nullable=True),
+    Column("authorization_id", String(128), nullable=True),
+    Column("request_challenge", JSON, nullable=True),
+    Column("request_challenge_sha256", String(64), nullable=True),
+    Column("state", String(24), nullable=False),
+    Column("lease_token", String(64), nullable=False),
+    Column("provider_job_id", String(512), nullable=True),
+    Column("updated_at", Integer, nullable=False),
+    UniqueConstraint("run_id", name="gateway_provider_account_lease_run_v1"),
+)
+paid_authorizations = Table(
+    "gateway_paid_authorizations_v1", MetaData(),
+    Column("run_id", String(40), primary_key=True),
+    Column("owner", String(128), nullable=False),
+    Column("plan_fingerprint", String(64), nullable=False),
+    Column("approval_id", String(64), nullable=False),
+    Column("authorization_id", String(128), nullable=False, unique=True),
+    Column("issuer", String(64), nullable=False),
+    Column("envelope", JSON, nullable=False),
+    Column("envelope_sha256", String(64), nullable=False),
+    Column("created_at", Integer, nullable=False),
 )
 
 
@@ -210,4 +240,39 @@ def migrate(engine) -> int:
                     )
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=9))
             current = 9
+        if current < 10:
+            provider_account_leases.create(connection, checkfirst=True)
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=10))
+            current = 10
+        if current < 11:
+            tables = set(inspect(connection).get_table_names())
+            if provider_account_leases.name in tables:
+                columns = _columns(connection, provider_account_leases.name)
+                if "core_plan_fingerprint" not in columns:
+                    connection.exec_driver_sql(
+                        'ALTER TABLE "gateway_provider_account_leases_v1" '
+                        'ADD COLUMN "core_plan_fingerprint" VARCHAR(64)'
+                    )
+                if "authorization_id" not in columns:
+                    connection.exec_driver_sql(
+                        'ALTER TABLE "gateway_provider_account_leases_v1" '
+                        'ADD COLUMN "authorization_id" VARCHAR(128)'
+                    )
+                if "request_challenge" not in columns:
+                    column_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+                    connection.exec_driver_sql(
+                        'ALTER TABLE "gateway_provider_account_leases_v1" '
+                        f'ADD COLUMN "request_challenge" {column_type}'
+                    )
+                if "request_challenge_sha256" not in columns:
+                    connection.exec_driver_sql(
+                        'ALTER TABLE "gateway_provider_account_leases_v1" '
+                        'ADD COLUMN "request_challenge_sha256" VARCHAR(64)'
+                    )
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=11))
+            current = 11
+        if current < 12:
+            paid_authorizations.create(connection, checkfirst=True)
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=12))
+            current = 12
     return current

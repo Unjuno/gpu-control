@@ -1,18 +1,198 @@
 # Lunaへの実装引き継ぎ
 
+## 最新チェックポイント — 2026-10-31 02:22 UTC
+
+- 作業ブランチは `codex/chatgpt-cpu-vertical`、HEAD は
+  `a794438f42bd7246f463eaaa40d963af0aae9d13`。作業ツリーは91 pathが変更
+  または未追跡。primary checkout上の既存作業を消去・reset・stashしない。
+  policyは引き続き `mode: parked`、live paid computeとRunPod live callsは
+  `false`。
+- `gateway/gpu_gateway/app.py` には `/readyz` があり、DB/schema、workerと
+  supervisor heartbeat、registry、auth、local CPUのartifact storage/admission
+  を確認する。`gateway/vercel.json` はFastAPI frameworkを指定する。現在の
+  本番HTTP観測は `/healthz`=200、`/readyz`=404、未認証`/mcp`=401。この404は
+  local routeの未実装ではなく、レビュー済み候補と本番revisionの未一致として
+  扱い、まず配信revisionを確定する。
+- 読み取り専用のGitHub確認ではPR #51–#59はOPEN/DRAFTで、各headの9 rollup
+  entries（7 Actions checks、Vercel deployment、Vercel Preview Comments）が成功。
+  #52は`REVIEW_REQUIRED`、他はreview decisionなし。PR #43も
+  OPEN/DRAFT、5 checks成功、`REVIEW_REQUIRED`。これらはdirty checkoutを検証せず、
+  mergeや独立reviewの代わりにならない。
+- 現行の作業ツリーと候補のローカルsuite記録は
+  `docs/acceptance/2026-10-31-pr51-full-current-candidate.md` と関連acceptance
+  filesを参照する。これらはGitHub CI、ChatGPT OAuth/CPU実行、production readiness、
+  real GPU、paid executionを証明しない。
+- 現行91-path treeとPR #51–#59 sliceをファイルごとに比較した結果は
+  `docs/acceptance/2026-10-31-pr-stack-reconciliation.md`。6 pathだけが既存slice
+  headとblob一致、39 pathは同じパス上で内容が分岐、46 pathは現行slice外。
+  そのため既存Draft PRへ一括反映せず、このレポートの分類を起点にmigration/workerの
+  依存を保って新しいreview境界を組み直す。
+- 現行treeを`origin/main` `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`から再生する
+  219-path patchは`/tmp/gpu-control-main-current-20261031-reconciled.patch`。
+  disposable indexで生成し、現行treeへのreverse preflightは成功。これはfull-tree
+  再構成であってreview sliceではない。新しいレビュー範囲ごとのCI/approvalは未取得。
+- より小さいレビュー構成はPR #58 head `561a6c7ac697dfdf22f304b60e313fccb2c806a4`
+  から15 patchを順番に適用して現在の94-path deltaと完全一致することを再生確認した。
+  既存6候補、P1/P3/P4/P5/cross-cutting追加5候補、同じslice内の更新4候補の構成と
+  scope limitは`docs/acceptance/2026-10-31-pr-stack-reconciliation.md`を参照。
+  パッチは`/tmp/gpu-control-slice-*-on-561a6c7.patch`および
+  `/tmp/gpu-control-current-on-561-*.patch`にある。これはツリー再生確認であり、
+  追加P4/P5コードの新規テスト、GitHub CI、独立reviewを意味しない。
+- 次の作業順: (1) 現行91-path差分を既存PR stackの正確なhead/親/レビュー範囲に照合し、
+  依存順を保ったレビュー単位をローカルで確定、(2) 独立reviewとheadごとのCI後に
+  readiness対応revisionをdeployして認証付き`/readyz`を確認、(3) eligible ChatGPT
+  workspaceでOAuth/DCR・CPU実行・別会話result取得を受入、(4) P3 target-host運用と
+  7日観察、(5) P4 real GPU smoke、(6) P5 paid-authority issuer/revocation/permit bridge
+  の独立脅威レビューと別途明示承認。承認済みでない外部変更、deploy、provider call、
+  支出を行わず、各段階の根拠と失敗層を記録する。
+
+## Historical continuation evidence — 2026-10-31 (superseded by latest checkpoint above)
+
+- Current checkout is `codex/chatgpt-cpu-vertical` at `a794438`, 55 commits
+  ahead and 56 behind its configured upstream, with 68 unstaged tracked and
+  untracked worktree paths. Preserve the dirty worktree and parked policy.
+- Current Gateway offline suite passed 484 tests with 15 skips; focused credit
+  and paid authorization suites passed 52 tests. This does not replace the
+  earlier exact-source Docker/PostgreSQL CPU record or any live acceptance.
+- The P4 signed credit verifier is offline only; no provider implements its
+  hook. Its issuer settings are empty by default. Independent review covered
+  the initial verifier/config diff; two final guard checks were added
+  afterwards, so review the current final diff before treating it as reviewed.
+- PR #57/#58 are OPEN/DRAFT with no GitHub reviews. Their latest GitHub
+  workflow runs and Vercel statuses succeed, but none cover the dirty local
+  worktree. The visible ChatGPT browser is logged out.
+- PR #58's schema-v9 follow-up fails to apply directly to #57 and a three-way
+  replay conflicts because schema-v9 depends on #51's schema-v8 provider
+  observation migration. Keep the v8/v9 ordering explicit when splitting the
+  review stack; do not advertise #58 as independently mergeable after #57.
+- A bounded P1 admission-aware `/readyz` follow-up was reconstructed on an
+  isolated worktree at exact PR #57 head. Candidate patch is
+  `/tmp/gpu-control-p1-readiness-on-57.patch` (SHA-256
+  `03edebebd511a341272b6cd66bcdd5c597d69a8f7c5ff84bd40d54fe738eb118`); its
+  exact candidate-source Gateway suite passed 246/9 skipped after verifying
+  both Gateway and shared Core imports resolve inside the candidate worktree.
+  Acceptance scope is recorded in
+  `docs/acceptance/2026-10-31-p1-readiness-review-candidate-on-57.md`. The
+  candidate has no GitHub CI or independent review and is not deployed.
+
 ## 継続ゴールと現在地（2026-10-28、PR state・運用差分再確認）
 
 最終ゴールは、ChatGPTの通常会話だけで登録済み実験のprepare/submit/status/result/search/cancelを行い、同じjobの実行・復旧・成果物を正確に返すこと。長期ロードマップの順にP3運用、P4実GPU、明示承認付きP5有償、P6再現可能な研究実験、P7保守へ進む。実装計画の現行スナップショットと次の順序は `2026-10-28-gpu-control-roadmap.md` を参照。
 
-## 最新状態 — 2026-10-30
+## 最新状態 — 2026-10-31 PR stack refresh 21:02 UTC
 
-- 作業ブランチ `codex/chatgpt-cpu-vertical` は `b3c355404815f1bb8ce711fe1e8db05b6f9ba2e5`、worktreeはclean。PR #51は `main` (`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`) 向けにOPEN/DRAFTで `REVIEW_REQUIRED`。最新必須CIは全件success。Gateway CIのPostgreSQL + digest-pinned local CPU lifecycleは424 passed / 1 skipped、root suiteは550 passed / 1 skipped。PRにGitHub reviewはまだない。
-- PR preview deployment `dpl_5Lb4vGMSD9PsKbpYJv1woS94PQGq` はSHA `b3c3554` からREADY。project SSO protectionがpreview deploymentsに有効で、匿名アクセスはVercel loginへredirectされるため、previewの `/readyz` runtime応答は未観測。
-- Production aliasはdeployment `dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ`、`main` SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e` を配信。実測は `/healthz`=200、`/readyz`=404、unauthenticated `/mcp`=401。PR未レビュー・未mergeのためproductionは旧revision。
-- Vercel env metadataのnames-only照会 (`decrypt=false`) は403。値は読んでおらず、preview/production runtime変数の有無は未確定。ローカルにVercel CLIはない。
-- 前回依頼した一時Vercel share linkの読み取り利用許可は未回答のため作成していない。ChatGPT workspace eligibility、OAuth grant、tool discovery、CPU run、別会話からのresult/artifact取得はすべて未受入。AcceptanceはNOT RUN。
-- P0/P1/P3/P4/P5のローカル実装・CI証拠とproduction/ChatGPT/provider受入れを混同しない。P3 host/region/public origin/cost ceiling/notification SLOも未決。`policies/repository-state.yaml` は `mode: parked` のまま。有償provider callやspendなし。
-- 117-path変更はPR #51へpush済みで、既存file-ownership mapに従ったreview evidenceはある。ただしP1/P3/P4/P5を一つのDraft PRに含むため、 roadmapの「小さい複数PR」に整理する項目は未完了。履歴を書き換えるforce pushはせず、GitHub review前にPR分割が必要ならブランチ戦略を別途判断する。
+### Exact full-source candidate refresh — 2026-10-31
+
+After that snapshot, reconstructed the full primary checkout at
+`a794438` (including its 61 dirty/untracked paths) on a detached worktree at
+PR #51's exact current head `e3ffcef`. All 339 files matched byte-for-byte.
+The full candidate passed Gateway **482/2 skipped** using PostgreSQL 16 and a
+digest-identified CPU smoke image, plus Core **559/1 skipped**. See
+`docs/acceptance/2026-10-31-pr51-full-current-candidate.md` and
+`docs/IMPLEMENTATION_PROGRESS.md`. A prior 61-path-only replay omitted
+committed source differences and is superseded; do not quote its 471/2 result
+as full candidate evidence.
+
+PR #51–#59 remain the existing OPEN/DRAFT stack and no GitHub review has been
+submitted. The reconstructed patch has no GitHub CI result. Continue by
+mapping the full candidate diff against the exact existing PR ranges and
+review coverage before preparing any PR action. Preserve the primary dirty
+worktree, parked policy, and all provider/spending gates.
+
+### Current base selection and candidate slices — 2026-10-31
+
+PR #58 head `561a6c7ac697dfdf22f304b60e313fccb2c806a4` is the preferred base
+for the next local candidate: six of its seven changed-path final blobs match
+the current checkout, including schema-v9 OAuth. Reconstructing the full
+source at this base matched all 340 files. The current net tree delta is 61
+paths and has six disjoint replay slices: P1 OAuth/readiness (7 changed
+paths), P2 recovery (2), P3 operations (11), P4 provider contract (9), P5
+offline authorization (11), and cross-cutting/CI (21). Exact per-slice patch
+fingerprints and local test scope are in
+`docs/superpowers/plans/2026-10-28-gpu-control-worktree-slices.md`.
+
+Focused validation on this source state: P1 56 passed; P2 worker crash recovery
+1 passed; combined P3+P4 48 passed; P5 Gateway 77 passed and Core 38 passed.
+The exact-code full suite from the preceding PR #51 based replay passed
+Gateway 482/2 optional skips and Core 559/1 Python-version skip. P3 and P4
+must remain one merge candidate unless a full-suite replay proves they are
+independently integrable; earlier P3-only candidate runs had four failures.
+PR #58 and its parents are still unreviewed Draft PRs, so this is only the
+best local reconstruction base, not an approval or GitHub-CI result.
+
+> **2026-10-31 continuation refresh:** The local checkout is at
+> `a794438f42bd7246f463eaaa40d963af0aae9d13`; it has 41 modified tracked
+> paths and 16 untracked paths (57 total), all unstaged. The source-matched
+> current-worktree Gateway/Core suite is 480/2 skipped and 550/1 skipped;
+> focused PostgreSQL OAuth/migration, backup-manifest, and worker-crash checks
+> passed 7/7, 1/1, and 1/1.
+>
+> PR #52 head `bc9b0305e6b2e86f9d8c214161b10511ce9f012c` has 43 files and
+> all seven exact protected check contexts plus Vercel passing. The original
+> P1 Security Review covered `c824b90`, not the new workflow files. PR #52
+> remains Draft with one required GitHub approval outstanding.
+>
+> PR #53 (19 files), #54 (21 files), #55 (38 files), and #56 (25 files) have
+> successful recorded Actions contexts and Vercel. PR #57 is the P1 CPU
+> lifecycle/OAuth migration slice at `51b88f6110e2fc12de1c475e6e3d07c5438eaa3b`
+> (54 paths); its seven standard Actions contexts and Vercel pass after the
+> clean Gateway CI jobs explicitly installed the repository package. The
+> selected read-only Security Review found no reportable issues. The stacked
+> base reports no required contexts with `gh pr checks --required`; main still
+> requires independent approval when the series reaches it. PR #52 remains
+> Draft with one approval outstanding.
+>
+> PR #51 now follows #57 at
+> `3346d0818dd1dd195d8105c348f00b51e2879daa` (145 files); its old checks are
+> stale after retargeting. It remains an aggregate. No PR has a GitHub review.
+>
+> PR #58 is a focused P1 OAuth DCR/schema-v9 follow-up at
+> `cb37a630e1609b6166bc0122f3aba86a759beb50`, stacked on #51. Its seven
+> standard Actions contexts and Vercel pass. Gateway CI passed 428 tests with
+> one skip and one warning, including the PostgreSQL 16 and local CPU path;
+> candidate-source OAuth/migration tests passed 17/17 locally. #58 remains
+> Draft without a GitHub review and cannot be independently merged until the
+> #51 parent stack is reviewed and split.
+>
+> Production `/readyz` remains 404; the latest unauthenticated probe also
+> returned `/healthz`=200, OAuth discovery=200 and `/mcp`=401. The PR preview is SSO protected;
+> unauthenticated probes reached Vercel login, not the Gateway runtime.
+> ChatGPT remains logged out and authenticated acceptance remains open. Keep
+> repository mode `parked`; do not use live GPU or paid execution.
+
+- Checkout `codex/chatgpt-cpu-vertical` remains at `aa681f4062dac6b73bcf380a38a4258b96a47e1`. Current worktree has 19 modified tracked files and 9 untracked files; nothing staged or committed. The current uncommitted Gateway source fingerprint and full-suite evidence are recorded in `docs/acceptance/2026-10-30-current-worktree-source-matched-suite.md` and `docs/acceptance/2026-10-30-dirty-source-paired-restore.md`.
+- Twenty local-only candidate checkpoint refs span the P1 CPU vertical through the 121-path foundation at `f054aebe`; names run from `codex/gpu-control-p1-01-baseline` through `codex/gpu-control-stack-20-foundation-evidence`. Fresh ancestry checks confirm the refs are sequential ancestors, but several commits have intermediate parents; these refs are historical checkpoints, not automatically valid PR boundaries. Use the explicit base/head ranges in `2026-10-28-gpu-control-worktree-slices.md` and recompute their changed paths. Focused changed-test subsets for checkpoint ranges 15–20 are now recorded there; full CI per proposed PR and independent GitHub review remain open. None of these local checkpoints has new GitHub CI or an independent GitHub review.
+- PR #51 remains OPEN/DRAFT at head `aa681f4`, `REVIEW_REQUIRED`, with zero reviews. The seven required Actions contexts and Vercel passed on the pushed head; they exclude current worktree changes. Live `main` protection confirms strict checks for Python 3.11/3.12/3.13, Trusted reference container, Gateway offline, Gateway comment bridge, and Project bridge. No GitHub write was made.
+- Latest public alias GETs (2026-10-30 16:59 UTC) returned `/healthz` 200 (`configured=true`, local OAuth), `/readyz` 404, protected-resource discovery 200, and unauthenticated `/mcp` 401. Read-only Vercel deployment metadata now identifies the READY PR preview as exact pushed HEAD `aa681f4` and production as `main` at `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. This establishes source provenance for those deployments, not runtime health; the local dirty changes are in neither deployment. The public production `/readyz` 404 remains the failing layer. No authenticated preview fetch was made. Evidence is recorded in `docs/CHATGPT_ACCEPTANCE.md`.
+- The current dirty Gateway source was revalidated with a CPU image whose Dockerfile source files match byte-for-byte and pinned PostgreSQL 16. Gateway passed **427 / 2 optional skips**; Core passed **550 / 1 Python-version skip**. The recorded Gateway dirty-source fingerprint is `06dc2a2d9b48d146d0dc45a650feacaa7949ff7860eb4fba25c6bc1cfd605877`. Earlier harness runs are explicitly excluded: wrong image variable, fixture revision mismatch, and auto-removing test database. This remains local evidence, not GitHub CI or production acceptance.
+- The current checkout's separate trusted reference workload also passed locally in a uniquely named, fully constrained Docker container; the sentinel stayed out of container env and the exact local image/container were cleaned up. It is not an Ubuntu GitHub Actions result. Record: `docs/acceptance/2026-10-30-current-worktree-source-matched-suite.md`.
+- Replayed Gateway comment bridge and Project bridge required-check payloads locally on this checkout: Gateway modules **81 passed / 1 optional Torch skip**, tiny-LM real Docker fixture passed with lower loss and `gpu_used=false`; Project bridge **19/19** and its real Docker smoke passed with lower loss and `gpu_used=false`. Containers and temporary image tags were removed. These are local arm64 checks, not GitHub Actions or PR review.
+- The same dirty Gateway fingerprint now also passed a real PostgreSQL 16 schema-v8 dump/verify/restore path: one synthetic DB run and artifact were paired, restored into another database/tree, and fetched byte-exactly through `ArtifactStore.get()`. The systemd stopped-unit probe was stubbed; target-host acceptance remains open. Full record: `docs/acceptance/2026-10-30-dirty-source-paired-restore.md`.
+- The first proposed review candidate `origin/main..c824b90` passed its complete local source suites in a fresh detached worktree. An earlier fresh Python 3.12.13 environment passed Gateway **199 / 1 optional skip**, WebMCP **3/3**, compilation, and root/Core **452 / 1 Python-version skip**. A new rerun using the primary checkout's venv without optional `modal` passed Gateway **198 / 2 optional skips** and Core **452 / 1**; both Gateway runs cover 200 tests. This is not GitHub CI or a clean locked build of the rerun environment. Exact environment and limits are in `docs/acceptance/2026-10-31-p1-c824-candidate-suite.md`.
+- The final P1 CPU/recovery review candidate through `c8172c0` was rebuilt and tested with a CPU image built from its own Dockerfile and matching OCI source/revision labels. Full Gateway passed **251 / 2 optional skips** and Core **515 / 1 Python-version skip**; the earlier fresh dependency environment passed Gateway **252 / 1**, WebMCP 3/3, compilation, and Core 515/1. The rerun's extra skip is optional Modal absent in the primary venv. Exact image digest, source SHA, and cleanup are in `docs/acceptance/2026-10-31-p1-c817-source-provenance-suite.md`.
+- The user-selected Security Review of the complete uncommitted diff after the child-process URL fix found no actionable findings. This local source review does not replace GitHub PR review or target-host security acceptance.
+- Vercel Preview deployment `dpl_GEFjNPeWZF9zaVCV8pXks81eqZhe` is a READY Lambda built from pushed HEAD `aa681f4`, protected by SSO. The names-only Preview environment query returned 403; its runtime configuration remains unknown. No share link or configuration/deployment mutation was made. Vercel alone runs neither the persistent worker nor recovery supervisor. Production still points to `main` at `24ecb9b`; the public runtime lacks `/readyz`.
+- P2 PostgreSQL + real Docker worker-crash recovery is covered locally: the child worker exits after container start and before handle persistence, and a new supervisor adopts the same container/run, stores its result/artifact, confirms cleanup, and releases the slot. The focused PostgreSQL lifecycle test passed 1/1 at the current snapshot; the latest full Gateway suite passed 480/2 skipped, as recorded in `docs/acceptance/2026-10-31-current-snapshot-full-suite.md`. GitHub CI and target-host drills remain open.
+- The P1 OAuth (3-path) and P3 backup-integrity (3-path) review candidates were each regenerated with their recorded SHA-256, applied to fresh detached worktrees, and retested against pinned disposable PostgreSQL 16. Focused outcomes were 7/7 and 25/25 respectively; temporary worktrees/DB containers were removed. These candidates are locally reproducible but are still unpushed and are not GitHub reviews or CI.
+- The next P3 backup/operations candidate `c8172c0..d794c13` passed complete local suites with a CPU image built from its own labeled Dockerfile: Gateway **272 / 2 optional skips** and Core **515 / 1 Python-version skip**. Evidence: `docs/acceptance/2026-10-31-p3-d794-candidate-suite.md`. This covers local backup tooling, not a target-host restore drill, second operator, or RPO/RTO.
+- The following package/CI candidate `d794c13..cccfcb8` passed complete local suites: Gateway **274 / 2 optional skips**, Core **517 / 1 Python-version skip**. Its exact-source wheel contains 23 gateway modules and four UI/WebMCP assets. Evidence and wheel hash: `docs/acceptance/2026-10-31-p3-cccf-package-candidate-suite.md`.
+- ChatGPT workspace eligibility, OAuth grant, tool discovery, real ChatGPT CPU run, cross-conversation result/artifact retrieval, and owner-isolation acceptance remain NOT RUN. P3 selected-host systemd, alert delivery, second-operator recovery, and measured RPO/RTO remain open. Host/provider/region, origin, cost ceiling, alert recipient/SLO, and ChatGPT write-action access remain unresolved.
+- A fresh in-app browser check at 16:43 UTC still displays Log in / Sign up. The current browser has no authenticated target workspace; this does not establish whether the user has a separate eligible workspace.
+- A fresh visible in-app browser check at 17:16 UTC still displays Log in / Sign up. No target workspace OAuth/tool acceptance was run. The 178-path review-slice inventory was reconciled with no missing, stale, or duplicate assignments; see `2026-10-28-gpu-control-worktree-slices.md`.
+- Preserve `policies/repository-state.yaml` at `mode: parked`. No production setting, database, provider, paid resource, GitHub PR, or deployment was changed; the twenty local candidate refs are the only branch-ref changes.
+- Continue with exact review-sized candidates and evidence refresh. The complete dirty Gateway diff has now passed local Security Review and the source-matched Gateway/Core suite, but PR #51 still tests only pushed `aa681f4`. Before P1 is accepted, the readiness-capable revision must pass independent review/required CI, be deployed through an authorized path, and pass authenticated ChatGPT OAuth/tool/CPU/result retrieval. After that, finish selected-host P3 acceptance before real GPU work; keep paid execution separately gated. Do not treat green checks on pushed `aa681f4` as checks for these local changes.
+
+## 次のLuna実行単位 — review候補の孤立検証
+
+目的は、既存のローカル候補stackを独立PR/レビューに出せる根拠まで整え、統合漏れを防ぐこと。全体ゴールはこの作業単位に縮小しない。
+
+1. まずprimary checkoutを変更せず、`2026-10-28-gpu-control-worktree-slices.md`の明示的なPR base/head候補（`origin/main..c824b90`, `c824b90..7c4454b`, `7c4454b..c8172c0`, `c8172c0..d794c13`, `d794c13..cccfcb8`, `cccfcb8..f15ab32`, `f15ab32..f054aebe`）について、現在の親子関係、差分path、`.github`必須CI対象を実測する。20 refsの連番をPR境界とみなさず、`4a05977`、`aa681f4`およびdirty worktreeを別のfollow-up差分として突合する。
+2. 各候補は独立detached worktreeで評価し、`PYTHONPATH`と代表moduleの`__file__`が候補自身を指すことを記録する。親候補やprimary checkoutからimportした結果は無効としてやり直す。
+3. P1 CPU/recoveryの提案stackは`origin/main..c824b90`、`c824b90..6646401`、`6646401..2a6f21a`、`2a6f21a..0d02058`、`0d02058..311d6a9`、`311d6a9..c8172c0`の各候補headで完全Gateway/Core suiteのローカル結果が揃っている。既知の不成立head `7c4454b`を終端にしない。P3 backup/operations candidate `c8172c0..d794c13`とpackage/CI candidate `d794c13..cccfcb8`もsource-matched imageで完全Gateway/Core suiteを通過し、候補wheelの内容を確認した。2026-10-31にmain保護APIと各workflowを読み直し、7つの必須Actions contextsと、全候補PRで全7 workflowが無条件起動することを確認済み（worktree-slices冒頭）。公開headごとの結果は独立に必要。P4 selection (`cccfcb8..f15ab32`) と P4 evidence (`f15ab32..f054aebe`) は後続機能を混ぜない。巨大な`f054aebe..4a05977`は単一PRとせず、現行ownership mapの順に累積し、完全suiteが通る境界を確認する。
+4. 既存PR #51のCI成功を各候補headのCIと扱わない。各候補についてpath範囲、コマンド、テスト/skip、未解決依存、必要なGitHub CIと独立reviewを表に更新し、次にレビューへ出す最小の整合したstack順を提案する。
+5. 安全制約: dirty primary checkoutを保持し、既存refを書き換えず、共有branchへcheckoutせず、勝手なstage/commit/push/merge/close/deployやprovider/API/account mutationを行わない。`parked`、全spend gateを維持する。ChatGPT workspaceやtarget hostが使えない場合も、それに依存しない候補検証を完了する。
+
+完了時の成果物は、候補ごとの再現可能な検証記録と更新済みreview map、およびP1 real ChatGPT CPU acceptance・P3 target-host acceptanceに進むための明示的な外部前提一覧。ローカル候補のPASSをGitHub review、ChatGPT実行、実運用のPASSへ昇格しない。
 
 これより下の 2026-10-28 snapshot/log は各記載日の履歴であり、現在のbranch/PR/runtime stateとして再利用しない。
 
@@ -34,6 +214,17 @@ is still awaiting the user's answer. Continue with work that does not depend on
 that choice, but do not start the selected review until it is supplied. No
 provider call, spend, deployment, production DB change, push, or merge is
 authorized by this handoff.
+
+### Verification delta — 2026-10-31 03:41 JST
+
+The current-source P2 worker-crash-after-container-start test was rerun with
+the exact current CPU image and a disposable PostgreSQL 16 database: **1
+passed**. It recovered the same run and artifact, confirmed cleanup and
+`active_count=0`, and left no run-labelled container. Test container was
+removed and loopback port 55473 was closed. This strengthens local recovery
+evidence only; target-host and ChatGPT recovery acceptance remain open. Full
+details and source hashes are in
+`docs/acceptance/2026-10-31-postgres-container-crash-recovery.md`.
 
 Immediate sequence: refresh the exact path/diff snapshot and review map; after
 the review choice, review and prepare the current changes for a reviewable PR;
@@ -72,6 +263,20 @@ P3 target-host acceptanceにruntime environment isolationの確認を追加し�
 - 結果は「変更内容 / うまくいったこと / 失敗・未確認 / 次の受入」に分ける。unit/offline/local Docker/production/ChatGPT/real GPUを混同しない。
 - 外部設定が欠けていても独立したコード・文書作業は続ける。環境受入の未実施を理由にゴール全体を完了扱いしない。
 
+
+## 2026-10-30 continuation: P1 OAuth candidate validation
+
+The isolated P1 OAuth candidate at base `f054aebe96460fe033dde8d91d7e3bbab0255655`
+passed its local OAuth and PostgreSQL concurrency/rollback checks: 7 passed,
+0 skipped on a digest-pinned PostgreSQL 16 fixture. The exact candidate received
+an independent read-only Security Review with no actionable findings. Detailed
+evidence and the patch hash are recorded in `IMPLEMENTATION_PROGRESS.md` and
+`2026-10-28-gpu-control-worktree-slices.md`. This does not count as GitHub
+approval/CI or ChatGPT acceptance. Continue with reviewable local slices while
+preserving the explicit no-stage/commit/push/merge/deploy boundary. Live
+ChatGPT OAuth, tool discovery, CPU execution/result retrieval, deployed
+readiness, P3 target-host acceptance, and P4/P5 gates remain open; keep
+`policies/repository-state.yaml` parked.
 
 ## 2026-10-28 continuation: Modal billing-only adapter and authoritative status
 
@@ -204,13 +409,18 @@ readiness契約とartifact書込probe、systemd artifact権限/env分離、cooki
 
 2026-10-28 P1/P2 integration follow-up: The full current-worktree Gateway suite now passes 296 tests with 2 optional Torch/Modal skips against a disposable PostgreSQL 16 instance and the digest-pinned CPU image. This refresh exposed missing `.gpu-control-probes` in three integration fixtures; those fixtures now model the installed artifact layout and preserve fail-closed product behavior. Worker SIGKILL-after-container-start recovery and PostgreSQL outage-after-terminal-capture recovery each passed independently and in the full suite. Root suite: 532 passed / 1 skipped; `git diff --check` passed. Evidence: `docs/acceptance/2026-10-28-local-integration-revalidation.md`. This remains local evidence, not ChatGPT/target-host/Neon acceptance.
 
-## Current worktree review slices (base `f054aebe`, uncommitted)
+## Current worktree review slices (2026-10-31 refresh)
 
-The earlier 63-path slice table is superseded. The current inventory contains
-111 changed paths (70 modified/deleted and 41 untracked), including the exact
-file ownership of this review map. Every path is assigned once across five
-sequential review slices; file membership and acceptance boundaries are listed
-in [`2026-10-28-gpu-control-worktree-slices.md`](2026-10-28-gpu-control-worktree-slices.md).
+The publishable review inventory contains 172 unique paths: 169 tracked paths
+from `origin/main...HEAD` plus three new untracked files. All 16 modified
+tracked worktree paths overlap the published set. The five sequential owner
+slices cover these 172 paths once: P1=3, P3=49, P4=50, P5=3, cross-cutting=14,
+plus 53 foundation-only paths. A historical deletion of
+`gateway/deploy/worker.env.example` appears in `f054aebe..HEAD` reconstruction
+patches but is absent from both `origin/main` and final `HEAD`; exclude it from
+the publishable review set and candidate patches based on `main`. Exact
+membership and acceptance boundaries are listed in
+[`2026-10-28-gpu-control-worktree-slices.md`](2026-10-28-gpu-control-worktree-slices.md).
 
 Review order:
 
@@ -702,3 +912,295 @@ alert route and SLO; then perform the authorized ChatGPT CPU and target-host
 acceptance. P4 real GPU is downstream of CPU operational acceptance; P5 paid
 execution requires its own explicit authorization. No reviewer request, branch
 push, merge, host provisioning, DB migration, or deployment was performed.
+
+## Current continuation handoff — 2026-10-31 03:38 JST
+
+This section supersedes the dated checkout and test snapshots above where they
+differ. Read `docs/IMPLEMENTATION_PROGRESS.md`, `docs/CHATGPT_ACCEPTANCE.md`,
+`docs/RELEASE_MATRIX.md`, and `docs/superpowers/plans/2026-10-28-gpu-control-roadmap.md`
+for the current evidence ledger.
+
+- Worktree: branch `codex/chatgpt-cpu-vertical`, HEAD
+  `a794438f42bd7246f463eaaa40d963af0aae9d13`, 68 commits ahead of local
+  `origin/main` and 2 commits ahead of the pushed PR branch. Forty modified or
+  untracked paths remain outside the remote PR checks/review. Preserve them;
+  do not claim the PR head or its green checks cover them.
+- PR #51 is still OPEN/DRAFT at remote head
+  `aa681f4062dac6b73bcf380a38a4258b96a47e1d`, with no submitted review or
+  inline comments. Seven required Actions checks pass on that remote head.
+  The selected local Security Review has completed with no actionable finding
+  in the current diff; this does not replace GitHub review.
+- Current local evidence includes Gateway **480 passed / 2 optional skips**
+  with PostgreSQL 16 and the source-matched CPU container, Core **550 passed /
+  1 Python-version skip**, and this continuation's focused PostgreSQL backup
+  integrity **1/1**, local OAuth/migration **17/17**, and PostgreSQL
+  migration/refresh-race **7/7**. The new focused records are linked from
+  `docs/IMPLEMENTATION_PROGRESS.md`. These do not establish hosted or ChatGPT
+  acceptance.
+- ChatGPT is logged out in the available browser. Public production responds
+  to liveness and OAuth metadata, but `/readyz` is 404 and unauthenticated
+  `/mcp` is 401. The protected PR preview redirects to Vercel SSO. No eligible
+  workspace, OAuth grant, or ChatGPT tool call was available or attempted.
+- P2 local CPU recovery and paired-backup code paths have evidence; P3
+  target-host install/restore, seven-day operation, alert delivery, and measured
+  RPO/RTO remain open. P3 host/region/cost ceiling/public origin/notification
+  choices are unresolved. P4 still has no accepted live GPU backend; P5 is an
+  offline verifier/config slice only. Keep all provider flags off and policy
+  `mode: parked`.
+
+Next order: keep preparing review-sized exact-source slices and current-source
+local evidence; complete P1 real ChatGPT acceptance once an authenticated
+eligible workspace and authorized endpoint are available; select and authorize
+the P3 operating envelope before target-host acceptance; continue P4 only
+after CPU operational acceptance. P5 paid execution still requires separate
+explicit authorization and independent gates. No push, merge, deployment,
+host provisioning, production migration, provider call, or paid allocation is
+authorized by this handoff.
+
+## Current continuation handoff — 2026-10-31 04:25 JST
+
+This update supersedes the runtime and local-review observations above where
+they differ. The objective remains the complete P0-P5 roadmap; do not mark it
+complete from local acceptance evidence.
+
+- The checkout remains at `a794438f42bd7246f463eaaa40d963af0aae9d13`, 68 commits
+  ahead of `origin/main`, two commits ahead of PR #51, with the current dirty
+  paths preserved and unstaged. No commit, push, PR change, or deployment was
+  made.
+- The current-worktree Security Review completed on its exact snapshot with
+  zero reportable candidates across five changed source files. The scan used
+  sequential parent review because delegated workers were unavailable; it is
+  not an independent second-reviewer result. The P5 verifier remains pure and
+  unintegrated; durable one-use worker admission and pre-create revalidation
+  remain future requirements.
+- PR #51 remains OPEN/DRAFT at `aa681f4062dac6b73bcf380a38a4258b96a47e1`,
+  `REVIEW_REQUIRED`/`BLOCKED`. Seven required checks and Vercel statuses pass
+  on that pushed head only. Main branch protection requires one approval and
+  those seven checks.
+- Vercel production alias `gpu-control.vercel.app` is deployment
+  `dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ` from old `main` SHA
+  `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. Public `/healthz` and OAuth
+  discovery respond, `/mcp` requires a bearer token, and `/readyz` is 404. The
+  current PR preview is READY at `aa681f4` but its health and readiness URLs
+  redirect to Vercel SSO. No temporary share link or deployment settings were
+  changed.
+- ChatGPT acceptance remains NOT RUN: the available browser has no authenticated
+  ChatGPT workspace, and the ChatGPT app surface is unavailable to this CUA
+  session. P3 selected-host service/mount/alert and second-operator restore,
+  seven-day CPU observation, P4 real GPU, and separately authorized P5 paid
+  execution remain open. Keep `policies/repository-state.yaml` parked and all
+  provider switches off.
+
+Next local step: keep the exact-source review slices and handoff evidence
+current without staging/committing/pushing. The next external acceptance
+sequence requires an eligible authenticated ChatGPT workspace and approved
+access to a reachable, readiness-verified deployment; P3 also needs the
+operator-selected host, region, cost ceiling, alert recipient, and SLO. Once
+those are supplied, run the recorded acceptance checklist. Do not spend or
+provision resources until the corresponding gates are separately authorized.
+Local Tunnel preflight refresh: matching environment names, expected config
+paths, binary availability and container names show no Gateway origin/OAuth
+client configuration, tunnel ID/runtime key, `tunnel-client`, or running
+Gateway/tunnel process. No values were read. Do not start a tunnel or Gateway
+for ChatGPT acceptance until the eligible workspace and Platform Tunnels
+Read + Use access are available; continue independent local work meanwhile.
+
+P4 receipt signer exact-range Security Review (2026-10-31): the two commits
+from `aa681f4062dac6b73bcf380a38a4258b96a47e1` through
+`a794438f42bd7246f463eaaa40d963af0aae9d13` have a completed local sequential
+Codex Security review with zero reportable findings. The report is recorded at
+`/Users/taka/.codex/state/plugins/codex-security/scans/gpu-control/a794438f42bd7246f463eaaa40d963af0aae9d13_20261030T192803Z_s456uisd/report.md`.
+This is not an independent second review. Future adapter integration must
+prove authenticated projection-to-claim correlation and private-key isolation.
+P1 live ChatGPT acceptance remains open; local source review and documentation
+can continue, but end-to-end acceptance needs an authenticated eligible
+ChatGPT workspace and an approved reachable Gateway whose readiness is verified.
+Do not change parked mode or activate paid/provider switches.
+
+## Current-source reconstruction refresh — 2026-10-31 05:00 JST
+
+The previous detached source reconstruction was missing one acceptance record
+and had seven stale documentation files. Refreshed the isolated
+`/tmp/gpu-control-main-full-current-20261031-final3` candidate from the
+authoritative current checkout and compared tracked plus untracked source
+files, contents, and executable bits: **339 paths, zero missing, zero extra,
+zero mismatched**. Generated the refreshed `origin/main` replay patch at
+`/tmp/gpu-control-main-full-current-20261031-final6.patch`. Applied it to a
+fresh detached worktree at `origin/main`; `git apply --check` passed and the
+resulting 339-file tree matched with zero missing, extra, or mismatched files.
+`git diff --check` also passes. Do not use the earlier `final3`/`final4`/`final5`
+patch artifacts. No tests were rerun; the current-source suite evidence
+remains the 480/2 Gateway and 550/1 Core results above. The corrected file
+inventory and replay reference are in
+`2026-10-28-gpu-control-worktree-slices.md`.
+
+This is local reconstruction evidence only. PR #51 still does not include
+these changes, and GitHub CI/review, authenticated ChatGPT execution, and
+target-host acceptance remain required before P1/P3 acceptance. Preserve the
+primary dirty checkout and parked policy; no staging, commit, push, deploy,
+resource provisioning, or provider activation occurred.
+
+## P1 schema-v9 review candidate — 2026-10-31 05:07 JST
+
+The current P1 schema-v9 OAuth overlay was isolated to its 10 owned paths as
+`/tmp/gpu-control-p1-schema-v9-overlay-on-aa681.patch` (SHA-256
+`a99aeb1184d5f6298c48d64d43a7148632642ddc1a953705f3a50c12a7a6ac1f`). It
+applies to PR #51's exact remote head `aa681f4`; it fails on `c8172c0` because
+the candidate predates later OAuth consent, redirect, and migration-boundary
+changes in those same files. Use `aa681f4` or a newer prerequisite-complete
+base. The patch is not an independently mergeable main-based PR while PR #51
+remains a 169-path Draft without review. Current full-suite evidence is for
+the entire dirty source, not this isolated 10-path candidate; this turn ran
+no tests and requested no GitHub review. Full details are in
+`2026-10-28-gpu-control-worktree-slices.md`. The exact full-source replay
+patch was refreshed to `/tmp/gpu-control-main-full-current-20261031-final10.patch`
+after this note was added; use that version if the cumulative snapshot is
+needed.
+
+P2 and P3 overlays were also isolated and apply-checked against the same PR
+head. P2 worker crash recovery is the 2-path patch
+`/tmp/gpu-control-p2_worker_crash-overlay.patch` (SHA-256
+`cf9e8471f6fc3539a663d0263cc0ddabafa58f77ea88eae06e5f2ae370bd587a`). P3
+backup integrity/operations is the 11-path patch
+`/tmp/gpu-control-p3_backup_operations-overlay.patch` (SHA-256
+`b5ac894808cf414436681cfeb2b63f3b3af70ee0cb0a419e4abf9f4c65872998`). These
+are local apply-checked follow-ups on the broad PR #51 base, not independent
+main-based PRs; isolated-candidate full suites, GitHub CI, and review remain
+open. See the slice map for exact ownership.
+
+The proposed eleven review ranges were rechecked against current refs: all are
+ancestor-valid and their changed-path union covers all 169 current PR files.
+One extra intermediate path, `gateway/deploy/worker.env.example`, is deleted
+before the current PR head and must stay out of the final inventory. This
+verifies range coverage only; it does not establish mergeability or acceptance.
+The cumulative exact-source patch name above was refreshed again after this
+handoff update.
+
+## P1 first main-based candidate Security Review — 2026-10-31
+
+Ran a read-only Security Review of `origin/main..c824b90` from a dedicated
+worktree at `codex/gpu-control-p1-05-recovery`, following the user's selected
+review type. The review reported no reportable issues and made no file changes
+or test runs. This is source-review evidence for the exact 40-file candidate;
+it is not GitHub approval or CI. The candidate's local full-suite record is
+`docs/acceptance/2026-10-31-p1-c824-candidate-suite.md` (Gateway 198/2 skipped,
+Core 452/1 skipped). The exact-source cumulative patch was refreshed after
+this note; see the dated PR stack publication record below.
+
+## Draft PR stack publication — 2026-10-31
+
+Pushed branch `codex/gpu-control-p1-05-recovery` at
+`c824b9018ea9dfd3d9f8b45f65b7b3fd60c4fb01` and created Draft PR #52
+(`main` → P1 candidate, 40 files). PR #51 was retargeted to use the P1
+candidate as its base; it remains a broad 163-file Draft follow-up and should
+not be merged alongside #52 as-is. At the latest check refresh, #52's seven
+required Actions checks were pending while Vercel had passed. #51's old
+main-based checks do not validate its new base. No GitHub reviews have been
+submitted. Local P1 suites and the user-selected Security Review passed as
+documented above; these do not replace remote CI/review or runtime acceptance.
+The exact-source replay patch is refreshed at
+`/tmp/gpu-control-main-full-current-20261031-final20.patch` after this note.
+
+## Current continuation refresh — 2026-10-31
+
+- HEAD remains `a794438f42bd7246f463eaaa40d963af0aae9d13`, 68 commits ahead
+  of `origin/main`; it diverges from the pushed PR #51 branch (55 ahead / 56
+  behind). The worktree has 45 modified tracked and 16 untracked paths (61
+  total), all unstaged. Its ownership table in
+  `2026-10-28-gpu-control-worktree-slices.md` matches the live Git path set
+  exactly (61/61, no missing, stale, or duplicate entries).
+- Current PR #52 and stacked PRs #57–#59 remain OPEN/DRAFT with seven required
+  Actions checks and Vercel passing on each current head, but no submitted
+  GitHub reviews. #52 remains `REVIEW_REQUIRED`. Local suites do not cover
+  these 61 paths.
+- A fresh GitHub protection read confirms the seven required checks, one
+  approval with last-push approval, strict history, conversation resolution,
+  linear history, and admin enforcement. Production/Preview Environments have
+  no required reviewers or deployment-branch restrictions. The parked machine
+  policy lists those three controls as normative paid-activation prerequisites;
+  repository search found no runtime reader that verifies live GitHub settings.
+  Any future activation/issuer path must consume fresh trusted API evidence and
+  fail closed. Focused policy/context tests pass 14/14. No external settings
+  changed.
+- Fresh production alias GETs at 2026-10-30 21:59 UTC returned `/healthz`=200,
+  `/readyz`=404, OAuth discovery=200, and unauthenticated `/mcp`=401. The
+  Gateway is not runtime-ready for ChatGPT acceptance. The browser session
+  remains logged out; real OAuth/tool/CPU/result acceptance remains unverified.
+- Preserve `policies/repository-state.yaml` at `mode: parked`. Continue
+  candidate reconciliation and local validation while independent PR review,
+  authenticated ChatGPT access, and deployment/runtime acceptance are pending.
+
+## P1 readiness integration candidate refresh — 2026-10-31
+
+- Published PR #52 and #57–#59 currently have all seven required Actions
+  checks and Vercel passing, but remain Draft; #52 is `REVIEW_REQUIRED` and
+  #57 has no submitted review. Green checks cover their published heads only.
+- The new isolated P1 candidate combines the local CPU `/readyz` admission
+  gate with PR #58's OAuth DCR/schema-v9 head
+  `561a6c7ac697dfdf22f304b60e313fccb2c806a4`. Patch:
+  `/tmp/gpu-control-p1-readiness-on-58.patch`, SHA-256
+  `8437253e113d0bf8f81fc3a27721b0157c02f5ddfef7aa081646fe1933fb6918`.
+  It updates two existing readiness test fixtures to prove a valid allowlisted
+  CPU policy and exact source identity; the fail-closed code path stays enabled.
+- Full Gateway suite on that candidate: **418 passed, 13 skipped** (optional
+  Torch/Modal, Docker CPU smoke image, and PostgreSQL services unavailable).
+  Candidate imports resolved to the isolated worktree and `git diff --check`
+  passed. A read-only Security Review of this exact #58 overlay found no issues
+  in its three changed files; the candidate base and patch SHA were rechecked
+  after review. It still needs CI on a published head and a GitHub review.
+- Continue from this exact candidate for review preparation. Do not treat the
+  green CI on PR #58 as covering it. Preserve dirty primary checkout, Draft PR
+  state, and `policies/repository-state.yaml mode: parked`; no deployment,
+  OAuth grant, or provider call was made.
+
+## P1/P2/P3 candidate composition refresh — 2026-10-31
+
+- Current remote chain is #52 → #53 → #54 → #55 → #56 → #57 → #51 → #58;
+  P3 PR #59 is a sibling off #57. The P2 and P1 lifecycle PR heads #53–#57
+  are ancestors of #58, so #58 already contains those revisions.
+- PR #59's direct patch is not a valid rebase input for #58: of its 14 paths,
+  12 differ on #58 and two are identical. Do not apply the branch wholesale.
+- A source-owned P3 operations slice applies after the P1 readiness overlay on
+  exact PR #58 head `561a6c7`. Use the complete 14-path candidate at
+  `/tmp/gpu-control-p1-p3-on-58-complete.patch`, SHA-256
+  `5c0acf229ccc0f07a32155ab5498c4685a8c9791c1a31fc4f5d7848b144319b8`.
+  The earlier export omitted four untracked P3 test/evidence files and is
+  superseded. The complete patch replayed to 328 matching paths on a second
+  fresh #58 worktree. Full Gateway suite: **420 passed, 14 skipped**;
+  PostgreSQL test services and CPU Docker image were not configured. The
+  PostgreSQL integrity test later passed 1/1 against the candidate.
+  Details: `docs/acceptance/2026-10-31-p1-p3-integration-on-58.md`.
+- Follow-up PostgreSQL-backed artifact-manifest regression on this same
+  candidate passed **1/1** against pinned PostgreSQL 16 bound to loopback. The
+  task-created DB container was stopped and verified absent. This does not
+  replace a full DB-backed suite or target-host restore/operations acceptance.
+- A separate read-only Security Review of the complete staged 14-path P1+P3
+  candidate found no actionable issues, including its added P3 evidence and
+  PostgreSQL test. It still needs CI on a published head and a GitHub PR
+  review. No GitHub write or deployment occurred. Keep `mode: parked` and all
+  provider/spend gates closed.
+- On this exact candidate, the real local CPU MCP integration passed **1/1**
+  with the cached digest-pinned image after setting its matching OCI source
+  revision. It verified idempotent prepare, submit, real Docker execution,
+  result and artifact retrieval through a second client, and cleanup. Run
+  `675d173fdce540668667bd740c126bfa` ended succeeded/cleaned with artifact SHA
+  `2a72f26082461ba058e4773c6f481f4573f369e9c01903f5d73055d3908c4819`. This
+  used synthetic OAuth/in-process MCP and is not ChatGPT or hosted acceptance.
+- The exact candidate's eight systemd service/timer units also passed
+  `systemd-analyze verify` in network-isolated Debian 12/systemd 252.39 with
+  read-only source mount and inert placeholders. No services started. Target
+  host boot/mount/restart/readiness and alert delivery remain unverified.
+
+## P3 systemd and live production refresh — 2026-10-31
+
+- The exact #58 candidate's eight service/timer units pass `systemd-analyze
+  verify` on a network-isolated Debian 12/systemd 252.39 container using a
+  read-only deployment mount and inert placeholders. No service ran; this does
+  not cover target-host behavior.
+- Fresh unauthenticated production checks: `/healthz`=200, `/readyz`=404,
+  OAuth authorization-server metadata=200, `/mcp`=401. Current P1 readiness is
+  not deployed.
+- PR #58 remains Draft at `561a6c7`; its seven required CI checks and Vercel
+  pass on the published head, no review is submitted, and it does not include
+  `/tmp/gpu-control-p1-p3-on-58-complete.patch`. ChatGPT acceptance, selected
+  P3 host/region/budget/origin/alert/SLO and target-host recovery remain open.

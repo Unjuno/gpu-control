@@ -54,9 +54,11 @@ as a zero-additional-cost GPU path.** Keep its switch disabled and preserve
   Core `revalidate_approved_candidate` also rejects changed/expired
   workload/provider/resource/evidence fingerprints without selecting a
   substitute. Gateway provider-evidence ingestion and calls to this revalidator
-  immediately before submit and worker launch are still missing. A spend-limit
-  setting alone must never be treated as proof that a particular run is
-  credit-covered.
+  before prepare persistence, submit, and worker launch are now wired for the
+  signed RunPod catalog path. Modal account quota is not ingested: its billing
+  collector remains `billing_only` and cannot construct `QuotaEvidence`. A
+  spend-limit setting alone must never be treated as proof that a particular
+  run is credit-covered.
 - The workspace's effective budget, spend limit, remaining applicable credit,
   GPU quota, and actual overage behavior still require a read-only owner review.
   Public documentation cannot substitute for those account-specific values.
@@ -93,8 +95,10 @@ as a zero-additional-cost GPU path.** Keep its switch disabled and preserve
   obtain credentials, inspect an account, or construct `QuotaEvidence`.
   Twelve offline unit cases cover its input bounds and read-only contract; this
   verifies the adapter behavior against fakes, not live SDK/account behavior.
-  Provider evidence ingestion and submit/worker revalidation remain open.
-  Until then, zero-additional-cost selection remains blocked. References:
+  Generic signed provider evidence ingestion and exact-plan revalidation are
+  wired; Modal-specific quota ingestion and account acceptance remain open.
+  Therefore Modal remains ineligible for zero-additional-cost selection.
+  References:
   [Workspace billing API](https://frontend.modal.com/docs/sdk/py/latest/Workspace),
   [Modal budgets and spend limits](https://modal.com/docs/guide/budgets).
 
@@ -105,17 +109,99 @@ Official sources:
 - [Modal pricing and spend limits](https://modal.com/pricing)
 - [Modal budgets and spend limits](https://modal.com/docs/guide/budgets)
 
+## Provider lane comparison refresh — 2026-10-31
+
+The provider implementation order is now explicit: **Modal is the
+candidate-bound adapter target; RunPod remains in the P5 paid lane. There is no
+currently executable Modal credit-backed lane.** This corrects the earlier
+provisional P4-credit-backed direction: Gateway routes `CREDIT_BACKED` plans
+through a distinct credit-authority hook. A pure signed-credit verifier and
+default-empty issuer/key settings now check current evidence and the exact run
+and plan offline. They are not wired into admission, no provider implements the
+hook, and Modal quota is still not ingested; therefore no credit-backed lane is
+executable. A Modal adapter alone cannot make credit consumption admissible.
+This is a code-sequencing decision, not an account selection, spending
+authorization, provider registration, or live acceptance.
+
+- The official [Modal Sandbox SDK](https://modal.com/docs/sdk/py/latest/Sandbox)
+  exposes requested GPU, CPU, memory, timeout and networking controls, plus
+  Sandbox object IDs, attach/poll/log/terminate operations. The existing
+  worker-only adapter already uses a pinned image ID, fixed argv, bounded
+  runtime, blocked outbound networking, durable object ID and cancellation.
+  This makes Modal the shortest implementation path for the P4 candidate-bound
+  lifecycle, subject to a separate check that the provider observation and
+  receipt can prove the actual allocated device and released resource.
+- Current [Modal pricing](https://modal.com/pricing) lists Starter compute
+  credits and separately metered GPU, non-preemptible Sandbox CPU/memory,
+  volume and egress. [Workspace and Environment budgets](https://modal.com/docs/guide/budgets)
+  cap usage, but public documentation does not establish the selected
+  workspace's remaining eligible credit or prove a particular run is covered.
+  A future credit-backed lane also needs a signed, explicit credit-use
+  authorization bound to the complete plan and current quota evidence; balance
+  and hard-stop data alone are not consent.
+- RunPod's current [Pod management documentation](https://docs.runpod.io/pods/manage-pods)
+  says stopping a Pod releases the GPU but volume storage remains billable;
+  termination is required when storage should no longer be retained, while a
+  Network Volume persists across termination. The Gateway's signed RunPod
+  catalog evidence currently supplies GPU model/VRAM, advertised accelerator
+  price and datacenter stock only. CPU/RAM/runtime/result/cleanup/quota and
+  storage/egress total-cost evidence remain unknown. The existing core RunPod
+  adapter requires a `LiveExecutionPermit` and uses paid pricing/occupancy
+  gates, so it belongs to P5 and must not be reused as a free or credit-backed
+  P4 backend.
+
+The P5 verifier requires `cost_evidence.classification == "PAID"` and rejects
+`CREDIT_BACKED`. The registry and worker now classify credit-backed plans into
+a separate opt-in and `validate_credit_authorization` hook; there is still no
+provider registration or backend that implements that hook. A future authority
+must bind a distinct credit-consumption decision (maximum gross credit debit,
+zero out-of-pocket ceiling, quota-evidence fingerprint, owner/actor,
+run/plan/resource and expiry) or provide a separately reviewed credit permit.
+Do not relabel gross credit use as zero cost, silently route it through P4, or
+infer consent from the existing Modal workspace balance.
+
+The next offline implementation target remains the candidate-bound Modal
+adapter, but its `CREDIT_BACKED` path must fail closed until the authority
+contract accepts explicit credit-use consent. A strictly `FREE` or
+`FREE_QUOTA` candidate with zero additional cost may follow the P4 path only
+when every component and hard-stop condition is evidenced. If no such candidate
+exists, P4 cannot perform a real GPU run without the separately authorized P5
+path. No provider API call, account inspection, allocation, or test was
+performed for this refresh.
+
+### Modal hardware identity evidence boundary — 2026-10-31
+
+The current [Sandbox SDK reference](https://modal.com/docs/sdk/py/latest/Sandbox)
+documents the requested GPU reservation, CPU/memory/runtime/network settings,
+Sandbox object ID, tags, `poll()` exit code, logs, and `terminate(wait=True)`.
+The documented Sandbox object surface does not expose a provider-side physical
+GPU identifier or actual allocated GPU model. The repository's
+`gateway/examples/gpu_smoke.py` prints a device name from inside the workload;
+that is useful execution output but remains workload-produced evidence.
+
+Therefore the future Modal adapter must not label that output as independently
+provider-verified hardware identity. A bounded smoke may report
+`torch.cuda.get_device_name()` and execute a CUDA operation, but the receipt
+must state its evidence source and scope accurately. The adapter still needs a
+reviewed method to bind the Modal Sandbox object to the exact requested
+resource, authenticate the terminal result, and prove termination/release.
+Until that method and a trusted immutable-image/source chain are accepted,
+`device_identity_verified` and candidate-bound GPU success must remain
+unreachable for Modal. No Modal SDK or account call was made.
+
 ## P4 gaps and next evidence
 
 1. Inspect the selected Modal workspace's plan, included usage, GPU quota,
    budget scope, overage behavior, and hard-stop semantics without launching a
    Sandbox. Do not save or reveal credentials in this record.
-2. Connect the current Modal account snapshot to `QuotaEvidence`, preserve the
-   separation between gross per-run cost, eligible credit, usage headroom, and
-   provider net-spend/usage limits, then wire exact-candidate revalidation into
-   prepare/approval/submit and worker launch. Offline stale/insufficient/
-   uncovered-credit and no-substitution tests now pass; provider evidence
-   ingestion and lifecycle checks remain open.
+2. Obtain owner-read Modal account evidence and a supported source for current
+   usage headroom, eligible credit coverage, budget/spend caps, and overage stop.
+   The generic `QuotaEvidence` model, signed provider observation storage, and
+   prepare/submit/worker exact-candidate revalidation already exist. A
+   Modal-specific collector must not emit selection-eligible quota data until
+   it can populate every required field with provenance. Offline stale/
+   insufficient/uncovered-credit and no-substitution cases are covered; live
+   Modal evidence and lifecycle checks remain open.
 3. Add workload capability and cost-selection evidence for CPU, GPU/VRAM,
    architecture, runtime, timeout, network/result collection, and cleanup.
    Distinguish availability from cost class; unknown quota or an unenforceable

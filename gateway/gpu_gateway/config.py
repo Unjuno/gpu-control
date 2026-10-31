@@ -121,6 +121,7 @@ class Settings:
     enable_runpod_bridge: bool = False
     enable_runpod_evidence: bool = False
     runpod_api_key: str = field(default="", repr=False, compare=False)
+    runpod_account_scope_id: str = field(default="", repr=False, compare=False)
     runpod_factory: str = ""
     modal_app: str = "gpu-control"
     max_inflight: int = 1
@@ -134,12 +135,32 @@ class Settings:
     hosted: bool = False
     provider_evidence_public_keys_json: str = "{}"
     candidate_receipt_public_keys_json: str = "{}"
+    paid_authorization_issuer: str = ""
+    paid_authorization_policy_version: str = ""
+    paid_authorization_public_keys_json: str = "{}"
+    credit_authorization_issuer: str = ""
+    credit_authorization_policy_version: str = ""
+    credit_authorization_public_keys_json: str = "{}"
+    provider_account_scope_hmac_key_b64: str = field(default="", repr=False, compare=False)
     provider_evidence_signing_key_id: str = ""
     provider_evidence_signing_key_pem: bytes | None = field(default=None, repr=False, compare=False)
 
     @property
     def resource(self) -> str:
         return self.public_url.rstrip("/") + "/mcp"
+
+    @property
+    def provider_account_scope_hmac_key(self) -> bytes | None:
+        encoded = self.provider_account_scope_hmac_key_b64
+        if not encoded:
+            return None
+        try:
+            key = base64.b64decode(encoded, validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("provider account scope HMAC key must be valid base64") from exc
+        if not 32 <= len(key) <= 4096:
+            raise ValueError("provider account scope HMAC key must decode to 32-4096 bytes")
+        return key
 
     @property
     def auth_ready(self) -> bool:
@@ -194,6 +215,52 @@ class Settings:
             keys[key_id] = pem.encode("ascii")
         return keys
 
+    @property
+    def paid_authorization_trusted_keys(self) -> dict[str, bytes]:
+        try:
+            raw = json.loads(self.paid_authorization_public_keys_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("paid authorization public-key configuration is invalid JSON") from exc
+        if not isinstance(raw, dict) or len(raw) > 16:
+            raise ValueError("paid authorization public-key configuration must be an object of at most 16 keys")
+        keys = {}
+        for key_id, pem in raw.items():
+            if (not isinstance(key_id, str) or
+                    not re.fullmatch(r"paid:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", key_id) or
+                    not isinstance(pem, str) or not pem or len(pem) > 8192):
+                raise ValueError("paid authorization public-key entry is invalid")
+            try:
+                key = serialization.load_pem_public_key(pem.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError) as exc:
+                raise ValueError("paid authorization public key is invalid PEM") from exc
+            if not isinstance(key, Ed25519PublicKey):
+                raise ValueError("paid authorization public key must be Ed25519")
+            keys[key_id] = pem.encode("ascii")
+        return keys
+
+    @property
+    def credit_authorization_trusted_keys(self) -> dict[str, bytes]:
+        try:
+            raw = json.loads(self.credit_authorization_public_keys_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("credit authorization public-key configuration is invalid JSON") from exc
+        if not isinstance(raw, dict) or len(raw) > 16:
+            raise ValueError("credit authorization public-key configuration must be an object of at most 16 keys")
+        keys = {}
+        for key_id, pem in raw.items():
+            if (not isinstance(key_id, str) or
+                    not re.fullmatch(r"credit:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", key_id) or
+                    not isinstance(pem, str) or not pem or len(pem) > 8192):
+                raise ValueError("credit authorization public-key entry is invalid")
+            try:
+                key = serialization.load_pem_public_key(pem.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError) as exc:
+                raise ValueError("credit authorization public key is invalid PEM") from exc
+            if not isinstance(key, Ed25519PublicKey):
+                raise ValueError("credit authorization public key must be Ed25519")
+            keys[key_id] = pem.encode("ascii")
+        return keys
+
     def validate(self) -> None:
         parsed = urlsplit(self.public_url)
         if parsed.path not in ("", "/") or parsed.query or parsed.fragment or parsed.username:
@@ -224,6 +291,21 @@ class Settings:
             raise ValueError("artifact_min_free_bytes must be a nonnegative integer")
         trusted_keys = self.provider_evidence_trusted_keys
         self.candidate_receipt_trusted_keys
+        self.provider_account_scope_hmac_key
+        paid_keys = self.paid_authorization_trusted_keys
+        if paid_keys or self.paid_authorization_issuer or self.paid_authorization_policy_version:
+            if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.paid_authorization_issuer) or
+                    not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.paid_authorization_policy_version) or
+                    not paid_keys or any(not key_id.startswith(f"paid:{self.paid_authorization_issuer}:")
+                                         for key_id in paid_keys)):
+                raise ValueError("paid authorization issuer, policy version, and matching trusted keys are required together")
+        credit_keys = self.credit_authorization_trusted_keys
+        if credit_keys or self.credit_authorization_issuer or self.credit_authorization_policy_version:
+            if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.credit_authorization_issuer) or
+                    not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.credit_authorization_policy_version) or
+                    not credit_keys or any(not key_id.startswith(f"credit:{self.credit_authorization_issuer}:")
+                                           for key_id in credit_keys)):
+                raise ValueError("credit authorization issuer, policy version, and matching trusted keys are required together")
         if self.provider_evidence_signing_key_pem is not None:
             if not self.provider_evidence_signing_key_id or self.provider_evidence_signing_key_id not in trusted_keys:
                 raise ValueError("worker provider evidence signing key ID must be present in the trusted key set")
@@ -286,6 +368,7 @@ class Settings:
             enable_runpod_bridge=e.get("GATEWAY_ENABLE_RUNPOD_BRIDGE") == "true",
             enable_runpod_evidence=e.get("GATEWAY_ENABLE_RUNPOD_EVIDENCE") == "true",
             runpod_api_key=e.get("RUNPOD_API_KEY", ""),
+            runpod_account_scope_id=e.get("GATEWAY_RUNPOD_ACCOUNT_SCOPE_ID", ""),
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),
             modal_app=e.get("GATEWAY_MODAL_APP", "gpu-control"),
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
@@ -295,6 +378,13 @@ class Settings:
             hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
             provider_evidence_public_keys_json=e.get("GATEWAY_PROVIDER_EVIDENCE_PUBLIC_KEYS_JSON", "{}"),
             candidate_receipt_public_keys_json=e.get("GATEWAY_CANDIDATE_RECEIPT_PUBLIC_KEYS_JSON", "{}"),
+            paid_authorization_issuer=e.get("GATEWAY_PAID_AUTHORIZATION_ISSUER", ""),
+            paid_authorization_policy_version=e.get("GATEWAY_PAID_AUTHORIZATION_POLICY_VERSION", ""),
+            paid_authorization_public_keys_json=e.get("GATEWAY_PAID_AUTHORIZATION_PUBLIC_KEYS_JSON", "{}"),
+            credit_authorization_issuer=e.get("GATEWAY_CREDIT_AUTHORIZATION_ISSUER", ""),
+            credit_authorization_policy_version=e.get("GATEWAY_CREDIT_AUTHORIZATION_POLICY_VERSION", ""),
+            credit_authorization_public_keys_json=e.get("GATEWAY_CREDIT_AUTHORIZATION_PUBLIC_KEYS_JSON", "{}"),
+            provider_account_scope_hmac_key_b64=e.get("GATEWAY_PROVIDER_ACCOUNT_SCOPE_HMAC_KEY_B64", ""),
             provider_evidence_signing_key_id=e.get("GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_ID", ""),
             provider_evidence_signing_key_pem=evidence_private_pem,
         )

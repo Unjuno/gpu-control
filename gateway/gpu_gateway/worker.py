@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import secrets
 import time
 import uuid
@@ -11,13 +12,13 @@ from urllib.parse import quote
 from decimal import Decimal
 
 from jsonschema import SchemaError as InvalidSchema
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import String, and_, cast, or_, select, update
 
 from .artifacts import (ArtifactStore, MAX_ARTIFACTS_PER_RUN,
                         MAX_RUN_ARTIFACT_BYTES, inspect_artifact_storage)
-from .backends import Backend, Observation, build_backends
+from .backends import Backend, Observation, ProviderAccountLeaseRequest, build_backends
 from .config import Settings, load_workloads
-from .registry import (candidate_plan_requires_paid_authorization, default_registry,
+from .registry import (candidate_plan_authorization_kind, default_registry,
                        supports_candidate_execution)
 from .service import TERMINAL, digest
 from .store import Store, control, runs
@@ -36,6 +37,7 @@ from .runpod_inventory import (
 )
 from gpu_control.providers.runpod_current_pricing import RUNPOD_GRAPHQL_SPEC_REVISION
 from .provider_selection import current_bound_candidate
+from .provider_account_scope import derive_provider_account_scope
 
 logger = logging.getLogger(__name__)
 # Keep the historical module constant for callers while sharing its source.
@@ -43,6 +45,11 @@ WORKER_HEARTBEAT_STALE_SECONDS = HEARTBEAT_STALE_SECONDS
 ARTIFACT_TTL_SECONDS = 30 * 24 * 3600
 ARTIFACT_PRUNE_INTERVAL_SECONDS = 3600
 PROVIDER_EVIDENCE_POLL_INTERVAL_SECONDS = 60
+
+
+def _unset_json_value(column):
+    """Match both SQL NULL and JSON null on SQLite and PostgreSQL."""
+    return or_(column.is_(None), cast(column, String) == "null")
 
 
 class Worker:
@@ -249,7 +256,7 @@ class Worker:
         with self.store.transaction() as c:
             return c.execute(update(runs).where(runs.c.id == job["id"], runs.c.lease_token == job["lease_token"]).values(**values)).rowcount == 1
 
-    def finish(self, job: dict, state: str, result=None, error=""):
+    def _terminal_record(self, job: dict, state: str, result=None, error=""):
         if state not in TERMINAL:
             raise ValueError("Invalid terminal state")
         record_version = 1
@@ -280,6 +287,10 @@ class Worker:
             raw = json.dumps(result, allow_nan=False).encode()
             if len(raw) > self.settings.max_output_bytes * 3:
                 result = {"result_omitted": True, "reason": "result_size_limit"}
+        return state, result, error, record_version
+
+    def finish(self, job: dict, state: str, result=None, error=""):
+        state, result, error, record_version = self._terminal_record(job, state, result, error)
         with self.store.transaction() as c:
             self.store.lock_control(c)
             row = c.execute(select(runs).where(runs.c.id == job["id"])).mappings().one()
@@ -295,6 +306,130 @@ class Worker:
                 state=state, result=result, error=error, slot_reserved=False,
                 lease_until=0, lease_token="", finished_at=int(self.clock()),
                 cleanup_state=cleanup_state, record_version=record_version))
+
+    def _provider_lease_cleanup_context(self, job: dict, backend, handle: dict):
+        intent = job.get("submission_intent")
+        if not isinstance(intent, dict) or "account_scope" not in intent:
+            return None
+        if intent.get("provider") != "runpod" or job.get("plan", {}).get("provider") != "runpod":
+            raise RuntimeError("provider account lease identity mismatch")
+        provider_job_id = getattr(backend, "provider_job_id", None)
+        if not callable(provider_job_id):
+            raise RuntimeError("provider adapter cannot identify the leased resource")
+        resource_id = provider_job_id(handle)
+        if not isinstance(resource_id, str) or not resource_id or len(resource_id) > 512:
+            raise RuntimeError("provider adapter returned an invalid resource identity")
+        now = int(self.clock())
+        lease = self.store.read_provider_account_lease_for_run(
+            run_id=job["id"], owner=job["owner"], plan_fingerprint=job["fingerprint"],
+            run_lease_token=job["lease_token"], now=now, provider="runpod",
+        )
+        if lease is None or lease.account_scope != intent.get("account_scope") or lease.provider_job_id != resource_id:
+            raise RuntimeError("provider account lease does not match the cleanup resource")
+        if lease.state == "active":
+            changed = self.store.transition_provider_account_lease_for_run(
+                account_scope=lease.account_scope, run_id=job["id"], owner=job["owner"],
+                plan_fingerprint=job["fingerprint"], lease_token=lease.lease_token,
+                run_lease_token=job["lease_token"],
+                core_plan_fingerprint=lease.core_plan_fingerprint,
+                authorization_id=lease.authorization_id, expected_state="active",
+                new_state="cleanup_pending", now=now, provider_job_id=resource_id,
+            )
+            if not changed:
+                raise RuntimeError("provider lease changed before cleanup")
+            lease = lease.__class__(**(lease.__dict__ | {"state": "cleanup_pending"}))
+        if lease.state != "cleanup_pending":
+            raise RuntimeError("provider account lease is not ready for cleanup")
+        return lease, resource_id
+
+    def finish_after_provider_cleanup(self, job: dict, state: str, result: dict,
+                                     error: str, lease_context) -> bool:
+        if lease_context is None:
+            self.finish(job, state, result, error)
+            return True
+        lease, resource_id = lease_context
+        state, result, error, record_version = self._terminal_record(
+            job, state, result, error)
+        return self.store.finish_run_after_provider_cleanup(
+            account_scope=lease.account_scope, run_id=job["id"], owner=job["owner"],
+            plan_fingerprint=job["fingerprint"], lease_token=lease.lease_token,
+            run_lease_token=job["lease_token"],
+            core_plan_fingerprint=lease.core_plan_fingerprint,
+            authorization_id=lease.authorization_id, provider_job_id=resource_id,
+            cleanup_confirmed=True, state=state, result=result, error=error,
+            record_version=record_version, now=int(self.clock()), provider="runpod",
+        )
+
+    def _reserve_runpod_account_lease(self, job: dict, backend, *, attempt: int, now: int):
+        """Prepare and atomically persist the exact RunPod allocation challenge."""
+        if not all(callable(getattr(backend, name, None)) for name in (
+                "prepare_provider_account_lease", "start_candidate_bound_with_account_lease",
+                "reconcile_candidate_bound_with_account_lease", "provider_job_id")):
+            return None
+        credential = self.settings.runpod_api_key
+        account_scope_id = self.settings.runpod_account_scope_id
+        try:
+            hmac_key = self.settings.provider_account_scope_hmac_key
+            request = backend.prepare_provider_account_lease(job)
+        except Exception:
+            return None
+        if (not credential or not account_scope_id or hmac_key is None or
+                not isinstance(request, ProviderAccountLeaseRequest) or
+                not isinstance(request.core_plan_fingerprint, str) or
+                re.fullmatch(r"[0-9a-f]{64}", request.core_plan_fingerprint) is None or
+                not isinstance(request.authorization_id, str) or
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", request.authorization_id) is None or
+                not isinstance(request.request_challenge, dict)):
+            return None
+        try:
+            scope = derive_provider_account_scope("runpod", account_scope_id, hmac_key)
+        except (TypeError, ValueError):
+            return None
+        return self.store.reserve_provider_account_lease_with_submission_intent(
+            provider="runpod", account_scope=scope, run_id=job["id"], owner=job["owner"],
+            plan_fingerprint=job["fingerprint"],
+            core_plan_fingerprint=request.core_plan_fingerprint,
+            authorization_id=request.authorization_id, run_lease_token=job["lease_token"],
+            attempt=attempt, request_challenge=request.request_challenge, now=now,
+        )
+
+    def _load_runpod_account_lease(self, job: dict, backend, *, now: int):
+        intent = job.get("submission_intent")
+        if (not isinstance(intent, dict) or intent.get("provider") != "runpod" or
+                "account_scope" not in intent):
+            return None
+        if not callable(getattr(backend, "reconcile_candidate_bound_with_account_lease", None)):
+            return None
+        return self.store.read_provider_account_lease_for_run(
+            run_id=job["id"], owner=job["owner"], plan_fingerprint=job["fingerprint"],
+            run_lease_token=job["lease_token"], now=now, provider="runpod",
+        )
+
+    def _activate_runpod_lease_for_handle(self, job: dict, backend, handle: dict, *, now: int) -> bool:
+        intent = job.get("submission_intent")
+        if not isinstance(intent, dict) or "account_scope" not in intent:
+            return True
+        lease = self._load_runpod_account_lease(job, backend, now=now)
+        if lease is None:
+            return False
+        try:
+            resource_id = backend.provider_job_id(handle)
+        except Exception:
+            return False
+        if not isinstance(resource_id, str) or not resource_id or len(resource_id) > 512:
+            return False
+        if lease.state in {"active", "cleanup_pending"}:
+            return lease.provider_job_id == resource_id
+        if lease.state not in {"submitting", "uncertain"}:
+            return False
+        return self.store.transition_provider_account_lease_for_run(
+            account_scope=lease.account_scope, run_id=job["id"], owner=job["owner"],
+            plan_fingerprint=job["fingerprint"], lease_token=lease.lease_token,
+            run_lease_token=job["lease_token"],
+            core_plan_fingerprint=lease.core_plan_fingerprint,
+            authorization_id=lease.authorization_id, expected_state=lease.state,
+            new_state="active", provider_job_id=resource_id, now=now, provider="runpod",
+        )
 
     def tick(self) -> bool:
         now = int(self.clock())
@@ -387,23 +522,36 @@ class Worker:
                             return True
             if plan.get("selection_binding") is not None:
                 registration = self.registry.get(plan["provider"])
-                paid_required = candidate_plan_requires_paid_authorization(plan)
+                authorization_kind = candidate_plan_authorization_kind(plan)
+                paid_required = authorization_kind == "paid"
                 if not supports_candidate_execution(registration, backend, plan):
                     refusal = self._missing_backend_result(job, cleanup_pending=False)
-                    failure = ("paid_execution_contract_unavailable" if paid_required else
-                               "candidate_backend_contract_unavailable")
+                    failure = {
+                        "paid": "paid_execution_contract_unavailable",
+                        "credit": "credit_execution_contract_unavailable",
+                    }.get(authorization_kind, "candidate_backend_contract_unavailable")
                     refusal["failure_code"] = failure
                     self.finish(job, "failed", refusal, error=failure)
                     return True
-                if paid_required:
+                if plan["provider"] == "runpod" and authorization_kind in {"paid", "credit"}:
+                    refusal = self._missing_backend_result(job, cleanup_pending=False)
+                    refusal["failure_code"] = "runpod_authorization_persistence_unavailable"
+                    self.finish(job, "failed", refusal,
+                                error="runpod_authorization_persistence_unavailable")
+                    return True
+                if authorization_kind in {"paid", "credit"}:
                     try:
-                        paid_authorized = backend.validate_paid_authorization(job) is True
+                        validator = (backend.validate_paid_authorization if authorization_kind == "paid" else
+                                     backend.validate_credit_authorization)
+                        authorized = validator(job) is True
                     except Exception:
-                        paid_authorized = False
-                    if not paid_authorized:
+                        authorized = False
+                    if not authorized:
                         refusal = self._missing_backend_result(job, cleanup_pending=False)
-                        refusal["failure_code"] = "paid_authorization_invalid"
-                        self.finish(job, "failed", refusal, error="paid_authorization_invalid")
+                        failure = ("paid_authorization_invalid" if paid_required else
+                                   "credit_authorization_invalid")
+                        refusal["failure_code"] = failure
+                        self.finish(job, "failed", refusal, error=failure)
                         return True
             if plan["provider"] == "local_cpu":
                 storage = inspect_artifact_storage(
@@ -412,29 +560,87 @@ class Worker:
                     self.finish(job, "failed", error="ARTIFACT_STORAGE_UNAVAILABLE")
                     return True
             attempt = int(job.get("attempt") or 0) + 1
-            intent = {"provider": plan["provider"], "owner": job["owner"], "run_id": job["id"],
-                      "attempt": attempt, "plan_fingerprint": job["fingerprint"],
-                      "phase": "dispatching", "created_at": now}
-            if not self.update(job, attempt=attempt, submission_intent=intent):
-                logger.info("Lease lost before submission intent for run %s", job["id"])
-                return True
-            if not self.store.confirm_submission_dispatch(
-                    run_id=job["id"], owner=job["owner"],
-                    plan_fingerprint=job["fingerprint"],
-                    run_lease_token=job["lease_token"], attempt=attempt, now=now,
-                    clock=self.clock):
-                latest = self.store.read(job["id"])
-                if latest and latest.get("cancel_requested") is True:
-                    self.finish(job, "cancelled", error="cancelled_before_submission")
+            runpod_candidate = (plan["provider"] == "runpod" and
+                                plan.get("selection_binding") is not None)
+            provider_lease = None
+            if runpod_candidate:
+                provider_lease = self._reserve_runpod_account_lease(
+                    job, backend, attempt=attempt, now=now,
+                )
+                if provider_lease is None:
+                    latest = self.store.read(job["id"])
+                    if latest and latest.get("cancel_requested") is True:
+                        self.finish(job, "cancelled", error="cancelled_before_submission")
+                        return True
+                    refusal = self._missing_backend_result(job, cleanup_pending=False)
+                    refusal["failure_code"] = "provider_account_lease_unavailable"
+                    self.finish(job, "failed", refusal, error="provider_account_lease_unavailable")
                     return True
-                if latest and latest.get("approved_until", 0) <= int(self.clock()):
-                    self.finish(job, "expired", error="approval_expired_before_submission")
+                job["attempt"] = attempt
+                job["submission_intent"] = self.store.read(job["id"])["submission_intent"]
+                intent = job["submission_intent"]
+                moved = self.store.transition_provider_account_lease_for_run(
+                    account_scope=provider_lease.account_scope, run_id=job["id"],
+                    owner=job["owner"], plan_fingerprint=job["fingerprint"],
+                    lease_token=provider_lease.lease_token, run_lease_token=job["lease_token"],
+                    core_plan_fingerprint=provider_lease.core_plan_fingerprint,
+                    authorization_id=provider_lease.authorization_id,
+                    expected_state="reserved", new_state="submitting", now=now,
+                )
+                if not moved:
+                    latest = self.store.read(job["id"])
+                    if latest and latest.get("cancel_requested") is True:
+                        self.store.transition_provider_account_lease_for_run(
+                            account_scope=provider_lease.account_scope, run_id=job["id"],
+                            owner=job["owner"], plan_fingerprint=job["fingerprint"],
+                            lease_token=provider_lease.lease_token,
+                            run_lease_token=job["lease_token"],
+                            core_plan_fingerprint=provider_lease.core_plan_fingerprint,
+                            authorization_id=provider_lease.authorization_id,
+                            expected_state="reserved", new_state="released", now=now,
+                        )
+                        self.finish(job, "cancelled", error="cancelled_before_submission")
+                        return True
+                    self.update(job, error="provider_account_lease_claim_lost", lease_until=now + 30)
                     return True
-                self.update(job, state="submit_unknown",
-                            error="submission_dispatch_claim_lost", lease_until=now + 5)
-                return True
+            else:
+                intent = {"provider": plan["provider"], "owner": job["owner"], "run_id": job["id"],
+                          "attempt": attempt, "plan_fingerprint": job["fingerprint"],
+                          "phase": "dispatching", "created_at": now}
+                if not self.store.begin_submission(
+                        run_id=job["id"], owner=job["owner"],
+                        plan_fingerprint=job["fingerprint"],
+                        run_lease_token=job["lease_token"], attempt=attempt, intent=intent):
+                    latest = self.store.read(job["id"])
+                    if latest and latest.get("cancel_requested") is True:
+                        self.finish(job, "cancelled", error="cancelled_before_submission")
+                        return True
+                    logger.info("Lease lost before submission intent for run %s", job["id"])
+                    return True
+                # Revalidate cancellation, approval expiry, and the worker lease
+                # after persisting intent. This is the provider-dispatch
+                # linearization point for runs without an account-wide lease.
+                if not self.store.confirm_submission_dispatch(
+                        run_id=job["id"], owner=job["owner"],
+                        plan_fingerprint=job["fingerprint"],
+                        run_lease_token=job["lease_token"], attempt=attempt, now=now,
+                        clock=self.clock):
+                    latest = self.store.read(job["id"])
+                    if latest and latest.get("cancel_requested") is True:
+                        self.finish(job, "cancelled", error="cancelled_before_submission")
+                        return True
+                    if latest and latest.get("approved_until", 0) <= int(self.clock()):
+                        self.finish(job, "expired", error="approval_expired_before_submission")
+                        return True
+                    self.update(job, state="submit_unknown",
+                                error="submission_dispatch_claim_lost", lease_until=now + 5)
+                    return True
             try:
-                if plan.get("selection_binding") is not None:
+                if provider_lease is not None:
+                    handle = backend.start_candidate_bound_with_account_lease(
+                        job, provider_lease.request_challenge,
+                    )
+                elif plan.get("selection_binding") is not None:
                     handle = backend.start_candidate_bound(job)
                 else:
                     handle = backend.start(job)
@@ -443,19 +649,70 @@ class Worker:
                 json.dumps(handle, allow_nan=False)
             except Exception:
                 # Some failures occur AFTER provider acceptance. No automatic retry.
+                if provider_lease is not None:
+                    self.store.transition_provider_account_lease_for_run(
+                        account_scope=provider_lease.account_scope, run_id=job["id"],
+                        owner=job["owner"], plan_fingerprint=job["fingerprint"],
+                        lease_token=provider_lease.lease_token, run_lease_token=job["lease_token"],
+                        core_plan_fingerprint=provider_lease.core_plan_fingerprint,
+                        authorization_id=provider_lease.authorization_id,
+                        expected_state="submitting", new_state="uncertain", now=now,
+                    )
                 self.update(job, state="submit_unknown", error="submission_outcome_unknown", lease_until=now + 5)
                 logger.warning("Submission outcome unknown for run %s", job["id"])
                 return True
+            if provider_lease is not None:
+                try:
+                    provider_job_id = backend.provider_job_id(handle)
+                except Exception:
+                    provider_job_id = None
+                if not isinstance(provider_job_id, str) or not provider_job_id or len(provider_job_id) > 512:
+                    self.store.transition_provider_account_lease_for_run(
+                        account_scope=provider_lease.account_scope, run_id=job["id"],
+                        owner=job["owner"], plan_fingerprint=job["fingerprint"],
+                        lease_token=provider_lease.lease_token, run_lease_token=job["lease_token"],
+                        core_plan_fingerprint=provider_lease.core_plan_fingerprint,
+                        authorization_id=provider_lease.authorization_id,
+                        expected_state="submitting", new_state="uncertain", now=now,
+                    )
+                    self.update(job, state="submit_unknown", error="provider_resource_identity_unavailable",
+                                lease_until=now + 5)
+                    return True
+                if not self.store.transition_provider_account_lease_for_run(
+                        account_scope=provider_lease.account_scope, run_id=job["id"],
+                        owner=job["owner"], plan_fingerprint=job["fingerprint"],
+                        lease_token=provider_lease.lease_token, run_lease_token=job["lease_token"],
+                        core_plan_fingerprint=provider_lease.core_plan_fingerprint,
+                        authorization_id=provider_lease.authorization_id,
+                        expected_state="submitting", new_state="active",
+                        provider_job_id=provider_job_id, now=now):
+                    persisted_intent = intent | {"phase": "handle_persisted"}
+                    with self.store.transaction() as connection:
+                        connection.execute(update(runs).where(
+                            runs.c.id == job["id"],
+                            _unset_json_value(runs.c.handle),
+                        ).values(handle=handle, submission_intent=persisted_intent))
+                    self.update(job, state="submit_unknown",
+                                error="provider_account_lease_transition_pending", lease_until=now + 5)
+                    return True
             # Persist a returned handle even if this worker lost its lease. This is
             # evidence of an already-started job, NOT authority to start another.
             persisted_intent = intent | {"phase": "handle_persisted"}
             with self.store.transaction() as c:
-                c.execute(update(runs).where(runs.c.id == job["id"], runs.c.handle.is_(None)).values(
+                persisted = c.execute(update(runs).where(
+                    runs.c.id == job["id"],
+                    _unset_json_value(runs.c.handle),
+                ).values(
                     handle=handle, submission_intent=persisted_intent))
+                if persisted.rowcount != 1:
+                    raise RuntimeError("provider handle was not durably persisted")
             self.update(job, state="running", lease_until=now + 1, error="")
             return True
         try:
             handle = job["handle"]
+            account_lease_intent = (isinstance(job.get("submission_intent"), dict) and
+                                    "account_scope" in job["submission_intent"])
+            lease_activated = False
             if handle is None:
                 intent = job.get("submission_intent")
                 if intent is not None and (
@@ -468,12 +725,53 @@ class Worker:
                     self.update(job, state="submit_unknown", error="submission_intent_mismatch",
                                 lease_until=now + 30)
                     return True
-                handle = backend.reconcile(job)
+                if account_lease_intent:
+                    lease = self._load_runpod_account_lease(job, backend, now=int(self.clock()))
+                    if lease is None:
+                        self.update(job, state="submit_unknown", error="provider_account_lease_unavailable",
+                                    lease_until=now + 30)
+                        return True
+                    try:
+                        handle = backend.reconcile_candidate_bound_with_account_lease(
+                            job, lease.request_challenge,
+                        )
+                    except Exception:
+                        if lease.state == "submitting":
+                            self.store.transition_provider_account_lease_for_run(
+                                account_scope=lease.account_scope, run_id=job["id"],
+                                owner=job["owner"], plan_fingerprint=job["fingerprint"],
+                                lease_token=lease.lease_token, run_lease_token=job["lease_token"],
+                                core_plan_fingerprint=lease.core_plan_fingerprint,
+                                authorization_id=lease.authorization_id,
+                                expected_state="submitting", new_state="uncertain",
+                                now=int(self.clock()), provider="runpod",
+                            )
+                        raise
+                    if handle is None and lease.state == "submitting":
+                        self.store.transition_provider_account_lease_for_run(
+                            account_scope=lease.account_scope, run_id=job["id"],
+                            owner=job["owner"], plan_fingerprint=job["fingerprint"],
+                            lease_token=lease.lease_token, run_lease_token=job["lease_token"],
+                            core_plan_fingerprint=lease.core_plan_fingerprint,
+                            authorization_id=lease.authorization_id,
+                            expected_state="submitting", new_state="uncertain",
+                            now=int(self.clock()), provider="runpod",
+                        )
+                else:
+                    handle = backend.reconcile(job)
                 observed_at = int(self.clock())
                 if handle is None:
                     self.update(job, state="submit_unknown", error="operator_reconciliation_required",
                                 lease_until=now + 30, last_observed_at=observed_at)
                     return True
+                if account_lease_intent:
+                    if not self._activate_runpod_lease_for_handle(
+                            job, backend, handle, now=int(self.clock())):
+                        self.update(job, state="submit_unknown",
+                                    error="provider_account_lease_handle_mismatch",
+                                    lease_until=now + 30)
+                        return True
+                    lease_activated = True
                 intent = job.get("submission_intent")
                 if isinstance(intent, dict):
                     intent = intent | {"phase": "handle_persisted"}
@@ -482,16 +780,23 @@ class Worker:
                 # state transition below decides whether this worker may act.
                 with self.store.transaction() as connection:
                     connection.execute(update(runs).where(
-                        runs.c.id == job["id"], runs.c.handle.is_(None)
+                        runs.c.id == job["id"],
+                        _unset_json_value(runs.c.handle),
                     ).values(handle=handle, submission_intent=intent))
                 if not self.update(job, state="running", error="", last_observed_at=observed_at):
+                    return True
+            if account_lease_intent and not lease_activated:
+                if not self._activate_runpod_lease_for_handle(job, backend, handle, now=int(self.clock())):
+                    self.update(job, state="submit_unknown", error="provider_account_lease_handle_mismatch",
+                                lease_until=now + 30)
                     return True
             latest = self.store.read(job["id"])
             lifecycle_backend = all(callable(getattr(backend, name, None))
                                     for name in ("capture", "cleanup", "is_clean"))
             if lifecycle_backend and latest.get("result") is not None and latest.get("cleanup_state") == "pending":
+                lease_context = self._provider_lease_cleanup_context(job, backend, handle)
                 backend.cleanup(handle)
-                if not backend.is_clean(handle):
+                if backend.is_clean(handle) is not True:
                     raise RuntimeError("cleanup receipt not confirmed")
                 saved = dict(latest["result"])
                 saved["cleanup_state"] = "complete"
@@ -502,7 +807,8 @@ class Worker:
                 failure_error = (saved.get("failure_code", "")
                                  if intended == "failed" and isinstance(saved.get("failure_code"), str)
                                  else "")
-                self.finish(job, intended, saved, error=failure_error)
+                if not self.finish_after_provider_cleanup(job, intended, saved, failure_error, lease_context):
+                    raise RuntimeError("provider lease and run cleanup commit failed")
                 return True
             overdue = now > job["started_at"] + plan["runtime_seconds"] + 60
             cancelling = latest["cancel_requested"] or overdue
@@ -579,12 +885,15 @@ class Worker:
                                        lease_until=now + 1, error="cleanup_pending:" + state,
                                        last_observed_at=observed_at):
                         raise RuntimeError("worker lease lost before result persistence")
+                    lease_context = self._provider_lease_cleanup_context(job, backend, handle)
                     backend.cleanup(handle)
-                    if not backend.is_clean(handle):
+                    if backend.is_clean(handle) is not True:
                         raise RuntimeError("cleanup receipt not confirmed")
                     result = dict(observation_result)
                     result["cleanup_state"] = "complete"
-                    self.finish(job, state, result, error=terminal_error)
+                    if not self.finish_after_provider_cleanup(
+                            job, state, result, terminal_error, lease_context):
+                        raise RuntimeError("provider lease and run cleanup commit failed")
                 else:
                     if not self.update(job, last_observed_at=observed_at):
                         return True

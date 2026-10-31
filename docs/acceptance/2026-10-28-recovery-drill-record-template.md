@@ -81,6 +81,8 @@ measured durations but do not claim production RPO/RTO acceptance.
 | Measured RTO | NOT RUN |
 | RTO target (2 hours) met? | NOT RUN |
 | Run/result/OAuth parity evidence | NOT RUN |
+| Source / manifest / restored schema-version match (include `unversioned` if applicable) | NOT RUN |
+| Private source and restored table-count evidence references | NOT RUN |
 | Artifact manifest count and digest verification | NOT RUN |
 | `active_count`, nonterminal runs, and external resource reconciliation | NOT RUN |
 | Owner-isolation check | NOT RUN |

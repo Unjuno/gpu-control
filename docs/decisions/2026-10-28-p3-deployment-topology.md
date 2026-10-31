@@ -174,3 +174,37 @@ provider was selected or provisioned. Sources: [DigitalOcean Droplet pricing](ht
 [DigitalOcean Volume pricing](https://docs.digitalocean.com/products/volumes/details/pricing/),
 [DigitalOcean bandwidth billing](https://docs.digitalocean.com/platform/billing/bandwidth/),
 [AWS Lightsail pricing](https://aws.amazon.com/lightsail/pricing/).
+
+## Official pricing and regional availability refresh (2026-10-31)
+
+The official AWS bundle table still lists Lightsail Small-2GB at $12/month
+(2 vCPU, 60 GB system SSD, 3 TB transfer) and Medium-4GB at $24/month
+(2 vCPU, 80 GB SSD, 4 TB transfer). A separate 32 GB artifact disk adds
+$3.20/month, so the compute-plus-artifact-volume totals remain $15.20 and
+$27.20/month. The official FAQ lists block storage at $0.10/GB-month,
+snapshots at $0.05/GB-month, and an $18/month load balancer. Lightsail's
+region list includes both Tokyo and Singapore. Sources: [AWS bundle table](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html),
+[AWS Lightsail FAQ](https://aws.amazon.com/lightsail/faq/), and
+[Lightsail regions](https://docs.aws.amazon.com/lightsail/latest/userguide/understanding-regions-and-availability-zones-in-amazon-lightsail.html).
+
+DigitalOcean's current Basic bundle table lists 2 GiB / 1 vCPU at $12/month
+(2,000 GiB transfer), 2 GiB / 2 vCPU at $18/month (3,000 GiB), and 4 GiB /
+2 vCPU at $24/month (4,000 GiB). A 32 GiB Volume adds $3.20/month, producing
+compute-plus-volume totals of $15.20, $21.20, and $27.20/month. The regional
+availability table lists SGP1 Singapore and no Japan CPU Droplet region; the
+2 vCPU 2 GiB option is available in Singapore. Volume charges continue while
+the volume is detached. Sources: [DigitalOcean Droplet pricing](https://www.digitalocean.com/pricing/droplets),
+[Volume pricing](https://docs.digitalocean.com/products/volumes/details/pricing/),
+[Droplet availability](https://docs.digitalocean.com/products/droplets/details/availability/),
+and [DigitalOcean regional availability](https://docs.digitalocean.com/platform/regional-availability/).
+
+These are public list-price arithmetic only. They exclude Neon, snapshots or
+backup retention beyond the included policy, domain/DNS, taxes, excess transfer,
+account-specific charges, and the selected artifact quota. The existing Neon
+database is in Singapore, which makes Singapore a topology candidate, but
+latency and cross-provider transfer cost still need measurement. For the
+Gateway plus worker/supervisor and CPU container, the 4 GiB / 2 vCPU shape is
+the safer initial measurement candidate; this is an inference from the process
+topology, not an observed minimum or a purchase decision. The owner-set monthly
+ceiling and whether it includes Neon remain unprovided; no resources were
+created.

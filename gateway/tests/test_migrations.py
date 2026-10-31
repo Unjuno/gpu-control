@@ -57,8 +57,8 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
     _legacy_v1(engine)
 
-    assert migrate(engine) == 9
-    assert migrate(engine) == 9
+    assert migrate(engine) == SCHEMA_VERSION
+    assert migrate(engine) == SCHEMA_VERSION
     store = Store(str(engine.url))
     store.initialize()
 
@@ -189,7 +189,7 @@ def test_migration_status_rejects_malformed_version_table_without_writes(tmp_pat
 def test_fresh_database_migrates_before_table_creation(tmp_path):
     database = f"sqlite:///{tmp_path / 'fresh.db'}"
     store = Store(database)
-    assert migrate(store.engine) == 9
+    assert migrate(store.engine) == SCHEMA_VERSION
     store.initialize()
     assert store.read("no-such-run") is None
     engine = store.engine
@@ -209,10 +209,10 @@ def test_v6_migration_adds_oauth_grant_id_without_rewriting_existing_tokens(tmp_
         """)
         connection.execute(schema_version.update().values(version=6))
 
-    assert migrate(store.engine) == 9
-    assert migrate(store.engine) == 9
+    assert migrate(store.engine) == SCHEMA_VERSION
+    assert migrate(store.engine) == SCHEMA_VERSION
     with store.engine.connect() as connection:
-        assert connection.execute(select(schema_version.c.version)).scalar_one() == 9
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == SCHEMA_VERSION
         assert "grant_id" in {column["name"] for column in
                               inspect(store.engine).get_columns("gateway_oauth_tokens_v1")}
         token = connection.exec_driver_sql(
@@ -256,7 +256,7 @@ def test_v8_oauth_migration_preserves_previously_used_clients(tmp_path):
         connection.exec_driver_sql('ALTER TABLE "gateway_oauth_clients_v1" DROP COLUMN "persistent"')
         connection.execute(schema_version.update().values(version=8))
 
-    assert migrate(store.engine) == 9
+    assert migrate(store.engine) == SCHEMA_VERSION
     with store.engine.connect() as connection:
         row = connection.execute(select(oauth_clients).where(
             oauth_clients.c.client_id == client_id

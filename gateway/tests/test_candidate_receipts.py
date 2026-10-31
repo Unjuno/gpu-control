@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 from decimal import Decimal
 
@@ -6,6 +7,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from gpu_gateway import candidate_receipts
 from gpu_gateway.candidate_receipts import (
     CandidateReceiptError,
     candidate_result_digest,
@@ -127,3 +129,82 @@ def test_receipt_trust_keys_are_separate_from_gateway_observation_signing_keys()
         "provider:runpod:receipt-v1": next(iter(keys.values())).decode("ascii")
     }))
     assert set(settings.candidate_receipt_trusted_keys) == {"provider:runpod:receipt-v1"}
+
+
+def _sign_adapter_receipt(**kwargs):
+    signer = getattr(candidate_receipts, "sign_adapter_candidate_receipt", None)
+    assert callable(signer), "adapter receipt signer is not implemented"
+    return signer(**kwargs)
+
+
+def test_adapter_receipt_signer_binds_plan_result_and_authenticated_projection():
+    plan, fingerprint, result, _, _ = _fixture()
+    private = Ed25519PrivateKey.generate()
+    projection = {"id": "pod-abc123", "status": "EXITED",
+                  "gpu": {"id": "gpu-type-123", "count": 1}}
+    receipt = _sign_adapter_receipt(
+        private_key=private, key_id="adapter:runpod:gateway-v1",
+        issued_at=1050, expires_at=1150, now=1060, plan=plan,
+        fingerprint=fingerprint, run_id="1" * 32, result=result,
+        provider_execution_id="pod-abc123", device_id="GPU-uuid-123",
+        evidence_source="runpod.rest_v2.pod",
+        provider_object_projection=projection,
+    )
+    public = private.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+    verified = verify_candidate_receipt(
+        receipt, {"adapter:runpod:gateway-v1": public}, now=1060,
+        plan=plan, fingerprint=fingerprint, run_id="1" * 32, result=result,
+    )
+    assert verified["signer"] == "gateway_adapter"
+    assert verified["payload"]["resource_id"] == plan.selection_binding.resource_id
+    assert verified["payload"]["provider_object_sha256"] == hashlib.sha256(
+        _canonical(projection)).hexdigest()
+    unsigned = {key: value for key, value in receipt.items() if key != "signature"}
+    signature = base64.urlsafe_b64decode(receipt["signature"] + "==")
+    private.public_key().verify(signature, _canonical(unsigned))
+
+
+@pytest.mark.parametrize(("change", "message"), [
+    ({"expires_at": 1351}, "validity window"),
+    ({"issued_at": 1070}, "validity window"),
+    ({"fingerprint": "0" * 64}, "plan fingerprint"),
+    ({"provider_object_projection": None}, "provider object projection"),
+    ({"provider_object_projection": []}, "provider object projection"),
+    ({"provider_object_projection": {1: "value"}}, "provider object projection"),
+    ({"provider_object_projection": {"nested": (1, 2)}}, "provider object projection"),
+    ({"evidence_source": "modal.sandbox.get"}, "receipt provider evidence source"),
+    ({"result": {"device": "NVIDIA A10", "gpu_used": False, "exit_code": 0,
+                 "metrics": {"iterations": 4}, "checksum": "f" * 64}},
+     "receipt identity or result"),
+])
+def test_adapter_receipt_signer_rejects_invalid_provider_projection_or_result(change, message):
+    plan, fingerprint, result, _, _ = _fixture()
+    private = Ed25519PrivateKey.generate()
+    values = {
+        "private_key": private, "key_id": "adapter:runpod:gateway-v1",
+        "issued_at": 1050, "expires_at": 1150, "now": 1060, "plan": plan,
+        "fingerprint": fingerprint, "run_id": "1" * 32, "result": result,
+        "provider_execution_id": "pod-abc123", "device_id": "GPU-uuid-123",
+        "evidence_source": "runpod.rest_v2.pod",
+        "provider_object_projection": {"id": "pod-abc123", "status": "EXITED"},
+    }
+    values.update(change)
+    with pytest.raises(CandidateReceiptError, match=message):
+        _sign_adapter_receipt(**values)
+
+
+def test_adapter_receipt_signer_rejects_cyclic_provider_projection():
+    plan, fingerprint, result, _, _ = _fixture()
+    private = Ed25519PrivateKey.generate()
+    projection = {}
+    projection["self"] = projection
+    with pytest.raises(CandidateReceiptError, match="cycles"):
+        _sign_adapter_receipt(
+            private_key=private, key_id="adapter:runpod:gateway-v1",
+            issued_at=1050, expires_at=1150, now=1060, plan=plan,
+            fingerprint=fingerprint, run_id="1" * 32, result=result,
+            provider_execution_id="pod-abc123", device_id="GPU-uuid-123",
+            evidence_source="runpod.rest_v2.pod",
+            provider_object_projection=projection,
+        )

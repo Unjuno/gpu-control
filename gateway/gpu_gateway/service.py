@@ -14,7 +14,7 @@ from sqlalchemy import func, insert, select, update
 
 from .config import Settings, Workload
 from .store import Store, control, runs
-from .registry import default_registry, candidate_plan_requires_paid_authorization
+from .registry import candidate_plan_authorization_kind, default_registry
 from .contracts import (PlanV2, ResultV2, plan_fingerprint, plan_payload,
                         validate_candidate_gpu_success, validate_result_binding)
 from .candidate_receipts import verify_candidate_receipt
@@ -393,13 +393,18 @@ class ExperimentService:
                     "Provider backend has not passed candidate-bound execution acceptance", 409,
                 )
             if (isinstance(row["plan"], dict) and
-                    row["plan"].get("selection_binding") is not None and
-                    candidate_plan_requires_paid_authorization(row["plan"]) and
-                    not registration.supports_paid_execution):
-                raise GatewayError(
-                    "paid_authorization_required",
-                    "Provider registration has not passed separately authorized paid execution acceptance", 409,
-                )
+                    row["plan"].get("selection_binding") is not None):
+                authorization_kind = candidate_plan_authorization_kind(row["plan"])
+                if authorization_kind == "paid" and not registration.supports_paid_execution:
+                    raise GatewayError(
+                        "paid_authorization_required",
+                        "Provider registration has not passed separately authorized paid execution acceptance", 409,
+                    )
+                if authorization_kind == "credit" and not registration.supports_credit_execution:
+                    raise GatewayError(
+                        "credit_authorization_required",
+                        "Provider registration has not passed separately authorized credit use acceptance", 409,
+                    )
             if admission["active_count"] >= self.settings.max_inflight:
                 raise GatewayError("concurrency_limit", "An experiment is already in flight", 409)
             connection.execute(update(control).where(control.c.id == 1).values(active_count=control.c.active_count + 1))

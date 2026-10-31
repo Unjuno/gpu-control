@@ -16,6 +16,8 @@ import backup_generation
 
 
 def quiescent_sql(query: str) -> str:
+    if "json_agg(json_build_object('owner', owner" in query:
+        return "[]"
     if "state NOT IN" in query:
         return "0"
     if "COALESCE((SELECT active_count" in query:
@@ -111,6 +113,51 @@ def test_real_tar_excludes_transient_artifact_probe_directory(tmp_path):
     assert not any(".gpu-control-probes" in name for name in names)
 
 
+def test_backup_verifies_live_artifact_files_against_database_manifest(tmp_path):
+    owner, run_id, artifact_id, content = "owner", "a" * 32, "result.bin", b"verified result"
+    scope = hashlib.sha256((owner + "\0" + run_id).encode()).hexdigest()
+    filename = hashlib.sha256(artifact_id.encode()).hexdigest() + ".blob"
+    root = tmp_path / "artifacts"
+    directory = root / scope
+    directory.mkdir(parents=True)
+    (directory / filename).write_bytes(content)
+    records = [{"owner": owner, "run_id": run_id, "artifacts": [{
+        "artifact_id": artifact_id,
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "size_bytes": len(content), "expires_at": 200,
+    }]}]
+
+    assert backup_generation._verify_live_artifact_files(root, records, now=100) == 1
+    assert backup_generation._verify_live_artifact_files(root, records, now=200) == 0
+    (directory / filename).write_bytes(b"corrupted result")
+    with pytest.raises(ValueError, match="size does not match"):
+        backup_generation._verify_live_artifact_files(root, records, now=100)
+
+
+def test_backup_verifies_archived_artifact_bytes_against_database_manifest(tmp_path):
+    owner, run_id, artifact_id, content = "owner", "c" * 32, "metrics.json", b"{\"ok\":true}"
+    scope = hashlib.sha256((owner + "\0" + run_id).encode()).hexdigest()
+    filename = hashlib.sha256(artifact_id.encode()).hexdigest() + ".blob"
+    archive_path = tmp_path / "artifacts.tar"
+    with tarfile.open(archive_path, "w") as archive:
+        info = tarfile.TarInfo(f"./{scope}/{filename}")
+        info.size = len(content)
+        archive.addfile(info, io.BytesIO(content))
+    records = [{"owner": owner, "run_id": run_id, "artifacts": [{
+        "artifact_id": artifact_id,
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "size_bytes": len(content), "expires_at": None,
+    }]}]
+
+    assert backup_generation._verify_artifact_archive_manifests(archive_path, records, now=100) == 1
+    records[0]["artifacts"][0]["sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="digest does not match"):
+        backup_generation._verify_artifact_archive_manifests(archive_path, records, now=100)
+    records[0]["artifacts"][0]["sha256"] = hashlib.sha256(content).hexdigest()
+    records[0]["artifacts"][0]["expires_at"] = 100
+    assert backup_generation._verify_artifact_archive_manifests(archive_path, records, now=100) == 0
+
+
 def test_artifact_archive_failure_does_not_publish_partial_generation(tmp_path, monkeypatch):
     fake_commands(monkeypatch, fail_prefix="tar")
     output = tmp_path / "backups"
@@ -147,6 +194,8 @@ def test_database_artifact_manifests_require_artifact_volume(tmp_path, monkeypat
     original_sql = backup_generation._sql
 
     def sql_with_artifacts(query: str) -> str:
+        if "json_agg(json_build_object('owner', owner" in query:
+            return "[]"
         if "json_typeof(result->'artifacts')" in query:
             return "1"
         return original_sql(query)

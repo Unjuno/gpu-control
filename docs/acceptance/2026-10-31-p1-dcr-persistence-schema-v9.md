@@ -85,22 +85,3 @@ the current worktree.
   reviewed/merged P1 series from `main`. Its tests are local, not GitHub CI or
   independent GitHub review. ChatGPT OAuth/tool acceptance and hosted schema
   migration remain NOT RUN.
-
-## Current pushed-head overlay — PR #51 at 3346d08 (2026-10-30 20:55 UTC)
-
-Applied the exact six-file code/test patch above to a fresh detached worktree at
-current PR #51 head `3346d0818dd1dd195d8105c348f00b51e2879daa`. The patch
-applied cleanly; `git diff --check` passed. Before pytest, `gpu_gateway.__file__`
-and `gpu_control.__file__` both resolved inside that candidate worktree.
-
-The exact candidate passed the SQLite OAuth and migration unit modules:
-**17 passed**, with one existing Starlette deprecation warning. PostgreSQL
-migration evidence above was run earlier on the previous PR #51 head; the new
-head's PostgreSQL case is included in this follow-up's GitHub CI, which must
-pass before the candidate is considered validated against current CI.
-
-This overlay is a focused follow-up to the schema-v8 tree on PR #51. PR #51 is
-still an unmerged aggregate based on PR #57, so this draft remains stacked
-behind #51 and is not independently mergeable yet. No hosted database was
-migrated, no ChatGPT account was used, and `policies/repository-state.yaml`
-remains `parked`.

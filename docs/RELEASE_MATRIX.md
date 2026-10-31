@@ -5,15 +5,27 @@ readiness from mocks, source inspection, or a green test suite alone.
 
 | Axis | Status | Current evidence | Remaining acceptance |
 | --- | --- | --- | --- |
-| `MCP_CONNECTIVITY` | BLOCKED (runtime and workspace acceptance) | Fresh production-alias GETs (2026-10-30): `/healthz`=200, `/readyz`=404, `/mcp`=401. Vercel's read-only deployment record identifies PR preview `dpl_CWs7WJ4hKt2thQtmMZeVabiKV84f` as READY from SHA `144cccebca3351b42cd9261375b012784f3b8715`; project SSO protection is enabled for preview deployments. An unauthenticated preview request redirects to Vercel login, so deployed `/readyz` is still unobserved. PR #51 is OPEN/DRAFT/REVIEW_REQUIRED and all current checks pass; no ChatGPT OAuth grant, tool scan, or tool call has completed. Evidence: [`docs/CHATGPT_ACCEPTANCE.md`](CHATGPT_ACCEPTANCE.md). | Complete PR review, obtain authorized preview access, confirm readiness, configure a persistent deployment, then complete OAuth and tool discovery/calls in the intended ChatGPT workspace. |
-| `CHATGPT_TOOL_USABILITY` | BLOCKED (deployment/workspace acceptance) | Canonical experiment tools implement prepare/submit/status/result/artifact/cancel/list contracts. The latest PR CI Gateway job passed **424 tests / 1 optional skip** with PostgreSQL and the digest-pinned local CPU container; root CI passed Python 3.11, 3.12, and 3.13. Coverage includes MCP output, owner isolation, Docker CPU execution, artifact retrieval, v1-to-v8 migration, and PostgreSQL outage recovery. The PR preview is deployed but SSO protected; no intended ChatGPT workspace has completed discovery or a tool call. | Complete PR review and eligible deployment/workspace setup, then run a registered CPU experiment through ChatGPT and retrieve it from a second conversation; record the evidence in [`docs/CHATGPT_ACCEPTANCE.md`](CHATGPT_ACCEPTANCE.md). |
-| `CPU_EXECUTION` | PASS (local lane only) | Current PR CI Gateway integration passed **424 tests / 1 optional skip** with PostgreSQL and the digest-pinned CPU container; it includes local MCP/result/artifact retrieval, concurrency, outage recovery, authenticated Docker CPU execution, cross-client retrieval, and v1-to-v8 migrations. Root CI passed **550 tests / 1 skip**. These are CI/local execution results, not ChatGPT or production-host acceptance. Evidence: [`2026-10-28-local-integration-revalidation.md`](acceptance/2026-10-28-local-integration-revalidation.md) and latest CI for PR #51. | Use the reviewed persistent deployment host and complete real ChatGPT acceptance and seven-day observation. |
-| `FREE_GPU_EXECUTION` | BLOCKED | No GPU backend has been live-verified with device, quota, additional-cost, cancellation, and cleanup evidence. Official RunPod docs schedule REST v1 retirement for 2026-11-15; the separately named v1 adapter is not eligible for future live activation. Current v2 schema review found and fixed a Network Volume create-body mismatch (`mounts.network`); 56 focused offline v2 payload/adapter/policy and legacy-compatibility tests passed, including exact create-response volume/datacenter/cloud validation and compensating termination; current focused v2/selection/capability modules passed 120 tests; the full root/core suite passed 550 tests with the Python 3.11-specific reproducer skipped under Python 3.12. These are offline checks only. Policy metadata now distinguishes the documented v2 surface from unverified provider behavior; no live compatibility, result, or cleanup acceptance exists. Evidence: [`2026-10-28-runpod-api-v2-revalidation.md`](acceptance/2026-10-28-runpod-api-v2-revalidation.md). | Validate the v2 path under separate bounded authorization, then prove result transport, resource reconciliation, cancellation, cleanup, and bounded cost; preserve `FREE_FIRST` gates. |
-| `PAID_GPU_EXECUTION` | BLOCKED | Paid mode remains parked; no current exact human authorization or live provider execution. | Complete P5 controls and obtain separate explicit authorization for a bounded canary before any spend. |
-| `RECOVERY` | PASS (local CPU lane only) | The latest PR CI Gateway integration passed **424 tests / 1 optional skip** using PostgreSQL and a digest-pinned CPU container, including worker crash recovery, artifact retrieval, and PostgreSQL outage-after-capture recovery. This is CI-local synthetic evidence, not target-host recovery acceptance. Detailed local drill evidence: [`2026-10-28-local-integration-revalidation.md`](acceptance/2026-10-28-local-integration-revalidation.md). | Exercise the selected deployed host and provider; verify the full crash matrix and no duplicate resources there. Production backup retention, target-host recovery and measured RPO/RTO remain open. |
+| `MCP_CONNECTIVITY` | BLOCKED (runtime and workspace acceptance) | Read-only refresh (2026-10-31 11:12 JST): PRs #51–#59 remain OPEN/DRAFT with nine successful published statuses each and no reviews; #52 and #43 report `REVIEW_REQUIRED`. Production alias points to `main` SHA `24ecb9b` and returns `/healthz`=200, `/readyz`=404, `/mcp`=401, OAuth metadata=200. PR #58 Preview is READY at `561a6c7`, but `/healthz` and `/readyz` redirect to Vercel SSO (302), so candidate readiness is unobserved. No authenticated ChatGPT OAuth or experiment call was exercised. Evidence: [`docs/CHATGPT_ACCEPTANCE.md`](CHATGPT_ACCEPTANCE.md). | Obtain an eligible authenticated ChatGPT workspace and authorized access to a readiness-verified persistent endpoint; complete OAuth, tool discovery, CPU execution, and result retrieval in ChatGPT. |
+| `CHATGPT_TOOL_USABILITY` | BLOCKED (deployment/workspace acceptance) | Current dirty Gateway suite passed **513 / 2 skipped** against dedicated PostgreSQL 16 and a digest-pinned CPU image whose OCI labels match immutable HEAD; Core passed **559 / 1 Python 3.11-specific skip**. Local MCP exercised prepare/submit, worker execution, and second-client result/artifact retrieval. Current PR heads remain Draft and do not include this local snapshot; production `/readyz` remains 404. No authenticated ChatGPT run has been accepted. Evidence: [`2026-10-31-current-snapshot-full-suite.md`](acceptance/2026-10-31-current-snapshot-full-suite.md), [`docs/CHATGPT_ACCEPTANCE.md`](CHATGPT_ACCEPTANCE.md). | Obtain authorized deployment and eligible authenticated ChatGPT workspace; run a registered CPU experiment through ChatGPT and retrieve it from a second conversation. |
+| `CPU_EXECUTION` | PASS (local lane only) | Current dirty Gateway suite passed **513 / 2 skipped** with dedicated PostgreSQL 16 and the commit-bound CPU image; Core passed **559 / 1 Python 3.11-specific skip**. Real local Docker/MCP integration retrieved the plan-bound result and artifact from a second client and verified the artifact digest. Actual ChatGPT acceptance and production readiness remain separate gates. Evidence: [`2026-10-31-current-snapshot-full-suite.md`](acceptance/2026-10-31-current-snapshot-full-suite.md). | Deploy through an authorized path and complete authenticated ChatGPT CPU/result acceptance, then conduct seven-day observation. |
+| `FREE_GPU_EXECUTION` | BLOCKED | No GPU backend has been live-verified with device, quota, additional-cost, cancellation, and cleanup evidence. The current Gateway suite includes one successful synthetic candidate-bound lifecycle with a signed receipt and confirmed test cleanup, but all candidate/device/receipt data are fake. Official RunPod docs schedule REST v1 retirement for 2026-11-15; the separately named v1 adapter is not eligible for future live activation. Current v2 schema review found and fixed a Network Volume create-body mismatch (`mounts.network`); 56 focused offline v2 payload/adapter/policy and legacy-compatibility tests passed, including exact create-response volume/datacenter/cloud validation and compensating termination; current focused v2/selection/capability modules passed 120 tests; the current primary root/core suite passed 559 tests with the Python 3.11-specific reproducer skipped under Python 3.12. These are offline checks only. Policy metadata now distinguishes the documented v2 surface from unverified provider behavior; no live compatibility, result, or cleanup acceptance exists. Evidence: [`2026-10-31-p4-fake-candidate-lifecycle.md`](acceptance/2026-10-31-p4-fake-candidate-lifecycle.md), [`2026-10-28-runpod-api-v2-revalidation.md`](acceptance/2026-10-28-runpod-api-v2-revalidation.md). | Validate a current provider path under separate bounded authorization, then prove result transport, resource reconciliation, cancellation, cleanup, and bounded cost; preserve `FREE_FIRST` gates. |
+| `PAID_GPU_EXECUTION` | BLOCKED | Paid mode remains parked; no current exact human authorization or live provider execution. Schema v12 Store primitives persist and reload a verifier-approved envelope against the exact run/owner/plan/browser-approval tuple, checking approval/envelope expiry and cancellation state. The reader remains unused; a cancel arriving after the read can still race a later provider call. No issuer, Worker pre-intent/pre-create verification, revocation source, or provider path is wired. Codex Security scan `95ba8a1a-f608-4f28-9b71-aaf5f97f5e9f` found zero candidates on snapshot digest `codex-security-snapshot/v1:sha256:67e0f386a5b1c494a3e37f30293c98f1b7b2253643f126ed914c398ea948430a`; subsequent state/cancel-flag delta received focused independent review. Evidence and limits: [`2026-10-31-p5-paid-authorization-persistence-foundation.md`](acceptance/2026-10-31-p5-paid-authorization-persistence-foundation.md), [`2026-10-31-current-worktree-security-review.md`](acceptance/2026-10-31-current-worktree-security-review.md). | Complete the trusted issuer, atomically integrate durable authorization and cancellation handling at the Worker/provider boundaries, obtain independent review of the final code, then separately authorize a bounded canary before any spend. |
+| `RECOVERY` | PASS (local CPU lane only) | The current dirty Gateway suite passed **513 / 2 skipped**. It includes worker death after Docker starts a real container but before handle persistence; a fresh supervisor adopts that same labelled container, retrieves the exact artifact, cleans up, and releases the slot; PostgreSQL spawned-process lease contention and PostgreSQL outage recovery. The suite used a disposable loopback PostgreSQL 16 container and commit-bound local CPU image, then removed the DB container and volume. These are local checks, not target-host recovery acceptance. Evidence: [`2026-10-31-current-snapshot-full-suite.md`](acceptance/2026-10-31-current-snapshot-full-suite.md), [`2026-10-31-postgres-container-crash-recovery.md`](acceptance/2026-10-31-postgres-container-crash-recovery.md), [`2026-10-30-dirty-source-paired-restore.md`](acceptance/2026-10-30-dirty-source-paired-restore.md), [`2026-10-31-p1-dcr-persistence-schema-v9.md`](acceptance/2026-10-31-p1-dcr-persistence-schema-v9.md). | Exercise the selected deployed host and provider; verify the full crash matrix and no duplicate resources there. Production backup retention, target-host recovery and measured RPO/RTO remain open. |
 | `CANCELLATION` | PASS (local CPU lane only) | Existing CPU container was cancelled and removed by the recovery supervisor while execution-worker ticks were stopped. | Repeat against the deployment host and, for GPU, its real provider resource. |
-| `RESULT_RETRIEVAL` | UNCERTAIN | A real digest-pinned local CPU smoke run emits a validated JSON report; worker recovery persists it to owner-scoped storage and retrieves its exact bytes. PostgreSQL outage recovery preserves the run; artifact chunk API/storage tests and local shared-volume checks pass. A separate synthetic paired PostgreSQL 16 dump/artifact archive restore retrieved the restored bytes through the owner-scoped application path and rejected an unrelated owner. No deployed API or real ChatGPT conversation was used. | Verify an actual run and exact plan/source binding from a second ChatGPT conversation, including returned artifact digest and bytes; test a deployed persistent volume and set a quota/alert policy. See `docs/acceptance/2026-10-28-artifact-storage.md` and `docs/acceptance/2026-10-28-paired-artifact-restore.md`. |
-| `SECURITY` | REVIEWED LOCALLY; GitHub review pending | The user-selected read-only Security Review of the full 117-path uncommitted change set reported no actionable findings; the OAuth slice was also reviewed separately with no actionable findings. The code changes were then committed as `4a05977`; `58f19ed` adds documentation only. Earlier Codex Security scans at `f054aebe` remain narrower historical evidence. Local review does not constitute GitHub PR review or verify deployed configuration, target-host permissions, ChatGPT acceptance, or provider accounts. | Obtain the required independent GitHub review, then verify deployed OAuth/owner boundaries and target-host permissions; perform live provider compatibility and operational security checks. |
+| `RESULT_RETRIEVAL` | PASS (local CPU/MCP only) | The commit-bound CPU image ran through authenticated local MCP; a second client retrieved the exact plan-bound result and artifact, including SHA-256 verification. Worker/container and PostgreSQL outage recovery also retained and retrieved results locally. No deployed API or real ChatGPT conversation was used. | Verify the actual run and exact plan/source binding from a second ChatGPT conversation; test deployed persistent volume and quota/alert policy. See `docs/acceptance/2026-10-28-artifact-storage.md` and `docs/acceptance/2026-10-28-paired-artifact-restore.md`. |
+| `SECURITY` | REVIEWED (static source snapshot plus focused follow-up; GitHub approval pending) | Codex Security diff scan `95ba8a1a-f608-4f28-9b71-aaf5f97f5e9f` covered all 18 changed source/policy items at base/head `a794438f42bd7246f463eaaa40d963af0aae9d13`, digest `codex-security-snapshot/v1:sha256:67e0f386a5b1c494a3e37f30293c98f1b7b2253643f126ed914c398ea948430a`: zero candidates, complete coverage, no deferred rows. A focused independent review checked the subsequent Store state/cancel-flag delta. It confirmed already-committed cancellation is rejected and identified the remaining cancel-after-read/provider-call race; Worker is not wired to this reader. No external GitHub/deployment checks were made. Evidence: [`2026-10-31-current-worktree-security-review.md`](acceptance/2026-10-31-current-worktree-security-review.md), [`2026-10-31-p5-paid-authorization-persistence-foundation.md`](acceptance/2026-10-31-p5-paid-authorization-persistence-foundation.md). | Close the cancel-after-read race in Worker/provider integration; obtain independent GitHub review; verify deployed OAuth/owner boundaries and target-host permissions; perform live provider compatibility and operational checks. |
+
+### Latest local OAuth/migration evidence — 2026-10-30 17:44 UTC
+
+The current worktree adds consent-bound persistent DCR clients and schema v9.
+The full Gateway suite passed **426, 7 skipped** on PostgreSQL 16; CPU/Docker
+smoke integration was disabled. The isolated PostgreSQL v8-to-v9 client
+preservation test and 17 focused OAuth/migration tests passed. This is newer
+than the 550-test source-matched CPU integration evidence above, but exercises
+a different scope. The new OAuth/migration source has not yet received the
+independent Security Review recorded in the matrix; that review found no
+actionable findings. Details:
+[`docs/acceptance/2026-10-31-p1-dcr-persistence-schema-v9.md`](acceptance/2026-10-31-p1-dcr-persistence-schema-v9.md).
 
 ## Operational gates
 
@@ -57,8 +69,11 @@ readiness from mocks, source inspection, or a green test suite alone.
   target-host behavior remains unverified; this does not change the P3 release
   status. The current local worktree also defines capacity alert/clear JSON
   events, requires a reason for alerts, pins their schema, selects them through journald identifier
-  `gpu-control-capacity`, and documents a journal consumer command. No
-  notification sink or delivery test exists yet. A host-independent
+  `gpu-control-capacity`, and documents a journal consumer command. The
+  durable outbox and sink-agnostic delivery pump have fake-sender coverage;
+  `gateway/tests/test_capacity_event_state.py` passed 40 tests on 2026-10-30.
+  No concrete notification sender/sink is selected, and no real transport or
+  target-host delivery test has run. A host-independent
   [`capacity alert bridge contract`](specs/capacity-alert-bridge-contract.md)
   now defines allowlisting, schema validation, event ordering/deduplication,
   redaction, identity separation, bounded retries and target-host acceptance.
@@ -150,3 +165,57 @@ local source-review evidence; they are not GitHub PR reviews, do not cover
 ChatGPT or target-host runtime behavior, and do not replace the PR #51 review
 required by the newly configured `main` protection. PR #51 remains
 OPEN/DRAFT/REVIEW_REQUIRED with no submitted GitHub review.
+
+## Current-session recheck — 2026-10-31 19:32 UTC
+
+Fresh `gh pr view 51` reports OPEN/DRAFT, `REVIEW_REQUIRED`, no reviews, and
+seven required Actions contexts plus Vercel successful on pushed head
+`aa681f4062dac6b73bcf380a38a4258b96a47e1d` only. The current checkout is two
+commits ahead and contains uncommitted changes. A new ChatGPT web tab displays
+Log in / Sign up; the desktop app is unavailable to this CUA session and Chrome
+is not an available browser surface. Thus actual ChatGPT workspace access and
+all MCP/CPU acceptance steps remain NOT RUN. A fresh GitHub branch-protection
+API read was rate-limited; the previous recorded configuration is not refreshed
+by this turn. No GitHub or hosting state was changed.
+
+## Current-session gate refresh — 2026-10-31 08:44 JST
+
+Fresh read-only GitHub reads show PR #51 OPEN/DRAFT at `e3ffcef` based on
+`51b88f6`, PR #58 OPEN/DRAFT at `561a6c7` based on `e3ffcef`, and PR #59
+OPEN/DRAFT at `76c2a1a` based on `51b88f6`. All nine published status contexts
+per PR succeeded; each has zero submitted reviews. The local checkout is at
+`a794438` with uncommitted changes, which are outside those published checks.
+Fresh public alias requests returned `/healthz`=200, `/readyz`=404, and
+unauthenticated `/mcp`=401. ChatGPT was last observed logged out at 08:35 JST.
+Repository mode remains parked; no external write or deployment occurred.
+
+## Current continuation evidence — 2026-10-31 11:02 JST
+
+The cancellation-before-dispatch delta passed the full local Gateway suite and
+the root CLI/Core suite; the focused lease and Worker recovery suites passed
+23/23. The two lease migration assertions that had hard-coded schema v11 now
+assert the current v12 schema constant. Independent review confirmed the
+pre-dispatch checks and documented the unavoidable race if cancellation
+arrives while the external provider create call is already in flight. Current
+RunPod paid/credit execution remains refused.
+
+Read-only GitHub verification confirmed one required approval, strict required
+checks and stale-review dismissal on `main`. PRs #51–#59 and #43 remain
+OPEN/DRAFT; #52 and #43 report `REVIEW_REQUIRED`, others have no review
+decision. Production probes returned `/healthz`=200, `/readyz`=404,
+unauthenticated `/mcp`=401, and OAuth metadata=200. ChatGPT web is logged out.
+Thus runtime readiness and authenticated ChatGPT acceptance remain NOT RUN;
+the dirty local candidate is not covered by remote PR checks. No GitHub write,
+deployment, grant, provider call, or policy activation occurred. Keep mode
+`parked`. Details:
+[`2026-10-31-cancel-dispatch-boundary.md`](acceptance/2026-10-31-cancel-dispatch-boundary.md).
+Read-only `gh pr checks` also returned all seven required Actions checks plus
+Vercel and Vercel Preview Comments as successful on remote heads #51, #52,
+#58, and #59. These results do not cover local uncommitted changes.
+
+At 11:07 JST, a fresh ChatGPT web tab showed Log in/Sign up. OpenAI's current
+custom MCP/auth guidance still supports DCR and recommends CIMD when advertised
+and selected. The Gateway advertises DCR, `none`, resource binding, and PKCE
+S256 without CIMD; local OAuth/auth tests passed 39/39. This is protocol
+regression evidence, not ChatGPT OAuth acceptance. Record the exact test gate
+and limits in `docs/CHATGPT_ACCEPTANCE.md` and `docs/CHATGPT_SETUP.md`.

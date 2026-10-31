@@ -444,3 +444,105 @@ GPU execution, or paid acceptance.
 - Scope is local Docker/PostgreSQL integration. It does not establish ChatGPT,
   Neon, target-host, production recovery, seven-day operation, GPU, or paid
   provider acceptance. No provider call or production mutation occurred.
+
+## Current continuation — 2026-10-30 local Docker CPU vertical
+
+- Control-plane source: committed `aa681f4062dac6b73bcf380a38a4258b96a47e1`;
+  only documentation files were dirty. Host: macOS arm64, Docker/OrbStack.
+- Used the already-cached CPU smoke image by immutable local digest
+  `sha256:687f52cf7292fc7109cb8df2469cfa9b1296d0d0b5bf1894582cf738c4d8481e`.
+  OCI labels identify repository `Unjuno/gpu-control` and fixture revision
+  `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`; this is the test fixture source
+  identity, not a claim that this image was built from the control-plane HEAD.
+- Targeted real-container command from `gateway/`, with
+  `GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST` set to that digest:
+  `.venv/bin/python -m pytest -o addopts= -q -rs
+  tests/test_local_backend_integration.py
+  tests/test_local_lifecycle_integration.py
+  tests/test_local_mcp_integration.py` — **3 passed**, one existing Starlette
+  deprecation warning. The tests exercised bounded CPU smoke/result capture,
+  timeout cleanup, worker-process crash reconciliation, authenticated MCP
+  prepare/submit/result and cross-client artifact retrieval through a real
+  local Docker container.
+- Full Gateway suite with the same digest supplied:
+  `.venv/bin/python -m pytest -o addopts= -q -rs` — **416 passed, 9 skipped**,
+  one existing Starlette deprecation warning, 17.33 seconds. The three Docker
+  integration cases above ran. The nine skips were optional Torch and Modal
+  SDK cases plus six PostgreSQL tests and one PostgreSQL outage lifecycle test;
+  no `GATEWAY_TEST_DATABASE_URL` or stoppable PostgreSQL test container was
+  configured.
+- Root/core suite from the repository root:
+  `./.venv/bin/python -m pytest -o addopts= -q -rs` — **550 passed, 1
+  skipped** in 0.91 seconds. The skip is the Python 3.11-only malformed-RunPod-
+  log recursion reproducer. No provider request was made.
+- Post-run inventory showed no running containers and only two previously
+  stopped `gpu-control` test containers from two days earlier; they were left
+  untouched. No service, PostgreSQL, provider, GPU, public endpoint, or
+  production database was started or accessed.
+- Scope: local Docker CPU and MCP protocol integration only. The fixture source
+  identity is synthetic; this is not ChatGPT acceptance, production source
+  provenance, PostgreSQL recovery, or target-host operations evidence.
+- Follow-up build feasibility check: the Dockerfile pins
+  `python:3.12-slim-bookworm@sha256:6dd8b6dab6b3adc7812bab69eca5dbdc1a5cc690ad28306d234ffb4ef8ac9753`,
+  which is absent from the local image cache. The cached `python:3.12-slim-bookworm`
+  tag resolves to a different image ID. No network pull was attempted and the
+  Dockerfile was not changed, so rebuilding a current-HEAD-labeled image offline
+  was not possible. `policies/container-verification-policy.yaml` continues to
+  deny generic container builds; only the repository-owned trusted fixture is
+  within its stated scope. The prior three Docker tests therefore remain
+  evidence for the synthetic fixture identity described above.
+
+## PostgreSQL outage recovery rerun — 2026-10-30
+
+- Recreated a disposable PostgreSQL 16 container from cached immutable image
+  `postgres@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97`,
+  bound only to `127.0.0.1:55493`. No database data or container from another
+  task was reused.
+- First full Gateway invocation completed **422 passed, 3 skipped**, because
+  the command used the wrong environment variable for the stoppable PostgreSQL
+  container and therefore skipped the outage-after-capture case. This run is
+  retained for transparency, but is not outage-recovery evidence.
+- Corrected invocation set `GPU_CONTROL_POSTGRES_CONTAINER` to the disposable
+  container. `tests/test_postgres_lifecycle_integration.py` passed **1/1**,
+  including PostgreSQL stop/restart after terminal result capture and recovery
+  of that same run. The full Gateway suite then passed **423 passed, 2
+  skipped** in 23.08 seconds; only optional Torch and Modal SDK tests skipped.
+  One existing Starlette deprecation warning was emitted.
+- The container was removed by the command's exit cleanup; subsequent Docker
+  inventory found no matching container. CPU runs used the cached smoke image
+  with synthetic fixture source SHA `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`.
+- Scope: local Docker/PostgreSQL outage recovery on the current control-plane
+  checkout. This does not establish Neon or production database behavior,
+  backup restoration by a second operator, measured RPO/RTO, ChatGPT access,
+  target-host operation, GPU execution, or paid-provider acceptance. Parked
+  mode remains in force.
+
+## Gateway CI build/runtime and clean full-suite revalidation — 2026-10-30
+
+- Reproduced the Gateway workflow's package steps on macOS arm64 with uv
+  0.11.17: `uv build gateway --wheel --out-dir /tmp/.../wheel` produced
+  `gpu_control_gateway-0.1.0-py3-none-any.whl`; `uv sync --project gateway
+  --locked --no-dev` succeeded; locked runtime imports of `gpu_control` and
+  `gpu_gateway` succeeded. Installed the built wheel into the disposable
+  runtime venv and confirmed `gpu_gateway` imported from `site-packages`,
+  while `gpu_control` resolved from the local editable source as configured.
+- Created a separate clean Python 3.12.13 venv and installed the same Gateway
+  test/worker requirements used by CI from the `gateway/` working directory.
+  `pip check` passed (pytest 9.2.0, Modal 1.5.5). With the CPU smoke image
+  digest `sha256:687f52cf7292fc7109cb8df2469cfa9b1296d0d0b5bf1894582cf738c4d8481e`
+  and disposable PostgreSQL 16 digest
+  `sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97`
+  bound only to `127.0.0.1:55496`, ran the complete Gateway suite. Result:
+  **424 passed, 1 skipped** in 23.83 seconds, one existing Starlette
+  deprecation warning. The only skip was the optional Torch test. Local Docker
+  CPU/MCP/artifact and PostgreSQL lifecycle/outage tests ran; the test image
+  has the synthetic all-`a` source revision label described above.
+- The isolated PostgreSQL test container was removed on exit. The temporary
+  wheel, runtime venv, and clean test venv were removed after verification.
+- Scope and differences from GitHub Actions: package/runtime and integration
+  checks passed locally, but this host is macOS arm64 rather than Ubuntu
+  x86_64, uv is 0.11.17 rather than the workflow-pinned 0.10.0, and the
+  integration CPU image uses synthetic fixture provenance. The remote PR CI
+  remains separate evidence for its pushed SHA; these local checks do not
+  create a new Actions run or establish ChatGPT, production, GPU, or paid
+  execution acceptance.

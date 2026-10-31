@@ -4,6 +4,58 @@ This runbook covers the Gateway's database state. It does not make a deployment,
 worker host, external OAuth issuer, or local Docker resources recoverable by
 itself. Keep the local CPU policy disabled during a restore drill.
 
+## Reproducible source and runtime installation
+
+Use this first-install procedure only for an exact 40-character commit that has
+passed the required independent review and CI and is present on the approved
+`main` branch. A READY Preview or a local worktree is not a release. This block
+installs source and locked runtime dependencies but does not start services,
+initialize/migrate PostgreSQL, enable CPU admission, or install credentials.
+
+The `/opt/gpu-control` path must not already exist. The checkout and virtual
+environment stay root-owned; service identities may read and execute files
+there but cannot modify them. Use the uv release pinned by the Gateway CI
+workflow, and preserve the repository's exact `gateway/uv.lock` through
+`--locked`.
+
+```sh
+set -eu
+release_sha=REPLACE_WITH_REVIEWED_MAIN_COMMIT
+case "$release_sha" in
+  *REPLACE*|*[!0-9a-f]*) echo 'set a lowercase hexadecimal release SHA' >&2; exit 2 ;;
+esac
+test "${#release_sha}" -eq 40
+test ! -e /opt/gpu-control && test ! -L /opt/gpu-control
+test "$(uv --version)" = 'uv 0.10.0'
+sudo git clone --no-checkout --branch main --single-branch \
+  https://github.com/Unjuno/gpu-control.git /opt/gpu-control
+sudo git -C /opt/gpu-control checkout --detach "$release_sha"
+test "$(sudo git -C /opt/gpu-control rev-parse HEAD)" = "$release_sha"
+sudo chown -R root:root /opt/gpu-control
+sudo chmod -R go-w /opt/gpu-control
+sudo env UV_PROJECT_ENVIRONMENT=/opt/gpu-control/venv \
+  uv sync --project /opt/gpu-control/gateway --locked --no-dev --python 3.12
+sudo /opt/gpu-control/venv/bin/python - <<'PY'
+from pathlib import Path
+import gpu_control
+import gpu_gateway
+
+root = Path('/opt/gpu-control').resolve()
+assert Path(gpu_control.__file__).resolve().is_relative_to(root / 'src')
+assert Path(gpu_gateway.__file__).resolve().is_relative_to(root / 'gateway')
+print('locked Gateway runtime imports from the pinned checkout')
+PY
+sha256sum /opt/gpu-control/gateway/uv.lock
+test -z "$(sudo git -C /opt/gpu-control status --porcelain)"
+```
+
+The final Git status must be empty. Record the approved SHA, uv version, Python
+version, lockfile digest, and import-check result in the private release record.
+Do not continue if checkout, dependency resolution, or source-path assertions
+fail. For upgrades, use the maintenance/drain/paired-backup procedure below;
+do not replace a running checkout in place. Install and verify systemd templates
+only after this source/runtime step has passed.
+
 ## Dedicated Linux host service layout
 
 `gateway/deploy/` contains systemd units for the API, execution worker and
@@ -78,7 +130,8 @@ tree. For an existing tree, follow the quiesced migration procedure below and
 verify all stored digests before restarting services.
 
 From the repository root, install the three required environment-file examples
-first, edit their settings, then install all seven unit templates. The sample
+first, edit their settings, then install all eight unit files (seven services
+and one timer). The sample
 database URL must be replaced with a value from the approved configuration
 source. Set `GATEWAY_COOKIE_KEY` only for external OIDC browser login; generate
 it with `Fernet.generate_key()` as described in the Gateway README. Built-in
@@ -196,13 +249,26 @@ forwards the original HTTPS scheme/host safely and that the OAuth issuer,
 resource metadata, and public MCP origin all match. Do not expose port 8000
 directly to the network.
 
-Copy the database-migration, API, worker, supervisor, capacity-check service,
-capacity timer, and manual capacity-bridge service unit files from
+Copy the read-only database-check, database-migration, API, worker, supervisor,
+capacity-check service, capacity timer, and manual capacity-bridge service unit files from
 `gateway/deploy/` to
 `/etc/systemd/system/`, then review their paths and environment file before
-enabling them. On the target Linux host, run
-`systemd-analyze verify /etc/systemd/system/gpu-control-db-migrate.service /etc/systemd/system/gpu-control-api.service /etc/systemd/system/gpu-control-worker.service /etc/systemd/system/gpu-control-supervisor.service /etc/systemd/system/gpu-control-artifact-capacity.service /etc/systemd/system/gpu-control-artifact-capacity.timer /etc/systemd/system/gpu-control-capacity-bridge.service`
-before starting any unit. Start the API only after TLS proxy and PostgreSQL are ready. Start
+enabling them. On the target Linux host, verify all eight files before starting
+any unit:
+
+```sh
+sudo systemd-analyze verify \
+  /etc/systemd/system/gpu-control-db-check.service \
+  /etc/systemd/system/gpu-control-db-migrate.service \
+  /etc/systemd/system/gpu-control-api.service \
+  /etc/systemd/system/gpu-control-worker.service \
+  /etc/systemd/system/gpu-control-supervisor.service \
+  /etc/systemd/system/gpu-control-artifact-capacity.service \
+  /etc/systemd/system/gpu-control-artifact-capacity.timer \
+  /etc/systemd/system/gpu-control-capacity-bridge.service
+```
+
+Start the API only after TLS proxy and PostgreSQL are ready. Start
 worker and supervisor only after confirming their dedicated host's Docker
 trust boundary and persistent artifact path. Enable the capacity timer only
 after the artifact filesystem is mounted and checked. At the earlier
@@ -451,27 +517,151 @@ backup or capacity policy.
 Restore into a new, empty database and a new, empty artifact directory on a
 separate PostgreSQL instance or isolated cluster. Keep the live API and worker
 connected to the original database and artifact volume. Use separately
-provisioned credentials from a secret manager.
+provisioned credentials from a secret manager. Before starting, provision the
+restore host, port, database name, artifact path, and an administrative
+`PGPASSFILE` entry through the secret manager. The passfile must be mode `0600`
+and match the restore host, port, database wildcard, and administrative user;
+do not put its contents in shell history or the operations record. Prepare a
+private mode-`0700` drill-record directory before running the commands. The
+block captures exact row counts for `gateway_runs_v1`, `gateway_control_v1`, an
+optional legacy `gateway_schema_version`, and every present
+`gateway_oauth_*` table from the quiesced source before restore, then compares
+them with the restored database. Missing required tables or count differences
+stop the drill; counts remain in mode-`0600` private files.
 
 ```sh
 set -eu
 generation_dir=/secure/gateway-backups/gpu-control-REPLACE_WITH_GENERATION_ID
+source_host=REPLACE_WITH_QUIESCED_SOURCE_HOST
+source_port=5432
+source_admin=REPLACE_WITH_SOURCE_READER_ROLE
+source_db=REPLACE_WITH_SOURCE_DATABASE
+source_passfile=/run/secrets/gpu-control-source.pgpass
+restore_host=REPLACE_WITH_ISOLATED_RESTORE_HOST
+restore_port=5432
+restore_admin=REPLACE_WITH_RESTORE_ADMIN_ROLE
+restore_db=REPLACE_WITH_NEW_EMPTY_DATABASE
+restore_artifact_dir=/var/lib/gpu-control-restore/REPLACE_WITH_NEW_EMPTY_DIRECTORY
+drill_record_dir=/secure/gateway-drill/REPLACE_WITH_PRIVATE_RECORD_DIRECTORY
+export PGHOST="$restore_host" PGPORT="$restore_port" PGUSER="$restore_admin"
+export PGPASSFILE=/run/secrets/gpu-control-restore.pgpass
+: "${generation_dir:?set the verified backup generation directory}"
+: "${source_host:?set the quiesced source host}"
+: "${source_admin:?set the source reader role}"
+: "${source_db:?set the source database}"
+: "${source_passfile:?set the source passfile path}"
+: "${restore_host:?set the isolated restore host}"
+: "${restore_admin:?set the restore administrator role}"
+: "${restore_db:?set a new database name}"
+: "${restore_artifact_dir:?set a new artifact directory}"
+case "$generation_dir $source_host $source_admin $source_db $source_passfile $restore_host $restore_admin $restore_db $restore_artifact_dir $drill_record_dir" in
+  *REPLACE*) echo 'replace every REPLACE_... value before continuing' >&2; exit 2 ;;
+esac
+test -d "$drill_record_dir" && test ! -L "$drill_record_dir"
+test "$(stat -c '%a' "$drill_record_dir")" = 700
+test -r "$source_passfile"
+test "$(stat -c '%a' "$source_passfile")" = 600
+test -r "$PGPASSFILE"
+test "$(stat -c '%a' "$PGPASSFILE")" = 600
+test ! -e "$restore_artifact_dir" && test ! -L "$restore_artifact_dir"
+umask 077
+source_counts="$drill_record_dir/source-table-counts.txt"
+restored_counts="$drill_record_dir/restored-table-counts.txt"
+test ! -e "$source_counts" && test ! -e "$restored_counts"
+count_gateway_tables() {
+  PGPASSFILE="$5" psql --no-psqlrc --quiet --tuples-only --no-align \
+    --set=ON_ERROR_STOP=1 --host="$1" --port="$2" --username="$4" \
+    --dbname="$3" <<'SQL'
+DO $$
+DECLARE missing_tables text;
+BEGIN
+  SELECT string_agg(name, ', ' ORDER BY name) INTO missing_tables
+  FROM unnest(ARRAY['gateway_runs_v1', 'gateway_control_v1']) AS required(name)
+  WHERE to_regclass(format('public.%I', name)) IS NULL;
+  IF missing_tables IS NOT NULL THEN
+    RAISE EXCEPTION 'required Gateway tables are missing: %', missing_tables;
+  END IF;
+END
+$$;
+WITH table_names AS (
+  SELECT 'gateway_runs_v1'::text AS table_name
+  UNION ALL SELECT 'gateway_control_v1'
+  UNION ALL SELECT 'gateway_schema_version'
+    WHERE to_regclass('public.gateway_schema_version') IS NOT NULL
+  UNION
+  SELECT table_name FROM information_schema.tables
+  WHERE table_schema='public' AND table_type='BASE TABLE'
+    AND table_name LIKE 'gateway_oauth_%'
+)
+SELECT format(
+  'SELECT %L || ''|'' || count(*)::text FROM %I.%I',
+  table_name, 'public', table_name
+)
+FROM table_names
+ORDER BY table_name
+\gexec
+SELECT 'SELECT ''gateway_schema_version|ABSENT'''
+WHERE to_regclass('public.gateway_schema_version') IS NULL
+\gexec
+SQL
+}
+read_gateway_schema_version() {
+  PGPASSFILE="$5" psql --no-psqlrc --quiet --tuples-only --no-align \
+    --set=ON_ERROR_STOP=1 --host="$1" --port="$2" --username="$4" \
+    --dbname="$3" <<'SQL'
+SELECT CASE
+  WHEN to_regclass('public.gateway_schema_version') IS NULL
+    THEN 'SELECT ''unversioned'''
+  ELSE 'SELECT COALESCE((SELECT version::text FROM gateway_schema_version WHERE id=1), ''missing'')'
+END
+\gexec
+SQL
+}
+count_gateway_tables "$source_host" "$source_port" "$source_db" \
+  "$source_admin" "$source_passfile" > "$source_counts"
+source_schema_version=$(read_gateway_schema_version "$source_host" \
+  "$source_port" "$source_db" "$source_admin" "$source_passfile")
 python /opt/gpu-control/gateway/deploy/backup_generation.py \
   --verify-generation "$generation_dir"
-createdb --host "$RESTORE_HOST" --username "$RESTORE_ADMIN" "$RESTORE_DB"
+createdb --host "$restore_host" --port "$restore_port" \
+  --username "$restore_admin" "$restore_db"
 pg_restore --exit-on-error --no-owner --no-acl \
-  --host "$RESTORE_HOST" --username "$RESTORE_ADMIN" \
-  --dbname "$RESTORE_DB" "$generation_dir/database.dump"
-psql --host "$RESTORE_HOST" --username "$RESTORE_ADMIN" \
-  --dbname "$RESTORE_DB" --set=ON_ERROR_STOP=1 --command \
-  'SELECT version FROM gateway_schema_version WHERE id=1;'
+  --host "$restore_host" --port "$restore_port" \
+  --username "$restore_admin" --dbname "$restore_db" \
+  "$generation_dir/database.dump"
+expected_schema_version=$(python3 - "$generation_dir/manifest.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding='utf-8') as source:
+    value = json.load(source).get('schema_version')
+if not isinstance(value, str) or not value:
+    raise SystemExit('backup manifest has no valid schema version')
+print(value)
+PY
+)
+restored_schema_version=$(read_gateway_schema_version "$restore_host" \
+  "$restore_port" "$restore_db" "$restore_admin" "$PGPASSFILE")
+test "$restored_schema_version" = "$expected_schema_version"
+test "$source_schema_version" = "$expected_schema_version"
 sudo install -d -o gpu-control-worker -g gpu-control-artifacts -m 2750 \
-  "$RESTORE_ARTIFACT_DIR"
+  "$restore_artifact_dir"
 if [ -f "$generation_dir/artifacts.tar" ]; then
-  sudo -u gpu-control-worker tar --extract --file="$generation_dir/artifacts.tar" \
-    --directory="$RESTORE_ARTIFACT_DIR"
+  sudo -u gpu-control-worker tar --extract --no-same-owner --no-same-permissions \
+    --file="$generation_dir/artifacts.tar" --directory="$restore_artifact_dir"
 fi
+count_gateway_tables "$restore_host" "$restore_port" "$restore_db" \
+  "$restore_admin" "$PGPASSFILE" > "$restored_counts"
+diff -u -- "$source_counts" "$restored_counts"
 ```
+
+The mode check uses GNU `stat`, as the target systemd host is Linux. Replace
+every `REPLACE_...` value before running. The artifact path check deliberately
+requires a path that does not exist yet, so extraction cannot silently overlay
+stale files. The database creation likewise must fail if the chosen name
+already exists. Keep
+`PGHOST`, `PGPORT`, `PGUSER`, and `PGPASSFILE` pointed only at the isolated
+restore service for all commands in this block.
 
 The backup tool does not create detached `.sha256` sidecar files. Its
 `--verify-generation` action checks the database and artifact archive against
@@ -480,15 +670,17 @@ archive members before extraction. Restore from that verified generation using
 the exact archive names above; `artifacts.tar` is absent only when there are no
 artifact manifests and no artifact directory was included in the generation.
 
-Compare row counts for `gateway_runs_v1`, `gateway_control_v1`,
-`gateway_schema_version`, and all present `gateway_oauth_*` tables between the
-source snapshot and restored database. Check representative run IDs, terminal
+Compare the captured row counts for `gateway_runs_v1`, `gateway_control_v1`,
+and every present `gateway_oauth_*` table between the source snapshot and
+restored database. `gateway_schema_version` may be absent only when both source
+and restore match the backup manifest's `unversioned` value; otherwise its
+version and row count must match. Check representative run IDs, terminal
 results, approval IDs/expiry, `active_count`, and OAuth client/token revocation
 state. Do not print token hashes, session hashes, owner credentials, or row JSON
 into shared logs. Run a read-only Gateway smoke check against the restored DB;
 do not point a live worker at the drill database. Record dump checksum, server
-versions, schema version, table counts, elapsed time and any discrepancy in the
-private operations record.
+versions, source/manifest/restore schema versions, table-count file references,
+elapsed time and any discrepancy in the private operations record.
 
 For every non-expired artifact manifest in the restored database, fetch the
 artifact through the owner-scoped result API in bounded chunks and verify the
@@ -510,12 +702,64 @@ evidence.
 
 A database restore cannot reconstruct a lost Docker daemon or prove what happened
 to a container on a destroyed worker host. Before planned database recovery,
-stop new submissions, worker and recovery supervisor; preserve the worker
-host/container inventory; restore the database; then let an operator reconcile
-every nonterminal run before restarting either process or admissions. Unknown
-provider outcomes remain unknown; never resubmit them automatically. Verify that
-restored `active_count` agrees with the
-operator-reviewed run/resource inventory before enabling submissions.
+stop new submissions, worker and recovery supervisor. On every surviving worker
+host, record the host identity, UTC capture time, Docker daemon endpoint/context,
+and the complete container inventory in a private recovery record before
+restarting Docker or changing containers. For example, run these read-only
+commands as the service operator and store their output outside shared logs:
+
+```bash
+umask 077
+date -u +%FT%TZ
+hostname -f
+docker context show
+docker context inspect "$(docker context show)" --format '{{json .Endpoints.docker}}'
+docker info --format '{{.ID}} {{.Name}} {{.ServerVersion}}'
+docker ps -a --no-trunc \
+  --format '{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Labels}}'
+```
+
+The full inventory may include unrelated workload metadata; restrict access to
+the recovery record. Preserve daemon and worker journals for the incident
+window. Restore the database only after the inventory is captured. Then export
+the restored nonterminal run IDs and `active_count` using the reviewed
+read-only database procedure for the deployed schema. For each nonterminal
+`local_cpu` run, query the surviving daemon by the exact
+`io.unjuno.gpu-control.run-id=<run-id>` label and record every matching
+container ID and its state. For each run, the read-only lookup is:
+
+```bash
+run_id='REPLACE_WITH_32_CHARACTER_RUN_ID'
+docker ps -a --no-trunc \
+  --filter "label=io.unjuno.gpu-control.run-id=$run_id" \
+  --format '{{.ID}}\t{{.Names}}\t{{.Status}}'
+```
+
+For every returned container ID, capture only its state and identity labels
+with `docker inspect --format`; do not dump the full inspect JSON into shared
+logs, since it includes environment and mount details. For each returned ID:
+
+```bash
+container_id='REPLACE_WITH_RETURNED_CONTAINER_ID'
+docker inspect --format '{{.Id}}\t{{.State.Status}}\t{{index .Config.Labels "io.unjuno.gpu-control.run-id"}}\t{{index .Config.Labels "io.unjuno.gpu-control.owner-sha256"}}\t{{index .Config.Labels "io.unjuno.gpu-control.plan-sha256"}}\t{{index .Config.Labels "io.unjuno.gpu-control.image-digest"}}\t{{index .Config.Labels "io.unjuno.gpu-control.source-sha"}}' "$container_id"
+```
+
+Compare its full identity labels
+(`run-id`, owner SHA-256, plan SHA-256, image digest, and source SHA) with that
+run's persisted plan and intent; do not use a name match alone. One exact
+identity match can be handed to the normal recovery supervisor for reconcile.
+Zero matches, multiple matches, mismatched labels, an unavailable daemon, or a
+missing host inventory leaves the run unresolved and requires operator
+investigation; keep it nonterminal/unknown and keep admissions disabled. Do not
+create a replacement container, blindly resubmit, or remove a container as a
+manual shortcut. For remote providers, use the provider's read-only lookup and
+the same no-resubmission rule; an unobservable outcome remains unknown.
+
+After reconciliation, compare the database's nonterminal runs and `active_count`
+to the operator-reviewed run/resource inventory. Restart workers and the
+recovery supervisor only under the documented recovery sequence; enable
+submissions only after every run is accounted for and the restored
+`active_count` agrees with that inventory.
 
 The initial operational target in the roadmap is RPO 24 hours and RTO 2 hours.
 Those targets are **not yet measured**. A release claim requires a timed restore

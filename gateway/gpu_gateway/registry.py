@@ -23,10 +23,23 @@ class ProviderRegistration:
     # Paid execution additionally needs a run-specific LiveExecutionPermit.
     # This opt-in is independent from candidate-bound/free-GPU acceptance.
     supports_paid_execution: bool = False
+    # Credits require their own owner decision and gross-debit evidence;
+    # account credits alone are not consent to use them.
+    supports_credit_execution: bool = False
 
 
 def candidate_plan_requires_paid_authorization(plan: dict | object) -> bool:
-    """Fail closed unless cost evidence proves a zero-additional-cost class."""
+    """Return true for paid or unclassified plans; credits use a separate gate."""
+    return candidate_plan_authorization_kind(plan) == "paid"
+
+
+def candidate_plan_authorization_kind(plan: dict | object) -> str | None:
+    """Classify the independent authority gate required by a candidate plan.
+
+    ``CREDIT_BACKED`` is deliberately separate from paid execution. It remains
+    inadmissible until an adapter validates a run-specific owner decision and
+    gross-credit-debit evidence. Unknown/malformed classes remain fail-closed.
+    """
     if isinstance(plan, dict):
         evidence = plan.get("cost_evidence")
         provider = plan.get("provider")
@@ -36,40 +49,60 @@ def candidate_plan_requires_paid_authorization(plan: dict | object) -> bool:
     if not isinstance(evidence, dict) and evidence is not None:
         evidence = getattr(evidence, "model_dump", lambda **_: None)(mode="python")
     if not isinstance(evidence, dict):
-        return True
+        return "paid"
     classification = evidence.get("classification")
+    if classification == "CREDIT_BACKED":
+        return "credit"
     amount = evidence.get("additional_cost_usd")
     try:
         additional = Decimal(str(amount)) if amount is not None else None
     except (InvalidOperation, ValueError):
-        return True
+        return "paid"
     zero_cost_classes = {"FREE", "FREE_QUOTA"}
     if provider in {"local_cpu", "local_gpu"}:
         zero_cost_classes.add("LOCAL")
-    return not (classification in zero_cost_classes and
-                additional is not None and additional == 0)
+    if classification in zero_cost_classes and additional is not None and additional == 0:
+        return None
+    return "paid"
 
 
 def supports_candidate_execution(registration: ProviderRegistration | None,
                                  backend: object, plan: dict | object | None = None) -> bool:
-    """Require an explicit PlanV2 entry point and the full cleanup lifecycle.
+    """Require the complete candidate-bound dispatch and recovery lifecycle.
 
     The registry flag is an operator-reviewed opt-in. The runtime shape check
     prevents a stale or misconfigured registration from sending a bound plan
     through a legacy ``start(run)`` adapter that ignores its selected resource.
+    Cancellation and no-create reconciliation are required too: the worker
+    calls them during timeout/cancel and ambiguous-start recovery.
     """
+    required = (
+        "start_candidate_bound", "validate_candidate_observation", "capture",
+        "cancel", "reconcile", "cleanup", "is_clean",
+    )
     candidate_ready = bool(
         registration is not None and registration.supports_candidate_binding and
-        callable(getattr(backend, "start_candidate_bound", None)) and
-        callable(getattr(backend, "validate_candidate_observation", None)) and
-        all(callable(getattr(backend, name, None))
-            for name in ("capture", "cleanup", "is_clean"))
+        all(callable(getattr(backend, name, None)) for name in required)
     )
     if not candidate_ready or plan is None:
         return candidate_ready
-    if candidate_plan_requires_paid_authorization(plan):
+    provider = plan.get("provider") if isinstance(plan, dict) else getattr(plan, "provider", None)
+    if provider == "runpod":
+        lease_contract = (
+            "prepare_provider_account_lease",
+            "start_candidate_bound_with_account_lease",
+            "reconcile_candidate_bound_with_account_lease",
+            "provider_job_id",
+        )
+        if not all(callable(getattr(backend, name, None)) for name in lease_contract):
+            return False
+    authorization_kind = candidate_plan_authorization_kind(plan)
+    if authorization_kind == "paid":
         return bool(registration.supports_paid_execution and
                     callable(getattr(backend, "validate_paid_authorization", None)))
+    if authorization_kind == "credit":
+        return bool(registration.supports_credit_execution and
+                    callable(getattr(backend, "validate_credit_authorization", None)))
     return True
 
 

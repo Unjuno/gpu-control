@@ -1,3 +1,4 @@
+import base64
 import json
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -11,7 +12,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import delete, select, update
 
 from gpu_gateway.config import Workload
+from gpu_gateway.backends import Observation, ProviderAccountLeaseRequest
 from gpu_gateway.experiment_api import _gpu_requirements, invoke
+from gpu_gateway.migrations import provider_account_leases
+from gpu_gateway.provider_account_scope import derive_provider_account_scope
 from gpu_gateway.protocol import CHATGPT_NAMES, dispatch, tools
 from gpu_gateway.provider_evidence import build_signed_observation
 from gpu_gateway.registry import ProviderRegistration
@@ -19,6 +23,7 @@ from gpu_gateway.service import GatewayError, Prepare, Principal, digest
 from gpu_gateway.store import control, runs
 from gpu_gateway.worker import Worker
 from gpu_gateway.contracts import PlanV2, plan_fingerprint
+from gpu_gateway.candidate_receipts import sign_adapter_candidate_receipt
 from gpu_control.workloads import (
     AcceleratorKind,
     NetworkRequirement,
@@ -507,6 +512,12 @@ def test_worker_rejects_paid_candidate_without_run_specific_permit_before_intent
 
         def validate_candidate_observation(self, _job, _observation):
             return True
+
+        def reconcile(self, _job):
+            return None
+
+        def cancel(self, _handle):
+            raise AssertionError("no provider handle should exist")
 
         def capture(self, _handle):
             raise AssertionError("no provider handle should exist")
@@ -1108,3 +1119,419 @@ def test_protocol_routes_canonical_calls_and_returns_structured_envelope(system)
     result = response["result"]["structuredContent"]
     assert result["schema_version"] == 2
     assert result["blocking_reason"] == "NO_QUEUEABLE_RESOURCE"
+
+
+def test_free_candidate_backend_success_requires_bound_receipt_and_confirmed_cleanup(system, monkeypatch):
+    workload, evidence, provider_key, provider_key_id, expires_at = _seed_bound_gpu_candidate(system)
+    free_evidence = replace(
+        evidence,
+        cost_classification=CostClassification.FREE,
+        costs=CostBreakdown(
+            accelerator_usd=Decimal("0"), cpu_usd=Decimal("0"),
+            memory_usd=Decimal("0"), storage_usd=Decimal("0"),
+            egress_usd=Decimal("0"), other_usd=Decimal("0"),
+        ),
+        hard_spend_cap_enforced=True,
+        overage_behavior=OverageBehavior.NOT_APPLICABLE,
+    )
+    _write_bound_gpu_candidate(
+        system, free_evidence, provider_key, provider_key_id,
+        version=2, observed_at=int(system.clock()), expires_at=expires_at,
+    )
+    adapter_key = Ed25519PrivateKey.generate()
+    adapter_public = adapter_key.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    system.service.settings = replace(
+        system.service.settings,
+        candidate_receipt_public_keys_json=json.dumps({
+            "adapter:modal:gateway-v1": adapter_public.decode("ascii"),
+        }),
+    )
+    prepared = invoke(system.service, system.owner, "experiment_prepare", {
+        "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
+        "parameters": {}, "runtime_seconds": 120, "max_cost_usd": "0.10",
+        "requires_gpu": True, "idempotency_key": "free-gpu-bound-success-001",
+    })
+    run_id = prepared["machine_state"]["run_id"]
+    plan = PlanV2.model_validate_json(json.dumps(
+        system.service.get(system.owner, run_id)["plan"], allow_nan=False,
+    ))
+    assert plan.cost_evidence.classification == "FREE"
+    assert plan.cost_evidence.additional_cost_usd == Decimal("0")
+
+    class FakeCandidateBackend:
+        def __init__(self):
+            self.created = 0
+            self.captured = 0
+            self.cleaned = False
+            self.handle = None
+            self.result = {
+                "schema_version": 2, "run_id": run_id,
+                "source_sha": plan.source_sha,
+                "plan_fingerprint": plan_fingerprint(plan),
+                "provider": plan.provider, "image_digest": plan.image_digest,
+                "simulation": False, "gpu_used": True,
+                "device": "NVIDIA A10", "exit_code": 0,
+                "started_at": int(system.clock()),
+                "finished_at": int(system.clock()) + 1,
+                "runtime_seconds": 1.0, "metrics": {"iterations": 4},
+                "checks": [], "checksum": "f" * 64, "artifacts": [],
+                "known_cost_usd": "0", "cost_classification": "FREE",
+                "cleanup_state": "pending",
+            }
+
+        def start_candidate_bound(self, job):
+            self.created += 1
+            saved_plan = PlanV2.model_validate_json(json.dumps(job["plan"], allow_nan=False))
+            assert saved_plan.selection_binding.resource_id == free_evidence.resource_id
+            self.handle = {
+                "provider_execution_id": "fake-pod-1",
+                "resource_id": saved_plan.selection_binding.resource_id,
+            }
+            return self.handle
+
+        def validate_candidate_observation(self, job, observation):
+            receipt = observation.candidate_receipt
+            return bool(
+                self.handle is not None and
+                self.handle["resource_id"] == job["plan"]["selection_binding"]["resource_id"] and
+                isinstance(receipt, dict) and
+                receipt.get("payload", {}).get("provider_execution_id") ==
+                self.handle["provider_execution_id"] and
+                receipt.get("payload", {}).get("resource_id") == self.handle["resource_id"]
+            )
+
+        def capture(self, handle):
+            self.captured += 1
+            assert handle == self.handle
+            now = int(system.clock())
+            receipt = sign_adapter_candidate_receipt(
+                private_key=adapter_key, key_id="adapter:modal:gateway-v1",
+                issued_at=now, expires_at=now + 60, now=now,
+                plan=plan, fingerprint=plan_fingerprint(plan), run_id=run_id,
+                result=self.result, provider_execution_id=handle["provider_execution_id"],
+                device_id="GPU-test-uuid", evidence_source="modal.sandbox.get",
+                provider_object_projection={
+                    "id": handle["provider_execution_id"],
+                    "resource_id": handle["resource_id"],
+                    "state": "EXITED", "device_id": "GPU-test-uuid",
+                },
+            )
+            return Observation("succeeded", self.result, candidate_receipt=receipt)
+
+        def cancel(self, _handle):
+            raise AssertionError("successful candidate run must not be cancelled")
+
+        def reconcile(self, _job):
+            raise AssertionError("persisted candidate handle must be reused")
+
+        def cleanup(self, handle):
+            assert handle == self.handle
+            self.cleaned = True
+
+        def is_clean(self, _handle):
+            return self.cleaned
+
+    backend = FakeCandidateBackend()
+    system.service.registry["modal"] = ProviderRegistration(
+        "modal", "fake_candidate_backend", lambda _settings: True,
+        lambda _settings: backend, supports_candidate_binding=True,
+    )
+    browser = Principal(system.owner.owner, system.owner.scopes, browser=True)
+    system.service.approve(browser, run_id, prepared["machine_state"]["plan_fingerprint"])
+    assert system.service.submit(system.owner, run_id)["state"] == "queued"
+    monkeypatch.setattr("gpu_gateway.worker.load_workloads", lambda: system.service.workloads)
+    assert Worker(system.store, system.service.settings, {"modal": backend},
+                  system.clock, registry=system.service.registry).tick()
+    system.clock.advance(2)
+    assert Worker(system.store, system.service.settings, {"modal": backend},
+                  system.clock, registry=system.service.registry).tick()
+
+    final = system.service.get(system.owner, run_id)
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert final["state"] == "succeeded"
+    assert final["result"]["cleanup_state"] == "complete"
+    assert final["result"]["gpu_used"] is True
+    assert final["result"]["checks"] == ["candidate_resource_verified", "device_identity_verified"]
+    assert final["result"]["candidate_receipt"]["payload"]["resource_id"] == free_evidence.resource_id
+    assert backend.created == backend.captured == 1
+    assert backend.cleaned is True
+    assert active == 0
+
+
+@pytest.mark.parametrize("recover_after_unconfirmed_cleanup", [False, True])
+def test_worker_cleanup_releases_provider_lease_with_terminal_commit(
+        system, recover_after_unconfirmed_cleanup):
+    run_id = "e" * 32
+    owner = system.owner.owner
+    fingerprint = "a" * 64
+    worker_token = "1" * 32
+    scope = "b" * 64
+    now = int(system.clock())
+    challenge = {"template_id": "template-a", "name": "gpu-control-" + run_id}
+    plan = {"schema_version": 1, "provider": "runpod", "runtime_seconds": 600,
+            "workload_manifest": {"quote_expires_at": now + 600,
+                                  "quoted_usd_per_hour": "0"}}
+    with system.store.transaction() as connection:
+        connection.execute(runs.insert().values(
+            id=run_id, owner=owner, idempotency_key="lease-cleanup-worker-test",
+            request_hash="c" * 64, fingerprint=fingerprint, plan=plan,
+            state="submitting", created_at=now, started_at=now,
+            approved_until=now + 600, approval_id="approval-test",
+            handle=None, result=None, error="", lease_until=now + 120,
+            lease_token=worker_token, cancel_requested=False, slot_reserved=True,
+            record_version=1, cleanup_state="unknown", finished_at=None,
+            result_manifest=None, admission=None, attempt=0, submission_intent=None,
+            last_observed_at=None,
+        ))
+        connection.execute(control.update().where(control.c.id == 1).values(active_count=1))
+    lease = system.store.reserve_provider_account_lease_with_submission_intent(
+        provider="runpod", account_scope=scope, run_id=run_id, owner=owner,
+        plan_fingerprint=fingerprint, core_plan_fingerprint="c" * 64,
+        authorization_id="paid-auth-test", run_lease_token=worker_token,
+        attempt=1, request_challenge=challenge, now=now,
+    )
+    assert lease is not None
+    assert system.store.transition_provider_account_lease_for_run(
+        account_scope=scope, run_id=run_id, owner=owner, plan_fingerprint=fingerprint,
+        lease_token=lease.lease_token, run_lease_token=worker_token,
+        core_plan_fingerprint="c" * 64, authorization_id="paid-auth-test",
+        expected_state="reserved", new_state="submitting", now=now,
+    )
+    assert system.store.transition_provider_account_lease_for_run(
+        account_scope=scope, run_id=run_id, owner=owner, plan_fingerprint=fingerprint,
+        lease_token=lease.lease_token, run_lease_token=worker_token,
+        core_plan_fingerprint="c" * 64, authorization_id="paid-auth-test",
+        expected_state="submitting", new_state="active", provider_job_id="pod-worker-test", now=now,
+    )
+    intent = system.store.read(run_id)["submission_intent"] | {"phase": "handle_persisted"}
+    with system.store.transaction() as connection:
+        connection.execute(runs.update().where(runs.c.id == run_id).values(
+            state="running", handle={"pod_id": "pod-worker-test"},
+            submission_intent=intent, lease_until=0,
+        ))
+
+    class FakeRunPodLifecycle:
+        cleaned = False
+        cleanup_calls = 0
+        clean_checks = 0
+
+        def provider_job_id(self, handle):
+            return handle["pod_id"]
+
+        def capture(self, _handle):
+            return Observation("succeeded", {"cleanup_state": "pending", "checks": []})
+
+        def cleanup(self, handle):
+            assert handle["pod_id"] == "pod-worker-test"
+            self.cleanup_calls += 1
+            self.cleaned = True
+
+        def is_clean(self, handle):
+            self.clean_checks += 1
+            return (self.cleaned and handle["pod_id"] == "pod-worker-test" and
+                    (not recover_after_unconfirmed_cleanup or self.clean_checks > 1))
+
+        def cancel(self, _handle):
+            raise AssertionError("run did not request cancellation")
+
+        def reconcile(self, _job):
+            raise AssertionError("persisted provider handle must be reused")
+
+        def reconcile_candidate_bound_with_account_lease(self, _job, _challenge):
+            raise AssertionError("persisted provider handle must be reused")
+
+    backend = FakeRunPodLifecycle()
+    worker = Worker(system.store, system.service.settings, {"runpod": backend}, system.clock)
+    assert worker.tick() is True
+    if recover_after_unconfirmed_cleanup:
+        pending = system.store.read(run_id)
+        assert pending["state"] == "running"
+        assert pending["cleanup_state"] == "pending"
+        assert system.clock.advance(11) is None
+        assert worker.tick() is True
+
+    saved = system.store.read(run_id)
+    assert saved["state"] == "succeeded"
+    assert saved["cleanup_state"] == "complete"
+    assert saved["result"]["cleanup_state"] == "complete"
+    with system.store.engine.connect() as connection:
+        lease_state = connection.execute(select(provider_account_leases.c.state)).scalar_one()
+        active_count = connection.execute(select(control.c.active_count)).scalar_one()
+    assert lease_state == "released"
+    assert active_count == 0
+    assert backend.cleanup_calls == (2 if recover_after_unconfirmed_cleanup else 1)
+
+
+def test_worker_runpod_candidate_reserves_hmac_lease_and_uses_persisted_challenge(system):
+    run_id = "d" * 32
+    owner = system.owner.owner
+    now = int(system.clock())
+    challenge = {"template_id": "template-test", "name": "gpu-control-" + run_id}
+    plan = {
+        "schema_version": 1,
+        "provider": "runpod",
+        "runtime_seconds": 120,
+        "max_cost_usd": "0.10",
+        "selection_binding": {"provider": "runpod", "resource_id": "gpu-resource-1"},
+        "cost_evidence": {"classification": "FREE", "additional_cost_usd": "0"},
+        "workload_manifest": {"quote_expires_at": now + 600,
+                              "quoted_usd_per_hour": "0"},
+    }
+    fingerprint = digest(plan)
+    with system.store.transaction() as connection:
+        connection.execute(runs.insert().values(
+            id=run_id, owner=owner, idempotency_key="runpod-lease-worker-test",
+            request_hash="c" * 64, fingerprint=fingerprint, plan=plan,
+            state="queued", created_at=now, started_at=0,
+            approved_until=now + 600, approval_id="approval-test",
+            handle=None, result=None, error="", lease_until=0, lease_token="",
+            cancel_requested=False, slot_reserved=True, record_version=1,
+            cleanup_state="unknown", finished_at=None, result_manifest=None,
+            admission=None, attempt=0, submission_intent=None, last_observed_at=None,
+        ))
+        connection.execute(control.update().where(control.c.id == 1).values(active_count=1))
+    hmac_key = b"account-scope-hmac-key-for-worker-test"
+    system.service.settings = replace(
+        system.service.settings, runpod_api_key="worker-runpod-credential",
+        runpod_account_scope_id="runpod-primary",
+        provider_account_scope_hmac_key_b64=base64.b64encode(hmac_key).decode("ascii"),
+    )
+
+    class FakeRunPodCandidateBackend:
+        passed_challenge = None
+        reconciled_challenge = None
+        create_calls = 0
+
+        def prepare_provider_account_lease(self, _job):
+            return ProviderAccountLeaseRequest("c" * 64, "allocation-decision-1", challenge)
+
+        def start_candidate_bound_with_account_lease(self, _job, request_challenge):
+            self.create_calls += 1
+            self.passed_challenge = request_challenge
+            return {"pod_id": "fake-runpod-pod-1"}
+
+        def reconcile_candidate_bound_with_account_lease(self, _job, request_challenge):
+            self.reconciled_challenge = request_challenge
+            return {"pod_id": "fake-runpod-pod-1"}
+
+        def provider_job_id(self, handle):
+            return handle["pod_id"]
+
+        def start_candidate_bound(self, _job):
+            raise AssertionError("RunPod create must receive the persisted challenge")
+
+        def validate_candidate_observation(self, _job, _observation): return True
+        def capture(self, _handle): return Observation("running")
+        def cancel(self, _handle): pass
+        def reconcile(self, _job): return None
+        def cleanup(self, _handle): pass
+        def is_clean(self, _handle): return False
+
+    backend = FakeRunPodCandidateBackend()
+    registration = ProviderRegistration(
+        "runpod", "fake_runpod_candidate", lambda _settings: True,
+        lambda _settings: backend, supports_candidate_binding=True,
+    )
+    worker = Worker(system.store, system.service.settings, {"runpod": backend},
+                    system.clock, registry={"runpod": registration})
+    assert worker.tick() is True
+
+    saved = system.store.read(run_id)
+    expected_scope = derive_provider_account_scope(
+        "runpod", "runpod-primary", hmac_key)
+    assert saved["state"] == "running"
+    assert backend.passed_challenge == challenge
+    assert saved["handle"] == {"pod_id": "fake-runpod-pod-1"}
+    assert saved["submission_intent"]["account_scope"] == expected_scope
+    assert saved["submission_intent"]["authorization_id"] == "allocation-decision-1"
+    assert "worker-runpod-credential" not in json.dumps(saved["submission_intent"])
+    assert backend.passed_challenge == challenge
+    with system.store.engine.connect() as connection:
+        lease = connection.execute(select(provider_account_leases)).mappings().one()
+    assert lease["state"] == "active"
+    assert lease["provider_job_id"] == "fake-runpod-pod-1"
+    assert lease["request_challenge"] == challenge
+
+    # Simulate a worker crash after the provider lease became active but before
+    # the handle was durably visible to the successor.
+    with system.store.transaction() as connection:
+        connection.execute(runs.update().where(runs.c.id == run_id).values(
+            state="submit_unknown", handle=None, lease_until=0,
+        ))
+    assert worker.tick() is True
+    recovered = system.store.read(run_id)
+    assert recovered["state"] == "running"
+    assert recovered["handle"] == {"pod_id": "fake-runpod-pod-1"}
+    assert backend.reconciled_challenge == challenge
+    assert backend.create_calls == 1
+
+
+def test_worker_runpod_paid_candidate_stays_blocked_without_persisted_signed_authorization(system):
+    run_id = "f" * 32
+    owner = system.owner.owner
+    now = int(system.clock())
+    plan = {
+        "schema_version": 1, "provider": "runpod", "runtime_seconds": 120,
+        "max_cost_usd": "0.10",
+        "selection_binding": {"provider": "runpod", "resource_id": "gpu-resource-1"},
+        "cost_evidence": {"classification": "PAID", "additional_cost_usd": "0.05"},
+        "workload_manifest": {"quote_expires_at": now + 600,
+                              "quoted_usd_per_hour": "0.05"},
+    }
+    fingerprint = digest(plan)
+    with system.store.transaction() as connection:
+        connection.execute(runs.insert().values(
+            id=run_id, owner=owner, idempotency_key="runpod-paid-no-persisted-auth-test",
+            request_hash="d" * 64, fingerprint=fingerprint, plan=plan,
+            state="queued", created_at=now, started_at=0,
+            approved_until=now + 600, approval_id="approval-test",
+            handle=None, result=None, error="", lease_until=0, lease_token="",
+            cancel_requested=False, slot_reserved=True, record_version=1,
+            cleanup_state="unknown", finished_at=None, result_manifest=None,
+            admission=None, attempt=0, submission_intent=None, last_observed_at=None,
+        ))
+        connection.execute(control.update().where(control.c.id == 1).values(active_count=1))
+
+    class FakeRunPodBackend:
+        started = 0
+
+        def prepare_provider_account_lease(self, _job):
+            return ProviderAccountLeaseRequest("c" * 64, "paid-auth-test", {
+                "template_id": "template-test", "name": "gpu-control-" + run_id,
+            })
+
+        def start_candidate_bound_with_account_lease(self, _job, _challenge):
+            self.started += 1
+            return {"pod_id": "must-not-create"}
+
+        def reconcile_candidate_bound_with_account_lease(self, _job, _challenge): return None
+        def provider_job_id(self, handle): return handle["pod_id"]
+        def validate_paid_authorization(self, _job): return True
+        def start_candidate_bound(self, _job): raise AssertionError("legacy create path is forbidden")
+        def validate_candidate_observation(self, _job, _observation): return True
+        def capture(self, _handle): return Observation("running")
+        def cancel(self, _handle): pass
+        def reconcile(self, _job): return None
+        def cleanup(self, _handle): pass
+        def is_clean(self, _handle): return False
+
+    backend = FakeRunPodBackend()
+    registration = ProviderRegistration(
+        "runpod", "fake_runpod_candidate", lambda _settings: True,
+        lambda _settings: backend, supports_candidate_binding=True,
+        supports_paid_execution=True,
+    )
+    worker = Worker(system.store, system.service.settings, {"runpod": backend},
+                    system.clock, registry={"runpod": registration})
+    assert worker.tick() is True
+
+    saved = system.store.read(run_id)
+    assert saved["state"] == "failed"
+    assert saved["error"] == "runpod_authorization_persistence_unavailable"
+    assert saved["submission_intent"] is None
+    assert backend.started == 0
+    with system.store.engine.connect() as connection:
+        assert connection.execute(select(provider_account_leases.c.run_id)).first() is None

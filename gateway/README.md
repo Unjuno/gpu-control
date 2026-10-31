@@ -89,8 +89,10 @@ signing key and a simulation backend without changing deployed authentication.
 
 SQLite is for local tests/development ONLY. Vercel and `GATEWAY_HOSTED=true` require
 `postgresql+psycopg://...`; never use `/tmp` as production job state. Dependencies
-are isolated from the root project. Direct framework versions are pinned; this is
-not a complete transitive lockfile. Python 3.12 is the deployment baseline.
+are isolated from the root project. Vercel's runtime dependencies are pinned by
+`gateway/uv.lock` and CI checks that lock with `uv sync --locked`. The pip
+requirements files pin direct runtime/test dependencies but do not lock the full
+transitive graph. Python 3.12 is the deployment baseline.
 
 ## Vercel setup
 
@@ -134,8 +136,11 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
 6. Deploy the Web/API application. `/healthz` reports liveness; `/readyz` reports
    database/migration state, execution-worker and recovery-supervisor heartbeats,
    authentication and workload-registry readiness. When a local CPU workload is
-   enabled, it also requires usable artifact storage and reports the storage probe;
-   demo-only deployments do not depend on that filesystem.
+   enabled, it also requires usable artifact storage and a current admission policy
+   that allows the registered workload, profile and bounded runtime; the workload
+   must carry its exact source repository/SHA. `/readyz` reports local CPU admission
+   blockers explicitly. Demo-only deployments do not depend on that filesystem or
+   local CPU policy.
 7. Run `gpu-control-worker.service` and `gpu-control-supervisor.service`
    against that database. The supervisor claims expired active leases and may take over a
    submitting intent after the worker heartbeat goes stale; it never takes newly
@@ -290,8 +295,9 @@ the policy disabled until the host, workload digest, resource limits, cleanup
 path and zero-provider-charge assumptions have been reviewed. The repository's
 demo Compose stack does not perform these steps and does not validate this path.
 
-`deploy/` contains the six dedicated Linux systemd units: API, worker, recovery
-supervisor, manual database migration, artifact-capacity check, and its timer.
+`deploy/` contains eight dedicated Linux systemd unit files: API, worker,
+recovery supervisor, read-only database check, manual database migration,
+artifact-capacity check, its timer, and the manual capacity journal bridge.
 The companion `gateway.env.example`, `api.env.example`, and
 `capacity.env.example` files are the required environment starting points;
 `worker-secrets.env.example` is optional and must remain absent while provider

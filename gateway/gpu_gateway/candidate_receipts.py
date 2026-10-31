@@ -14,9 +14,9 @@ from collections.abc import Mapping
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from .contracts import PlanV2
+from .contracts import PlanV2, plan_fingerprint
 
 MAX_RECEIPT_BYTES = 16_384
 MAX_RECEIPT_TTL_SECONDS = 300
@@ -50,6 +50,94 @@ def candidate_result_digest(result: Mapping) -> str:
     claims = {key: result.get(key) for key in
               ("device", "gpu_used", "exit_code", "metrics", "checksum")}
     return hashlib.sha256(_canonical(claims)).hexdigest()
+
+
+def _validate_projection_json(value: object, ancestors: set[int] | None = None) -> None:
+    """Reject Python-only containers and coercible object keys before hashing."""
+    if value is None or type(value) in {str, bool, int, float}:
+        return
+    if type(value) not in {dict, list}:
+        raise CandidateReceiptError("provider object projection must contain only JSON values")
+    ancestors = set() if ancestors is None else ancestors
+    identity = id(value)
+    if identity in ancestors:
+        raise CandidateReceiptError("provider object projection must not contain cycles")
+    ancestors.add(identity)
+    try:
+        if type(value) is dict:
+            for key, item in value.items():
+                if type(key) is not str:
+                    raise CandidateReceiptError("provider object projection keys must be strings")
+                _validate_projection_json(item, ancestors)
+        else:
+            for item in value:
+                _validate_projection_json(item, ancestors)
+    finally:
+        ancestors.remove(identity)
+
+
+def sign_adapter_candidate_receipt(
+    *, private_key: Ed25519PrivateKey, key_id: str, issued_at: int,
+    expires_at: int, now: int, plan: PlanV2, fingerprint: str, run_id: str,
+    result: Mapping, provider_execution_id: str, device_id: str,
+    evidence_source: str, provider_object_projection: Mapping,
+) -> dict:
+    """Sign claims after trusted adapter code authenticates the provider object.
+
+    ``provider_object_projection`` must be a bounded, normalized projection
+    from an authenticated provider API call. This helper hashes and signs it;
+    it does not authenticate the response. The key must be operator-held,
+    distinct from provider-observation keys, and unavailable to workloads.
+    """
+    if not isinstance(private_key, Ed25519PrivateKey):
+        raise CandidateReceiptError("adapter receipt key must be Ed25519")
+    if not isinstance(plan, PlanV2) or plan.selection_binding is None:
+        raise CandidateReceiptError("candidate-bound plan is required")
+    if fingerprint != plan_fingerprint(plan):
+        raise CandidateReceiptError("plan fingerprint does not match candidate plan")
+    if type(provider_object_projection) is not dict:
+        raise CandidateReceiptError("provider object projection must be a JSON object")
+    try:
+        _validate_projection_json(provider_object_projection)
+    except RecursionError as exc:
+        raise CandidateReceiptError("provider object projection is too deeply nested") from exc
+    projection_digest = hashlib.sha256(_canonical(provider_object_projection)).hexdigest()
+    payload = {
+        "run_id": run_id,
+        "plan_fingerprint": fingerprint,
+        "source_sha": plan.source_sha,
+        "image_digest": plan.image_digest,
+        "resource_id": plan.selection_binding.resource_id,
+        "provider_execution_id": provider_execution_id,
+        "device_id": device_id,
+        "device_model": result.get("device") if isinstance(result, Mapping) else None,
+        "gpu_used": result.get("gpu_used") if isinstance(result, Mapping) else None,
+        "exit_code": result.get("exit_code") if isinstance(result, Mapping) else None,
+        "result_sha256": candidate_result_digest(result),
+        "evidence_source": evidence_source,
+        "provider_object_sha256": projection_digest,
+    }
+    unsigned = {
+        "schema_version": 1,
+        "signer": "gateway_adapter",
+        "key_id": key_id,
+        "provider": plan.provider,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "payload": payload,
+    }
+    signature = base64.urlsafe_b64encode(private_key.sign(_canonical(unsigned)))
+    receipt = unsigned | {"signature": signature.rstrip(b"=").decode("ascii")}
+    public_key = private_key.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    # Reuse the verifier as the single source of envelope, timestamp, identity,
+    # and success-claim rules; reject invalid receipts before returning them.
+    verify_candidate_receipt(
+        receipt, {key_id: public_key}, now=now, plan=plan,
+        fingerprint=fingerprint, run_id=run_id, result=result,
+    )
+    return receipt
 
 
 def verify_candidate_receipt(receipt: Mapping, trusted_keys: Mapping[str, bytes], *,
