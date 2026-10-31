@@ -101,8 +101,10 @@ evidence that lane is deployable.
 
 ## Live acceptance sequence
 
-1. Verify `/healthz` and `/readyz`. Readiness must report the current migration,
-   fresh worker heartbeat, database access and valid workload registry.
+1. Verify `/healthz` and `/readyz`. The public readiness endpoint returns only
+   an aggregate `ready` boolean; authenticated operators with
+   `experiments:read` can inspect migration, heartbeat, registry, admission and
+   artifact details at `/api/readiness`.
 2. Add the server to the authorized ChatGPT workspace and complete its OAuth flow.
 3. Confirm ChatGPT discovers the expected read, run and cancel tools. Check the
    server's discovered schema against this repository's MCP tool contract.

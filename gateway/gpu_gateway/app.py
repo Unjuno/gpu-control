@@ -112,23 +112,17 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
                 "auth_mode": "external_oidc" if auth and auth.external else "local_oauth",
                 "gpu_started_by_health_check": False}
 
-    @app.get("/readyz")
-    def readiness():
-        """Report whether durable queue processing is currently available.
-
-        Liveness stays independent; readiness never runs migrations or starts
-        compute. Enabled local CPU workloads require usable artifact storage;
-        demo-only deployments do not depend on that filesystem.
-        """
+    def readiness_snapshot():
+        """Collect readiness diagnostics for authenticated operator access."""
         if configuration_error or service is None or auth is None:
-            return JSONResponse({"ready": False, "database": False, "migration": False,
-                                 "worker": False, "supervisor": False, "registry": False,
-                                 "authentication": False,
-                                 "local_cpu_storage_required": False,
-                                 "local_cpu_admission_required": False,
-                                 "local_cpu_admission_ready": None,
-                                 "local_cpu_admission_blockers": [],
-                                 "artifact_storage": None}, status_code=503)
+            return {"ready": False, "database": False, "migration": False,
+                    "worker": False, "supervisor": False, "registry": False,
+                    "authentication": False,
+                    "local_cpu_storage_required": False,
+                    "local_cpu_admission_required": False,
+                    "local_cpu_admission_ready": None,
+                    "local_cpu_admission_blockers": [],
+                    "artifact_storage": None}
         database_ok = False
         migration_ok = False
         worker_ok = False
@@ -202,19 +196,37 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         ready = (database_ok and migration_ok and worker_ok and supervisor_ok and registry_ok and
                  enabled_workloads > 0 and authentication_ok and artifact_storage_ok and
                  local_cpu_admission_ready is not False)
-        return JSONResponse({"ready": ready, "database": database_ok,
-                             "migration": migration_ok, "schema_version": schema,
-                             "worker": worker_ok, "worker_heartbeat_age_seconds": heartbeat_age,
-                             "supervisor": supervisor_ok,
-                             "supervisor_heartbeat_age_seconds": supervisor_heartbeat_age,
-                             "registry": registry_ok, "enabled_workloads": enabled_workloads,
-                             "authentication": authentication_ok,
-                             "local_cpu_storage_required": local_cpu_storage_required,
-                             "local_cpu_admission_required": local_cpu_storage_required,
-                             "local_cpu_admission_ready": local_cpu_admission_ready,
-                             "local_cpu_admission_blockers": local_cpu_admission_blockers,
-                             "artifact_storage": artifact_storage},
-                            status_code=200 if ready else 503)
+        return {"ready": ready, "database": database_ok,
+                "migration": migration_ok, "schema_version": schema,
+                "worker": worker_ok, "worker_heartbeat_age_seconds": heartbeat_age,
+                "supervisor": supervisor_ok,
+                "supervisor_heartbeat_age_seconds": supervisor_heartbeat_age,
+                "registry": registry_ok, "enabled_workloads": enabled_workloads,
+                "authentication": authentication_ok,
+                "local_cpu_storage_required": local_cpu_storage_required,
+                "local_cpu_admission_required": local_cpu_storage_required,
+                "local_cpu_admission_ready": local_cpu_admission_ready,
+                "local_cpu_admission_blockers": local_cpu_admission_blockers,
+                "artifact_storage": artifact_storage}
+
+    @app.get("/readyz")
+    def readiness():
+        """Expose only aggregate readiness for public load balancer probes."""
+        details = readiness_snapshot()
+        ready = details["ready"] is True
+        return JSONResponse({"ready": ready}, status_code=200 if ready else 503,
+                            headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/readiness")
+    def readiness_details(request: Request):
+        """Expose operational diagnostics only to authenticated read clients."""
+        ready()
+        principal = auth.authenticate(request)
+        if "experiments:read" not in principal.scopes:
+            raise GatewayError("insufficient_scope", "Required scope: experiments:read", 403)
+        details = readiness_snapshot()
+        return JSONResponse(details, status_code=200 if details["ready"] else 503,
+                            headers={"Cache-Control": "no-store"})
 
     @app.get("/")
     def index():

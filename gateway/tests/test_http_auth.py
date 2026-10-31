@@ -120,7 +120,7 @@ def test_readiness_requires_current_database_migration_worker_and_registry(web):
     from gpu_gateway.migrations import SCHEMA_VERSION, schema_version
     from gpu_gateway.store import control
 
-    cold = web.client.get("/readyz")
+    cold = web.client.get("/api/readiness")
     assert cold.status_code == 503
     assert cold.json()["database"] is True
     assert cold.json()["migration"] is True
@@ -131,20 +131,20 @@ def test_readiness_requires_current_database_migration_worker_and_registry(web):
 
     with web.service.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(worker_seen_at=int(time.time())))
-    worker_only = web.client.get("/readyz")
+    worker_only = web.client.get("/api/readiness")
     assert worker_only.status_code == 503
     assert worker_only.json()["worker"] is True
     assert worker_only.json()["supervisor"] is False
     with web.service.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(supervisor_seen_at=int(time.time())))
-    ready = web.client.get("/readyz")
+    ready = web.client.get("/api/readiness")
     assert ready.status_code == 200
     assert ready.json()["local_cpu_storage_required"] is False
     assert ready.json()["artifact_storage"] is None
     with web.service.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(
             supervisor_seen_at=int(time.time()) - 16))
-    stale_supervisor = web.client.get("/readyz")
+    stale_supervisor = web.client.get("/api/readiness")
     assert stale_supervisor.status_code == 503
     assert stale_supervisor.json()["supervisor"] is False
     with web.service.store.transaction() as connection:
@@ -152,14 +152,14 @@ def test_readiness_requires_current_database_migration_worker_and_registry(web):
 
     from gpu_gateway.config import Workload
     web.service.workloads["unregistered"] = Workload(provider="ghost")
-    invalid_registry = web.client.get("/readyz")
+    invalid_registry = web.client.get("/api/readiness")
     assert invalid_registry.status_code == 503
     assert invalid_registry.json()["registry"] is False
     del web.service.workloads["unregistered"]
 
     with web.service.store.transaction() as connection:
         connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=SCHEMA_VERSION - 1))
-    stale_schema = web.client.get("/readyz")
+    stale_schema = web.client.get("/api/readiness")
     assert stale_schema.status_code == 503
     assert stale_schema.json()["migration"] is False
 
@@ -206,7 +206,7 @@ def test_readiness_checks_artifact_storage_for_enabled_local_cpu(
         return probe
 
     monkeypatch.setattr(gateway_app, "inspect_artifact_storage", inspect)
-    response = web.client.get("/readyz")
+    response = web.client.get("/api/readiness")
 
     assert response.status_code == expected_status
     assert response.json()["ready"] is storage_available
@@ -268,7 +268,7 @@ def test_readiness_probes_configured_artifact_path_for_enabled_local_cpu(
         enabled=lambda _settings: True, factory=lambda _settings: None)
     client = TestClient(create_app(settings, service=web.service, auth=web.auth))
 
-    response = client.get("/readyz")
+    response = client.get("/api/readiness", headers=web.headers)
     expected_ready = path_exists and separate_filesystem
     assert response.status_code == (200 if expected_ready else 503)
     assert response.json()["ready"] is expected_ready
@@ -311,7 +311,7 @@ def test_readiness_fails_when_enabled_cpu_workload_is_not_admissible(
         "minimum_free_bytes": 0, "reason": None,
     })
 
-    response = web.client.get("/readyz")
+    response = web.client.get("/api/readiness")
 
     assert response.status_code == 503
     assert response.json()["ready"] is False
@@ -331,7 +331,7 @@ def test_readiness_uses_stale_boundary_at_exactly_fifteen_seconds(web, monkeypat
     with web.service.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(
             worker_seen_at=now - 15, supervisor_seen_at=now - 15))
-    stale = web.client.get("/readyz")
+    stale = web.client.get("/api/readiness")
     assert stale.status_code == 503
     assert stale.json()["worker"] is False
     assert stale.json()["supervisor"] is False
@@ -339,10 +339,39 @@ def test_readiness_uses_stale_boundary_at_exactly_fifteen_seconds(web, monkeypat
     with web.service.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(
             worker_seen_at=now - 14, supervisor_seen_at=now - 14))
-    fresh = web.client.get("/readyz")
+    fresh = web.client.get("/api/readiness")
     assert fresh.status_code == 200
     assert fresh.json()["worker"] is True
     assert fresh.json()["supervisor"] is True
+
+
+def test_public_readiness_is_aggregate_and_details_require_read_scope(web):
+    from sqlalchemy import update
+    from gpu_gateway.store import control
+
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            worker_seen_at=int(time.time()), supervisor_seen_at=int(time.time())))
+    public = web.client.get("/readyz")
+    assert public.status_code == 200
+    assert public.json() == {"ready": True}
+    assert public.headers["cache-control"] == "no-store"
+
+    detailed = web.client.get("/api/readiness", headers=web.headers)
+    assert detailed.status_code == 200
+    assert detailed.json()["database"] is True
+    assert detailed.json()["worker"] is True
+    assert "schema_version" in detailed.json()
+    assert detailed.headers["cache-control"] == "no-store"
+
+    web.client.cookies.clear()
+    unauthenticated = web.client.get("/api/readiness")
+    assert unauthenticated.status_code == 401
+    read_denied = web.client.get("/api/readiness", headers={
+        "Authorization": "Bearer " + web.token(scope="experiments:run"),
+    })
+    assert read_denied.status_code == 403
+    assert read_denied.json()["code"] == "insufficient_scope"
 
 
 def test_browser_cookie_tamper_rejected(web):
