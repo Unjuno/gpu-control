@@ -3,7 +3,7 @@
 ## Scope
 
 - PR: https://github.com/Unjuno/gpu-control/pull/65
-- Head: `a9d610d3682f1985a65280da05619462a5825cd1`
+- Source and entrypoint-test commit: `36a26af4b4f5abfb667d177b560e5b0e37e52a77`
 - Base: PR #62 head `317240d2224e05e23aa5bb190ce7a4f0fc101c01`
 - Change: classify `OSError` while loading Gateway settings/workloads as invalid configuration and keep health/readiness routes available; add a missing-file regression test.
 - Repository parked mode and all live GPU/paid execution gates remain unchanged.
@@ -29,18 +29,20 @@ not a GitHub review or deployment approval.
 
 ## CI and Preview
 
-The PR's current GitHub checks all passed: Python 3.11/3.12/3.13, trusted
-reference container, Gateway offline tests, Gateway comment bridge tests,
-Project bridge tests, Vercel deployment, and Vercel Preview Comments.
+The prior source-fix commit passed all GitHub checks. After adding the
+entrypoint regression test and this record, checks for the current head were
+rerun and all passed: Python 3.11/3.12/3.13, trusted reference container,
+Gateway offline tests, Gateway comment bridge tests, Project bridge tests,
+Vercel deployment, and Vercel Preview Comments.
 
-The READY Preview deployment sourced from the exact source-fix commit is
-`dpl_2CUftHSvpFSSY38uuqsm3Ggn8gZh` (`gpu-control-cqk7pa8m7-unjunos-projects.vercel.app`).
-Protected GET requests on 2026-10-31 to `/healthz` and `/readyz` both returned
-HTTP 500 `FUNCTION_INVOCATION_FAILED` before an application response. Sample
-request IDs:
+The READY Preview deployment sourced from the current PR head is
+`dpl_GHswBncuQhXbK6TbdgQtVmpas5za` (`gpu-control-ffmkc4fdz-unjunos-projects.vercel.app`).
+Protected GET requests on 2026-10-31 at 07:21 UTC to `/healthz` and `/readyz`
+both returned HTTP 500 `FUNCTION_INVOCATION_FAILED` before an application
+response. Request IDs:
 
-- `/healthz`: `hnd1:iad1::wlx9z-1793430955217-d9393410c184`
-- `/readyz`: `hnd1:iad1::dvws2-1793430957852-45630a583830`
+- `/healthz`: `hnd1:iad1::4gt64-1793431290937-aa728d631130`
+- `/readyz`: `hnd1:iad1::gwl98-1793431293753-af614463af2f`
 
 Vercel runtime-log queries scoped to the deployment and request ID returned no
 records. Thus the missing-workload-file exception path is fixed and locally
