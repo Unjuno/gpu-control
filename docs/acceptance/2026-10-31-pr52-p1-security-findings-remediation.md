@@ -3,9 +3,11 @@
 ## Scope and source
 
 - Review source: PR #52 exact head `bc9b0305e6b2e86f9d8c214161b10511ce9f012c`.
-- Local candidate branch: `codex/p1-cpu-findings-fix`, based on that exact head.
-- This is a local-only candidate. No commit, push, GitHub review, or PR update
-  was made. The primary worktree and published PR head were not modified.
+- Candidate branch: `codex/p1-cpu-findings-fix`, based on that exact head.
+- Published as commit `cdb1f8ad6f235df715a20c245737c71b2de730dd` to the PR #52
+  head branch `codex/gpu-control-p1-05-recovery`. PR #52 remains a Draft and
+  GitHub reports `REVIEW_REQUIRED`; no merge was made.
+- An independent Security Review of the remediation diff reported no issues.
 - `policies/repository-state.yaml` remains `mode: parked`; no provider or paid
   execution was enabled.
 
@@ -49,10 +51,15 @@ Full Core suite on Python 3.12, importing source from this candidate:
 452 passed, 1 skipped
 ```
 
+The GitHub checks on published PR #52 head `cdb1f8ad6f235df715a20c245737c71b2de730dd`
+all passed: Python 3.11/3.12/3.13, Gateway offline tests, Gateway comment
+bridge tests, Project bridge tests, trusted reference container, and Vercel.
+
 `git diff --check` passed. The Gateway optional skips include Docker and
 PostgreSQL integration paths, so these results do not exercise a live Docker
 daemon, target host, provider, ChatGPT workspace, or paid resource. The existing
-PR #52 GitHub checks cover its published head, not this local candidate.
+GitHub checks cover the published remediation head. They do not constitute
+GitHub approval or deployed product acceptance.
 
 ## Remaining acceptance
 
