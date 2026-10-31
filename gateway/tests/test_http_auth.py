@@ -1,6 +1,7 @@
 from dataclasses import replace
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -160,6 +161,30 @@ def test_readiness_requires_current_database_migration_worker_and_registry(web):
 
     # A liveness response remains independent from a stale schema or worker.
     assert web.client.get("/healthz").status_code == 200
+
+
+def test_readiness_uses_stale_boundary_at_exactly_fifteen_seconds(web, monkeypatch):
+    from sqlalchemy import update
+    from gpu_gateway import app as gateway_app
+    from gpu_gateway.store import control
+
+    now = 1_800_000_000
+    monkeypatch.setattr(gateway_app, "time", SimpleNamespace(time=lambda: now))
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            worker_seen_at=now - 15, supervisor_seen_at=now - 15))
+    stale = web.client.get("/readyz")
+    assert stale.status_code == 503
+    assert stale.json()["worker"] is False
+    assert stale.json()["supervisor"] is False
+
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            worker_seen_at=now - 14, supervisor_seen_at=now - 14))
+    fresh = web.client.get("/readyz")
+    assert fresh.status_code == 200
+    assert fresh.json()["worker"] is True
+    assert fresh.json()["supervisor"] is True
 
 
 def test_browser_cookie_tamper_rejected(web):

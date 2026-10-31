@@ -5,9 +5,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
+from ..http_security import open_no_redirect, read_bounded
 from .runpod_network_volume import RunPodNetworkVolumeEvidence
 from .runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2Error
 
@@ -15,6 +16,7 @@ from .runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2E
 RUNPOD_V1_BASE_URL = "https://rest.runpod.io/v1"
 _ALLOWED_CLOUDS = {"SECURE", "COMMUNITY"}
 _V1_STATUSES = {"RUNNING", "EXITED", "TERMINATED"}
+_MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 def _require_mapping(value: object, label: str) -> Mapping[str, Any]:
@@ -226,7 +228,7 @@ class RunPodV1HttpClient:
         *,
         network_volume: RunPodNetworkVolumeEvidence | None = None,
         timeout: float = 10.0,
-        opener: Callable[..., Any] = urlopen,
+        opener: Callable[..., Any] | None = None,
     ) -> None:
         if not isinstance(api_key, str) or not api_key.strip():
             raise RunPodV2Error("RunPod API key is required")
@@ -234,14 +236,14 @@ class RunPodV1HttpClient:
             raise RunPodV2Error("RunPod API key must not contain whitespace")
         if timeout <= 0:
             raise RunPodV2Error("RunPod HTTP timeout must be positive")
-        if not callable(opener):
+        if opener is not None and not callable(opener):
             raise RunPodV2Error("RunPod HTTP opener must be callable")
         if network_volume is not None:
             network_volume.validate_shape()
         self._api_key = api_key
         self._network_volume = network_volume
         self._timeout = timeout
-        self._opener = opener
+        self._opener = opener or open_no_redirect
 
     def _request(
         self,
@@ -266,11 +268,11 @@ class RunPodV1HttpClient:
         try:
             with self._opener(request, timeout=self._timeout) as response:
                 status = getattr(response, "status", None)
-                raw = response.read()
+                raw = read_bounded(response, max_bytes=_MAX_API_RESPONSE_BYTES)
         except HTTPError as exc:
             detail = ""
             try:
-                error_payload = json.loads(exc.read().decode("utf-8"))
+                error_payload = json.loads(read_bounded(exc, max_bytes=_MAX_API_RESPONSE_BYTES).decode("utf-8"))
                 if isinstance(error_payload, Mapping):
                     for field in ("message", "detail", "error"):
                         value = error_payload.get(field)
@@ -282,6 +284,8 @@ class RunPodV1HttpClient:
             raise RunPodV2Error(f"RunPod API returned HTTP {exc.code}{detail}") from exc
         except URLError as exc:
             raise RunPodV2Error("RunPod API could not be reached") from exc
+        except ValueError as exc:
+            raise RunPodV2Error(f"RunPod API response was rejected: {exc}") from exc
 
         if status != expected_status:
             raise RunPodV2Error(f"RunPod API returned unexpected HTTP status {status}")

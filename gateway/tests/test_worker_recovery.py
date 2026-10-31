@@ -1,5 +1,8 @@
+from dataclasses import replace
+
 from sqlalchemy import select, update
 
+from gpu_gateway.artifacts import ArtifactStore
 from gpu_gateway.contracts import plan_fingerprint
 from gpu_gateway.store import control, runs
 from gpu_gateway.worker import Worker
@@ -336,3 +339,83 @@ def test_timeout_terminal_intent_survives_cleanup_failure(system):
     assert final["cleanup_state"] == "complete"
     assert final["result"]["exit_code"] == 0
     assert final["result"]["cleanup_state"] == "complete"
+
+
+def test_artifact_storage_failure_fails_run_but_cleans_terminal_container(system, tmp_path, monkeypatch):
+    candidate = plan()
+    now = int(system.clock())
+    system.settings = replace(system.settings, artifact_dir=str(tmp_path / "artifacts"))
+    system.service.settings = system.settings
+    created = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="artifact-store-failure-0001"))
+    fingerprint = plan_fingerprint(candidate)
+    result = {
+        "schema_version": 2, "run_id": created["id"], "source_sha": candidate.source_sha,
+        "plan_fingerprint": fingerprint, "provider": "local_cpu", "simulation": False,
+        "gpu_used": False, "device": "cpu", "exit_code": 0,
+        "started_at": now - 2, "finished_at": now - 1, "runtime_seconds": 1.0,
+        "metrics": {}, "checks": ["result_valid"], "checksum": "e" * 64,
+        "artifacts": [], "known_cost_usd": "0", "cost_classification": "LOCAL",
+        "cleanup_state": "pending",
+    }
+    with system.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(active_count=1))
+        connection.execute(update(runs).where(runs.c.id == created["id"]).values(
+            plan=candidate.model_dump(mode="json"), fingerprint=fingerprint,
+            state="running", handle={"container_id": "d" * 64}, lease_until=0,
+            started_at=now - 2, slot_reserved=True, record_version=2,
+            cleanup_state="not_required"))
+
+    class Backend:
+        cleanup_calls = 0
+
+        def start(self, _job):
+            raise AssertionError("recovery must not start another container")
+
+        def reconcile(self, _job):
+            raise AssertionError("the persisted handle must be reused")
+
+        def capture(self, _handle):
+            return Observation("succeeded", result,
+                               (ArtifactPayload("report.json", b"{}", "application/json"),))
+
+        def cleanup(self, _handle):
+            self.cleanup_calls += 1
+            if self.cleanup_calls == 1:
+                raise RuntimeError("simulated cleanup interruption after storage failure")
+
+        def is_clean(self, _handle):
+            return self.cleanup_calls > 1
+
+        def cancel(self, _handle):
+            pass
+
+    def no_space(*_args, **_kwargs):
+        raise OSError("simulated artifact volume exhaustion")
+
+    monkeypatch.setattr(ArtifactStore, "put", no_space)
+    backend = Backend()
+    assert Worker(system.store, system.settings, {"local_cpu": backend}, system.clock).tick()
+
+    pending = system.store.read(created["id"])
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert pending["state"] == "running"
+    assert pending["cleanup_state"] == "pending"
+    assert pending["error"] == "cleanup_pending:failed"
+    assert pending["result"]["failure_code"] == "artifact_persistence_failed"
+    assert pending["result"]["artifacts"] == []
+    assert active == 1
+
+    system.clock.advance(11)
+    assert Worker(system.store, system.settings, {"local_cpu": backend}, system.clock).tick()
+    final = system.store.read(created["id"])
+    with system.store.engine.connect() as connection:
+        active = connection.execute(select(control.c.active_count)).scalar_one()
+    assert final["state"] == "failed"
+    assert final["error"] == "artifact_persistence_failed"
+    assert final["result"]["failure_code"] == "artifact_persistence_failed"
+    assert final["result"]["artifacts"] == []
+    assert final["cleanup_state"] == "complete"
+    assert backend.cleanup_calls == 2
+    assert active == 0

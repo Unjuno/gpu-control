@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+import gpu_control.providers.runpod_v1_adapter as runpod_v1_adapter_module
 
 from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.human_authorization import LiveExecutionPermit
@@ -227,6 +229,46 @@ def test_v1_adapter_rejects_missing_current_pricing_before_provider_work() -> No
             current_pricing=None,
             clock=lambda: NOW,
         )
+    assert client.create_payloads == []
+
+
+def test_v1_pricing_and_permit_are_rechecked_after_occupancy_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    value = plan()
+    client = FakeV1Client(value)
+    now = [NOW + timedelta(seconds=1)]
+    runpod = replace(adapter(value, client, lambda: now[0]), clock=lambda: now[0])
+    original_builder = runpod_v1_adapter_module.build_create_pod_payload_v1
+
+    def expire_before_provider_create(*args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = original_builder(*args, **kwargs)
+        now[0] = NOW + timedelta(seconds=120)
+        return payload
+
+    monkeypatch.setattr(runpod_v1_adapter_module, "build_create_pod_payload_v1", expire_before_provider_create)
+
+    with pytest.raises(RunPodV1AdapterError, match="pricing evidence expired"):
+        runpod.submit(value)
+    assert client.create_payloads == []
+
+
+def test_v1_live_permit_is_rechecked_immediately_before_create(monkeypatch: pytest.MonkeyPatch) -> None:
+    value = plan()
+    client = FakeV1Client(value)
+    now = [NOW + timedelta(seconds=1)]
+    runpod = adapter(value, client, lambda: now[0])
+    short_permit = replace(runpod.live_permit, valid_until_utc=(NOW + timedelta(seconds=30)).isoformat())
+    runpod = replace(runpod, live_permit=short_permit, clock=lambda: now[0])
+    original_builder = runpod_v1_adapter_module.build_create_pod_payload_v1
+
+    def expire_permit(*args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = original_builder(*args, **kwargs)
+        now[0] = NOW + timedelta(seconds=30)
+        return payload
+
+    monkeypatch.setattr(runpod_v1_adapter_module, "build_create_pod_payload_v1", expire_permit)
+
+    with pytest.raises(RunPodV1AdapterError, match="permit expired before provider submission"):
+        runpod.submit(value)
     assert client.create_payloads == []
 
 

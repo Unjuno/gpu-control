@@ -7,9 +7,10 @@ import hashlib
 import json
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from ..execution import ApprovedExecutionPlan
+from ..http_security import open_no_redirect, read_bounded
 from ..validation import WorkloadRequest
 from .runpod_network_volume import RunPodNetworkVolumeEvidence
 from .runpod_pricing import RunPodCatalogPricingEvidence
@@ -19,6 +20,7 @@ from .runpod_v2 import RunPodV2Error
 RUNPOD_GRAPHQL_URL = "https://api.runpod.io/graphql"
 RUNPOD_PRICING_CONTRACT_COMMIT = "51ca7f02ab5cb57c09ad917172af36c29a58790c"
 _MAX_EVIDENCE_TTL_SECONDS = 300
+_MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
 _GPU_TYPES_QUERY = """
 query GpuControlGpuTypes {
   gpuTypes {
@@ -224,18 +226,18 @@ class RunPodCurrentPricingEvidence:
 class RunPodPricingGraphQLClient:
     """Fixed-origin, bearer-authenticated client for the current GPU/DC pricing queries."""
 
-    def __init__(self, api_key: str, *, timeout: float = 10.0, opener: Callable[..., Any] = urlopen) -> None:
+    def __init__(self, api_key: str, *, timeout: float = 10.0, opener: Callable[..., Any] | None = None) -> None:
         if not isinstance(api_key, str) or not api_key.strip():
             raise RunPodV2Error("RunPod API key is required for current pricing")
         if api_key != api_key.strip() or any(character.isspace() for character in api_key):
             raise RunPodV2Error("RunPod API key must not contain whitespace")
         if timeout <= 0:
             raise RunPodV2Error("RunPod pricing HTTP timeout must be positive")
-        if not callable(opener):
+        if opener is not None and not callable(opener):
             raise RunPodV2Error("RunPod pricing HTTP opener must be callable")
         self._api_key = api_key
         self._timeout = timeout
-        self._opener = opener
+        self._opener = opener or open_no_redirect
 
     def _query(self, query: str) -> Mapping[str, Any]:
         body = json.dumps({"query": query}, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
@@ -253,11 +255,13 @@ class RunPodPricingGraphQLClient:
         try:
             with self._opener(request, timeout=self._timeout) as response:
                 status = getattr(response, "status", None)
-                raw = response.read()
+                raw = read_bounded(response, max_bytes=_MAX_API_RESPONSE_BYTES)
         except HTTPError as exc:
             raise RunPodV2Error(f"RunPod pricing API returned HTTP {exc.code}") from exc
         except URLError as exc:
             raise RunPodV2Error("RunPod pricing API could not be reached") from exc
+        except ValueError as exc:
+            raise RunPodV2Error(f"RunPod pricing response was rejected: {exc}") from exc
         if status != 200:
             raise RunPodV2Error(f"RunPod pricing API returned unexpected HTTP status {status}")
         try:

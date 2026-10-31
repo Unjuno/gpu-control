@@ -54,6 +54,11 @@
   persisted artifact back byte-for-byte and completed cleanup.
 - Retention tests verify expired manifest deletion, 24-hour orphan grace,
   preservation of active-run blobs, and preservation of recent orphan files.
+- An injected artifact-volume write failure after terminal capture now persists a
+  failed result with `failure_code: artifact_persistence_failed`, publishes no
+  artifact metadata, retains the slot while cleanup is interrupted, and lets a
+  replacement worker finish cleanup. This was tested with an injected `OSError`
+  and fake backend; it is not a real full-filesystem test.
 - Tests include a 102,400-byte artifact fetched in verified chunks, private file
   mode, owner mismatch, unlisted ID, expiry, and protocol tool count/scope.
 
@@ -62,8 +67,10 @@
 - The real CPU smoke artifact is a bounded execution report, not a model
   checkpoint or scientific experiment output. GPU workloads and larger file
   artifacts have not been exercised end to end.
-- Quota accounting and volume usage alerts are not implemented. Operators must
-  set and monitor volume capacity before enabling artifact-producing workloads.
+- Global quota accounting and volume usage alerts are not implemented. A
+  terminal artifact-write failure is now fail-closed and recoverable, but
+  operators must still set and monitor volume capacity before enabling
+  artifact-producing workloads.
 - A real ChatGPT conversation and cross-conversation artifact retrieval have
   not been exercised. The shared-volume check used a disposable local Compose
   volume, not a deployed persistent host volume. Result retrieval remains

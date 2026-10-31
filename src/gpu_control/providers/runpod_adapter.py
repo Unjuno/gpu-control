@@ -115,11 +115,13 @@ class RunPodV2Adapter:
     def provider_name(self) -> str:
         return "runpod"
 
-    def _require_plan_identity(self, plan: ApprovedExecutionPlan) -> None:
+    def _require_plan_identity(self, plan: ApprovedExecutionPlan, *, now_utc: datetime | None = None) -> None:
         try:
             plan.validate_shape()
-            self.live_permit.validate_for_plan(plan, now_utc=self.clock())
-        except (ValueError, HumanAuthorizationError) as exc:
+            checked_at = self.clock() if now_utc is None else now_utc
+            self.live_permit.validate_for_plan(plan, now_utc=checked_at)
+            self.catalog_pricing.validate_fresh(now_utc=checked_at)
+        except (ValueError, HumanAuthorizationError, RunPodV2Error) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if plan.fingerprint() != self.approved_plan.fingerprint():
             raise RunPodV2AdapterError("RunPod adapter received a different approved plan")
@@ -138,12 +140,13 @@ class RunPodV2Adapter:
         if receipt.image_digest != self.approved_plan.image_digest:
             raise RunPodV2AdapterError("RunPod receipt image digest mismatch")
 
-    def _probe_before_create(self, plan: ApprovedExecutionPlan) -> None:
+    def _probe_before_create(self, plan: ApprovedExecutionPlan) -> RunPodAccountOccupancyEvidence:
         try:
             evidence = self.occupancy_probe(plan)
             if not isinstance(evidence, RunPodAccountOccupancyEvidence):
                 raise RunPodV2Error("RunPod occupancy probe returned an invalid evidence type")
             evidence.validate_before_create(plan, now_utc=self.clock())
+            return evidence
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
 
@@ -249,7 +252,7 @@ class RunPodV2Adapter:
         """Submit exactly once after exact authorization and account checks pass."""
 
         self._require_plan_identity(plan)
-        self._probe_before_create(plan)
+        occupancy_evidence = self._probe_before_create(plan)
         payload = build_priced_create_pod_payload(
             plan,
             self.published_image,
@@ -259,6 +262,15 @@ class RunPodV2Adapter:
         )
         if self.network_volume is not None:
             payload = bind_network_volume_to_create_payload(payload, self.network_volume)
+
+        # Recheck volatile authorization, price, and occupancy after all preparation
+        # and immediately before the provider allocation request.
+        create_checked_at = self.clock()
+        self._require_plan_identity(plan, now_utc=create_checked_at)
+        try:
+            occupancy_evidence.validate_before_create(plan, now_utc=create_checked_at)
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV2AdapterError(str(exc)) from exc
 
         try:
             pod = self.client.create_pod(payload)
