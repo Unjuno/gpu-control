@@ -103,3 +103,27 @@ port; its RunPod changes remain deferred.
 
 Until these items pass, keep the repository parked and treat ChatGPT product
 readiness as unproven.
+
+## Latest read-only refresh — 2026-10-31 15:19 JST
+
+- Live `main` remains `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. Open Draft
+  PRs are #43 and #51–#64. PR #43, #52, and #63 report `REVIEW_REQUIRED`;
+  #52 and #63 report `BLOCKED` merge state. The other listed PRs are also
+  unmerged Drafts. PR #64 is based on #61 at head
+  `97c0c798ada6145dd4f7a0fe74f1231c28e81d3e`; all its visible checks pass, but
+  it has no review decision and is not merged.
+- Fresh unauthenticated production requests at 2026-10-31 06:19 UTC returned
+  `/healthz`=200 with `configured=true`, `auth_configured=true`,
+  `auth_mode=local_oauth`; `/readyz`=404; and
+  `/.well-known/oauth-protected-resource`=200 advertising the read/run/cancel
+  scopes. This is public liveness and metadata only. It does not verify the
+  deployed source SHA, authenticated readiness, OAuth grant, worker/supervisor
+  availability, or ChatGPT-originated execution.
+- `policies/repository-state.yaml` at the P0 audit head continues to say
+  `mode: parked`, with paid workflow, live paid compute, and RunPod live calls
+  disallowed. No deployment, provider call, GitHub setting, or policy change
+  was made during this refresh.
+
+P0 remains **partially complete and open**. This refresh strengthens current
+external-state evidence but does not close any ChatGPT, production-readiness,
+or end-user acceptance gate.
