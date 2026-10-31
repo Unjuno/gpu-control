@@ -178,6 +178,16 @@ The worker must stay available independently of browser sessions. Shutdown of th
 Web application must not disable worker recovery. A single global admission record
 limits in-flight jobs; an uncertain submission continues holding its slot.
 
+The API and worker must share the same private persistent `GATEWAY_ARTIFACT_DIR`
+when a workload emits artifacts. The worker stores bounded blobs (up to 10 files
+and 10 MiB per run, 1 MiB per file) with owner/run-scoped opaque paths and
+30-day metadata expiry. `experiment_artifact` returns authenticated base64 chunks
+of at most 24 KiB after run cleanup is confirmed. Configure a durable volume
+backed path in both API and worker environments; temporary or per-instance-only
+storage is not suitable for hosted use. Artifact expiry metadata does not yet
+automatically delete old blobs, so operators must plan storage cleanup before
+enabling artifact-producing workloads.
+
 For `local_cpu`, install a Docker CLI compatible with the dedicated worker host's
 daemon and verify that the worker service identity can run `docker info` and
 inspect the exact digest-pinned image before enabling the policy. The API and

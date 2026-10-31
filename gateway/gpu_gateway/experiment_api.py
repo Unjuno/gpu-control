@@ -12,6 +12,7 @@ from sqlalchemy import and_, or_, select
 from .service import ExperimentService, GatewayError, Prepare, Principal
 from .store import runs
 from .admission import evaluate_admission, load_local_cpu_policy, plan_for_workload
+from .artifacts import ArtifactStore
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 STATE_SUMMARY = {
@@ -51,6 +52,12 @@ class PrepareInput(StrictInput):
 
 class RunInput(StrictInput):
     run_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class ArtifactInput(RunInput):
+    artifact_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+    offset: int = Field(default=0, ge=0)
+    length: int = Field(default=18 * 1024, ge=1, le=24 * 1024)
 
 
 class SubmitInput(RunInput):
@@ -236,6 +243,44 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                                             "plan_fingerprint": result["fingerprint"]},
                              next_actions=["experiment_status"],
                              blocker="APPROVAL_REQUIRED" if state == "awaiting_approval" else None)
+
+        if name == "experiment_artifact":
+            request = ArtifactInput.model_validate(arguments)
+            principal.require("experiments:read")
+            run = service.get(principal, request.run_id)
+            if run["state"] not in TERMINAL:
+                return _envelope(status="pending", summary="成果物は実験とcleanupが完了してから取得できます。",
+                                 machine_state={"run_id": request.run_id},
+                                 next_actions=["experiment_status"], blocker="ARTIFACT_NOT_READY")
+            stored = service.store.read(request.run_id)
+            if stored is None or stored["cleanup_state"] not in {"complete", "not_required"}:
+                raise GatewayError("artifact_unavailable", "Experiment cleanup is not confirmed", 409)
+            result = run.get("result")
+            manifests = result.get("artifacts", []) if isinstance(result, dict) else []
+            manifest = next((item for item in manifests
+                             if isinstance(item, dict) and item.get("artifact_id") == request.artifact_id), None)
+            if manifest is None:
+                raise GatewayError("not_found", "Artifact not found", 404)
+            now = int(service.clock())
+            expiry = manifest.get("expires_at")
+            if type(expiry) is int and expiry <= now:
+                raise GatewayError("artifact_expired", "Artifact retention period has expired", 410)
+            try:
+                chunk = ArtifactStore(service.settings.artifact_dir).get(
+                    principal.owner, request.run_id, request.artifact_id,
+                    offset=request.offset, length=request.length,
+                    expected_sha256=manifest["sha256"], expected_size=manifest["size_bytes"])
+            except (OSError, ValueError, KeyError):
+                raise GatewayError("artifact_unavailable", "Artifact is missing or failed integrity verification", 410) from None
+            next_offset = request.offset + len(chunk)
+            return _envelope(status="ok", summary="成果物の一部を取得しました。",
+                             machine_state={"run_id": request.run_id, "artifact_id": request.artifact_id,
+                                            "offset": request.offset, "next_offset": next_offset,
+                                            "complete": next_offset >= manifest["size_bytes"],
+                                            "sha256": manifest["sha256"], "size_bytes": manifest["size_bytes"],
+                                            "media_type": manifest["media_type"],
+                                            "data_base64": base64.b64encode(chunk).decode("ascii")},
+                             next_actions=[])
 
         if name in {"experiment_status", "experiment_result", "experiment_cancel"}:
             request = RunInput.model_validate(arguments)

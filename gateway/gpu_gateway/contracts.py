@@ -75,10 +75,12 @@ class PlanV2(StrictContract):
 
 
 class ArtifactMetadata(StrictContract):
-    artifact_id: str = Field(min_length=1, max_length=128)
+    artifact_id: str = Field(min_length=1, max_length=128,
+                             pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(ge=0)
-    media_type: str = Field(min_length=1, max_length=128)
+    size_bytes: int = Field(ge=0, le=1048576)
+    media_type: str = Field(min_length=1, max_length=128,
+                            pattern=r"^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$")
     expires_at: int | None
 
 
@@ -98,7 +100,7 @@ class ResultV2(StrictContract):
     metrics: dict[str, int | float]
     checks: list[str] = Field(default_factory=list, max_length=32)
     checksum: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    artifacts: list[ArtifactMetadata]
+    artifacts: list[ArtifactMetadata] = Field(max_length=10)
     known_cost_usd: Decimal | None
     cost_classification: CostClassification
     cleanup_state: Literal["not_required", "pending", "complete", "unknown"]
