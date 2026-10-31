@@ -13,7 +13,7 @@ from sqlalchemy import update
 
 from gpu_gateway.backends import build_backends
 from gpu_gateway.artifacts import ArtifactStore
-from gpu_gateway.config import Settings, Workload
+from gpu_gateway.config import Settings, Workload, load_workloads
 from gpu_gateway.admission import evaluate_admission, plan_for_workload
 from gpu_gateway.contracts import plan_fingerprint
 from gpu_gateway.store import runs
@@ -54,6 +54,9 @@ def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_p
             "seed": {"type": "integer"}}, "required": ["iterations", "seed"],
             "additionalProperties": False})
     system.service.workloads["cpu-smoke-v1"] = workload
+    registry_path = tmp_path / "workloads.json"
+    registry_path.write_text(json.dumps({"cpu-smoke-v1": workload.model_dump(mode="json")}))
+    monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(registry_path))
     candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
         repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
         parameters={"iterations": 1000, "seed": 17}, runtime_seconds=30,
@@ -69,7 +72,7 @@ def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_p
     child = r'''
 import os, sys
 from gpu_gateway.backends import build_backends
-from gpu_gateway.config import Settings
+from gpu_gateway.config import Settings, load_workloads
 from gpu_gateway.store import Store
 from gpu_gateway.worker import Worker
 settings = Settings(database_url=sys.argv[1], artifact_dir=os.environ.get("GATEWAY_ARTIFACT_DIR", ""))
@@ -79,7 +82,8 @@ class CrashAfterDockerStart:
         self.backend.start(job)
         os._exit(73)
     def __getattr__(self, name): return getattr(self.backend, name)
-Worker(Store(settings.database_url), settings, {"local_cpu": CrashAfterDockerStart()}).tick()
+Worker(Store(settings.database_url), settings, {"local_cpu": CrashAfterDockerStart()},
+       workloads=load_workloads()).tick()
 os._exit(74)
 '''
     process = subprocess.run([sys.executable, "-c", child, system.settings.database_url],
@@ -93,7 +97,7 @@ os._exit(74)
                            check=True, capture_output=True, text=True, timeout=10).stdout.split()
     assert len(found) == 1
     crashed_row = system.store.read(created["id"])
-    assert crashed_row["submission_intent"]["phase"] == "dispatching"
+    assert crashed_row["submission_intent"]["phase"] == "provider_call_started"
     assert crashed_row["submission_intent"]["attempt"] == 1
 
     # Force the persisted lease to expire, as would happen after process death.
@@ -104,7 +108,7 @@ os._exit(74)
 
     recovery_supervisor = Worker(system.store, system.settings,
                                  build_backends(system.settings), system.clock,
-                                 role="supervisor")
+                                 workloads=system.service.workloads, role="supervisor")
     cancel_run_id = None
     try:
         deadline = time.monotonic() + 35
@@ -134,7 +138,8 @@ os._exit(74)
 
         # New submissions are disabled after this second run starts. Cancellation
         # and cleanup must still work for an already-admitted resource.
-        worker = Worker(system.store, system.settings, build_backends(system.settings), system.clock)
+        worker = Worker(system.store, system.settings, build_backends(system.settings), system.clock,
+                        workloads=system.service.workloads)
         next_now = int(system.clock())
         cancel_candidate = plan_for_workload(workload_name="cpu-smoke-v1",
             workload_manifest=workload.model_dump(mode="json"), repository=CPU_SMOKE_SOURCE_REPOSITORY,
@@ -154,7 +159,7 @@ os._exit(74)
             connection.execute(update(runs).where(runs.c.id == cancel_queued["id"]).values(lease_until=0))
         recovery_supervisor = Worker(system.store, system.settings,
                                      build_backends(system.settings), system.clock,
-                                     role="supervisor")
+                                     workloads=system.service.workloads, role="supervisor")
         assert recovery_supervisor.tick()
         cancelled = system.store.read(cancel_queued["id"])
         assert cancelled["state"] == "cancelled"

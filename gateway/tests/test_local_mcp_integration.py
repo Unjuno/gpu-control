@@ -89,7 +89,8 @@ def test_authenticated_mcp_cpu_run_and_cross_client_artifact_retrieval(web, tmp_
             "run_id": run_id, "plan_fingerprint": fingerprint,
         })
         assert submitted["machine_state"]["state"] == "queued"
-        worker = Worker(web.service.store, settings, build_backends(settings), web.clock)
+        worker = Worker(web.service.store, settings, build_backends(settings), web.clock,
+                        workloads=web.service.workloads)
         deadline = time.monotonic() + 35
         while time.monotonic() < deadline:
             worker.tick()

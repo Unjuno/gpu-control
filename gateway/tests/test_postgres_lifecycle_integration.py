@@ -95,7 +95,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
         def is_clean(self, handle): return base_backend.is_clean(handle)
 
     outage_backend = StopDatabaseAfterTerminalCapture()
-    outage_worker = Worker(store, settings, {"local_cpu": outage_backend})
+    outage_worker = Worker(store, settings, {"local_cpu": outage_backend}, workloads=service.workloads)
     try:
         assert outage_worker.tick()  # Submit the real container.
         deadline = time.monotonic() + 40
@@ -128,7 +128,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
         with store.transaction() as connection:
             connection.execute(update(runs).where(runs.c.id == run_id).values(lease_until=0))
 
-        recovery_worker = Worker(store, settings, build_backends(settings))
+        recovery_worker = Worker(store, settings, build_backends(settings), workloads=service.workloads)
         deadline = time.monotonic() + 40
         while time.monotonic() < deadline:
             assert recovery_worker.tick()
