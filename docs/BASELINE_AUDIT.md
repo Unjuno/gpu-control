@@ -15,7 +15,7 @@ account access, GitHub protection settings, or paid-provider readiness.
 | PR #43 base | `a96a24818a5f8bc03b479c35b5e3f957f08dbe04` | `gh pr view 43 --json baseRefOid` |
 | PR #43 head | `1699b75df8262023501d41279e83bf429dca1be4` | `gh pr view 43 --json headRefOid` |
 | PR #43 | Open, draft, base `main`; not merged | `gh pr view 43 --json state,isDraft,baseRefName` |
-| ChatGPT CPU/P3 candidate | PR #59 head `316c1bdd633b2bcc8251544e0b8738af76eb244f`, open and draft | `gh pr view 59`; all listed CI and Vercel checks passed at that head |
+| ChatGPT CPU/P3 candidate | PR #59 head `07c426b5d2fb06052dfd974a12e0564d45ae1d78`, open and draft | `gh pr view 59`; all listed CI and Vercel checks passed at this head |
 
 The PR #43 head is not an ancestor of current `main`. Its merge base with
 current `main` is the PR's old base `a96a248...`. Comparing the two complete
@@ -65,6 +65,9 @@ on `main` or passed independent GitHub review.
 - P1/P3 implementation and CI evidence currently live in open draft PRs. In
   particular, PR #59 is draft and has no submitted GitHub review. Its green CI
   proves the tested candidate revision only; it is not a merge or deployment.
+  The candidate now includes an official MCP Python SDK 2.3.0 interoperability
+  regression test; its capabilities response honestly reports that no runnable
+  queue resource is available in the offline fixture.
 
 ## External configuration evidence and gaps
 
@@ -74,7 +77,7 @@ on `main` or passed independent GitHub review.
 | Main branch protection | `docs/STATUS.md` reports that `main` is unprotected. A fresh read-only GitHub protection query returned HTTP 403 rate-limit, so current settings are **unverified** in this audit. |
 | ChatGPT custom MCP entitlement and account setup | OpenAI's current Help Center says full custom MCP is available on ChatGPT Business and Enterprise/Edu on web; Pro is limited to read/fetch permissions. Workspace role and account policy still control creation and publishing. The intended account/plan/role has not been verified. [OpenAI setup and availability](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) |
 | OAuth refresh | The Gateway advertises `offline_access` and `refresh_token`; OpenAI's setup guidance says OAuth providers should issue refresh tokens and advertise the offline scope. The real ChatGPT authorization and refresh cycle is unverified. [OpenAI OAuth guidance](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) |
-| Production HTTPS endpoint, OAuth, and persistent runtime | The open candidate has a Vercel Preview result. Preview CI does not verify the production endpoint, ChatGPT OAuth round trip, persistent database, or an independently running worker. **Unverified**. |
+| Production HTTPS endpoint, OAuth, and persistent runtime | On 2026-10-31, Vercel lists production deployment `dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ` READY, sourced from `main` SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`, with alias `gpu-control.vercel.app`. Read-only requests return `/healthz` configured/auth configured and built-in OAuth, `/readyz` 404, and OAuth discovery with PKCE S256/refresh/`offline_access`. This is not the P1 candidate and does not prove DB, worker, supervisor, artifacts, or ChatGPT OAuth. **P1 deployment unverified**. |
 | End-user ChatGPT acceptance | No observed ChatGPT-originated `tools/list`, CPU `prepare`/`submit`, second-conversation lookup, or result/artifact retrieval is attached to this audit. **Not accepted**. |
 
 ## P0 decision
