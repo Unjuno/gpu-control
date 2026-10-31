@@ -26,7 +26,20 @@ without blindly retrying creation.
 - No live provider request or paid execution was made. Repository mode remains
   `parked`; live paid compute and RunPod calls remain disabled.
 
+## GitHub CI evidence
+
+The pushed PR candidate at `188ed19ab72743ab22d396131016b74aed927cb1` passed
+Gateway offline workflow run `41163335210`. Its job provisioned PostgreSQL 16
+and set `GATEWAY_TEST_DATABASE_URL`; the pytest step reported **202 passed, 4
+skipped**. CI also passed the repository's other eight required/status entries,
+including Python 3.11/3.12/3.13, trusted reference container, bridge tests,
+project tests, and Vercel.
+
+These checks validate the pushed PR revision and its test suite. They do not
+prove ChatGPT-originated execution, production deployment, or real provider
+allocation. PR #53 remains Draft and has no submitted review decision.
+
 ## Scope limit
 
-These are local tests. They do not constitute GitHub CI/review, hosted recovery
-evidence, or ChatGPT acceptance.
+Local tests and GitHub CI do not constitute independent PR approval, hosted
+recovery evidence, or ChatGPT acceptance.
