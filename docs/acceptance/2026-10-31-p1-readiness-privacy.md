@@ -35,7 +35,11 @@ they cannot disagree due to duplicated health logic.
 ## Review limits
 
 The original finding and scope refinement are from static independent reviews
-of PR #62. The dedicated-scope remediation has not yet received an independent
-follow-up review, full Gateway CI, deployment, or authenticated ChatGPT
-acceptance. No production setting, share token, provider, or paid execution was
-used. Repository mode remains `parked`.
+of PR #62. An independent follow-up review of the final scope-separation commit
+`5029cd37dcd8515805ce9f08a583404b0c3f5799` against `c69233b1d41c17c46905cf55f01ddea3968d06ee`
+found no actionable issues in the eight changed files or OAuth/readiness call
+paths. The exact PR #62 head has all visible GitHub checks passing, including
+Gateway offline tests. This remains static review plus CI evidence: deployment
+readiness is still inaccessible behind Vercel SSO, and authenticated ChatGPT
+acceptance has not run. No production setting, share token, provider, or paid
+execution was used. Repository mode remains `parked`.
