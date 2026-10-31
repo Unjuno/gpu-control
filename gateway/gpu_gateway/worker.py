@@ -180,6 +180,17 @@ class Worker:
             if not self.update(job, attempt=attempt, submission_intent=intent):
                 logger.info("Lease lost before submission intent for run %s", job["id"])
                 return True
+            if not self.store.confirm_submission_dispatch(
+                    run_id=job["id"], owner=job["owner"],
+                    plan_fingerprint=job["fingerprint"],
+                    run_lease_token=job["lease_token"], attempt=attempt, now=now):
+                latest = self.store.read(job["id"])
+                if latest and latest.get("cancel_requested") is True:
+                    self.finish(job, "cancelled", error="cancelled_before_submission")
+                    return True
+                self.update(job, state="submit_unknown",
+                            error="submission_dispatch_claim_lost", lease_until=now + 5)
+                return True
             try:
                 handle = backend.start(job)
                 if not isinstance(handle, dict) or not handle:
@@ -207,7 +218,7 @@ class Worker:
                     intent.get("owner") != job["owner"] or intent.get("run_id") != job["id"] or
                     intent.get("plan_fingerprint") != job["fingerprint"] or
                     type(intent.get("attempt")) is not int or intent["attempt"] < 1 or
-                    intent.get("phase") not in {"dispatching", "handle_persisted"}
+                    intent.get("phase") not in {"dispatching", "provider_call_started", "handle_persisted"}
                 ):
                     self.update(job, state="submit_unknown", error="submission_intent_mismatch",
                                 lease_until=now + 30)
