@@ -131,6 +131,8 @@ def test_missing_workload_file_keeps_health_routes_available(monkeypatch, tmp_pa
 def test_vercel_entrypoint_keeps_health_routes_available_with_missing_workload_file(
     monkeypatch, tmp_path
 ):
+    from gpu_gateway.ci_bridge import Policy
+
     monkeypatch.delenv("GATEWAY_WORKLOADS_JSON", raising=False)
     monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(tmp_path / "missing-workloads.json"))
     monkeypatch.delenv("GATEWAY_HOSTED", raising=False)
@@ -138,6 +140,10 @@ def test_vercel_entrypoint_keeps_health_routes_available_with_missing_workload_f
     monkeypatch.delenv("GATEWAY_DATABASE_URL", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
 
+    def missing_ci_policy(cls, path=None):
+        raise FileNotFoundError("missing CI bridge policy")
+
+    monkeypatch.setattr(Policy, "load", classmethod(missing_ci_policy))
     entrypoint = Path(__file__).parents[1] / "app.py"
     spec = importlib.util.spec_from_file_location("gpu_control_vercel_entrypoint", entrypoint)
     module = importlib.util.module_from_spec(spec)
@@ -150,6 +156,9 @@ def test_vercel_entrypoint_keeps_health_routes_available_with_missing_workload_f
     assert health.json()["configured"] is False
     assert readiness.status_code == 503
     assert readiness.json()["ready"] is False
+    ci_bridge = client.post("/api/ci/comment", json={})
+    assert ci_bridge.status_code == 503
+    assert ci_bridge.json()["code"] == "bridge_not_configured"
 
 
 def _readiness_headers(web):

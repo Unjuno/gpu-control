@@ -3,10 +3,10 @@
 ## Scope
 
 - PR: https://github.com/Unjuno/gpu-control/pull/65
-- Source and entrypoint-test commit: `36a26af4b4f5abfb667d177b560e5b0e37e52a77`
-- Latest docs commit at this refresh: `3cd5e700830b8083afc6cae020ed43026b1f94c0`
+- Original source-fix commit: `a9d610d3682f1985a65280da05619462a5825cd1`
+- Entrypoint regression was added in `36a26af4b4f5abfb667d177b560e5b0e37e52a77`.
 - Base: PR #62 head `317240d2224e05e23aa5bb190ce7a4f0fc101c01`
-- Change: classify `OSError` while loading Gateway settings/workloads as invalid configuration and keep health/readiness routes available; add a missing-file regression test.
+- Change: classify `OSError` while loading Gateway settings/workloads as invalid configuration and keep health/readiness routes available. If optional CI bridge policy loading fails, keep the Gateway up and expose that bridge as unconfigured (503). Cover both cases through the deployed entrypoint.
 - Repository parked mode and all live GPU/paid execution gates remain unchanged.
 
 ## Local evidence
@@ -18,10 +18,18 @@ PYTHONPATH="$PWD/gateway:$PWD/src" /Users/taka/Documents/ChatGPT/Gpuラッパリ
 35 passed, 1 existing Starlette deprecation warning
 ```
 
-The suite imports the actual `gateway/app.py` Vercel entrypoint under a
-missing-workload-file environment and verifies both health responses after
-`install_ci_routes()` runs. This complements the direct `create_app()` test;
-it still does not reproduce the Vercel runtime environment.
+The suite imports the actual `gateway/app.py` Vercel entrypoint with both a
+missing workload registry and an injected CI policy file read failure. It
+verifies that health/readiness remain available and the optional CI bridge
+returns 503. This complements the direct `create_app()` test; it still does
+not reproduce the Vercel runtime environment.
+
+Additional focused verification after adding the CI policy boundary:
+
+```text
+PYTHONPATH="$PWD/gateway:$PWD/src" /Users/taka/Documents/ChatGPT/Gpuラッパリポジトリ/gpu-control/gateway/.venv/bin/python -m pytest -o addopts='' gateway/tests/test_http_auth.py gateway/tests/test_ci_bridge.py gateway/tests/test_ci_service_integration.py
+116 passed, 1 skipped, 1 existing Starlette deprecation warning
+```
 
 `git diff --check` passed before the commits. The source changes are limited to
 `gateway/gpu_gateway/app.py` and `gateway/tests/test_http_auth.py`; this
@@ -31,14 +39,16 @@ added; this is not a GitHub review or deployment approval.
 
 ## CI and Preview
 
-Checks for the latest head all passed: Python 3.11/3.12/3.13, trusted
+Checks for the previous head all passed: Python 3.11/3.12/3.13, trusted
 reference container, Gateway offline tests, Gateway comment bridge tests,
-Project bridge tests, Vercel deployment, and Vercel Preview Comments.
+Project bridge tests, Vercel deployment, and Vercel Preview Comments. The new
+CI policy error path is a local candidate until its new-head CI completes.
 
 The READY Preview deployment sourced from the latest PR head `3cd5e70` is
 `dpl_FNRCNLmVN4KEj7REHQuAQEhJ5U3w`
-(`gpu-control-3xm2hhx73-unjunos-projects.vercel.app`). Protected GET requests
-on 2026-10-31 at 07:26 UTC to `/healthz` and `/readyz` both returned HTTP 500
+(`gpu-control-3xm2hhx73-unjunos-projects.vercel.app`), sourced before the
+latest CI policy hardening. Protected GET requests on 2026-10-31 at 07:26 UTC
+to `/healthz` and `/readyz` both returned HTTP 500
 `FUNCTION_INVOCATION_FAILED` before an application response. Request IDs:
 
 - `/healthz`: `hnd1:iad1::m6vm9-1793431582511-62a522aeb066`
