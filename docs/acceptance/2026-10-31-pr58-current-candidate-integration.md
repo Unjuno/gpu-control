@@ -42,9 +42,21 @@
   twice, but the scan tool returned “Working-tree contents changed after they
   were selected. Select Uncommitted changes again.” Both attempts returned no
   scan ID; this candidate has no new formal scan result.
-- No GitHub CI or human PR review covers this candidate yet. The scan tool
-  response is not a security pass.
+- No human PR review has been recorded. The scan tool response is not a
+  security pass.
 - `policies/repository-state.yaml` remains `mode: parked`; live paid compute,
   RunPod live calls, and live paid execution remain disabled.
 - No ChatGPT OAuth session, deployed target host, real GPU allocation, paid
   provider call, or production deployment was exercised.
+
+## GitHub PR validation
+
+- Draft PR #60 was created against PR #58 head
+  `8fa533332099d5248bff55be82912891a780b3d8` at commit
+  `5e4347ea4d4de7cdc9dd35a2f0e0127ab0f35a1d`.
+- All nine reported checks passed on that commit: Python 3.11/3.12/3.13,
+  trusted reference container, Gateway offline tests, Gateway comment bridge
+  tests, Project bridge tests, Vercel, and Vercel Preview Comments.
+- PR #60 remains draft and has no GitHub review decision. The documentation
+  update recording this result is a follow-up commit, so its own checks are
+  still required before that newer head is validated.
