@@ -13,7 +13,7 @@ from sqlalchemy import select
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
 from gpu_gateway.config import Settings, Workload
-from gpu_gateway.local_oauth import LocalOAuth, oauth_tokens
+from gpu_gateway.local_oauth import LocalOAuth, oauth_clients, oauth_tokens
 from gpu_gateway.service import ExperimentService, GatewayError
 from gpu_gateway.store import Store
 
@@ -362,3 +362,56 @@ def test_dcr_registration_is_idempotent_and_reclaimable(tmp_path):
     second = client.post("/oauth/register", json=payload)
     assert first.status_code == 201 and second.status_code == 201
     assert first.json()["client_id"] == second.json()["client_id"]
+
+
+def test_consented_dcr_client_survives_expiry_for_reauthorization(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'persistent-dcr.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    local.seed_bootstrap("setup-token")
+    local.bootstrap_admin("setup-token", "correct horse battery staple")
+    session = local.login("correct horse battery staple")
+    client_id = local.register_client({
+        "client_name": "ChatGPT persistent client",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })["client_id"]
+    verifier = secrets.token_urlsafe(48)
+    local.authorize({
+        "response_type": "code", "client_id": client_id,
+        "redirect_uri": "https://chatgpt.com/connector_platform_oauth_redirect",
+        "scope": "experiments:read offline_access", "resource": settings.resource,
+        "state": "first", "code_challenge": challenge(verifier),
+        "code_challenge_method": "S256",
+    }, session.token)
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is True
+
+    now[0] += 31 * 86400
+    assert local._client(client_id)["client_id"] == client_id
+
+
+def test_expired_unconsented_dcr_client_is_pruned(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'provisional-dcr.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    first = local.register_client({
+        "client_name": "Unapproved client",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })["client_id"]
+    now[0] += 3601
+    local.register_client({
+        "client_name": "Second client",
+        "redirect_uris": ["https://chatgpt.com/oauth/callback/second"],
+    })
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.client_id).where(
+            oauth_clients.c.client_id == first)).first() is None

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy import Column, Integer, MetaData, Table, inspect, insert, select, update
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -111,4 +111,23 @@ def migrate(engine) -> int:
                 )
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=7))
             current = 7
+        if current < 8:
+            tables = set(inspect(connection).get_table_names())
+            clients = "gateway_oauth_clients_v1"
+            tokens = "gateway_oauth_tokens_v1"
+            if clients in tables:
+                if "persistent" not in _columns(connection, clients):
+                    default = "FALSE" if engine.dialect.name == "postgresql" else "0"
+                    connection.exec_driver_sql(
+                        f'ALTER TABLE "{clients}" ADD COLUMN "persistent" '
+                        f'BOOLEAN NOT NULL DEFAULT {default}'
+                    )
+                if tokens in tables:
+                    connection.exec_driver_sql(
+                        f'UPDATE "{clients}" AS client SET "persistent" = TRUE '
+                        f'WHERE EXISTS (SELECT 1 FROM "{tokens}" AS token '
+                        'WHERE token.client_id = client.client_id)'
+                    )
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=8))
+            current = 8
     return current

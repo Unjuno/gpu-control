@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from sqlalchemy import JSON, Boolean, Column, Integer, String, Table, Text, delete, insert, select, update
+from sqlalchemy import JSON, Boolean, Column, Integer, String, Table, Text, delete, insert, or_, select, update
 
 from .service import GatewayError
 from .store import metadata
@@ -49,6 +49,7 @@ oauth_clients = Table(
     Column("client_name", String(160), nullable=False),
     Column("created_at", Integer, nullable=False),
     Column("expires_at", Integer, nullable=False),
+    Column("persistent", Boolean, nullable=False, default=False, server_default="false"),
 )
 oauth_codes = Table(
     "gateway_oauth_codes_v1", metadata,
@@ -266,14 +267,16 @@ class LocalOAuth:
         now = int(time.time())
         expires_at = now + 3600
         with self.store.transaction() as c:
-            c.execute(delete(oauth_clients).where(oauth_clients.c.expires_at <= now))
+            c.execute(delete(oauth_clients).where(
+                oauth_clients.c.persistent.is_(False), oauth_clients.c.expires_at <= now,
+            ))
             existing = c.execute(select(oauth_clients).where(
                 oauth_clients.c.client_id == client_id
             ).with_for_update()).mappings().first()
             if existing is None:
                 c.execute(insert(oauth_clients).values(
                     client_id=client_id, redirect_uris=redirect_uris, client_name=name,
-                    created_at=now, expires_at=expires_at,
+                    created_at=now, expires_at=expires_at, persistent=False,
                 ))
             else:
                 c.execute(update(oauth_clients).where(
@@ -294,7 +297,7 @@ class LocalOAuth:
         with self.store.engine.connect() as c:
             row = c.execute(select(oauth_clients).where(
                 oauth_clients.c.client_id == client_id,
-                oauth_clients.c.expires_at > now,
+                or_(oauth_clients.c.persistent.is_(True), oauth_clients.c.expires_at > now),
             )).mappings().first()
         if row is None:
             raise GatewayError("invalid_client", "Unknown or expired OAuth client", 400)
@@ -328,7 +331,7 @@ class LocalOAuth:
         with self.store.transaction() as c:
             c.execute(update(oauth_clients).where(
                 oauth_clients.c.client_id == client_id
-            ).values(expires_at=now + 30 * 86400))
+            ).values(expires_at=now + 30 * 86400, persistent=True))
             c.execute(insert(oauth_codes).values(
                 code_hash=_sha(raw), client_id=client_id, redirect_uri=redirect_uri,
                 scope=scope, resource=self.resource, code_challenge=challenge,
