@@ -209,17 +209,30 @@ class ExperimentService:
                 return public_run(dict(row))
             local_admission = row["admission"]
             if local_admission is not None:
+                manifest_current = False
                 try:
                     policy = load_local_cpu_policy()
                     plan = PlanV2.model_validate_json(json.dumps(row["plan"], allow_nan=False))
+                    workload = self.workloads.get(plan.workload)
+                    manifest = workload.model_dump(mode="json") if workload is not None else None
+                    manifest_current = (
+                        workload is not None and workload.provider == "local_cpu" and
+                        plan.provider == workload.provider and
+                        plan.repository == workload.source_repository and
+                        plan.source_sha == workload.source_sha and
+                        plan.workload_manifest_digest == digest(manifest) and
+                        plan.image_digest == workload.image_digest and
+                        plan.runtime_seconds <= workload.max_runtime_seconds
+                    )
                     decision = evaluate_admission(plan, policy, int(self.clock()))
                 except (OSError, ValueError, TypeError):
                     decision = None
-                if (local_admission.get("mode") != "local_policy" or decision is None or
+                    manifest_current = False
+                if (local_admission.get("mode") != "local_policy" or not manifest_current or decision is None or
                         not decision.allowed or decision.policy_digest != local_admission.get("policy_digest") or
                         decision.valid_until != local_admission.get("valid_until") or
                         digest(row["plan"]) != row["fingerprint"]):
-                    raise GatewayError("admission_revoked", "Current local CPU policy no longer authorizes this plan", 409)
+                    raise GatewayError("admission_revoked", "Current local CPU policy or workload no longer authorizes this plan", 409)
                 if row["state"] != "authorized" or row["approved_until"] <= int(self.clock()):
                     raise GatewayError("admission_expired", "Local CPU authorization has expired", 409)
             elif row["state"] != "approved" or row["approved_until"] <= int(self.clock()):

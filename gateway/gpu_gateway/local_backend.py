@@ -216,6 +216,27 @@ class LocalContainerBackend:
                 labels.get("io.unjuno.gpu-control.image-digest") == handle["image_digest"] and
                 labels.get("io.unjuno.gpu-control.source-sha") == handle["source_sha"])
 
+    def _inspect_handle(self, handle: dict) -> dict | None:
+        """Return the container only when Docker labels bind it to this run."""
+        if not self._valid_handle(handle):
+            raise ValueError("container handle binding failed")
+        try:
+            inspected = self._run(["inspect", handle["container_id"]], timeout=10)
+        except subprocess.CalledProcessError as error:
+            if b"no such object" in (error.stderr or b"").lower():
+                return None
+            raise
+        try:
+            items = json.loads(inspected.stdout)
+        except (ValueError, TypeError) as error:
+            raise ValueError("container inspection response is invalid") from error
+        if not isinstance(items, list) or len(items) != 1:
+            raise ValueError("container inspection identity is ambiguous")
+        item = items[0]
+        if not isinstance(item, dict) or not self._labels_match(item, handle):
+            raise ValueError("container label binding failed")
+        return item
+
     def capture(self, handle: dict) -> Observation:
         if not self._valid_handle(handle):
             raise ValueError("container handle binding failed")
@@ -261,15 +282,13 @@ class LocalContainerBackend:
 
     def cleanup(self, handle: dict) -> None:
         """Remove only the identity-validated container; absence is the receipt."""
-        if not self._valid_handle(handle):
-            raise ValueError("container handle binding failed")
+        if self._inspect_handle(handle) is None:
+            return
         result = subprocess.run([self.docker, "rm", "--force", handle["container_id"]],
                                capture_output=True, timeout=15, env=self._docker_env())
         if result.returncode != 0:
             # Docker returns nonzero when already absent; verify absence explicitly.
-            inspected = subprocess.run([self.docker, "inspect", handle["container_id"]],
-                                       capture_output=True, timeout=10, env=self._docker_env())
-            if inspected.returncode == 0 or b"no such object" not in inspected.stderr.lower():
+            if self._inspect_handle(handle) is not None:
                 raise RuntimeError("container cleanup is still pending")
 
     def is_clean(self, handle: dict) -> bool:
@@ -287,8 +306,8 @@ class LocalContainerBackend:
         raise RuntimeError("Docker cannot confirm container absence")
 
     def cancel(self, handle: dict) -> None:
-        if not self._valid_handle(handle):
-            raise ValueError("container handle binding failed")
+        if self._inspect_handle(handle) is None:
+            return
         self._run(["stop", "--time", "5", handle["container_id"]], timeout=10)
 
     def reconcile(self, run: dict) -> dict | None:

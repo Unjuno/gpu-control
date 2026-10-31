@@ -14,3 +14,12 @@ next_task: inspect current ChatGPT workspace custom-MCP availability and existin
 ```
 
 Update this record only with observed implementation and validation evidence. Do not describe mock/provider tests as real integration acceptance.
+
+## 2026-10-31 PR #52 local security-finding remediation candidate
+
+- Exact reviewed base: PR #52 head `bc9b0305e6b2e86f9d8c214161b10511ce9f012c`.
+- Applied local fixes for submit-time and worker-start workload manifest binding, and Docker container identity-label checks before cleanup/cancellation.
+- Added four regression tests. Pre-fix behavior guards failed as expected; after the fixes they pass.
+- Candidate validation: Gateway `197 passed, 7 skipped`; Core `452 passed, 1 skipped`; `git diff --check` passed. Optional Docker/PostgreSQL paths were skipped in these full-suite runs.
+- Candidate is isolated and uncommitted. No GitHub state changed. The published PR #52 head and its CI remain unchanged; fresh independent review and protected PR checks are still required.
+- Paid/GPU policy remains parked. This work does not establish deployed Gateway, OAuth, ChatGPT, or provider acceptance.

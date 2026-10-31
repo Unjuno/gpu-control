@@ -12,7 +12,7 @@ from decimal import Decimal
 from sqlalchemy import select, update
 
 from .backends import Backend, build_backends
-from .config import Settings
+from .config import Settings, load_workloads
 from .registry import default_registry
 from .service import TERMINAL, digest
 from .store import Store, control, runs
@@ -28,9 +28,11 @@ class Worker:
     A stale submitting job is reconciled, never blindly retried. Unknown submissions
     keep their admission slot until an operator/provider supplies reliable evidence.
     """
-    def __init__(self, store: Store, settings: Settings, backends: dict[str, Backend], clock=time.time, *, registry=None):
+    def __init__(self, store: Store, settings: Settings, backends: dict[str, Backend], clock=time.time, *, registry=None,
+                 workloads: dict | None = None):
         self.store, self.settings, self.backends, self.clock = store, settings, backends, clock
         self.registry = default_registry() if registry is None else registry
+        self.workloads = workloads
 
     def claim(self):
         now = int(self.clock())
@@ -129,11 +131,26 @@ class Worker:
                     validated_plan = PlanV2.model_validate_json(json.dumps(plan, allow_nan=False))
                     policy = load_local_cpu_policy()
                     decision = evaluate_admission(validated_plan, policy, now)
-                    valid = (local_admission.get("mode") == "local_policy" and decision.allowed and
-                             decision.policy_digest == local_admission.get("policy_digest") and
-                             decision.valid_until == local_admission.get("valid_until") and
-                             plan_fingerprint(validated_plan) == job["fingerprint"] and
-                             job["approved_until"] > now)
+                    workload = (self.workloads.get(validated_plan.workload)
+                                if isinstance(self.workloads, dict) else None)
+                    manifest = workload.model_dump(mode="json") if workload is not None else None
+                    manifest_current = (
+                        workload is not None and workload.provider == "local_cpu" and
+                        validated_plan.provider == workload.provider and
+                        validated_plan.repository == workload.source_repository and
+                        validated_plan.source_sha == workload.source_sha and
+                        validated_plan.workload_manifest_digest == digest(manifest) and
+                        validated_plan.image_digest == workload.image_digest and
+                        validated_plan.runtime_seconds <= workload.max_runtime_seconds
+                    )
+                    valid = (
+                        manifest_current and local_admission.get("mode") == "local_policy" and
+                        decision.allowed and
+                        decision.policy_digest == local_admission.get("policy_digest") and
+                        decision.valid_until == local_admission.get("valid_until") and
+                        plan_fingerprint(validated_plan) == job["fingerprint"] and
+                        job["approved_until"] > now
+                    )
                 except (OSError, ValueError, TypeError):
                     valid = False
                 if not valid:
@@ -280,7 +297,7 @@ def main():
         return
     if args.poll_seconds < 0.5:
         parser.error("poll-seconds must be at least 0.5")
-    worker = Worker(store, settings, build_backends(settings))
+    worker = Worker(store, settings, build_backends(settings), workloads=load_workloads())
     while True:
         worker.tick()
         if args.once:

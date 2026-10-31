@@ -155,6 +155,33 @@ def test_revoked_local_policy_blocks_submit(tmp_path, monkeypatch, system):
     assert system.store.read(prepared["id"])["state"] == "authorized"
 
 
+def test_changed_registered_manifest_blocks_submit(tmp_path, monkeypatch, system):
+    workload = Workload(provider="local_cpu", image_digest="sha256:" + "c" * 64,
+        execution_profile="smoke", requires_gpu=False, source_repository="Unjuno/gpu-control",
+        source_sha="a" * 40, max_runtime_seconds=30, max_cost_usd="0.01",
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False})
+    system.service.workloads["cpu-smoke-v1"] = workload
+    now = int(system.clock())
+    enabled = policy(valid_until=now + 60)
+    policy_path = tmp_path / "local-policy.json"
+    policy_path.write_text(json.dumps(enabled))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
+        repository="Unjuno/gpu-control", source_sha="a" * 40, parameters={}, runtime_seconds=20,
+        max_cost_usd="0.00", now=now, policy=enabled)
+    prepared = system.service.prepare_local(system.owner, candidate, "manifest-rotation-key", enabled,
+                                             evaluate_admission(candidate, enabled, now))
+    system.service.workloads["cpu-smoke-v1"] = Workload(provider="local_cpu",
+        image_digest="sha256:" + "e" * 64, execution_profile="smoke", requires_gpu=False,
+        source_repository="Unjuno/gpu-control", source_sha="f" * 40,
+        max_runtime_seconds=30, max_cost_usd="0.01",
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False})
+    with pytest.raises(GatewayError) as error:
+        system.service.submit(system.owner, prepared["id"])
+    assert error.value.code == "admission_revoked"
+    assert system.store.read(prepared["id"])["state"] == "authorized"
+
+
 def test_worker_rechecks_local_policy_before_start(tmp_path, monkeypatch, system):
     class Backend:
         started = 0
@@ -192,7 +219,50 @@ def test_worker_rechecks_local_policy_before_start(tmp_path, monkeypatch, system
     policy_path.write_text(json.dumps({**enabled, "enabled": False}))
     backend = Backend()
     worker = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock,
-                    registry=system.service.registry)
+                    registry=system.service.registry, workloads=system.service.workloads)
+    assert worker.tick()
+    assert backend.started == 0
+    final = system.store.read(prepared["id"])
+    assert final["state"] == "expired"
+    assert final["error"] == "local_policy_revoked_before_start"
+
+
+def test_worker_rejects_manifest_rotated_after_submit_before_start(tmp_path, monkeypatch, system):
+    class Backend:
+        started = 0
+        def start(self, job):
+            self.started += 1
+            return {"container_id": "synthetic-test-handle"}
+        def reconcile(self, job): return None
+        def inspect(self, handle): raise AssertionError("revoked workload must not be inspected")
+        def cancel(self, handle): raise AssertionError("no container should exist")
+
+    workload = Workload(provider="local_cpu", image_digest="sha256:" + "c" * 64,
+        execution_profile="smoke", requires_gpu=False, source_repository="Unjuno/gpu-control",
+        source_sha="a" * 40, max_runtime_seconds=30, max_cost_usd="0.01",
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False})
+    system.service.workloads["cpu-smoke-v1"] = workload
+    now = int(system.clock())
+    enabled = policy(valid_until=now + 60)
+    policy_path = tmp_path / "local-policy.json"
+    policy_path.write_text(json.dumps(enabled))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
+        repository="Unjuno/gpu-control", source_sha="a" * 40, parameters={}, runtime_seconds=20,
+        max_cost_usd="0.00", now=now, policy=enabled)
+    registration = ProviderRegistration("local_cpu", "local_cpu", lambda _: True, lambda _: None)
+    system.service.registry = {"local_cpu": registration}
+    prepared = system.service.prepare_local(system.owner, candidate, "worker-manifest-rotation-key", enabled,
+                                             evaluate_admission(candidate, enabled, now))
+    queued = system.service.submit(system.owner, prepared["id"])
+    assert queued["state"] == "queued"
+    rotated = Workload(provider="local_cpu", image_digest="sha256:" + "e" * 64,
+        execution_profile="smoke", requires_gpu=False, source_repository="Unjuno/gpu-control",
+        source_sha="f" * 40, max_runtime_seconds=30, max_cost_usd="0.01",
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False})
+    backend = Backend()
+    worker = Worker(system.store, system.settings, {"local_cpu": backend}, system.clock,
+                    registry=system.service.registry, workloads={"cpu-smoke-v1": rotated})
     assert worker.tick()
     assert backend.started == 0
     final = system.store.read(prepared["id"])
