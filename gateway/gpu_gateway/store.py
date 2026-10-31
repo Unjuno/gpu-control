@@ -325,15 +325,19 @@ class Store:
             if len(encoded.encode("utf-8")) > 16_384:
                 return None
 
-            def contains_secret_key(value):
+            def contains_secret_key(value, depth=0):
+                # Provider challenges are untrusted adapter output. Bound traversal
+                # independently of JSON encoding to avoid recursion exhaustion.
+                if depth > 64:
+                    return True
                 if isinstance(value, dict):
                     return any(
                         re.search(r"(secret|credential|password|api.?key|access.?token|bearer|token|completion.?key|signing.?key|private.?key)", str(key), re.I)
-                        or contains_secret_key(item)
+                        or contains_secret_key(item, depth + 1)
                         for key, item in value.items()
                     )
                 if isinstance(value, list):
-                    return any(contains_secret_key(item) for item in value)
+                    return any(contains_secret_key(item, depth + 1) for item in value)
                 return False
 
             if contains_secret_key(request_challenge):

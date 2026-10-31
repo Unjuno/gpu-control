@@ -19,6 +19,14 @@ The provider account lease test adds regression inputs for
 - From `gateway/`,
   `python -m pytest -o addopts= -q tests/test_provider_account_leases.py`:
   **16 passed**, with one existing Starlette deprecation warning.
+- The recursive key scan now fails closed beyond 64 container levels, so deeply
+  nested untrusted adapter challenges cannot exhaust Python recursion while
+  searching for secret key names. A 70-level regression fixture covers this.
+- Revalidation on the PR #64 candidate worktree with its own dependency
+  environment: `gateway/tests/test_provider_account_leases.py` **16 passed**;
+  one existing Starlette deprecation warning. The worktree was at source base
+  `a2a0da35e48e61a483ed3d084941ac6a822095a6` plus the uncommitted 64-level
+  guard and regression.
 
 ## Limits
 
