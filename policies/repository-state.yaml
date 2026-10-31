@@ -32,7 +32,7 @@ active_workload:
     control_plane_verifier: implemented_offline
     production_collection_transport: network_volume_s3_implemented_offline_mock_tested
     production_collection_transport_live_verified: false
-    production_pod_log_sse: unavailable_http_422_path_not_found
+    production_pod_log_sse: officially_documented_not_live_verified
     live_secret_injection: false
     live_result_collection: false
 
@@ -63,6 +63,9 @@ activation_prerequisites:
   - prompt_context_security_red_team_passed
   - context_trust_policy_bound_into_agent_context
   - owner_only_paid_environment_configured
+  - paid_environment_required_reviewers_configured
+  - paid_environment_prevent_self_review_enabled
+  - paid_environment_deployment_branch_policy_restricted
   - environment_scoped_runpod_secret_configured
   - environment_scoped_runpod_s3_secrets_configured
   - structured_decision_record_bound_to_execution_plan

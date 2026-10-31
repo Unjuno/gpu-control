@@ -17,6 +17,7 @@ from .runpod_v2 import (
     build_create_pod_payload,
     validate_created_pod,
 )
+from .runpod_network_volume import RunPodNetworkVolumeEvidence
 
 
 _ALLOWED_CLOUDS = {"SECURE", "COMMUNITY"}
@@ -248,8 +249,15 @@ def validate_created_pod_with_pricing(
     pod: Mapping[str, Any],
     *,
     completion: RunPodCompletionLaunch | None = None,
+    expected_network_volume: RunPodNetworkVolumeEvidence | None = None,
 ) -> str:
     pricing.validate_against_plan(plan)
     if pod.get("cloud") != pricing.cloud:
         raise RunPodV2Error("RunPod create response cloud does not match approved catalog evidence")
-    return validate_created_pod(plan, image, pod, completion=completion)
+    return validate_created_pod(
+        plan,
+        image,
+        pod,
+        completion=completion,
+        expected_network_volume=expected_network_volume,
+    )

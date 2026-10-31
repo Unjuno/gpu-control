@@ -1,0 +1,35 @@
+[Unit]
+Description=Apply GPU Control database schema migrations (operator started)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gpu-control-migrate
+Group=gpu-control-migrate
+WorkingDirectory=/opt/gpu-control/gateway
+EnvironmentFile=/etc/gpu-control/gateway.env
+ExecStartPre=/opt/gpu-control/venv/bin/python -m gpu_gateway.worker --check-db
+ExecStart=/opt/gpu-control/venv/bin/python -m gpu_gateway.worker --init-db
+UMask=0077
+StateDirectory=gpu-control-migrate
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true

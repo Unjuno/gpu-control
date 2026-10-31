@@ -48,7 +48,7 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
         "control_plane_verifier": "implemented_offline",
         "production_collection_transport": "network_volume_s3_implemented_offline_mock_tested",
         "production_collection_transport_live_verified": False,
-        "production_pod_log_sse": "unavailable_http_422_path_not_found",
+        "production_pod_log_sse": "officially_documented_not_live_verified",
         "live_secret_injection": False,
         "live_result_collection": False,
     }
@@ -108,6 +108,9 @@ def test_parked_mode_activation_prerequisites_remain_explicit() -> None:
         "main_branch_protection_configured",
         "required_ci_checks_enforced",
         "owner_only_paid_environment_configured",
+        "paid_environment_required_reviewers_configured",
+        "paid_environment_prevent_self_review_enabled",
+        "paid_environment_deployment_branch_policy_restricted",
         "environment_scoped_runpod_secret_configured",
         "environment_scoped_runpod_s3_secrets_configured",
         "immutable_published_image_path_available",

@@ -194,6 +194,9 @@ def test_live_activation_is_blocked_on_new_prompt_authorization_and_provider_pre
         "control_plane_context_integrity_verified",
         "prompt_context_security_red_team_passed",
         "context_trust_policy_bound_into_agent_context",
+        "paid_environment_required_reviewers_configured",
+        "paid_environment_prevent_self_review_enabled",
+        "paid_environment_deployment_branch_policy_restricted",
         "structured_decision_record_bound_to_execution_plan",
         "structured_human_authorization_bound_to_execution_plan",
         "current_runpod_api_contract_revalidated",
@@ -209,7 +212,7 @@ def test_live_activation_is_blocked_on_new_prompt_authorization_and_provider_pre
     assert state["resume_rule"]["keep_paid_compute_disabled_until_provider_contract_is_current"] is True
 
 
-def test_runpod_legacy_v2_contract_is_blocked_until_current_v1_migration() -> None:
+def test_runpod_v2_source_review_does_not_activate_live_provider_calls() -> None:
     runpod = load(RUNPOD_POLICY)
     audit = runpod["api_contract_audit"]
     completion = runpod["completion_evidence"]
@@ -217,16 +220,16 @@ def test_runpod_legacy_v2_contract_is_blocked_until_current_v1_migration() -> No
     assert runpod["api"]["live_calls_enabled"] is False
     assert runpod["api"]["live_adapter_enabled"] is False
     assert runpod["api"]["workflow_enabled"] is False
-    assert audit["implementation_contract"] == "rest_v2_public_beta_offline"
+    assert audit["implementation_contract"] == "rest_v2_documented_offline"
     assert audit["implementation_matches_current_official_rest_contract"] is False
-    assert audit["current_official_rest_version_observed"] == "v1"
-    assert audit["current_official_rest_base_observed"] == "https://rest.runpod.io/v1"
-    assert audit["current_official_list_pods_response_shape"] == "array"
-    assert audit["migration_to_current_official_rest_contract_required"] is True
+    assert audit["current_official_rest_version_observed"] == "v2"
+    assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
+    assert audit["current_official_list_pods_response_shape"] == "object_with_pods_array"
+    assert audit["migration_to_current_official_rest_contract_required"] is False
     assert audit["create_env_contract_observed"] is True
-    assert audit["pod_container_log_sse_status"] == "dev_only_prod_unavailable"
+    assert audit["pod_container_log_sse_status"] == "officially_documented_not_live_verified"
     assert audit["pod_container_log_sse_prod_verified"] is False
-    assert audit["pod_container_log_sse_prod_failure"] == "http_422_path_not_found"
+    assert audit["pod_container_log_sse_prod_failure"] is None
     assert audit["pod_container_log_sse_live_collection_allowed"] is False
     assert audit["current_official_contract_revalidation_required"] is True
     assert audit["implementation_may_not_be_enabled_live_until_revalidated"] is True

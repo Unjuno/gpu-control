@@ -8,6 +8,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import time
 
+from jsonschema import (Draft202012Validator, SchemaError as InvalidSchema,
+                        ValidationError as SchemaError)
+
 from .contracts import CostEvidence, PlanV2
 
 
@@ -40,6 +43,35 @@ def local_cpu_policy_enabled(_settings=None) -> bool:
         return False
 
 
+def local_cpu_workload_blocker(name: str, workload, policy: dict, now: int) -> str | None:
+    """Return why this registered CPU workload cannot be prepared right now.
+
+    Readiness uses this without needing an example parameter payload. The
+    workload model has already validated the closed parameter schema; this
+    probe checks the source identity and the time-bounded, zero-provider-cost
+    admission policy before advertising the service as ready.
+    """
+    if getattr(workload, "provider", None) != "local_cpu":
+        return "PROVIDER_NOT_LOCAL_CPU"
+    if (not isinstance(name, str) or not name or
+            not getattr(workload, "source_repository", "") or
+            not getattr(workload, "source_sha", "")):
+        return "SOURCE_IDENTITY_UNCONFIGURED"
+    try:
+        plan = plan_for_workload(
+            workload_name=name,
+            workload_manifest=workload.model_dump(mode="json"),
+            repository=workload.source_repository,
+            source_sha=workload.source_sha,
+            parameters={}, runtime_seconds=1, max_cost_usd="0",
+            now=now, policy=policy,
+        )
+        decision = evaluate_admission(plan, policy, now)
+    except (AttributeError, OSError, ValueError, TypeError, InvalidOperation):
+        return "LOCAL_CPU_POLICY_INVALID"
+    return None if decision.allowed else decision.blocking_reason or "LOCAL_CPU_POLICY_INVALID"
+
+
 def plan_for_workload(*, workload_name: str, workload_manifest: dict, repository: str,
                       source_sha: str, parameters: dict, runtime_seconds: int,
                       max_cost_usd: str, now: int, policy: dict) -> PlanV2:
@@ -61,6 +93,38 @@ def plan_for_workload(*, workload_name: str, workload_manifest: dict, repository
         ),
         authorization_policy_version=policy.get("version", ""),
     )
+
+
+def matches_registered_local_workload(plan: PlanV2, workloads: dict) -> bool:
+    """Check an approved local plan against the current operator registry."""
+    if not isinstance(plan, PlanV2) or not isinstance(workloads, dict):
+        return False
+    # Local CPU admission is bound to the static operator policy, not the P4
+    # provider-selection lifecycle. Never accept a candidate-bound plan here
+    # until its exact evidence is revalidated at prepare, submit, and launch.
+    if plan.selection_binding is not None:
+        return False
+    workload = workloads.get(plan.workload)
+    if workload is None or getattr(workload, "provider", None) != "local_cpu":
+        return False
+    try:
+        manifest = workload.model_dump(mode="json")
+        canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        manifest_digest = hashlib.sha256(canonical.encode()).hexdigest()
+        if (plan.provider != "local_cpu" or
+                plan.repository != workload.source_repository or
+                plan.source_sha != workload.source_sha or
+                plan.workload_manifest_digest != manifest_digest or
+                plan.image_digest != workload.image_digest or
+                plan.runtime_seconds > workload.max_runtime_seconds or
+                plan.device_requirement.get("profile") != workload.execution_profile):
+            return False
+        Draft202012Validator(workload.parameter_schema).validate(plan.parameters)
+        json.dumps(plan.parameters, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return True
+    except (AttributeError, InvalidSchema, SchemaError, TypeError, ValueError,
+            RecursionError):
+        return False
 
 
 def evaluate_admission(plan, policy, now: int) -> AdmissionDecision:

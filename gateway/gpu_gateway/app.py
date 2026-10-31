@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import html
 import json
+import html
 from pathlib import Path
 import secrets
 import time
@@ -15,6 +15,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 from .auth import Auth, SCOPES, SESSION
+from .admission import load_local_cpu_policy, local_cpu_workload_blocker
+from .artifacts import inspect_artifact_storage
 from .config import Settings, load_workloads
 from .protocol import dispatch, error, tools, validate_headers
 from .service import ExperimentService, GatewayError
@@ -117,12 +119,18 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         """Report whether durable queue processing is currently available.
 
         Liveness stays independent; readiness never runs migrations or starts
-        compute. Provider enablement is reported separately from registry shape.
+        compute. Enabled local CPU workloads require usable artifact storage;
+        demo-only deployments do not depend on that filesystem.
         """
         if configuration_error or service is None or auth is None:
             return JSONResponse({"ready": False, "database": False, "migration": False,
                                  "worker": False, "supervisor": False, "registry": False,
-                                 "authentication": False}, status_code=503)
+                                 "authentication": False,
+                                 "local_cpu_storage_required": False,
+                                 "local_cpu_admission_required": False,
+                                 "local_cpu_admission_ready": None,
+                                 "local_cpu_admission_blockers": [],
+                                 "artifact_storage": None}, status_code=503)
         database_ok = False
         migration_ok = False
         worker_ok = False
@@ -158,25 +166,56 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
                        all(getattr(workload, "provider", None) in registry
                            for workload in workloads.values()))
         enabled_workloads = 0
+        local_cpu_storage_required = False
+        local_cpu_admission_ready = None
+        local_cpu_admission_blockers = []
         if registry_ok:
             try:
-                enabled_workloads = sum(1 for workload in workloads.values()
-                                        if registry[workload.provider].enabled(settings))
+                active_workloads = [
+                    (name, workload) for name, workload in workloads.items()
+                    if registry[workload.provider].enabled(settings)
+                ]
+                enabled_workloads = len(active_workloads)
+                local_cpu_storage_required = any(
+                    workload.provider == "local_cpu" for _, workload in active_workloads)
             except Exception:
                 registry_ok = False
+        artifact_storage = None
+        artifact_storage_ok = True
+        if local_cpu_storage_required:
+            artifact_storage = inspect_artifact_storage(
+                settings.artifact_dir, settings.artifact_min_free_bytes)
+            artifact_storage_ok = artifact_storage["available"]
+            local_cpu_admission_ready = True
+            try:
+                policy = load_local_cpu_policy()
+                for name, workload in active_workloads:
+                    if workload.provider == "local_cpu":
+                        blocker = local_cpu_workload_blocker(name, workload, policy, int(time.time()))
+                        if blocker is not None:
+                            local_cpu_admission_blockers.append({"workload": name, "reason": blocker})
+            except (OSError, ValueError, TypeError):
+                local_cpu_admission_blockers.append({"workload": None, "reason": "LOCAL_CPU_POLICY_INVALID"})
+            local_cpu_admission_ready = not local_cpu_admission_blockers
         try:
             authentication_ok = bool(auth.configured())
         except Exception:
             authentication_ok = False
         ready = (database_ok and migration_ok and worker_ok and supervisor_ok and registry_ok and
-                 enabled_workloads > 0 and authentication_ok)
+                 enabled_workloads > 0 and authentication_ok and artifact_storage_ok and
+                 local_cpu_admission_ready is not False)
         return JSONResponse({"ready": ready, "database": database_ok,
                              "migration": migration_ok, "schema_version": schema,
                              "worker": worker_ok, "worker_heartbeat_age_seconds": heartbeat_age,
                              "supervisor": supervisor_ok,
                              "supervisor_heartbeat_age_seconds": supervisor_heartbeat_age,
                              "registry": registry_ok, "enabled_workloads": enabled_workloads,
-                             "authentication": authentication_ok},
+                             "authentication": authentication_ok,
+                             "local_cpu_storage_required": local_cpu_storage_required,
+                             "local_cpu_admission_required": local_cpu_storage_required,
+                             "local_cpu_admission_ready": local_cpu_admission_ready,
+                             "local_cpu_admission_blockers": local_cpu_admission_blockers,
+                             "artifact_storage": artifact_storage},
                             status_code=200 if ready else 503)
 
     @app.get("/")
@@ -249,53 +288,79 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         except GatewayError:
             next_path = request.url.path + ("?" + request.url.query if request.url.query else "")
             return RedirectResponse("/auth/login?" + urlencode({"next": next_path}), 303)
-        params = dict(request.query_params)
-        authorization = auth.local.authorization_request(params, session_token)
+        query_items = request.query_params.multi_items()
+        if len({key for key, _ in query_items}) != len(query_items):
+            raise GatewayError("invalid_request", "Duplicate OAuth parameters are not allowed", 400)
+        params = dict(query_items)
+        if {"csrf", "decision"}.intersection(params):
+            raise GatewayError("invalid_request", "Reserved consent form parameters are not allowed", 400)
+        details = auth.local.authorization_details(params, session_token)
+        csrf = auth.local.session(session_token)["csrf"]
+        labels = {
+            "experiments:read": "View experiment plans, status, results and artifacts",
+            "experiments:run": "Prepare and submit registered experiments",
+            "experiments:cancel": "Cancel your experiments",
+            "offline_access": "Keep this connection active with refresh tokens",
+        }
+        scope_rows = "".join(
+            "<li>" + html.escape(labels[scope]) + " (<code>" + html.escape(scope) + "</code>)</li>"
+            for scope in details["scope"].split()
+        )
         hidden = "".join(
             "<input type='hidden' name='" + html.escape(key, quote=True) + "' value='" +
             html.escape(str(value), quote=True) + "'>"
             for key, value in params.items()
         )
-        hidden += "<input type='hidden' name='csrf' value='" + html.escape(
-            authorization["session"]["csrf"], quote=True
-        ) + "'>"
-        client_name = html.escape(authorization["client"]["client_name"])
-        scopes = html.escape(authorization["scope"])
-        return HTMLResponse(
-            "<!doctype html><html><head><meta charset='utf-8'><title>Authorize client</title>"
-            "<link rel='stylesheet' href='/static/style.css'></head><body><main>"
-            "<h1>Authorize client</h1><p><strong>" + client_name + "</strong> is requesting:</p>"
-            "<p>" + scopes + "</p><form method='post' action='/oauth/authorize'>" + hidden +
-            "<button type='submit' name='decision' value='approve'>Approve</button> "
-            "<button type='submit' name='decision' value='deny'>Deny</button>"
-            "</form></main></body></html>",
-            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        page = (
+            "<!doctype html><html lang='en'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<meta name='referrer' content='no-referrer'><title>Authorize GPU Control</title>"
+            "<body><main style='max-width:40rem;margin:4rem auto;font-family:system-ui'>"
+            "<h1>Authorize connection</h1><p><strong>" + html.escape(details["client_name"]) +
+            "</strong> requests access to your GPU Control account.</p><p>Requested permissions:</p><ul>" + scope_rows +
+            "</ul><p>Redirect destination: <code>" + html.escape(details["redirect_uri"]) + "</code></p>"
+            "<form method='post' action='/oauth/authorize'>" + hidden +
+            "<input type='hidden' name='csrf' value='" + html.escape(csrf, quote=True) + "'>"
+            "<button name='decision' value='approve' type='submit'>Approve</button> "
+            "<button name='decision' value='deny' type='submit'>Deny</button></form></main></body></html>"
         )
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
     @app.post("/oauth/authorize")
-    async def oauth_authorize_post(request: Request):
+    async def oauth_authorize_submit(request: Request):
         ready()
         if auth.external or auth.local is None:
             raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
+        if not auth.configured():
+            raise GatewayError("auth_not_configured", "Complete owner authentication setup first", 503)
+        if request.headers.get("origin") != settings.public_url:
+            raise GatewayError("invalid_origin", "Origin is not allowed", 403)
         values = await form(request)
-        session_token = request.cookies.get(SESSION, "")
-        authorization = auth.local.authorization_request(values, session_token)
-        supplied_csrf = values.pop("csrf", "")
-        expected_csrf = authorization["session"]["csrf"]
-        if not supplied_csrf or not secrets.compare_digest(supplied_csrf, expected_csrf):
-            raise GatewayError("csrf_failed", "Authorization approval failed CSRF validation", 403)
+        csrf = values.pop("csrf", "")
         decision = values.pop("decision", "")
-        if decision == "approve":
-            code = auth.local.authorize(values, session_token, supplied_csrf)
-            query = {"code": code}
-        elif decision == "deny":
+        session_token = request.cookies.get(SESSION, "")
+        session = auth.local.session(session_token)
+        if not isinstance(csrf, str) or not secrets.compare_digest(csrf, session["csrf"]):
+            raise GatewayError("csrf_failed", "OAuth authorization confirmation failed CSRF validation", 403)
+        params = values
+        details = auth.local.authorization_details(params, session_token)
+        if decision == "deny":
             query = {"error": "access_denied"}
-        else:
-            raise GatewayError("invalid_request", "Authorization decision is required", 400)
-        if values.get("state"):
-            query["state"] = values["state"]
-        separator = "&" if "?" in values["redirect_uri"] else "?"
-        return RedirectResponse(values["redirect_uri"] + separator + urlencode(query), 303)
+            if details["state"]:
+                query["state"] = details["state"]
+            separator = "&" if "?" in details["redirect_uri"] else "?"
+            response = RedirectResponse(details["redirect_uri"] + separator + urlencode(query), 303)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        if decision != "approve":
+            raise GatewayError("invalid_request", "Choose whether to approve this connection", 400)
+        code = auth.local.authorize(params, session_token, csrf, decision)
+        query = {"code": code}
+        if details["state"]:
+            query["state"] = details["state"]
+        separator = "&" if "?" in details["redirect_uri"] else "?"
+        response = RedirectResponse(details["redirect_uri"] + separator + urlencode(query), 303)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.post("/oauth/token")
     async def oauth_token(request: Request):

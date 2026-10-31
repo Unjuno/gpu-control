@@ -105,3 +105,49 @@ MCP tool scan, and owner-scoped CPU result retrieval. Existing Vercel production
 still points to a pre-vertical revision. The owner migration command is not
 needed for this observed schema upgrade and must not be substituted for the
 versioned schema migration.
+
+## Read-only Neon state refresh — 2026-10-28 10:28 UTC
+
+Rechecked the current project and default branch through the Neon connector,
+then issued only `SELECT` statements against project
+`delicate-smoke-00521013`, production branch `br-raspy-cell-b3l93n46`, database
+`gpu_control`. Project metadata reports PostgreSQL 17; `current_setting` on the
+database returned server version `170011`. The branch was ready at read time.
+
+- `gateway_schema_version` remains absent. Tables still include
+  `gateway_runs_v1`, `gateway_control_v1`, and the OAuth admin/bootstrap/client/
+  code/login-guard/session/token tables.
+- The live `gateway_runs_v1`, `gateway_control_v1`, and
+  `gateway_oauth_tokens_v1` columns match the unversioned v1 assumptions used
+  by the local fixture. `supervisor_seen_at` and token `grant_id` are absent.
+- Aggregate counts are: runs 0, admin 1, bootstrap 0, clients 0, codes 0,
+  login guard 1, sessions 1, and tokens 0. Row contents, hashes, session values,
+  credentials, and connection strings were not selected.
+- No migration, write, branch change, endpoint operation, or configuration
+  change was made. Existing OAuth admin/login-guard/session rows still require
+  preservation and usable-login verification before any production migration.
+
+Local PostgreSQL 16 and 17.11 full-suite compatibility evidence improves
+confidence in the SQL migration path, but this live inventory is not a backup,
+restore, migration rehearsal on a Neon branch, or production migration approval.
+
+## Read-only schema preflight — 2026-10-28
+
+Added `python -m gpu_gateway.worker --check-db`, backed by
+`migration_status(engine)`. It reports supported/current/target schema versions
+and pending version steps without creating the version table or changing rows.
+For a nonexistent SQLite file, it also avoids SQLite's normal connection-time
+file creation. Unsupported versions and malformed version-table layouts fail
+closed. A separate manual `gpu-control-db-check.service` lets the operator
+review the JSON before starting migration; the migration unit repeats this
+check as `ExecStartPre` before `--init-db`.
+
+- Migration and deployment-unit regression modules: **24 passed**, one
+  existing Starlette deprecation warning.
+- CLI smoke on a nonexistent SQLite database reported version 0 to target 8
+  with steps `[1,2,3,4,5,6,7,8]`; a post-command filesystem check confirmed the
+  database file was not created.
+- The preflight was also added to the PostgreSQL v1 migration integration test
+  to prove it leaves the live test schema-version table absent and the existing
+  OAuth fixture row unchanged before migration. Full Gateway CI/integration is
+  rerun separately and recorded in `2026-10-28-local-integration-revalidation.md`.

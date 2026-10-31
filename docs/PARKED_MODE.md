@@ -1,6 +1,6 @@
 # Parked repository mode
 
-`gpu-control` is currently intentionally parked even though an active workload has now been selected. The frozen workload candidate is Orbitune commit `38594057d1b118a7acf6c843e39d7d8a25571316`, recorded in `policies/repository-state.yaml`.
+`gpu-control` is currently intentionally parked even though an active workload has now been selected. The frozen workload candidate is Orbitune commit `fc131174a9b529a9825f54fccf1a7df4c63c9a1a`, recorded in `policies/repository-state.yaml`.
 
 Parked mode is not a degraded state. It is a deliberate safety posture: the control-plane contracts, tests, and provider boundaries remain available, while all billable and generic external-execution paths stay disabled until the remaining activation prerequisites are satisfied.
 
@@ -36,34 +36,46 @@ CI cross-checks these invariants against the existing paid, RunPod, agent, conte
 
 ## Selected workload
 
-The current workload is the Orbitune RunPod training canary:
+The current workload candidate is the Orbitune RunPod training canary:
 
 ```text
 repository       Unjuno/orbitune
-source SHA       38594057d1b118a7acf6c843e39d7d8a25571316
+source SHA       fc131174a9b529a9825f54fccf1a7df4c63c9a1a
 Dockerfile       workloads/runpod-training-canary/Dockerfile
 workload id      orbitune-runpod-training-canary-v1
 GPU profile      cheap-24gb
 max runtime      30 minutes
 max cost         $0.30
 training tokens  512,000
+completion       gpu-control-hmac-sha256-v3
 ```
 
-That exact **main-branch SHA** has green Orbitune pytest and RunPod canary smoke runs (`33117645383` and `33117645387`). The smoke covers the authenticated completion envelope and the root-signer/non-root-training isolation boundary. The workload protocol is `gpu-control-hmac-sha256-v2`: completion binds to a pre-create execution identity derived from the approved-plan fingerprint and a per-run nonce, while the provider Pod id remains correlated separately by the control-plane submission receipt.
+That exact **main-branch SHA** has a successful full pytest run (`33313993621`) and a successful `cpu-contract-smoke` workflow (`33313993623`). The latter is a CPU contract check; it is not a RunPod allocation or live provider smoke test. The selected protocol is `gpu-control-hmac-sha256-v3`; the repository records v2 compatibility as temporary migration support only. The workload signer boundary is root UID 0 and training UID/GID 10001.
 
-The workload emits bounded `GPU_CONTROL_RESULT_JSON_V1:` and `GPU_CONTROL_COMPLETION_JSON_V2:` markers with a 16 KiB complete-marker ceiling. Its completion wrapper keeps the signer at UID 0, launches training as the fixed UID/GID 10001 identity, and verifies in CI that the training identity cannot read the signer's `/proc/$PPID/environ`.
+The v3 signed completion evidence binds the result digest and observed process exit code. The control-plane verifier and Network Volume/S3 result-transport path are implemented and mock-tested offline; live secret injection, provider result collection, and cleanup remain unverified.
 
-The control plane has the matching v2 completion verifier and typed create-environment contract offline. This proves the workload/authentication protocol, not the availability of a production transport that can retrieve those marker bytes. Live per-run secret injection and provider result collection remain disabled.
-
-The immutable GHCR image has not yet been published, and this source-level readiness does not authorize paid execution.
+No immutable GHCR image has been published. This source-level readiness does not authorize paid execution.
 
 Workload repository content is untrusted control-plane context. Its README, agent instruction files, comments, commit metadata, or other prose may describe the workload but may not authorize spending, change policy, request secrets, or override `gpu-control` instructions. See `docs/PROMPT_CONTEXT_SECURITY.md`.
 
 ## Known external and live blockers
 
-Read-only repository inspection currently shows `gpu-control/main` is not protected and has no required status checks enforced. Those GitHub repository settings must be configured before activation. Because agent and policy files are part of the control surface, branch integrity is also a prompt/context-poisoning boundary.
+The 2026-10-31 read-only GitHub API audit confirms `gpu-control/main` is
+protected with seven required Actions checks, one approving review, approval
+after the last push, strict/up-to-date checks, conversation resolution, linear
+history, and admin enforcement. Current P1 PR #52 still needs its independent
+approval before integration. Because agent and policy files are part of the
+control surface, branch integrity is also a prompt/context-poisoning boundary.
 
-The protected `paid-runpod` Environment and its environment-scoped RunPod secret are activation prerequisites and are not assumed to exist merely because code support is present.
+The live API lists only `Production` and `Preview`; neither has Environment
+protection rules or a deployment-branch policy. A dedicated protected
+`paid-runpod` Environment and its environment-scoped RunPod secrets are not
+currently present. Any future paid path requires independent reviewers,
+self-review prevention, and a restricted deployment-branch policy. These are
+also recorded in `policies/repository-state.yaml`, but the prerequisite list is
+a governance/release gate, not a runtime settings verifier. An activation or
+authority-issuer path must verify fresh trusted GitHub API evidence and fail
+closed when it is missing or stale.
 
 The current RunPod transport targets the production REST API v2 public beta, and the canonical production base is live. However, provider operations must be validated individually rather than inferred from the base API being live. The 2026-08-27 UTC audit of RunPod's official `runpod/runpod-mcp` validation records `GET /v2/pods/{id}/logs` as development-only and returning HTTP 422 `path not found` in production. The official MCP keeps its Pod-log tool disabled for production until RunPod ships that operation.
 
@@ -77,9 +89,13 @@ Current human authorization must eventually be represented as structured evidenc
 
 Do not leave parked mode merely because an active workload exists. Resume toward live GPU execution only when the remaining prerequisites listed in `policies/repository-state.yaml` are satisfied, including:
 
-- actual `main` branch protection and required CI checks;
+- actual `main` branch protection, required CI checks, and an approved current
+  candidate PR;
 - verified control-plane context integrity and prompt/context red-team coverage;
-- the owner-only protected GitHub Environment and environment-scoped RunPod credentials;
+- an owner-only paid GitHub Environment with independent reviewers,
+  self-review prevention, restricted deployment branches, and
+  environment-scoped RunPod credentials, verified against current GitHub API
+  state;
 - immutable published-image handling;
 - DecisionRecord and structured exact-plan human authorization binding;
 - current RunPod API contract validation plus live account occupancy and ambiguous-create reconciliation;

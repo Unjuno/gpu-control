@@ -89,6 +89,8 @@ class RunPodV2Adapter:
                 self.completion_launch.validate_against_plan(self.approved_plan)
             if self.network_volume is not None:
                 self.network_volume.validate_shape()
+                if self.catalog_pricing.cloud != "SECURE":
+                    raise RunPodV2Error("RunPod Network Volume result transport requires SECURE cloud")
         except (ValueError, RunPodV2Error, HumanAuthorizationError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if self.approved_plan.provider != "runpod":
@@ -236,6 +238,7 @@ class RunPodV2Adapter:
                 self.catalog_pricing,
                 candidate,
                 completion=self.completion_launch,
+                expected_network_volume=self.network_volume,
             )
             if validated_id != candidate_id:
                 raise RunPodV2Error("RunPod reconciled Pod id changed during validation")
@@ -285,6 +288,7 @@ class RunPodV2Adapter:
                 self.catalog_pricing,
                 pod,
                 completion=self.completion_launch,
+                expected_network_volume=self.network_volume,
             )
         except RunPodV2Error as validation_error:
             if isinstance(pod_id, str) and pod_id.strip():
@@ -318,6 +322,7 @@ class RunPodV2Adapter:
                     self.catalog_pricing,
                     identity_view,
                     completion=self.completion_launch,
+                    expected_network_volume=self.network_volume,
                 )
                 authenticated = self._collect_authenticated_volume_result()
                 state = authenticated.state
@@ -332,6 +337,7 @@ class RunPodV2Adapter:
                     self.catalog_pricing,
                     pod,
                     completion=self.completion_launch,
+                    expected_network_volume=self.network_volume,
                 )
                 state = translate_pod_status(pod)
                 status_reference = f"runpod-v2:pod:{receipt.provider_job_id}:status"

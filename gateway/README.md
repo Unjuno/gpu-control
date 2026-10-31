@@ -89,8 +89,10 @@ signing key and a simulation backend without changing deployed authentication.
 
 SQLite is for local tests/development ONLY. Vercel and `GATEWAY_HOSTED=true` require
 `postgresql+psycopg://...`; never use `/tmp` as production job state. Dependencies
-are isolated from the root project. Direct framework versions are pinned; this is
-not a complete transitive lockfile. Python 3.12 is the deployment baseline.
+are isolated from the root project. Vercel's runtime dependencies are pinned by
+`gateway/uv.lock` and CI checks that lock with `uv sync --locked`. The pip
+requirements files pin direct runtime/test dependencies but do not lock the full
+transitive graph. Python 3.12 is the deployment baseline.
 
 ## Vercel setup
 
@@ -99,14 +101,24 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    to 30 seconds; GPU execution is not inside that duration. Enable and verify
    **Include source files outside of the Root Directory in the Build Step**:
    `requirements.txt` installs the shared `gpu-control` package from `..`, and
-   its Python source lives in the repository-level `src/` directory. The Vercel
-   project's setting was not inspected, so this remains a deployment prerequisite.
+   its Python source lives in the repository-level `src/` directory. The
+   project's setting value was not inspected directly. Preview deployment
+   `dpl_8297EDuZphLShPAUgHqW8qjmLUCJ` reached build READY at head `89ea42e`, but
+   its `/healthz` runtime returned `FUNCTION_INVOCATION_FAILED` because the root
+   `gpu_control` package was absent. The runtime dependency is declared as a
+   local uv source in `pyproject.toml`; preview deployment for `e67eb72` now
+   returns HTTP 200 from `/healthz`. It reports `configured=false`, so this
+   verifies package imports and liveness only, not database or OAuth readiness.
+   Recheck after changing project Root Directory, build settings, or package
+   layout.
 2. Provision a PostgreSQL database (any compatible provider), preferably using its
    connection pooler/TLS endpoint. Use a distinct DB for Preview and Production.
 3. Set gateway configuration from `.env.example` in Vercel project settings. Set
    `GATEWAY_PUBLIC_URL` to the exact stable HTTPS origin, without a trailing path.
-4. Run `python -m gpu_gateway.worker --init-db` once against that database from a
-   trusted operator environment. Schema creation is never triggered by an HTTP call.
+4. Run `python -m gpu_gateway.worker --check-db` from the trusted operator
+   environment and review its read-only JSON report before schema changes. Then
+   run `python -m gpu_gateway.worker --init-db` once against that database.
+   Schema creation is never triggered by an HTTP call.
 5. Choose exactly one ChatGPT authentication path. For external OIDC, configure
    the issuer/JWKS/audience/subject/scope and client settings from `.env.example`.
    For built-in single-owner OAuth, leave `GATEWAY_OIDC_ISSUER` unset and, after
@@ -123,7 +135,12 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    a production database before its paired backup/restore and migration gates pass.
 6. Deploy the Web/API application. `/healthz` reports liveness; `/readyz` reports
    database/migration state, execution-worker and recovery-supervisor heartbeats,
-   authentication and workload-registry readiness.
+   authentication and workload-registry readiness. When a local CPU workload is
+   enabled, it also requires usable artifact storage and a current admission policy
+   that allows the registered workload, profile and bounded runtime; the workload
+   must carry its exact source repository/SHA. `/readyz` reports local CPU admission
+   blockers explicitly. Demo-only deployments do not depend on that filesystem or
+   local CPU policy.
 7. Run `gpu-control-worker.service` and `gpu-control-supervisor.service`
    against that database. The supervisor claims expired active leases and may take over a
    submitting intent after the worker heartbeat goes stale; it never takes newly
@@ -133,10 +150,18 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
 
 Do not put `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, RunPod API/S3 credentials or an
 operator shell token into the Vercel frontend/API environment. They belong to the
-worker's secret store. The API only needs DB access, trusted workload manifests,
-OAuth verification/login settings and a stable encrypted-cookie key. The separate
-`deploy/worker.env.example` is for the dedicated Linux services; when the API is
-also a systemd service, add the selected OAuth settings to its root-owned env file.
+worker's secret store. The API only needs DB access, trusted workload manifests
+and the selected OAuth settings. A stable encrypted-cookie key is needed only
+for external OIDC browser login; built-in local OAuth stores opaque sessions in
+PostgreSQL. The separate
+`deploy/gateway.env.example` supplies common non-auth settings to the dedicated
+Linux services. Put OAuth and cookie settings only in `deploy/api.env.example`,
+loaded by the API unit only. `deploy/capacity.env.example` gives the capacity
+monitor only artifact path/headroom settings. Keep provider integrations disabled;
+the API-only authentication file is not loaded by worker services. The worker and
+recovery supervisor can optionally load `deploy/worker-secrets.env.example` via a
+root-owned `worker-secrets.env`; keep it absent while integrations are parked and
+never put those credentials in API or common configuration.
 
 ### OAuth and ChatGPT connection
 
@@ -157,13 +182,24 @@ metadata and returns a `WWW-Authenticate` challenge; it is NOT an OAuth issuer.
 
 The built-in single-owner OAuth mode supports public-client DCR, authorization
 code with PKCE S256, refresh tokens, exact MCP resource binding, and [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009)
-token revocation. Refresh-token rotation and revocation operate on a persisted
+token revocation. Its authorization endpoint displays the registered client,
+requested scopes, and redirect destination; a CSRF-protected owner POST is
+required before an authorization code is issued. Opening the authorization URL
+with a logged-in browser session alone does not grant access. Refresh-token rotation and revocation operate on a persisted
 grant family for newly issued credentials. Existing pre-v7 tokens retain a
 null grant ID because their original access/refresh relationships cannot be
 reconstructed; revocation applies to the presented legacy token, and a legacy
 refresh starts a new tracked family. The local protocol tests do not establish
 compatibility with a live ChatGPT workspace; complete the account-specific
 acceptance before claiming connectivity.
+
+Hosted DCR accepts only ChatGPT's documented HTTPS callback forms:
+`https://chatgpt.com/connector/oauth/{callback_id}` and
+`https://chatgpt.com/connector_platform_oauth_redirect`. Callback IDs must be a
+single URL-safe path segment; query strings, subdomains, lookalike hosts, and
+other redirect paths are rejected. Plain HTTP loopback callbacks remain
+available only when the Gateway is not hosted. Copy the exact callback URI
+shown by ChatGPT's MCP server management page when validating a live connection.
 
 For Web login, separately configure an OAuth/OIDC client with authorization-code
 flow, PKCE S256 and the exact callback `https://YOUR_HOST/auth/callback`. The token
@@ -172,7 +208,7 @@ The sample uses the standard `resource` parameter, not a vendor-specific audienc
 parameter. Configure your authorization server accordingly. ID-token nonce and
 access-token user binding are validated.
 
-Generate a stable cookie key in a trusted environment:
+For external OIDC browser login only, generate a stable cookie key in a trusted environment:
 
 ```sh
 python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
@@ -259,16 +295,30 @@ the policy disabled until the host, workload digest, resource limits, cleanup
 path and zero-provider-charge assumptions have been reviewed. The repository's
 demo Compose stack does not perform these steps and does not validate this path.
 
-`deploy/gpu-control-worker.service`, `deploy/gpu-control-supervisor.service` and
-`deploy/worker.env.example` are starting templates for a dedicated Linux host,
-not a tested installer. They assume the
-checkout is at `/opt/gpu-control`, its venv at `/opt/gpu-control/venv`, and the
-Docker daemon socket group is named `docker`; adjust and review those values for
-the host. Install the env file as root-owned mode 0600, keep workload and policy
-files operator-owned, then validate the service identities' DB and Docker access
-before enabling any policy. Neither service exposes an API listener. Both have
-the Docker daemon trust boundary; the supervisor needs access to cancel and clean
-only exact tracked resources.
+`deploy/` contains eight dedicated Linux systemd unit files: API, worker,
+recovery supervisor, read-only database check, manual database migration,
+artifact-capacity check, its timer, and the manual capacity journal bridge.
+The companion `gateway.env.example`, `api.env.example`, and
+`capacity.env.example` files are the required environment starting points;
+`worker-secrets.env.example` is optional and must remain absent while provider
+integrations are parked. These are configuration templates, not a tested
+installer. API, worker/supervisor, migration, and capacity run under separate
+Unix users; worker and supervisor intentionally share their UID. The worker
+owns artifact writes, API and capacity receive group read access, and API write
+access is limited to the sticky storage-probe directory. Only API joins the
+probe group; worker owns the probe directory and capacity reads filesystem
+metadata without probe-write access. They assume the
+checkout is at `/opt/gpu-control`, its venv at
+`/opt/gpu-control/venv`, and the Docker daemon socket group is named `docker`;
+adjust and review those values for the host. Install environment files as
+root-owned mode 0600, keep workload and policy files operator-owned, and follow
+the staged installation, ownership, and verification procedure in
+[`docs/OPERATIONS.md`](../docs/OPERATIONS.md) before enabling any policy. The
+migration unit is manual only; keep the capacity timer disabled until its fixed
+filesystem is mounted and verified. Neither worker service exposes an API
+listener. Only worker and recovery supervisor receive Docker daemon authority;
+the supervisor cleans only exact tracked resources. API-only OAuth settings are
+not loaded by either service.
 
 ### Modal CPU worker (no new GPU provider required)
 
@@ -289,13 +339,23 @@ in the local implementation environment.
 
 ## Register the first Modal workload
 
+**Current repository state is parked.** The steps below document a future
+operator-controlled setup; do not create provider credentials, configure live
+provider access, or enable Modal while `policies/repository-state.yaml` remains
+`mode: parked`. A code change or this runbook is not permission to activate a
+provider or spend money.
+
 1. In your Modal workspace, prepare an App named `gpu-control` (or set
    `GATEWAY_MODAL_APP`). The backend uses `create_if_missing=False`.
 2. Build a reusable Modal Image containing a compatible Python/PyTorch/CUDA build,
    your exact committed code, and any necessary model/data files. Record its `im-`
    image ID, source repository, full commit SHA and source revision. Complete the
    OS/architecture, GPU count/minimum VRAM, network, result-size/transport,
-   cancellation and cleanup requirements in `examples/workloads.json`. The
+   cancellation and cleanup requirements in `examples/workloads.json`. Add
+   exact `runtime_requirements` identifiers when the workload needs a specific
+   environment, and set `max_queue_wait_seconds` only when there is an operator
+   acceptance ceiling. Candidate evidence must report matching runtime support
+   and a current wait estimate; missing evidence blocks selection. The
    T4 example requires 16384 MiB VRAM, matching NVIDIA's [published 16 GB
    specification](https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-product-literature/T4%20Product%20Brief.pdf).
    No image build occurs during an MCP call.
@@ -308,8 +368,11 @@ in the local implementation environment.
    sufficient: include CPU, RAM and applicable execution overhead.
 4. Store that JSON as `GATEWAY_WORKLOADS_JSON` on the API. Do NOT allow a client to
    set image IDs, argv, import paths, endpoint URLs, quotas or credentials.
-5. Review/configure limits, then enable `GATEWAY_ENABLE_MODAL=true` on both API and
-   worker for an explicitly approved small experiment. This change is not done by CI.
+5. Only after a separate explicit human activation request, a reviewed policy
+   change out of parked mode, and all P4 account, quota, security, source,
+   result-collection, cleanup and cost gates pass, review the exact limits and
+   enablement change. Never enable `GATEWAY_ENABLE_MODAL=true` while the
+   repository remains parked. CI does not activate providers.
 
 `examples/gpu_smoke.py` is a small workload to bake into the image at
 `/workload/gpu_smoke.py`; it tests that a CUDA operation and gradient calculation

@@ -2,10 +2,15 @@ name: Gateway comment bridge tests
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
       - 'gateway/**'
+      - 'src/gpu_control/**'
+      - 'pyproject.toml'
+      - 'README.md'
       - '.github/workflows/gateway-comments.yml'
       - '.github/workflows/gateway-bridge-ci.yml'
 
@@ -25,9 +30,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install isolated gateway test dependencies
-        run: python -m pip install -r gateway/requirements-test.txt
-      - name: Install the repository package under test
-        run: python -m pip install -e .
+        working-directory: gateway
+        run: python -m pip install -r requirements-test.txt
       - name: Comment, identity, HTTP and real service/queue tests
         env:
           PYTHONPATH: gateway

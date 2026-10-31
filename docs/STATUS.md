@@ -18,7 +18,7 @@ This document describes what `gpu-control` on `main` can do today. It deliberate
 | Current RunPod REST v1 transport layer | Ready offline | Fixed `rest.runpod.io/v1` client, current create field names, List Pods array normalization, `desiredStatus`, `costPerHr`, machine cloud evidence, Network Volume identity, GET, and DELETE 204 are mock-tested. |
 | Current RunPod pricing/availability evidence | Ready offline | Fixed GraphQL origin and Bearer auth, `securePrice`, VRAM, exact Network Volume datacenter, HIGH stock, 300-second maximum TTL, and content-digest binding are mock-tested. |
 | RunPod REST v1 provider adapter | Ready offline for selected canary | Canonical adapter requires current pricing evidence, exact Network Volume DC, unexpired live permit, and v1-backed occupancy/reconciliation before create. |
-| RunPod ambiguous create/cleanup reconciliation | Ready offline on current v1 transport | Bounded occupancy/reconciliation logic consumes the v1-normalized account inventory and remains fail-closed. Live verification is still pending. |
+| RunPod ambiguous create/cleanup reconciliation | Ready offline on REST v2 transport | Bounded occupancy/reconciliation logic consumes the v2 account inventory and remains fail-closed. Provider behavior and cleanup remain unverified live; REST v1 is deprecated and scheduled for retirement on 2026-11-15. |
 | Authenticated Orbitune completion v3 | Ready offline | Root signer binds exact result bytes and the observed process exit code into HMAC-SHA256 evidence; legacy v2 remains only during migration. |
 | RunPod Network Volume/S3 result transport | Ready offline | Fixed RunPod S3 origin, trusted `/outputs` mount, exact two-object bounded collection, and v3 authentication are mock-tested. Live verification and real credentials/volume are pending. |
 | Orbitune paid-canary result acceptance | Ready offline | Workload-specific acceptance accepts authenticated log-v2 or durable volume-v3 evidence and remains separate from provider cleanup/finalization. |
@@ -86,7 +86,14 @@ No live provider call is enabled by these implementations. The remaining provide
 - live verification of ambiguous-create, result collection, and cleanup reconciliation;
 - protected paid-workflow wiring that constructs the exact current `LiveExecutionPermit` from trusted runtime evidence.
 
-The public repository currently reports `main` as unprotected. Do not treat repository access, a successful dry-run, or available budget as authorization to spend money.
+The 2026-10-31 GitHub API audit confirms `main` is protected with the seven
+required Actions checks, one approval including approval after the last push,
+strict/up-to-date checks, conversation resolution, linear history, and admin
+enforcement. This satisfies the branch-protection prerequisite only; P1 PR #52
+still awaits its independent approval. The same audit found no Environment
+protection rules or deployment-branch policy on `Production` or `Preview`, and
+no dedicated `paid-runpod` Environment. Do not treat repository access, a
+successful dry-run, or available budget as authorization to spend money.
 
 ## What "ready" means here
 
