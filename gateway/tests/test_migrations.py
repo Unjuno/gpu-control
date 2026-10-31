@@ -56,8 +56,8 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
     _legacy_v1(engine)
 
-    assert migrate(engine) == 8
-    assert migrate(engine) == 8
+    assert migrate(engine) == 9
+    assert migrate(engine) == 9
     store = Store(str(engine.url))
     store.initialize()
 
@@ -86,7 +86,7 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
 def test_fresh_database_migrates_before_table_creation(tmp_path):
     database = f"sqlite:///{tmp_path / 'fresh.db'}"
     store = Store(database)
-    assert migrate(store.engine) == 8
+    assert migrate(store.engine) == 9
     store.initialize()
     assert store.read("no-such-run") is None
     engine = store.engine
@@ -106,10 +106,10 @@ def test_v6_migration_adds_oauth_grant_id_without_rewriting_existing_tokens(tmp_
         """)
         connection.execute(schema_version.update().values(version=6))
 
-    assert migrate(store.engine) == 8
-    assert migrate(store.engine) == 8
+    assert migrate(store.engine) == 9
+    assert migrate(store.engine) == 9
     with store.engine.connect() as connection:
-        assert connection.execute(select(schema_version.c.version)).scalar_one() == 8
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == 9
         assert "grant_id" in {column["name"] for column in
                               inspect(store.engine).get_columns("gateway_oauth_tokens_v1")}
         token = connection.exec_driver_sql(
@@ -134,7 +134,7 @@ def test_unknown_future_schema_fails_closed(tmp_path):
     engine.dispose()
 
 
-def test_v7_oauth_migration_preserves_previously_used_clients(tmp_path):
+def test_v7_oauth_migration_does_not_infer_consent_from_historical_tokens(tmp_path):
     store = Store(f"sqlite:///{tmp_path / 'oauth-v7.db'}")
     store.initialize()
     client_id = "mcp_existing_client"
@@ -155,7 +155,26 @@ def test_v7_oauth_migration_preserves_previously_used_clients(tmp_path):
             'ALTER TABLE "gateway_oauth_clients_v1" DROP COLUMN "persistent"')
         connection.execute(schema_version.update().values(version=7))
 
-    assert migrate(store.engine) == 8
+    assert migrate(store.engine) == 9
     with store.engine.connect() as connection:
         assert connection.execute(select(oauth_clients.c.persistent).where(
-            oauth_clients.c.client_id == client_id)).scalar_one() is True
+            oauth_clients.c.client_id == client_id)).scalar_one() is False
+
+
+def test_v8_migration_revokes_legacy_inferred_persistence(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'oauth-v8.db'}")
+    store.initialize()
+    client_id = "mcp_inferred_client"
+    with store.engine.begin() as connection:
+        connection.execute(oauth_clients.insert().values(
+            client_id=client_id,
+            redirect_uris=["https://chatgpt.com/connector_platform_oauth_redirect"],
+            client_name="Legacy inferred client", created_at=1, expires_at=100,
+            persistent=True,
+        ))
+        connection.execute(schema_version.update().values(version=8))
+
+    assert migrate(store.engine) == 9
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is False

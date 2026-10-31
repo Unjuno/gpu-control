@@ -170,7 +170,7 @@ def test_postgres_refresh_rotation_and_grant_revocation_race():
     store.engine.dispose()
 
 
-def test_postgres_v4_to_v8_additive_recovery_and_oauth_fields():
+def test_postgres_v4_to_v9_additive_recovery_and_oauth_fields():
     url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
     if not url:
         pytest.skip('requires a dedicated PostgreSQL test database')
@@ -184,7 +184,7 @@ def test_postgres_v4_to_v8_additive_recovery_and_oauth_fields():
         connection.exec_driver_sql('ALTER TABLE gateway_oauth_tokens_v1 DROP COLUMN grant_id')
         connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
 
-    assert migrate(store.engine) == 8
+    assert migrate(store.engine) == 9
     with store.engine.connect() as connection:
         row = connection.execute(select(control.c.worker_seen_at, control.c.supervisor_seen_at)
                                  .where(control.c.id == 1)).one()
@@ -199,7 +199,7 @@ def test_postgres_v4_to_v8_additive_recovery_and_oauth_fields():
     store.engine.dispose()
 
 
-def test_postgres_v7_oauth_migration_preserves_used_dcr_client():
+def test_postgres_v7_oauth_migration_does_not_infer_consent_from_tokens():
     url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
     if not url:
         pytest.skip('requires a dedicated PostgreSQL test database')
@@ -223,8 +223,31 @@ def test_postgres_v7_oauth_migration_preserves_used_dcr_client():
             'ALTER TABLE "gateway_oauth_clients_v1" DROP COLUMN "persistent"')
         connection.execute(schema_version.update().values(version=7))
 
-    assert migrate(store.engine) == 8
+    assert migrate(store.engine) == 9
     with store.engine.connect() as connection:
         assert connection.execute(select(oauth_clients.c.persistent).where(
-            oauth_clients.c.client_id == client_id)).scalar_one() is True
+            oauth_clients.c.client_id == client_id)).scalar_one() is False
+    store.engine.dispose()
+
+
+def test_postgres_v8_migration_revokes_legacy_inferred_persistence():
+    url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('requires a dedicated PostgreSQL test database')
+    store = Store(url)
+    store.initialize()
+    client_id = "mcp_postgres_inferred_" + uuid4().hex
+    with store.engine.begin() as connection:
+        connection.execute(oauth_clients.insert().values(
+            client_id=client_id,
+            redirect_uris=["https://chatgpt.com/connector_platform_oauth_redirect"],
+            client_name="Legacy inferred client", created_at=1, expires_at=100,
+            persistent=True,
+        ))
+        connection.execute(schema_version.update().values(version=8))
+
+    assert migrate(store.engine) == 9
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is False
     store.engine.dispose()

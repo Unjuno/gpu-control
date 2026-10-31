@@ -309,7 +309,7 @@ class LocalOAuth:
             raise GatewayError("invalid_scope", "Unsupported OAuth scope", 400)
         return " ".join(dict.fromkeys(requested))
 
-    def authorize(self, params: dict, session_token: str) -> str:
+    def authorization_request(self, params: dict, session_token: str) -> dict:
         client_id = params.get("client_id", "")
         redirect_uri = params.get("redirect_uri", "")
         if params.get("response_type") != "code":
@@ -324,8 +324,19 @@ class LocalOAuth:
             raise GatewayError("invalid_request", "Valid PKCE code_challenge is required", 400)
         if params.get("resource") != self.resource:
             raise GatewayError("invalid_target", "OAuth resource must match the MCP resource", 400)
-        self.session(session_token)
+        session = self.session(session_token)
         scope = self._scope(params.get("scope"))
+        return {"client": client, "scope": scope, "session": session}
+
+    def authorize(self, params: dict, session_token: str, csrf: str) -> str:
+        request = self.authorization_request(params, session_token)
+        expected_csrf = request["session"]["csrf"]
+        if not isinstance(csrf, str) or not csrf or not secrets.compare_digest(csrf, expected_csrf):
+            raise GatewayError("csrf_failed", "Authorization approval failed CSRF validation", 403)
+        client_id = params.get("client_id", "")
+        redirect_uri = params.get("redirect_uri", "")
+        challenge = params.get("code_challenge", "")
+        scope = request["scope"]
         raw = "gc_" + secrets.token_urlsafe(32)
         now = int(time.time())
         with self.store.transaction() as c:
