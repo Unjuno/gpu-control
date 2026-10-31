@@ -28,7 +28,7 @@ TOOL_DATA = (
     ("experiments_cancel", "Request cancellation of an owned experiment; may discard unfinished work.", "experiments:cancel", RunID.model_json_schema(), False),
 )
 CHATGPT_TOOL_DATA = (
-    ("experiment_capabilities", "Read configured providers and operator-registered workloads.", "experiments:read", EmptyInput.model_json_schema(), True),
+    ("experiment_capabilities", "Read workload availability, resource limits, cost/quota evidence and worker readiness.", "experiments:read", EmptyInput.model_json_schema(), True),
     ("experiment_prepare", "Prepare an exact registered experiment plan. Preparation never starts a provider.", "experiments:run", PrepareInput.model_json_schema(), False),
     ("experiment_submit", "Queue a matching approved plan. The caller cannot create human approval.", "experiments:run", SubmitInput.model_json_schema(), False),
     ("experiment_status", "Read execution, worker and cleanup state for an owned run.", "experiments:read", RunInput.model_json_schema(), True),

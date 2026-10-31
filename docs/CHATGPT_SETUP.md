@@ -24,6 +24,24 @@ and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secu
 
 ## Required deployment state
 
+### Observed Vercel deployment (2026-10-28)
+
+The `gpu-control.vercel.app` alias currently reaches a configured Gateway
+deployment. Read-only checks observed `/healthz` returning `configured=true` and
+`auth_configured=true` in built-in OAuth mode; protected-resource and
+authorization-server discovery advertise `https://gpu-control.vercel.app/mcp`,
+PKCE S256, refresh tokens, and `offline_access`. An unauthenticated MCP request
+returns 401, as expected before authorization.
+
+This is not the reviewed CPU vertical deployment. Vercel reports the production
+deployment is built from `main` SHA
+`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; that revision has no `/readyz`
+route, and a direct request returned 404. The unique deployment URL redirects
+to Vercel SSO. The Vercel integration denied access to environment-variable
+metadata (403), so database, OAuth bootstrap and other environment settings
+were not inspected. No credentials were read, and no ChatGPT OAuth flow or tool
+scan was performed.
+
 Before connecting ChatGPT, provide all of the following:
 
 - A stable, reachable HTTPS URL whose `/mcp` route points to this Gateway.
@@ -45,6 +63,10 @@ Before connecting ChatGPT, provide all of the following:
   are available under `gateway/deploy/`. They are templates only: adapt paths/socket group,
   install secrets with restrictive ownership, and verify service-level DB/Docker
   access on the target host before treating this as deployed.
+- Both systemd templates declare the persistent `gpu-control` state directory
+  with mode 0700. Artifact bytes live below `/var/lib/gpu-control/artifacts`, so
+  this path remains writable under `ProtectSystem=strict`; verify ownership and
+  the mounted filesystem on the chosen host.
 - A configured authentication path. With external OIDC, configure issuer, JWKS,
   audience/resource, allowed subject, scopes and the MCP client's registration
   method. With built-in single-owner OAuth, bootstrap the owner and verify discovery,
@@ -55,12 +77,14 @@ Before connecting ChatGPT, provide all of the following:
 - An operator-reviewed local CPU workload registry and an explicitly enabled,
   time-bounded local CPU admission policy. The shipped policy defaults disabled.
 
-The repository currently has no configured production HTTPS endpoint, PostgreSQL
-service, ChatGPT OAuth client, or deployed worker. Do not enter a local URL or a
-provider secret into ChatGPT to work around those missing prerequisites. The
-local CPU lane additionally needs a reviewed, expiring operator policy and a
-dedicated worker/daemon; the demo Compose stack is not evidence that lane is
-deployable.
+The Vercel alias and OAuth discovery are reachable, but the deployed revision
+predates the local CPU vertical. A persistent worker, recovery supervisor,
+PostgreSQL/artifact backup acceptance, and ChatGPT tool scan/execution have not
+been verified. Do not infer them from `/healthz` or discovery. Do not enter a
+local URL or a provider secret into ChatGPT to work around those missing
+prerequisites. The local CPU lane additionally needs a reviewed, expiring
+operator policy and a dedicated worker/daemon; the demo Compose stack is not
+evidence that lane is deployable.
 
 ## Live acceptance sequence
 

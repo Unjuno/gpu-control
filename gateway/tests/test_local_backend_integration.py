@@ -75,6 +75,10 @@ def test_real_cpu_smoke_result():
                 assert result["source_sha"] == plan.source_sha
                 assert result["plan_fingerprint"] == fingerprint
                 assert result["checks"] and result["checksum"]
+                assert len(observation.artifacts) == 1
+                assert observation.artifacts[0].artifact_id == "cpu-smoke-result.json"
+                assert observation.artifacts[0].data == result["logs"].encode().rstrip(b"\n")
+                assert observation.artifacts[0].media_type == "application/json"
                 assert {"non_root", "no_secret_environment", "no_docker_socket",
                         "read_only_rootfs", "network_disabled"} <= set(result["checks"])
                 # Capture is durable data; cleanup is a separate idempotent step.
@@ -86,7 +90,7 @@ def test_real_cpu_smoke_result():
             pytest.fail("CPU smoke container exceeded its 35 second acceptance deadline")
     finally:
         try:
-            backend.cancel(handle)
+            backend.cleanup(handle)
         except Exception:
             pass
 
@@ -99,18 +103,23 @@ def test_real_cpu_smoke_result():
                    "fingerprint": timeout_fingerprint,
                    "plan": timeout_plan.model_dump(mode="json")}
     timeout_handle = backend.start(timeout_run)
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        observation = backend.inspect(timeout_handle)
-        if observation.state != "running":
-            assert observation.state == "failed"
-            assert observation.result["exit_code"] == 124
-            assert observation.result["failure_code"] == "invalid_or_missing_smoke_output"
-            assert observation.result["cleanup_state"] == "pending"
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            observation = backend.inspect(timeout_handle)
+            if observation.state != "running":
+                assert observation.state == "failed"
+                assert observation.result["exit_code"] == 124
+                assert observation.result["failure_code"] == "invalid_or_missing_smoke_output"
+                assert observation.result["cleanup_state"] == "pending"
+                backend.cleanup(timeout_handle)
+                assert backend.is_clean(timeout_handle)
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail("trusted supervisor did not stop the over-deadline workload")
+    finally:
+        try:
             backend.cleanup(timeout_handle)
-            assert backend.is_clean(timeout_handle)
-            break
-        time.sleep(0.1)
-    else:
-        backend.cancel(timeout_handle)
-        pytest.fail("trusted supervisor did not stop the over-deadline workload")
+        except Exception:
+            pass

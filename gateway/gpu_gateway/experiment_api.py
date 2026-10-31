@@ -4,15 +4,17 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import and_, or_, select
 
 from .service import ExperimentService, GatewayError, Prepare, Principal
-from .store import runs
+from .store import control, runs
 from .admission import evaluate_admission, load_local_cpu_policy, plan_for_workload
 from .artifacts import ArtifactStore
+from .health import heartbeat_age, heartbeat_is_fresh
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 STATE_SUMMARY = {
@@ -132,6 +134,7 @@ def _list(service: ExperimentService, principal: Principal, request: ListInput) 
     has_more = len(rows) > request.limit
     page = rows[:request.limit]
     values = [{"run_id": row["id"], "state": row["state"], "created_at": row["created_at"],
+               "last_observed_at": row["last_observed_at"],
                "workload": row["plan"].get("workload"),
                "repository": row["plan"].get("repository"),
                "source_sha": row["plan"].get("source_sha"),
@@ -145,26 +148,177 @@ def _list(service: ExperimentService, principal: Principal, request: ListInput) 
                      worker_last_seen_at=service.list(principal)["worker_last_seen_at"])
 
 
+def _capabilities(service: ExperimentService, principal: Principal) -> dict:
+    """Describe workload-level readiness without treating configuration as capacity."""
+    data = service.integrations(principal)
+    now = int(service.clock())
+    control_store_available = True
+    try:
+        with service.store.engine.connect() as connection:
+            row = connection.execute(select(
+                control.c.worker_seen_at, control.c.supervisor_seen_at,
+                control.c.active_count,
+            ).where(control.c.id == 1)).mappings().first()
+    except Exception:
+        # Keep capabilities read-only and fail closed, while distinguishing a
+        # control-store outage from an online store with stopped workers.
+        control_store_available = False
+        row = None
+    if row is None:
+        # A reachable database without the singleton control row is not a
+        # healthy admission store either.
+        control_store_available = False
+
+    worker_seen_at = row["worker_seen_at"] if row else 0
+    supervisor_seen_at = row["supervisor_seen_at"] if row else 0
+    worker_age = heartbeat_age(now, worker_seen_at)
+    supervisor_age = heartbeat_age(now, supervisor_seen_at)
+    worker_ready = heartbeat_is_fresh(now, worker_seen_at)
+    supervisor_ready = heartbeat_is_fresh(now, supervisor_seen_at)
+    active_count = row["active_count"] if row else None
+    capacity_available = (
+        control_store_available
+        and type(active_count) is int
+        and active_count >= 0
+        and active_count < service.settings.max_inflight
+    )
+
+    local_policy = None
+    local_policy_error = None
+    try:
+        local_policy = load_local_cpu_policy()
+    except (OSError, ValueError, TypeError):
+        local_policy_error = "LOCAL_CPU_POLICY_INVALID"
+
+    enabled_providers = {provider["id"] for provider in data["providers"]
+                         if provider["enabled"]}
+    resources = []
+    for workload_info in data["workloads"]:
+        name = workload_info["id"]
+        workload = service.workloads[name]
+        provider = workload.provider
+        registration = service.registry.get(provider)
+        provider_enabled = provider in enabled_providers
+        blockers: list[str] = []
+        if provider == "demo":
+            availability = "simulation_only"
+            cost_classification = "LOCAL"
+            additional_cost = "0"
+            approval_mode = "none"
+        elif provider == "local_cpu":
+            cost_classification = "LOCAL"
+            additional_cost = "0"
+            approval_mode = "operator_local_policy"
+            if not control_store_available:
+                blockers.append("CONTROL_STORE_UNAVAILABLE")
+            if not workload.source_repository or not workload.source_sha:
+                blockers.append("SOURCE_IDENTITY_UNCONFIGURED")
+            if local_policy_error:
+                blockers.append(local_policy_error)
+            elif local_policy is not None:
+                try:
+                    probe = plan_for_workload(
+                        workload_name=name,
+                        workload_manifest=workload.model_dump(mode="json"),
+                        repository=workload.source_repository,
+                        source_sha=workload.source_sha,
+                        parameters={}, runtime_seconds=1,
+                        max_cost_usd="0", now=now, policy=local_policy,
+                    )
+                    decision = evaluate_admission(probe, local_policy, now)
+                    if not decision.allowed:
+                        blockers.append(decision.blocking_reason or "LOCAL_CPU_POLICY_INVALID")
+                except (KeyError, ValueError, TypeError):
+                    blockers.append("LOCAL_CPU_POLICY_INVALID")
+            if not provider_enabled:
+                blockers.append("LOCAL_CPU_BACKEND_DISABLED")
+            if not worker_ready:
+                blockers.append("WORKER_OFFLINE")
+            if not supervisor_ready:
+                blockers.append("RECOVERY_SUPERVISOR_OFFLINE")
+            if not capacity_available:
+                blockers.append("CONCURRENCY_UNAVAILABLE")
+            availability = "queue_ready" if not blockers else "blocked"
+        else:
+            approval_mode = "browser"
+            additional_cost = None
+            cost_classification = "UNKNOWN"
+            quote_current = (workload.quoted_usd_per_hour is not None and
+                             bool(workload.quote_reference) and
+                             workload.quote_expires_at > now)
+            if quote_current:
+                cost_classification = "PAID"
+                additional_cost = str(
+                    workload.quoted_usd_per_hour * Decimal(workload.max_runtime_seconds) /
+                    Decimal(3600)
+                )
+            if not provider_enabled:
+                blockers.append("PROVIDER_DISABLED")
+                availability = "blocked"
+            else:
+                blockers.append("PROVIDER_LIVE_ACCEPTANCE_REQUIRED")
+                availability = "configured_unverified"
+
+        resources.append({
+            "workload": name,
+            "provider": provider,
+            "execution": registration.execution if registration else "unsupported",
+            "availability": availability,
+            "submission_available": availability == "queue_ready",
+            "simulation": provider == "demo",
+            "execution_capacity": "UNVERIFIED",
+            "blocking_reasons": blockers,
+            "source_repository": workload.source_repository or None,
+            "source_sha": workload.source_sha or None,
+            "requires_gpu": workload.requires_gpu,
+            "gpu_model": workload.gpu if workload.requires_gpu else None,
+            "gpu_vram_mib": None,
+            "cpu_cores": workload.cpu,
+            "memory_mib": workload.memory_mib,
+            "max_runtime_seconds": workload.max_runtime_seconds,
+            "max_cost_usd": "0" if provider in {"local_cpu", "demo"} else str(workload.max_cost_usd),
+            "cost_classification": cost_classification,
+            "additional_provider_cost_usd_at_max_runtime": additional_cost,
+            "quote_reference": workload.quote_reference or None,
+            "quote_expires_at": workload.quote_expires_at or None,
+            "cost_scope": "Provider charge only; host, electricity and Gateway costs are excluded.",
+            "quota_status": ("NOT_APPLICABLE_SIMULATION" if provider == "demo" else
+                             "LOCAL_CAPACITY_UNVERIFIED" if provider == "local_cpu" else "UNKNOWN"),
+            "configured_run_concurrency": service.settings.max_inflight,
+            "approval_mode": approval_mode,
+            "human_approval_required": approval_mode == "browser",
+            "parameter_schema": workload.parameter_schema,
+        })
+
+    submission_available = any(resource["submission_available"] for resource in resources)
+    return _envelope(
+        status="ok" if submission_available else "blocked",
+        summary=("現在受付可能な登録workloadを確認しました。" if submission_available else
+                 "現在受付可能な実験環境はありません。blockerを確認してください。"),
+        machine_state={
+            "providers": data["providers"],
+            "resources": resources,
+            "control_store": {"available": control_store_available},
+            "worker": {"last_seen_at": worker_seen_at, "age_seconds": worker_age,
+                       "ready": worker_ready},
+            "recovery_supervisor": {"last_seen_at": supervisor_seen_at,
+                                    "age_seconds": supervisor_age,
+                                    "ready": supervisor_ready},
+            "capacity": {"active_runs": active_count,
+                         "max_concurrent_runs": service.settings.max_inflight,
+                         "available": capacity_available},
+        },
+        next_actions=["experiment_prepare"] if submission_available else ["retry_later"],
+        blocker=None if submission_available else "NO_QUEUEABLE_RESOURCE",
+    )
+
+
 def invoke(service: ExperimentService, principal: Principal, name: str, arguments: dict) -> dict:
     """Invoke canonical ChatGPT-facing tools without bypassing existing service gates."""
     try:
         if name == "experiment_capabilities":
             EmptyInput.model_validate(arguments)
-            data = service.integrations(principal)
-            worker = service.list(principal)["worker_last_seen_at"]
-            enabled_providers = {provider["id"] for provider in data["providers"] if provider["enabled"]}
-            runnable = [w for w in data["workloads"] if w["provider"] == "local_cpu" and
-                        w["provider"] in enabled_providers and
-                        w["source_repository"] and w["source_sha"]]
-            return _envelope(
-                status="ok" if runnable else "blocked",
-                summary=("登録済みの実行環境を確認しました。" if runnable else
-                         "実行環境の登録がありません。現在登録されているdemoはsimulation専用です。"),
-                machine_state={"providers": data["providers"], "workloads": data["workloads"],
-                               "worker_last_seen_at": worker},
-                next_actions=["experiment_prepare"] if runnable else ["retry_later"],
-                blocker=None if runnable else "NO_EXECUTABLE_WORKLOAD",
-            )
+            return _capabilities(service, principal)
 
         if name == "experiment_prepare":
             request = PrepareInput.model_validate(arguments)
@@ -293,10 +447,12 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
             if name == "experiment_result" and state not in TERMINAL:
                 return _envelope(status="pending", summary="実験はまだ終了していません。",
                                  machine_state={"run_id": result["id"], "state": state,
-                                                "cleanup_state": cleanup},
+                                                "cleanup_state": cleanup,
+                                                "last_observed_at": result.get("last_observed_at")},
                                  next_actions=["experiment_status"], blocker=None)
             payload = {"run_id": result["id"], "state": state,
                        "plan_fingerprint": result["fingerprint"],
+                       "last_observed_at": result.get("last_observed_at"),
                        "cleanup_state": cleanup,
                        "result": result.get("result") if name == "experiment_result" else None,
                        "error_code": (result.get("error") or

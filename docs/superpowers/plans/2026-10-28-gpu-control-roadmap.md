@@ -100,13 +100,13 @@ P0 現行基準・接続条件確認
 
 主な変更先: `worker.py`, `store.py`, 新規 `lifecycle.py`, `supervisor.py`, `artifacts.py`, `gateway/tests/`。
 
-- [ ] allocation前のintentをDBに永続化し、provider/owner/run/attempt/planを結びつける。API再送・worker lease更新・再照合の責任を明記する。
-- [ ] 実行状態とcleanup状態を分離する。プロセス終了後もcleanup未確認なら資源枠を解放しない。cleanup失敗で結果を消さない。
-- [ ] 独立supervisorがtimeout、cancel、worker heartbeat切れ、cleanup_pendingを処理する。DB/worker停止中も効く実行期限を各backendに設ける。
-- [ ] create直後、handle保存直前、結果保存直後、cleanup直前に停止するfault injection試験を作る。DB一時停止、二重worker、遅いprovider、lease期限超過を含む。
-- [ ] unknownを再submitせず、完全に識別できる既存資源へ再接続する。不在が証明できない場合はUNKNOWNを保持する。
-- [ ] 小さい結果JSONはDB、ファイル成果物はowner管理の保存先へ分離。最初の上限案は1 runあたり10 MiB、JSON/ログ各64 KiB。巨大checkpointは未対応と返す。
-- [ ] artifactはdigest/size/media type/expiryを記録。任意pathやURLを直接読む機能を作らず、期限付き取得はowner照合後だけ許可する。
+- [x] allocation前のintentをDBに永続化し、provider/owner/run/attempt/planを結びつける。API再送・worker lease更新・再照合の責任を明記する。
+- [x] 実行状態とcleanup状態を分離する。プロセス終了後もcleanup未確認なら資源枠を解放しない。cleanup失敗で結果を消さない。
+- [x] 独立supervisorがtimeout、cancel、worker heartbeat切れ、cleanup_pendingを処理する。DB/worker停止中も効く実行期限を各backendに設ける。
+- [x] create直後、handle保存直前、結果保存直後、cleanup直前に停止するfault injection試験を作る。DB一時停止、二重worker、遅いprovider、lease期限超過を含む。
+- [x] unknownを再submitせず、完全に識別できる既存資源へ再接続する。不在が証明できない場合はUNKNOWNを保持する。
+- [x] 小さい結果JSONはDB、ファイル成果物はowner管理の保存先へ分離。最初の上限案は1 runあたり10 MiB、JSON/ログ各64 KiB。巨大checkpointは未対応と返す。
+- [x] artifactはdigest/size/media type/expiryを記録。任意pathやURLを直接読む機能を作らず、期限付き取得はowner照合後だけ許可する。
 
 完了条件: 指定した各停止点で資源重複0件、他runの削除0件、既存結果消失0件。成功・失敗・cancelのすべてでcleanupの証拠が取れる。provider完全障害時はUNKNOWNと最後の観測時刻を正しく返す。
 

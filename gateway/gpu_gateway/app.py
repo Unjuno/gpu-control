@@ -18,9 +18,9 @@ from .protocol import dispatch, error, tools, validate_headers
 from .service import ExperimentService, GatewayError
 from .store import Store, control
 from .migrations import SCHEMA_VERSION, schema_version
+from .health import heartbeat_age as calculate_heartbeat_age, heartbeat_is_fresh
 
 STATIC = Path(__file__).parent / "static"
-WORKER_HEARTBEAT_MAX_AGE_SECONDS = 15
 
 
 def create_app(settings: Settings | None = None, *, service=None, auth=None) -> FastAPI:
@@ -138,12 +138,11 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
                     control.c.id == 1)).scalar_one_or_none()
             database_ok = heartbeat is not None
             migration_ok = schema == SCHEMA_VERSION
-            if type(heartbeat) is int and heartbeat > 0:
-                heartbeat_age = int(time.time()) - heartbeat
-                worker_ok = -5 <= heartbeat_age <= WORKER_HEARTBEAT_MAX_AGE_SECONDS
-            if type(supervisor_heartbeat) is int and supervisor_heartbeat > 0:
-                supervisor_heartbeat_age = int(time.time()) - supervisor_heartbeat
-                supervisor_ok = -5 <= supervisor_heartbeat_age <= WORKER_HEARTBEAT_MAX_AGE_SECONDS
+            now = int(time.time())
+            heartbeat_age = calculate_heartbeat_age(now, heartbeat)
+            supervisor_heartbeat_age = calculate_heartbeat_age(now, supervisor_heartbeat)
+            worker_ok = heartbeat_is_fresh(now, heartbeat)
+            supervisor_ok = heartbeat_is_fresh(now, supervisor_heartbeat)
         except SQLAlchemyError:
             pass
         registry = getattr(service, "registry", None)

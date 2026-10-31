@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import os
 from dataclasses import replace
 
 import pytest
@@ -84,3 +85,35 @@ def test_artifact_tool_rejects_unlisted_artifact_and_expiry(system, tmp_path):
         invoke(system.service, system.owner, "experiment_artifact", {
             "run_id": prepared["id"], "artifact_id": "not-listed"})
     assert error.value.code == "not_found"
+
+
+def test_artifact_pruning_removes_expired_and_old_orphans_but_preserves_active_and_recent(tmp_path):
+    store = ArtifactStore(str(tmp_path / "artifacts"))
+    now = 100_000
+    expired = store.put("owner", "a" * 32, "expired.bin", b"expired",
+                        media_type="application/octet-stream", expires_at=now - 1)
+    active = store.put("owner", "b" * 32, "active.bin", b"active",
+                       media_type="application/octet-stream", expires_at=now - 1)
+    old_orphan = store.put("owner", "c" * 32, "orphan.bin", b"orphan",
+                           media_type="application/octet-stream", expires_at=None)
+    recent_orphan = store.put("owner", "d" * 32, "recent.bin", b"recent",
+                              media_type="application/octet-stream", expires_at=None)
+    paths = {
+        run_id: store._directory("owner", run_id, create=False) / (hashlib.sha256(artifact_id.encode()).hexdigest() + ".blob")
+        for run_id, artifact_id in (("a" * 32, "expired.bin"), ("b" * 32, "active.bin"),
+                                    ("c" * 32, "orphan.bin"), ("d" * 32, "recent.bin"))
+    }
+    os.utime(paths["c" * 32], (now - 90_000, now - 90_000))
+    rows = [
+        {"id": "a" * 32, "owner": "owner", "state": "succeeded", "result": {"artifacts": [expired]}},
+        {"id": "b" * 32, "owner": "owner", "state": "running", "result": None},
+        {"id": "c" * 32, "owner": "owner", "state": "failed", "result": {"artifacts": []}},
+        {"id": "d" * 32, "owner": "owner", "state": "succeeded", "result": {"artifacts": []}},
+    ]
+
+    result = store.prune(rows, now=now)
+    assert result == {"expired_files": 1, "orphan_files": 1, "bytes_removed": len(b"expired") + len(b"orphan")}
+    assert not paths["a" * 32].exists()
+    assert paths["b" * 32].exists()
+    assert not paths["c" * 32].exists()
+    assert paths["d" * 32].exists()

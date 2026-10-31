@@ -83,7 +83,7 @@ def test_recovery_supervisor_uses_stale_worker_heartbeat_to_reconcile_submission
     now = int(system.clock())
     with system.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(
-            worker_seen_at=now - 16, supervisor_seen_at=0))
+            worker_seen_at=now - 15, supervisor_seen_at=0))
         connection.execute(update(runs).where(runs.c.id == created["id"]).values(
             state="submitting", started_at=now, lease_until=now + 100,
             lease_token="dead-worker-lease", slot_reserved=True,

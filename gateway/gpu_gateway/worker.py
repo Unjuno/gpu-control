@@ -19,10 +19,13 @@ from .service import TERMINAL, digest
 from .store import Store, control, runs
 from .admission import evaluate_admission, load_local_cpu_policy
 from .contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_binding
+from .health import HEARTBEAT_STALE_SECONDS, heartbeat_is_stale
 
 logger = logging.getLogger(__name__)
-WORKER_HEARTBEAT_STALE_SECONDS = 15
+# Keep the historical module constant for callers while sharing its source.
+WORKER_HEARTBEAT_STALE_SECONDS = HEARTBEAT_STALE_SECONDS
 ARTIFACT_TTL_SECONDS = 30 * 24 * 3600
+ARTIFACT_PRUNE_INTERVAL_SECONDS = 3600
 
 
 class Worker:
@@ -39,6 +42,25 @@ class Worker:
         self.registry = default_registry() if registry is None else registry
         self.workloads = workloads
         self.role = role
+        self.last_artifact_prune_at = 0
+
+    def _maybe_prune_artifacts(self, now: int) -> None:
+        if (not self.settings.artifact_dir or
+                now - self.last_artifact_prune_at < ARTIFACT_PRUNE_INTERVAL_SECONDS):
+            return
+        self.last_artifact_prune_at = now
+        try:
+            with self.store.engine.connect() as connection:
+                rows = [dict(row) for row in connection.execute(
+                    select(runs.c.id, runs.c.owner, runs.c.state, runs.c.result)).mappings()]
+            removed = ArtifactStore(self.settings.artifact_dir).prune(rows, now=now)
+            if removed["expired_files"] or removed["orphan_files"]:
+                logger.info("Artifact retention removed expired=%d orphan=%d bytes=%d",
+                            removed["expired_files"], removed["orphan_files"], removed["bytes_removed"])
+        except Exception:
+            # Retention maintenance must not stop queue processing. Retry on the
+            # next interval; artifact reads still enforce expiry and digest.
+            logger.exception("Artifact retention maintenance failed")
 
     def _persist_artifacts(self, job: dict, observation: Observation) -> dict | None:
         result = observation.result
@@ -69,6 +91,36 @@ class Worker:
         ) for item in observation.artifacts]
         return result | {"artifacts": metadata}
 
+    @staticmethod
+    def _missing_backend_result(job: dict, *, cleanup_pending: bool) -> dict:
+        """Persist an explicit failure envelope so lifecycle cleanup can recover."""
+        plan = job["plan"]
+        cleanup_state = "pending" if cleanup_pending else "not_required"
+        if plan.get("schema_version") != 2:
+            return {"failure_code": "missing_backend_result", "cleanup_state": cleanup_state}
+        return {
+            "schema_version": 2,
+            "run_id": job["id"],
+            "source_sha": plan["source_sha"],
+            "plan_fingerprint": job["fingerprint"],
+            "provider": plan["provider"],
+            "simulation": False,
+            "gpu_used": None,
+            "device": None,
+            "exit_code": None,
+            "started_at": None,
+            "finished_at": None,
+            "runtime_seconds": None,
+            "metrics": {},
+            "checks": [],
+            "checksum": None,
+            "artifacts": [],
+            "known_cost_usd": None,
+            "cost_classification": "UNKNOWN",
+            "cleanup_state": cleanup_state,
+            "failure_code": "missing_backend_result",
+        }
+
     def claim(self):
         now = int(self.clock())
         token = uuid.uuid4().hex
@@ -80,12 +132,11 @@ class Worker:
             if self.role == "worker":
                 states.insert(0, "queued")
             eligible = runs.c.lease_until <= now
-            if self.role == "supervisor" and control_row["worker_seen_at"] > 0:
+            if self.role == "supervisor" and heartbeat_is_stale(now, control_row["worker_seen_at"]):
                 # A dead worker may leave a 120-second submission lease. Once its
                 # heartbeat is stale, recovery may inspect that intent early, but
                 # it still never calls start() for a non-queued job.
-                eligible = or_(eligible, and_(runs.c.state == "submitting",
-                                               control_row["worker_seen_at"] <= now - WORKER_HEARTBEAT_STALE_SECONDS))
+                eligible = or_(eligible, runs.c.state == "submitting")
             row = c.execute(select(runs).where(
                 runs.c.state.in_(states),
                 eligible,
@@ -153,6 +204,7 @@ class Worker:
                 cleanup_state=cleanup_state, record_version=record_version))
 
     def tick(self) -> bool:
+        self._maybe_prune_artifacts(int(self.clock()))
         job = self.claim()
         if job is None:
             return False
@@ -276,13 +328,23 @@ class Worker:
                                 lease_until=now + 30)
                     return True
                 handle = backend.reconcile(job)
+                observed_at = int(self.clock())
                 if handle is None:
-                    self.update(job, state="submit_unknown", error="operator_reconciliation_required", lease_until=now + 30)
+                    self.update(job, state="submit_unknown", error="operator_reconciliation_required",
+                                lease_until=now + 30, last_observed_at=observed_at)
                     return True
                 intent = job.get("submission_intent")
                 if isinstance(intent, dict):
                     intent = intent | {"phase": "handle_persisted"}
-                self.update(job, handle=handle, submission_intent=intent, state="running", error="")
+                # Preserve newly discovered provider identity even if this
+                # reconciliation call outlived its lease. The lease-fenced
+                # state transition below decides whether this worker may act.
+                with self.store.transaction() as connection:
+                    connection.execute(update(runs).where(
+                        runs.c.id == job["id"], runs.c.handle.is_(None)
+                    ).values(handle=handle, submission_intent=intent))
+                if not self.update(job, state="running", error="", last_observed_at=observed_at):
+                    return True
             latest = self.store.read(job["id"])
             lifecycle_backend = all(callable(getattr(backend, name, None))
                                     for name in ("capture", "cleanup", "is_clean"))
@@ -303,16 +365,28 @@ class Worker:
             if cancelling:
                 backend.cancel(handle)
             observation = backend.capture(handle) if lifecycle_backend else backend.inspect(handle)
+            observed_at = int(self.clock())
             if observation.state == "running":
                 self.update(job, state="running", lease_until=now + 3,
-                            error="cancellation_pending" if cancelling else "")
+                            error="cancellation_pending" if cancelling else "",
+                            last_observed_at=observed_at)
             else:
                 state = "cancelled" if cancelling else observation.state
-                observation_result = self._persist_artifacts(job, observation)
+                if observation.result is None:
+                    # No manifest means attached payloads cannot be trusted or
+                    # published. Still record a bound failure before cleanup so
+                    # recovery retains both the handle and admission slot.
+                    observation_result = self._missing_backend_result(
+                        job, cleanup_pending=lifecycle_backend)
+                    if state == "succeeded":
+                        state = "failed"
+                else:
+                    observation_result = self._persist_artifacts(job, observation)
                 if lifecycle_backend and observation_result is not None:
                     # Persist the terminal evidence before deleting the container.
                     if not self.update(job, result=observation_result, cleanup_state="pending",
-                                       lease_until=now + 1, error="cleanup_pending:" + state):
+                                       lease_until=now + 1, error="cleanup_pending:" + state,
+                                       last_observed_at=observed_at):
                         raise RuntimeError("worker lease lost before result persistence")
                     backend.cleanup(handle)
                     if not backend.is_clean(handle):
@@ -321,6 +395,8 @@ class Worker:
                     result["cleanup_state"] = "complete"
                     self.finish(job, state, result)
                 else:
+                    if not self.update(job, last_observed_at=observed_at):
+                        return True
                     self.finish(job, state, observation_result)
         except Exception:
             # Observability failure does not prove completion and must not free a slot.
