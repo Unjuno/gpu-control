@@ -33,23 +33,30 @@ and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secu
 
 ## Required deployment state
 
-### Observed Vercel deployment (2026-10-28)
+### Observed production alias (2026-10-31)
 
-The `gpu-control.vercel.app` alias currently reaches a configured Gateway
-deployment. Read-only checks observed `/healthz` returning `configured=true` and
-`auth_configured=true` in built-in OAuth mode; protected-resource and
-authorization-server discovery advertise `https://gpu-control.vercel.app/mcp`,
-PKCE S256, refresh tokens, and `offline_access`. An unauthenticated MCP request
-returns 401, as expected before authorization.
+Vercel's connected account lists the production deployment as READY at
+`dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ`, built from `main` SHA
+`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; its aliases include
+`gpu-control.vercel.app`. This is the current public-main deployment, not the
+reviewed CPU vertical candidate.
 
-This is not the reviewed CPU vertical deployment. Vercel reports the production
-deployment is built from `main` SHA
-`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; that revision has no `/readyz`
-route, and a direct request returned 404. The unique deployment URL redirects
-to Vercel SSO. The Vercel integration denied access to environment-variable
-metadata (403), so database, OAuth bootstrap and other environment settings
-were not inspected. No credentials were read, and no ChatGPT OAuth flow or tool
-scan was performed.
+Read-only HTTPS requests to the alias returned:
+
+- `GET /healthz`: HTTP 200, `configured=true`, `auth_configured=true`,
+  `auth_mode=local_oauth`, `gpu_started_by_health_check=false`.
+- `GET /readyz`: HTTP 404 (`Not Found`). The deployed revision therefore does
+  not expose the readiness evidence required by the P1 candidate.
+- Protected-resource discovery advertises
+  `https://gpu-control.vercel.app/mcp` and read/run/cancel scopes.
+- Authorization-server discovery advertises authorization-code and refresh
+  grants, PKCE S256, and `offline_access`.
+
+These discovery documents do not prove the backing database, owner bootstrap,
+worker, recovery supervisor, or artifact storage are ready. No environment
+variable values or credentials were read, and no ChatGPT OAuth flow or tool
+scan was performed. The reviewed candidate still must complete review and be
+deployed before this alias can provide P1 readiness evidence.
 
 Before connecting ChatGPT, provide all of the following:
 
