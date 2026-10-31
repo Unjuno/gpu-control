@@ -40,6 +40,35 @@ def local_cpu_policy_enabled(_settings=None) -> bool:
         return False
 
 
+def local_cpu_workload_blocker(name: str, workload, policy: dict, now: int) -> str | None:
+    """Return why this registered CPU workload cannot be prepared right now.
+
+    Readiness uses this without needing an example parameter payload. The
+    workload model has already validated the closed parameter schema; this
+    probe checks the source identity and the time-bounded, zero-provider-cost
+    admission policy before advertising the service as ready.
+    """
+    if getattr(workload, "provider", None) != "local_cpu":
+        return "PROVIDER_NOT_LOCAL_CPU"
+    if (not isinstance(name, str) or not name or
+            not getattr(workload, "source_repository", "") or
+            not getattr(workload, "source_sha", "")):
+        return "SOURCE_IDENTITY_UNCONFIGURED"
+    try:
+        plan = plan_for_workload(
+            workload_name=name,
+            workload_manifest=workload.model_dump(mode="json"),
+            repository=workload.source_repository,
+            source_sha=workload.source_sha,
+            parameters={}, runtime_seconds=1, max_cost_usd="0",
+            now=now, policy=policy,
+        )
+        decision = evaluate_admission(plan, policy, now)
+    except (AttributeError, OSError, ValueError, TypeError, InvalidOperation):
+        return "LOCAL_CPU_POLICY_INVALID"
+    return None if decision.allowed else decision.blocking_reason or "LOCAL_CPU_POLICY_INVALID"
+
+
 def plan_for_workload(*, workload_name: str, workload_manifest: dict, repository: str,
                       source_sha: str, parameters: dict, runtime_seconds: int,
                       max_cost_usd: str, now: int, policy: dict) -> PlanV2:
