@@ -208,10 +208,14 @@ def test_modern_discovery_and_tools_without_initialize(web):
     assert discovery.status_code == 200
     result = discovery.json()['result']
     assert result['resultType'] == 'complete'
+    assert result['cacheScope'] == 'private' and result['ttlMs'] == 0
     assert '2026-07-28' in result['supportedVersions']
     assert result['_meta']['io.modelcontextprotocol/serverInfo']['name'] == 'gpu-control-gateway'
     response = modern_rpc(web, 'tools/call', {'name':'integrations_list', 'arguments':{}})
     assert response.json()['result']['isError'] is False
+    listing = modern_rpc(web, 'tools/list').json()['result']
+    assert listing['resultType'] == 'complete'
+    assert listing['cacheScope'] == 'private' and listing['ttlMs'] == 0
     assert modern_rpc(web, 'unknown').status_code == 404
 
 
