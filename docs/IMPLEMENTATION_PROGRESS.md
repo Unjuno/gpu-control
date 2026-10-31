@@ -1,0 +1,25 @@
+# Implementation progress
+
+```text
+current_phase: P0 baseline audit complete; P1 T1-T5 local CPU lifecycle acceptance complete; T6 ChatGPT connection/deployment in progress
+current_task: verify actual ChatGPT custom MCP availability, OAuth discovery/refresh, and the deployed HTTPS Gateway/worker/DB path
+base_sha: 24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e
+working_branch: codex/chatgpt-cpu-vertical
+implemented: plan/spec copied into repository; PR #43 disposition audited; README canary SHA and completion version reconciled to repository policy; core pytest upgraded from vulnerable 8.4.2 to locked 9.1.1; additive Gateway v2 Plan/Result contracts and explicit idempotent v1-to-v4 migrations added; schema v4 persists submission intent and attempt before dispatch; seven canonical MCP tools advertised while six legacy names remain callable; canonical owner-scoped envelopes, source/device checks, exact-fingerprint submit, bounded filtered listing with owner-bound cursor, pending/simulation result handling added; compatibility period documented; T3 added fail-closed local CPU admission, disabled-by-default policy, immutable image digest and smoke profile constraints, separate durable local-policy authorization, prepare/submit/worker policy and fingerprint validation, and revocation-before-start behavior; T4 added digest-pinned CPU smoke image, detached local Docker backend with runtime hardening, strict bounded result validation, label-bound reconciliation, cancellation, and trusted supervisor deadline enforcement; T5 separates capture/persist/cleanup, keeps active slots until cleanup proof, fences stale lease writes, and recovers container-start worker crashes
+tests_and_commands: Gateway suite with pinned image and PostgreSQL 16 configured: 198 passed, 2 skipped; `project_control` suite: 19 passed. Real Docker/Worker process integration: container-start crash and reconciliation, plus cancel after policy disable, passed. PostgreSQL v1-to-v4 migration, concurrent admission, worker lease fencing, and actual PostgreSQL stop/restart during terminal-result capture all passed. Result persistence outage preserved the active slot and container until database recovery, then persisted the same run result and cleaned up.
+real_execution_evidence: local OrbStack Docker CPU container ran on linux/arm64; verified non-root UID, network none, read-only root, dropped capabilities, PID/CPU/memory limits, no mounts, source/fingerprint binding, simulation=false, gpu_used=false, deterministic checks/checksum, timeout exit 124, capture before cleanup, and container removal. A real Worker subprocess exited immediately after Docker start and before handle persistence; a replacement worker reconciled the single existing container and completed the same run. A separate run was cancelled after local policy disable; the container was absent and repeated cancel was safe. PostgreSQL 16 was stopped after real terminal capture; worker retained the resource and slot, then recovery succeeded after PostgreSQL restart. No deployed Gateway, provider, or real ChatGPT/MCP call executed.
+release_matrix_changes: CPU_EXECUTION and local worker RECOVERY/CANCELLATION have isolated runtime evidence; MCP_CONNECTIVITY, CHATGPT_TOOL_USABILITY, ChatGPT RESULT_RETRIEVAL remain unverified; paid/GPU remains blocked by parked policy
+remaining_blockers: T6-T7 and P2-P7; no real ChatGPT/MCP acceptance or deployed Gateway/OAuth/worker/DB backup-restore has run; policy defaults disabled; no provider/GPU execution or paid authorization; preserve parked mode until independent review and explicit spend authorization
+next_task: inspect current ChatGPT workspace custom-MCP availability and existing deployment configuration, then document concrete prerequisites while continuing offline hardening
+```
+
+Update this record only with observed implementation and validation evidence. Do not describe mock/provider tests as real integration acceptance.
+
+## 2026-10-31 PR #52 local security-finding remediation candidate
+
+- Exact reviewed base: PR #52 head `bc9b0305e6b2e86f9d8c214161b10511ce9f012c`.
+- Applied local fixes for submit-time and worker-start workload manifest binding, and Docker container identity-label checks before cleanup/cancellation.
+- Added four regression tests. Pre-fix behavior guards failed as expected; after the fixes they pass.
+- Candidate validation: Gateway `197 passed, 7 skipped`; Core `452 passed, 1 skipped`; `git diff --check` passed. Optional Docker/PostgreSQL paths were skipped in these full-suite runs.
+- Candidate is isolated and uncommitted. No GitHub state changed. The published PR #52 head and its CI remain unchanged; fresh independent review and protected PR checks are still required.
+- Paid/GPU policy remains parked. This work does not establish deployed Gateway, OAuth, ChatGPT, or provider acceptance.

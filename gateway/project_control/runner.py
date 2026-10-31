@@ -16,12 +16,17 @@ import re
 import selectors
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 ROOT = Path(__file__).resolve().parent
+GATEWAY_ROOT = ROOT.parent
+if str(GATEWAY_ROOT) not in sys.path:
+    sys.path.insert(0, str(GATEWAY_ROOT))
+from gpu_gateway.container_runtime import container_hardening_args
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 MAX_COMMENT_AGE_SECONDS = 6 * 60 * 60  # tolerate hosted-runner queueing, still bound stale requests
 
@@ -154,10 +159,8 @@ def clean_environment():
 
 def container_args(image, name):
     require(re.fullmatch(r"sha256:[a-f0-9]{64}", image), "resolved_image_required")
-    return ["docker", "create", "--name", name, "--network", "none", "--read-only",
-            "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "10001:10001",
-            "--pids-limit", "32", "--memory", "256m", "--cpus", "1", "--log-driver", "none",
-            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m", image]
+    return ["docker", "create", "--name", name, *container_hardening_args(),
+            "--log-driver", "none", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m", image]
 
 
 def bounded_process(argv, seconds=30, limit=65536):

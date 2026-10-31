@@ -2,7 +2,6 @@ name: Gateway offline tests
 
 on:
   pull_request:
-    paths: ["gateway/**", ".github/workflows/gateway-ci.yml"]
   push:
     branches: [main]
     paths: ["gateway/**", ".github/workflows/gateway-ci.yml"]
@@ -12,6 +11,7 @@ permissions:
 
 jobs:
   gateway:
+    name: Gateway offline tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     services:

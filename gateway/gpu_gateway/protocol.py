@@ -11,6 +11,7 @@ import base64
 import binascii
 
 from .service import ExperimentService, GatewayError, Prepare, Principal, RunID
+from .experiment_api import EmptyInput, ListInput, PrepareInput, RunInput, SubmitInput
 
 LEGACY_VERSIONS = ("2025-03-26", "2025-06-18", "2025-11-25")
 MODERN = "2026-07-28"
@@ -26,14 +27,28 @@ TOOL_DATA = (
     ("experiments_list", "List the latest 50 owned experiments and worker heartbeat.", "experiments:read", EMPTY, True),
     ("experiments_cancel", "Request cancellation of an owned experiment; may discard unfinished work.", "experiments:cancel", RunID.model_json_schema(), False),
 )
+CHATGPT_TOOL_DATA = (
+    ("experiment_capabilities", "Read configured providers and operator-registered workloads.", "experiments:read", EmptyInput.model_json_schema(), True),
+    ("experiment_prepare", "Prepare an exact registered experiment plan. Preparation never starts a provider.", "experiments:run", PrepareInput.model_json_schema(), False),
+    ("experiment_submit", "Queue a matching approved plan. The caller cannot create human approval.", "experiments:run", SubmitInput.model_json_schema(), False),
+    ("experiment_status", "Read execution, worker and cleanup state for an owned run.", "experiments:read", RunInput.model_json_schema(), True),
+    ("experiment_result", "Read a completed bounded result. Simulation is never reported as real execution.", "experiments:read", RunInput.model_json_schema(), True),
+    ("experiment_cancel", "Request cancellation of an owned run.", "experiments:cancel", RunInput.model_json_schema(), False),
+    ("experiment_list", "List owned runs with bounded filters and an owner-bound cursor.", "experiments:read", ListInput.model_json_schema(), True),
+)
+LEGACY_NAMES = {row[0] for row in TOOL_DATA}
+CHATGPT_NAMES = {row[0] for row in CHATGPT_TOOL_DATA}
 
 
 def tools(principal: Principal) -> list[dict]:
+    # Advertise only the canonical seven-tool contract. Legacy names remain
+    # callable for existing clients during the migration period.
+    entries = CHATGPT_TOOL_DATA
     return [{"name": name, "description": description, "inputSchema": schema,
-             "annotations": {"readOnlyHint": read_only, "destructiveHint": name == "experiments_cancel",
+             "annotations": {"readOnlyHint": read_only, "destructiveHint": name in {"experiments_cancel", "experiment_cancel"},
                              "idempotentHint": True, "openWorldHint": not read_only},
              "_meta": {"securitySchemes": [{"type": "oauth2", "scopes": [scope]}]}}
-            for name, description, scope, schema, read_only in TOOL_DATA if scope in principal.scopes]
+            for name, description, scope, schema, read_only in entries if scope in principal.scopes]
 
 
 def error(identifier, code: int, message: str) -> dict:
@@ -104,10 +119,14 @@ def dispatch(service: ExperimentService, principal: Principal, payload: dict, ve
         value = {"tools": tools(principal)}
     elif method == "tools/call":
         name, arguments = params.get("name"), params.get("arguments", {})
-        if not isinstance(name, str) or name not in {row[0] for row in TOOL_DATA} or not isinstance(arguments, dict):
+        if not isinstance(name, str) or name not in CHATGPT_NAMES | LEGACY_NAMES or not isinstance(arguments, dict):
             return error(identifier, -32602, "Unknown tool or invalid arguments"), 200
         try:
-            result = service.invoke(principal, name, arguments)
+            if name in CHATGPT_NAMES:
+                from .experiment_api import invoke as invoke_experiment
+                result = invoke_experiment(service, principal, name, arguments)
+            else:
+                result = service.invoke(principal, name, arguments)
             value = {"content": [{"type": "text", "text": json.dumps(result, allow_nan=False)}], "isError": False}
             if params is not None:
                 value["structuredContent"] = result

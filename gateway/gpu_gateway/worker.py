@@ -12,10 +12,12 @@ from decimal import Decimal
 from sqlalchemy import select, update
 
 from .backends import Backend, build_backends
-from .config import Settings
+from .config import Settings, load_workloads
 from .registry import default_registry
 from .service import TERMINAL, digest
 from .store import Store, control, runs
+from .admission import evaluate_admission, load_local_cpu_policy
+from .contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_binding
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +28,11 @@ class Worker:
     A stale submitting job is reconciled, never blindly retried. Unknown submissions
     keep their admission slot until an operator/provider supplies reliable evidence.
     """
-    def __init__(self, store: Store, settings: Settings, backends: dict[str, Backend], clock=time.time, *, registry=None):
+    def __init__(self, store: Store, settings: Settings, backends: dict[str, Backend], clock=time.time, *, registry=None,
+                 workloads: dict | None = None):
         self.store, self.settings, self.backends, self.clock = store, settings, backends, clock
         self.registry = default_registry() if registry is None else registry
+        self.workloads = workloads
 
     def claim(self):
         now = int(self.clock())
@@ -60,6 +64,28 @@ class Worker:
     def finish(self, job: dict, state: str, result=None, error=""):
         if state not in TERMINAL:
             raise ValueError("Invalid terminal state")
+        record_version = 1
+        if isinstance(job.get("plan"), dict) and job["plan"].get("schema_version") == 2:
+            record_version = 2
+            if result is not None:
+                allowed_extra = {"logs", "logs_truncated", "failure_code"}
+                try:
+                    if not isinstance(result, dict):
+                        raise ValueError("result must be an object")
+                    core = {key: value for key, value in result.items() if key in ResultV2.model_fields}
+                    extras = {key: value for key, value in result.items() if key not in ResultV2.model_fields}
+                    if set(extras) - allowed_extra:
+                        raise ValueError("unexpected result fields")
+                    validated_plan = PlanV2.model_validate_json(json.dumps(job["plan"], allow_nan=False))
+                    validated_result = ResultV2.model_validate_json(json.dumps(core, allow_nan=False))
+                    validate_result_binding(validated_plan, job["fingerprint"], validated_result)
+                    if state == "succeeded" and (validated_result.exit_code != 0 or validated_result.simulation or
+                                                   validated_result.provider == "local_cpu" and validated_result.gpu_used is not False):
+                        raise ValueError("terminal result does not prove local CPU success")
+                    result = validated_result.model_dump(mode="json") | extras
+                except (ValueError, TypeError, json.JSONDecodeError):
+                    state, error = "failed", "result_integrity_failed"
+                    result = {"failure_code": "result_integrity_failed"}
         if result is not None:
             raw = json.dumps(result, allow_nan=False).encode()
             if len(raw) > self.settings.max_output_bytes * 3:
@@ -71,9 +97,14 @@ class Worker:
                 return
             if row["slot_reserved"]:
                 c.execute(update(control).where(control.c.id == 1).values(active_count=control.c.active_count - 1))
+            cleanup_state = ((result or {}).get("cleanup_state", "unknown") if isinstance(result, dict)
+                             else "unknown")
+            if cleanup_state not in {"not_required", "pending", "complete", "unknown"}:
+                cleanup_state = "unknown"
             c.execute(update(runs).where(runs.c.id == job["id"]).values(
                 state=state, result=result, error=error, slot_reserved=False,
-                lease_until=0, lease_token=""))
+                lease_until=0, lease_token="", finished_at=int(self.clock()),
+                cleanup_state=cleanup_state, record_version=record_version))
 
     def tick(self) -> bool:
         job = self.claim()
@@ -89,29 +120,68 @@ class Worker:
                 self.update(job, error="provider_not_configured", lease_until=now + 30)
             return True
         if job["was_queued"]:
-            manifest = plan["workload_manifest"]
-            if digest(plan) != job["fingerprint"]:
-                self.finish(job, "failed", error="plan_integrity_failed")
-                return True
-            if job["approved_until"] <= now:
-                self.finish(job, "expired", error="approval_expired_before_submission")
-                return True
             registration = self.registry.get(plan["provider"])
             enabled = registration is not None and registration.enabled(self.settings)
             if not enabled:
                 self.finish(job, "failed", error="new_submissions_disabled")
                 return True
-            if Decimal(plan["max_cost_usd"]) > self.settings.max_job_cost_usd:
-                self.finish(job, "failed", error="current_operator_cost_limit")
+            local_admission = job.get("admission")
+            if local_admission is not None:
+                try:
+                    validated_plan = PlanV2.model_validate_json(json.dumps(plan, allow_nan=False))
+                    policy = load_local_cpu_policy()
+                    decision = evaluate_admission(validated_plan, policy, now)
+                    workload = (self.workloads.get(validated_plan.workload)
+                                if isinstance(self.workloads, dict) else None)
+                    manifest = workload.model_dump(mode="json") if workload is not None else None
+                    manifest_current = (
+                        workload is not None and workload.provider == "local_cpu" and
+                        validated_plan.provider == workload.provider and
+                        validated_plan.repository == workload.source_repository and
+                        validated_plan.source_sha == workload.source_sha and
+                        validated_plan.workload_manifest_digest == digest(manifest) and
+                        validated_plan.image_digest == workload.image_digest and
+                        validated_plan.runtime_seconds <= workload.max_runtime_seconds
+                    )
+                    valid = (
+                        manifest_current and local_admission.get("mode") == "local_policy" and
+                        decision.allowed and
+                        decision.policy_digest == local_admission.get("policy_digest") and
+                        decision.valid_until == local_admission.get("valid_until") and
+                        plan_fingerprint(validated_plan) == job["fingerprint"] and
+                        job["approved_until"] > now
+                    )
+                except (OSError, ValueError, TypeError):
+                    valid = False
+                if not valid:
+                    self.finish(job, "expired", error="local_policy_revoked_before_start")
+                    return True
+            else:
+                manifest = plan["workload_manifest"]
+                if digest(plan) != job["fingerprint"]:
+                    self.finish(job, "failed", error="plan_integrity_failed")
+                    return True
+                if job["approved_until"] <= now:
+                    self.finish(job, "expired", error="approval_expired_before_submission")
+                    return True
+                if Decimal(plan["max_cost_usd"]) > self.settings.max_job_cost_usd:
+                    self.finish(job, "failed", error="current_operator_cost_limit")
+                    return True
+                if plan["provider"] != "demo":
+                    if manifest["quote_expires_at"] <= now:
+                        self.finish(job, "expired", error="quote_expired_before_submission")
+                        return True
+                    quote = Decimal(manifest["quoted_usd_per_hour"])
+                    if quote * Decimal(plan["runtime_seconds"]) / Decimal(3600) > Decimal(plan["max_cost_usd"]):
+                        self.finish(job, "failed", error="cost_limit")
+                        return True
+            attempt = int(job.get("attempt") or 0) + 1
+            intent = {"provider": plan["provider"], "owner": job["owner"], "run_id": job["id"],
+                      "attempt": attempt, "plan_fingerprint": job["fingerprint"],
+                      "phase": "dispatching", "created_at": now}
+            if not self.update(job, attempt=attempt, submission_intent=intent):
+                logger.info("Lease lost before submission intent for run %s", job["id"])
                 return True
-            if plan["provider"] != "demo":
-                if manifest["quote_expires_at"] <= now:
-                    self.finish(job, "expired", error="quote_expired_before_submission")
-                    return True
-                quote = Decimal(manifest["quoted_usd_per_hour"])
-                if quote * Decimal(plan["runtime_seconds"]) / Decimal(3600) > Decimal(plan["max_cost_usd"]):
-                    self.finish(job, "failed", error="cost_limit")
-                    return True
             try:
                 handle = backend.start(job)
                 if not isinstance(handle, dict) or not handle:
@@ -124,34 +194,76 @@ class Worker:
                 return True
             # Persist a returned handle even if this worker lost its lease. This is
             # evidence of an already-started job, NOT authority to start another.
+            persisted_intent = intent | {"phase": "handle_persisted"}
             with self.store.transaction() as c:
-                c.execute(update(runs).where(runs.c.id == job["id"], runs.c.handle.is_(None)).values(handle=handle))
+                c.execute(update(runs).where(runs.c.id == job["id"], runs.c.handle.is_(None)).values(
+                    handle=handle, submission_intent=persisted_intent))
             self.update(job, state="running", lease_until=now + 1, error="")
             return True
         try:
             handle = job["handle"]
             if handle is None:
+                intent = job.get("submission_intent")
+                if intent is not None and (
+                    not isinstance(intent, dict) or intent.get("provider") != plan["provider"] or
+                    intent.get("owner") != job["owner"] or intent.get("run_id") != job["id"] or
+                    intent.get("plan_fingerprint") != job["fingerprint"] or
+                    type(intent.get("attempt")) is not int or intent["attempt"] < 1 or
+                    intent.get("phase") not in {"dispatching", "handle_persisted"}
+                ):
+                    self.update(job, state="submit_unknown", error="submission_intent_mismatch",
+                                lease_until=now + 30)
+                    return True
                 handle = backend.reconcile(job)
                 if handle is None:
                     self.update(job, state="submit_unknown", error="operator_reconciliation_required", lease_until=now + 30)
                     return True
-                self.update(job, handle=handle, state="running", error="")
+                intent = job.get("submission_intent")
+                if isinstance(intent, dict):
+                    intent = intent | {"phase": "handle_persisted"}
+                self.update(job, handle=handle, submission_intent=intent, state="running", error="")
             latest = self.store.read(job["id"])
+            lifecycle_backend = all(callable(getattr(backend, name, None))
+                                    for name in ("capture", "cleanup", "is_clean"))
+            if lifecycle_backend and latest.get("result") is not None and latest.get("cleanup_state") == "pending":
+                backend.cleanup(handle)
+                if not backend.is_clean(handle):
+                    raise RuntimeError("cleanup receipt not confirmed")
+                saved = dict(latest["result"])
+                saved["cleanup_state"] = "complete"
+                intended = (latest.get("error", "").removeprefix("cleanup_pending:")
+                            if isinstance(latest.get("error"), str) else "")
+                if intended not in TERMINAL:
+                    intended = "cancelled" if latest["cancel_requested"] else "failed" if saved.get("exit_code") else "succeeded"
+                self.finish(job, intended, saved)
+                return True
             overdue = now > job["started_at"] + plan["runtime_seconds"] + 60
             cancelling = latest["cancel_requested"] or overdue
             if cancelling:
                 backend.cancel(handle)
-            observation = backend.inspect(handle)
+            observation = backend.capture(handle) if lifecycle_backend else backend.inspect(handle)
             if observation.state == "running":
                 self.update(job, state="running", lease_until=now + 3,
                             error="cancellation_pending" if cancelling else "")
             else:
                 state = "cancelled" if cancelling else observation.state
-                self.finish(job, state, observation.result)
+                if lifecycle_backend and observation.result is not None:
+                    # Persist the terminal evidence before deleting the container.
+                    if not self.update(job, result=observation.result, cleanup_state="pending",
+                                       lease_until=now + 1, error="cleanup_pending:" + state):
+                        raise RuntimeError("worker lease lost before result persistence")
+                    backend.cleanup(handle)
+                    if not backend.is_clean(handle):
+                        raise RuntimeError("cleanup receipt not confirmed")
+                    result = dict(observation.result)
+                    result["cleanup_state"] = "complete"
+                    self.finish(job, state, result)
+                else:
+                    self.finish(job, state, observation.result)
         except Exception:
             # Observability failure does not prove completion and must not free a slot.
             self.update(job, error="provider_observation_or_cleanup_failed", lease_until=now + 10)
-            logger.warning("Observation/recovery needed for run %s", job["id"])
+            logger.exception("Observation/recovery needed for run %s", job["id"])
         return True
 
 
@@ -185,7 +297,7 @@ def main():
         return
     if args.poll_seconds < 0.5:
         parser.error("poll-seconds must be at least 0.5")
-    worker = Worker(store, settings, build_backends(settings))
+    worker = Worker(store, settings, build_backends(settings), workloads=load_workloads())
     while True:
         worker.tick()
         if args.once:

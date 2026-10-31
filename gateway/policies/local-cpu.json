@@ -1,0 +1,9 @@
+{
+  "version": "local-cpu-v1",
+  "enabled": false,
+  "valid_until": 0,
+  "workloads": [],
+  "max_runtime_seconds": 30,
+  "max_cost_usd": "0.00",
+  "allowed_profiles": ["smoke"]
+}

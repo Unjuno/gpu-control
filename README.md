@@ -113,13 +113,13 @@ The repository currently uses this bounded reference canary:
 
 ```text
 repository       Unjuno/orbitune
-source SHA       38594057d1b118a7acf6c843e39d7d8a25571316
+source SHA       fc131174a9b529a9825f54fccf1a7df4c63c9a1a
 Dockerfile       workloads/runpod-training-canary/Dockerfile
 workload id      orbitune-runpod-training-canary-v1
 GPU profile      cheap-24gb
 max runtime      30 minutes
 max cost         $0.30
-completion       gpu-control-hmac-sha256-v2
+completion       gpu-control-hmac-sha256-v3
 ```
 
 The workload's source CI, authenticated completion envelope, offline result parser, and result-side canary acceptance are implemented and tested.
