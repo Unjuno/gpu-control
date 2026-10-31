@@ -150,7 +150,8 @@ T5 evidence: Gateway 198 passed, 2 skipped with pinned CPU image and PostgreSQL 
 **Interfaces:** HTTPS `/mcp`、既存OAuth discovery、read/run/cancel scope、永続DB、独立worker。client固有の認証緩和や匿名実行を導入しない。
 
 - [ ] 現在のChatGPTアカウント/ワークスペースでcustom MCP接続権限を確認し、正式な接続方法を記録する。
-- [ ] endpoint→OAuth→tool discovery→read-only capabilitiesを実ChatGPTで通す。現行のprotocol version/header処理を公式仕様・実クライアント要求で検証する。
+- [x] 公式MCP Python SDK 2.3.0でローカルMCP endpointのStreamable HTTP、`2026-07-28` negotiation、8 canonical tools discovery、read-only `experiment_capabilities` 呼び出しを検証する。仕様上必須の`cacheScope`/`ttlMs`欠落を修正し、証拠を`docs/acceptance/2026-10-31-mcp-sdk-interop.md`に記録した。これはSDKプロトコル互換性の証拠であり、実ChatGPTのOAuth、アカウント権限、接続受入は引き続き未完了。
+- [ ] endpoint→OAuth→tool discovery→read-only capabilitiesを実ChatGPTで通す。現行のprotocol version/header処理とOAuth refresh/reconnectを実アカウントで検証する。
 - [ ] deployment protection、token audience/resource、HTTPS origin、refresh/revocation、scope不足を確認する。DB初期化/migrationをHTTP handlerに置かない。
 - [ ] 固定費と常時worker稼働条件を運用手順に記載し、local workerがsleep/offlineならcapabilitiesを実行可能と偽らない。
 - [ ] `python -m pytest gateway/tests/test_http_auth.py gateway/tests/test_local_oauth.py -q`、その後実ChatGPTの認証更新と再接続を検証する。

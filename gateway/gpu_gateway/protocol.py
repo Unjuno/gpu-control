@@ -140,4 +140,10 @@ def dispatch(service: ExperimentService, principal: Principal, payload: dict, ve
     if modern:
         value["resultType"] = "complete"
         value["_meta"] = {META_PREFIX + "serverInfo": SERVER_INFO}
+        if method in {"server/discover", "tools/list"}:
+            # These responses depend on the caller's authorization context.
+            # Never let a shared intermediary reuse them across owners, and
+            # ask clients to revalidate on every use while scopes can change.
+            value["cacheScope"] = "private"
+            value["ttlMs"] = 0
     return {"jsonrpc": "2.0", "id": identifier, "result": value}, 200
