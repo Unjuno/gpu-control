@@ -59,14 +59,18 @@ pass. Paid/GPU settings remain parked.
 The first provider to validate is **Amazon Lightsail Linux/Unix VM**, because it
 offers both Tokyo (`ap-northeast-1`) and Singapore (`ap-southeast-1`), fixed
 monthly bundles, and attachable block storage. This is a candidate, not a
-provider decision or provisioning approval. Current bundle prices list 2 GB
-RAM / 2 vCPU / 60 GB / 3 TB transfer at $12 per month and 4 GB RAM / 2 vCPU /
-80 GB / 4 TB at $24 per month. Additional block storage is $0.10 per allocated
-GB-month, with an 8 GB minimum. A separate 32 GB artifact disk therefore adds
-$3.20 per month: estimated compute-plus-disk baseline is $15.20 for 2 GB or
-$27.20 for 4 GB, before snapshots, transfer overage, tax, DNS/domain, backups,
-and any provider/account-specific charges. Lightsail snapshots are listed at
-$0.05 per GB-month. [Lightsail Linux bundle sizes and prices](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html),
+provider decision or provisioning approval. A read-only check of the current
+official price tables on 2026-10-28 lists the public-IPv4 2 GB bundle at 2 vCPU,
+60 GB system SSD, 3 TB transfer, and $12/month; the 4 GB bundle is 2 vCPU, 80 GB
+system SSD, 4 TB transfer, and $24/month. Additional block storage is $0.10 per
+allocated GB-month, with an 8 GB minimum. A separate 32 GB artifact disk
+therefore adds $3.20 per month: estimated compute-plus-disk baseline is $15.20
+for 2 GB or $27.20 for 4 GB, before snapshots, transfer overage, tax,
+DNS/domain, backups, and provider/account-specific charges. Lightsail snapshots
+are listed at $0.05 per GB-month. These bundles include substantial system
+storage and transfer allowance, but that does not replace the separate fixed
+size artifact filesystem or prove actual project traffic fits the allowance.
+[Lightsail Linux bundle sizes and prices](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html),
 [block storage pricing](https://aws.amazon.com/lightsail/pricing/),
 [snapshot pricing](https://aws.amazon.com/lightsail/pricing/).
 
@@ -77,15 +81,23 @@ Lightsail are separate services/accounts and the planned connection is not a
 private VPC link. Tokyo is the alternative if measured API/user latency or
 operational requirements favor Japan. Lightsail documents both regions and
 lists excess outbound transfer at $0.12/GB for Singapore and $0.14/GB for
-Tokyo. [Lightsail Regions](https://docs.aws.amazon.com/lightsail/latest/userguide/understanding-regions-and-availability-zones-in-amazon-lightsail.html),
-[regional transfer overage](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-data-transfer-allowance.html).
+Tokyo. These are instance-plan excess outbound transfer rates, not object
+storage or distribution rates; the official instance FAQ was rechecked on
+2026-10-28 and confirms both figures. [Lightsail Regions](https://docs.aws.amazon.com/lightsail/latest/userguide/understanding-regions-and-availability-zones-in-amazon-lightsail.html),
+[instance regional transfer overage](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-data-transfer-allowance.html).
 
-DigitalOcean is a comparison point, with a listed Basic 2 GB / 1 vCPU / 50 GB
-Droplet at $12 per month and Singapore among its available regions. Its current
-Droplet availability table does not list a Japan datacenter, so it does not
-offer the Tokyo option in this comparison. A separate artifact volume and full
-operating total would need verification before comparison. [DigitalOcean
-Droplet pricing](https://www.digitalocean.com/pricing/droplets),
+DigitalOcean is now priced on the same separate-volume basis. Its Basic
+2 GiB / 1 vCPU / 50 GiB Droplet is $12/month with 2,000 GiB included transfer;
+the 4 GiB / 2 vCPU / 80 GiB plan is $24/month with 4,000 GiB. A 32 GiB
+DigitalOcean Volume is $3.20/month, giving compute-plus-artifact-volume
+baselines of $15.20 and $27.20/month. Singapore is available; the current
+regional list does not offer Japan. Bundled Droplets have a monthly price cap,
+and additional public-network transfer is $0.01/GiB after the team's pooled
+allowance. Backup/snapshot retention, DNS/domain, tax, and account-specific
+charges remain outside those totals. This comparison is still not an approved
+provider or budget decision. [Droplet pricing and plans](https://www.digitalocean.com/pricing/droplets),
+[Volume pricing](https://docs.digitalocean.com/products/volumes/details/pricing/),
+[bandwidth billing](https://docs.digitalocean.com/platform/billing/bandwidth/),
 [Droplet regional availability](https://docs.digitalocean.com/products/droplets/details/availability/).
 
 For a first isolated rehearsal, 2 GB is the lower-cost candidate; for a
@@ -129,3 +141,70 @@ credentials into this decision record.
 
 These requirements are gates, not authorization to purchase, deploy, change DNS,
 mutate Neon, enable CPU admission, or perform paid/GPU execution.
+
+## Current pricing recheck (2026-10-28)
+
+Rechecked the official AWS tables: the public-IPv4 Linux bundle remains $12/mo
+for 2 GB RAM, 2 vCPU, 60 GB SSD and 3 TB transfer, and $24/mo for 4 GB RAM,
+2 vCPU, 80 GB SSD and 4 TB transfer. Lightsail block storage remains
+$0.10/allocated-GB-month (32 GB = $3.20/mo), and snapshots $0.05/GB-month.
+The arithmetic baselines remain $15.20/mo and $27.20/mo before snapshots,
+transfer overage, tax, domain, DNS, and off-host backup. Instance-plan outbound
+overage remains $0.12/GB in Singapore and $0.14/GB in Tokyo. Sources:
+[bundle prices](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html),
+[block storage and snapshot pricing](https://aws.amazon.com/lightsail/pricing/),
+[regional transfer overage](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-data-transfer-allowance.html).
+This confirms the shortlist inputs only; it does not select a host or establish
+the operator's acceptable monthly cap. No resource was created.
+
+## DigitalOcean comparison refresh (2026-10-28)
+
+The live official price page and current product documentation now confirm the
+full VM-plus-32-GiB-volume arithmetic for both shortlisted sizes: $15.20/month
+for 2 GiB and $27.20/month for 4 GiB. DigitalOcean's Basic bundles include a
+monthly compute cap and 2/4 TiB transfer respectively, but overage is
+$0.01/GiB and the allowance pools at the team level. Volume charges accrue
+while detached too. DigitalOcean lists Singapore and no Japan datacenter, so
+the 2-GiB plan has one shared vCPU versus Lightsail's two vCPUs at the same
+baseline price; the 4-GiB plans both list two vCPUs. These are arithmetic
+comparisons from public list prices, not account-specific checkout quotes.
+Backups, snapshots, domain/DNS, taxes, payment terms, latency to Neon, storage
+quota behavior, service support, and user-set budget remain unresolved. No
+provider was selected or provisioned. Sources: [DigitalOcean Droplet pricing](https://www.digitalocean.com/pricing/droplets),
+[DigitalOcean Volume pricing](https://docs.digitalocean.com/products/volumes/details/pricing/),
+[DigitalOcean bandwidth billing](https://docs.digitalocean.com/platform/billing/bandwidth/),
+[AWS Lightsail pricing](https://aws.amazon.com/lightsail/pricing/).
+
+## Official pricing and regional availability refresh (2026-10-31)
+
+The official AWS bundle table still lists Lightsail Small-2GB at $12/month
+(2 vCPU, 60 GB system SSD, 3 TB transfer) and Medium-4GB at $24/month
+(2 vCPU, 80 GB SSD, 4 TB transfer). A separate 32 GB artifact disk adds
+$3.20/month, so the compute-plus-artifact-volume totals remain $15.20 and
+$27.20/month. The official FAQ lists block storage at $0.10/GB-month,
+snapshots at $0.05/GB-month, and an $18/month load balancer. Lightsail's
+region list includes both Tokyo and Singapore. Sources: [AWS bundle table](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html),
+[AWS Lightsail FAQ](https://aws.amazon.com/lightsail/faq/), and
+[Lightsail regions](https://docs.aws.amazon.com/lightsail/latest/userguide/understanding-regions-and-availability-zones-in-amazon-lightsail.html).
+
+DigitalOcean's current Basic bundle table lists 2 GiB / 1 vCPU at $12/month
+(2,000 GiB transfer), 2 GiB / 2 vCPU at $18/month (3,000 GiB), and 4 GiB /
+2 vCPU at $24/month (4,000 GiB). A 32 GiB Volume adds $3.20/month, producing
+compute-plus-volume totals of $15.20, $21.20, and $27.20/month. The regional
+availability table lists SGP1 Singapore and no Japan CPU Droplet region; the
+2 vCPU 2 GiB option is available in Singapore. Volume charges continue while
+the volume is detached. Sources: [DigitalOcean Droplet pricing](https://www.digitalocean.com/pricing/droplets),
+[Volume pricing](https://docs.digitalocean.com/products/volumes/details/pricing/),
+[Droplet availability](https://docs.digitalocean.com/products/droplets/details/availability/),
+and [DigitalOcean regional availability](https://docs.digitalocean.com/platform/regional-availability/).
+
+These are public list-price arithmetic only. They exclude Neon, snapshots or
+backup retention beyond the included policy, domain/DNS, taxes, excess transfer,
+account-specific charges, and the selected artifact quota. The existing Neon
+database is in Singapore, which makes Singapore a topology candidate, but
+latency and cross-provider transfer cost still need measurement. For the
+Gateway plus worker/supervisor and CPU container, the 4 GiB / 2 vCPU shape is
+the safer initial measurement candidate; this is an inference from the process
+topology, not an observed minimum or a purchase decision. The owner-set monthly
+ceiling and whether it includes Neon remain unprovided; no resources were
+created.

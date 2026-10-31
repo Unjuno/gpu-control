@@ -86,3 +86,34 @@ This is local PostgreSQL major-version restore compatibility evidence only. It
 does not establish Neon-specific behavior, production backup credentials or
 retention, target-host permissions, second-operator reproducibility, worker
 reconciliation, or measured RPO/RTO.
+
+## Schema v8 atomic generation through isolated systemd and restore — 2026-10-28
+
+- Built an ephemeral Ubuntu 24.04 container with a live systemd manager and
+  installed the seven Gateway unit templates into that manager. Before backup,
+  `systemctl show` reported every required unit `LoadState=loaded` and
+  `ActiveState=inactive`; the backup CLI observed those states directly.
+- Initialized the current worktree's Gateway schema in a disposable PostgreSQL
+  16 source container and inserted one synthetic terminal run with
+  `cleanup_state=not_required`, `slot_reserved=false`, and a zero active count.
+  No OAuth credentials, real owners, provider handles, or artifact manifests
+  were seeded. The paired artifact directory was empty.
+- Ran the current `gateway/deploy/backup_generation.py` with the stopped-service
+  confirmation, generated a database dump plus empty artifact archive, and
+  passed `--verify-generation`; the manifest reported `schema_version=8` and
+  `verified=true`.
+- Restored `database.dump` into a separate disposable PostgreSQL 16 target and
+  extracted the paired empty artifact archive. The target reported schema 8,
+  one preserved run, `active_count=0`, state `succeeded`, and cleanup state
+  `not_required`.
+- Removed the disposable source and target databases, privileged systemd
+  container, network, built image, and temporary generation after recording the
+  result.
+
+This is current-schema local backup-generation and database-restore evidence,
+including the CLI's real systemd state gate. The artifact archive was empty, so
+this run does not add artifact-byte retrieval evidence. It used synthetic data
+and a disposable Linux container; it does not establish target-host or Neon
+behavior, encrypted off-host retention, second-operator reproducibility,
+worker/container reconciliation, OAuth preservation for this v8 generation,
+or measured RPO/RTO. Production recovery acceptance remains open.

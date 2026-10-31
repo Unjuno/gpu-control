@@ -5,23 +5,36 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=gpu-control
-Group=gpu-control
+User=gpu-control-worker
+Group=gpu-control-artifacts
 # This process can recover/cancel tracked resources and thus shares the worker's
 # dedicated Docker trust boundary. It never claims newly queued jobs.
 SupplementaryGroups=docker
 WorkingDirectory=/opt/gpu-control/gateway
-EnvironmentFile=/etc/gpu-control/worker.env
+EnvironmentFile=/etc/gpu-control/gateway.env
+EnvironmentFile=-/etc/gpu-control/worker-secrets.env
 ExecStart=/opt/gpu-control/venv/bin/python -m gpu_gateway.worker --supervise --poll-seconds 3
 Restart=always
 RestartSec=3
 UMask=0077
 StateDirectory=gpu-control
-StateDirectoryMode=0700
+StateDirectoryMode=2750
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+# Recovery may prune persisted artifacts; the mount may be absent during startup.
+ReadWritePaths=-/var/lib/gpu-control/artifacts
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
