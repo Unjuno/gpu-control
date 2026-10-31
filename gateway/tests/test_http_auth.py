@@ -1,4 +1,5 @@
 from dataclasses import replace
+import importlib.util
 import json
 from pathlib import Path
 import time
@@ -113,6 +114,52 @@ def test_configuration_failure_is_closed():
     client = TestClient(app)
     assert client.get("/healthz").json()["configured"] is False
     assert client.post("/mcp", json={}).status_code == 503
+
+
+def test_missing_workload_file_keeps_health_routes_available(monkeypatch, tmp_path):
+    monkeypatch.delenv("GATEWAY_WORKLOADS_JSON", raising=False)
+    monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(tmp_path / "missing-workloads.json"))
+    client = TestClient(create_app())
+    health = client.get("/healthz")
+    readiness = client.get("/readyz")
+    assert health.status_code == 200
+    assert health.json()["configured"] is False
+    assert readiness.status_code == 503
+    assert readiness.json()["ready"] is False
+
+
+def test_vercel_entrypoint_keeps_health_routes_available_with_missing_workload_file(
+    monkeypatch, tmp_path
+):
+    from gpu_gateway.ci_bridge import Policy
+
+    monkeypatch.delenv("GATEWAY_WORKLOADS_JSON", raising=False)
+    monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(tmp_path / "missing-workloads.json"))
+    monkeypatch.delenv("GATEWAY_HOSTED", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "gpu-control.vercel.app")
+    monkeypatch.setenv("GATEWAY_DATABASE_URL", "postgresql+psycopg://user:pass@localhost:5432/gateway")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    def missing_ci_policy(cls, path=None):
+        raise FileNotFoundError("missing CI bridge policy")
+
+    monkeypatch.setattr(Policy, "load", classmethod(missing_ci_policy))
+    entrypoint = Path(__file__).parents[1] / "app.py"
+    spec = importlib.util.spec_from_file_location("gpu_control_vercel_entrypoint", entrypoint)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    client = TestClient(module.app)
+    health = client.get("/healthz")
+    readiness = client.get("/readyz")
+    assert health.status_code == 200
+    assert health.json()["configured"] is False
+    assert readiness.status_code == 503
+    assert readiness.json()["ready"] is False
+    ci_bridge = client.post("/api/ci/comment", json={})
+    assert ci_bridge.status_code == 503
+    assert ci_bridge.json()["code"] == "bridge_not_configured"
 
 
 def _readiness_headers(web):

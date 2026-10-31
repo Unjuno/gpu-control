@@ -51,7 +51,17 @@ def install_ci_routes(app, *, policy=None, verifier=None, comments=None):
     The existing service remains authoritative for approval, price and provider limits.
     Non-demo submission is additionally denied until reviewed paid activation.
     """
-    policy = policy or Policy.load()
+    if policy is None:
+        try:
+            policy = Policy.load()
+        except (OSError, BridgeError):
+            # The optional CI bridge must not prevent the Gateway's public
+            # health/readiness routes from starting when its policy is absent.
+            @app.post("/api/ci/comment")
+            async def ci_comment_unconfigured():
+                return JSONResponse({"code": "bridge_not_configured"}, status_code=503,
+                                    headers={"Cache-Control": "no-store"})
+            return app
     auth = app.state.auth
     service = app.state.service
     deployed_sha = os.environ.get("VERCEL_GIT_COMMIT_SHA", "")

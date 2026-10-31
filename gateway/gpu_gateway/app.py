@@ -36,7 +36,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         else:
             store = service.store
         auth = auth or Auth(settings, store=store)
-    except (ValueError, TypeError):
+    except (OSError, ValueError, TypeError):
         # Health/UI can explain missing deployment configuration without exposing secrets.
         configuration_error = True
     app = FastAPI(title="GPU Control Gateway", docs_url=None, redoc_url=None, openapi_url=None)

@@ -96,11 +96,11 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
 
 1. Import this repository and set **Root Directory = `gateway`** and framework
    **FastAPI**. `app.py` exports the ASGI app. `vercel.json` bounds HTTP requests
-   to 30 seconds; GPU execution is not inside that duration. Enable and verify
-   **Include source files outside of the Root Directory in the Build Step**:
-   `requirements.txt` installs the shared `gpu-control` package from `..`, and
-   its Python source lives in the repository-level `src/` directory. The Vercel
-   project's setting was not inspected, so this remains a deployment prerequisite.
+   to 30 seconds; GPU execution is not inside that duration. Its install command
+   installs Gateway requirements and the shared `gpu-control` package from `..`.
+   Enable and verify **Include source files outside of the Root Directory in the
+   Build Step** so that package's source under the repository-level `src/` directory
+   is available during the build. This project setting remains a deployment prerequisite.
 2. Provision a PostgreSQL database (any compatible provider), preferably using its
    connection pooler/TLS endpoint. Use a distinct DB for Preview and Production.
 3. Set gateway configuration from `.env.example` in Vercel project settings. Set
