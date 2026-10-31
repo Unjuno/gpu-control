@@ -136,8 +136,9 @@ def test_vercel_entrypoint_keeps_health_routes_available_with_missing_workload_f
     monkeypatch.delenv("GATEWAY_WORKLOADS_JSON", raising=False)
     monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(tmp_path / "missing-workloads.json"))
     monkeypatch.delenv("GATEWAY_HOSTED", raising=False)
-    monkeypatch.delenv("VERCEL", raising=False)
-    monkeypatch.delenv("GATEWAY_DATABASE_URL", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "gpu-control.vercel.app")
+    monkeypatch.setenv("GATEWAY_DATABASE_URL", "postgresql+psycopg://user:pass@localhost:5432/gateway")
     monkeypatch.delenv("DATABASE_URL", raising=False)
 
     def missing_ci_policy(cls, path=None):

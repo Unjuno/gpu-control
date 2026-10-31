@@ -21,8 +21,10 @@ PYTHONPATH="$PWD/gateway:$PWD/src" /Users/taka/Documents/ChatGPT/Gpuラッパリ
 The suite imports the actual `gateway/app.py` Vercel entrypoint with both a
 missing workload registry and an injected CI policy file read failure. It
 verifies that health/readiness remain available and the optional CI bridge
-returns 503. This complements the direct `create_app()` test; it still does
-not reproduce the Vercel runtime environment.
+returns 503 under `VERCEL=1`, a production HTTPS origin, and a syntactically
+valid PostgreSQL URL. No database connection is made. This complements the
+direct `create_app()` test; it still does not reproduce the Vercel runtime
+environment or verify Preview environment variables.
 
 Additional focused verification after adding the CI policy boundary:
 
