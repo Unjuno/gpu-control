@@ -127,3 +127,14 @@ readiness as unproven.
 P0 remains **partially complete and open**. This refresh strengthens current
 external-state evidence but does not close any ChatGPT, production-readiness,
 or end-user acceptance gate.
+
+### Readiness-preview reachability — 2026-10-31 15:22 JST
+
+PR #62 remains OPEN/DRAFT at
+`fd5932c596426cd2add7a5d6af0d2a757f35ef38`; its Actions and Vercel checks
+pass. The anonymous read-only probe to its READY preview returned HTTP 302 to
+Vercel SSO for both `/healthz` and `/readyz`. The application response and
+readiness contract therefore remain unobserved on that candidate. This is
+consistent with deployment protection, not evidence that the route itself
+fails. Production `/readyz` remains 404. No share/bypass token, Vercel
+configuration, deployment, or authentication credential was created or used.
