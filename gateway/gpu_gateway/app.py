@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
-from .auth import Auth, SCOPES, SESSION
+from .auth import Auth, READINESS_DIAGNOSTICS_SCOPE, SCOPES, SESSION, SUPPORTED_SCOPES
 from .admission import load_local_cpu_policy, local_cpu_workload_blocker
 from .artifacts import inspect_artifact_storage
 from .config import Settings, load_workloads
@@ -219,11 +219,12 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
 
     @app.get("/api/readiness")
     def readiness_details(request: Request):
-        """Expose operational diagnostics only to authenticated read clients."""
+        """Expose operational diagnostics only to authenticated operator clients."""
         ready()
         principal = auth.authenticate(request)
-        if "experiments:read" not in principal.scopes:
-            raise GatewayError("insufficient_scope", "Required scope: experiments:read", 403)
+        if READINESS_DIAGNOSTICS_SCOPE not in principal.scopes:
+            raise GatewayError("insufficient_scope",
+                               f"Required scope: {READINESS_DIAGNOSTICS_SCOPE}", 403)
         details = readiness_snapshot()
         return JSONResponse(details, status_code=200 if details["ready"] else 503,
                             headers={"Cache-Control": "no-store"})
@@ -239,7 +240,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
     def metadata():
         ready()
         return {"resource": settings.resource, "authorization_servers": [auth.authorization_server],
-                "scopes_supported": list(SCOPES), "bearer_methods_supported": ["header"]}
+                "scopes_supported": list(SUPPORTED_SCOPES), "bearer_methods_supported": ["header"]}
 
     @app.get("/auth/login")
     def login(request: Request):

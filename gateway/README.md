@@ -122,8 +122,8 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    after successful setup. Do not run bootstrap in external OIDC mode or against
    a production database before its paired backup/restore and migration gates pass.
 6. Deploy the Web/API application. `/healthz` reports liveness; public `/readyz`
-   returns only aggregate readiness. Authenticated readers with
-   `experiments:read` can inspect database/migration state, execution-worker and
+   returns only aggregate readiness. Authenticated operators with
+   `gateway:ops:read` can inspect database/migration state, execution-worker and
    recovery-supervisor heartbeats, authentication, workload/admission and
    artifact readiness at `/api/readiness`.
 7. Run `gpu-control-worker.service` and `gpu-control-supervisor.service`

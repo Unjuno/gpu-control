@@ -138,10 +138,12 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
 
     meta = client.get("/.well-known/oauth-protected-resource/mcp").json()
     assert meta["authorization_servers"] == ["https://gateway.example"]
+    assert "gateway:ops:read" in meta["scopes_supported"]
     discovery = client.get("/.well-known/oauth-authorization-server").json()
     assert discovery["registration_endpoint"].endswith("/oauth/register")
     assert discovery["revocation_endpoint"] == "https://gateway.example/oauth/revoke"
     assert "offline_access" in discovery["scopes_supported"]
+    assert "gateway:ops:read" in discovery["scopes_supported"]
     assert "refresh_token" in discovery["grant_types_supported"]
 
     registered = client.post("/oauth/register", json={
@@ -159,7 +161,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": "https://chatgpt.com/oauth/callback/test",
-        "scope": "experiments:read offline_access",
+        "scope": "experiments:read gateway:ops:read offline_access",
         "resource": settings.resource,
         "state": "state-1",
         "code_challenge": challenge(verifier),
@@ -183,6 +185,12 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     token_data = tokens.json()
     assert token_data["token_type"] == "Bearer"
     assert token_data["refresh_token"].startswith("gr_")
+    assert "gateway:ops:read" in token_data["scope"].split()
+
+    readiness = client.get("/api/readiness", headers={
+        "Authorization": "Bearer " + token_data["access_token"],
+    })
+    assert "schema_version" in readiness.json()
 
     headers = {
         "Authorization": "Bearer " + token_data["access_token"],
