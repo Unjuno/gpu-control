@@ -35,6 +35,8 @@ jobs:
           version: "0.10.0"
       - name: Install isolated gateway test dependencies
         run: python -m pip install -r requirements-test.txt -r requirements-worker.txt
+      - name: Install the repository package under test
+        run: python -m pip install -e ..
       - name: Verify Linux systemd deployment templates
         run: bash deploy/verify_systemd_units_ci.sh
       - name: Build Gateway wheel from PEP 621 metadata
@@ -45,8 +47,8 @@ jobs:
         env:
           UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/gateway-runtime-venv
         run: |
-          uv sync --project gateway --locked --no-dev
-          uv run --project gateway --locked --no-dev python -c 'import gpu_control, gpu_gateway; print("runtime imports ok")'
+          uv sync --project gateway --all-packages --locked --no-dev
+          uv run --project gateway --all-packages --locked --no-dev python -c 'import gpu_control, gpu_gateway; print("runtime imports ok")'
       - name: Start a dedicated stoppable PostgreSQL test container
         shell: bash
         run: |
