@@ -47,6 +47,12 @@ def test_provider_account_lease_excludes_a_second_run_until_confirmed_release(tm
             authorization_id="auth-test", lease_token=lease.lease_token,
             request_challenge={"env": {key_name: "test-placeholder"}}, now=100,
         )
+    assert not store.bind_provider_account_lease_challenge(
+        account_scope=scope, run_id=first_run, owner="owner-a",
+        plan_fingerprint=plan, core_plan_fingerprint="e" * 64,
+        authorization_id="auth-test", lease_token=lease.lease_token,
+        request_challenge={"env": ({"private_key": "test-placeholder"},)}, now=100,
+    )
     deeply_nested = {"level": None}
     cursor = deeply_nested
     for _ in range(70):

@@ -22,6 +22,11 @@ The provider account lease test adds regression inputs for
 - The recursive key scan now fails closed beyond 64 container levels, so deeply
   nested untrusted adapter challenges cannot exhaust Python recursion while
   searching for secret key names. A 70-level regression fixture covers this.
+- The scan also covers tuples, which Python's JSON encoder accepts and converts
+  to arrays. A secret key inside a nested tuple is rejected before persistence.
+- Revalidation after this tuple fix, from the PR #64 worktree's Gateway venv:
+  `python -m pytest -o addopts= -q tests/test_provider_account_leases.py`
+  passed **16 tests**, with one existing Starlette deprecation warning.
 - Revalidation on the PR #64 candidate worktree with its own dependency
   environment: `gateway/tests/test_provider_account_leases.py` **16 passed**;
   one existing Starlette deprecation warning. The worktree was at source base

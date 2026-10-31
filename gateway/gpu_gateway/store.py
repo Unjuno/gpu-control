@@ -336,7 +336,9 @@ class Store:
                         or contains_secret_key(item, depth + 1)
                         for key, item in value.items()
                     )
-                if isinstance(value, list):
+                # json.dumps accepts tuples and serializes them as arrays too.
+                # Scan the same container shapes before persisting the normalized JSON.
+                if isinstance(value, (list, tuple)):
                     return any(contains_secret_key(item, depth + 1) for item in value)
                 return False
 
