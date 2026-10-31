@@ -122,7 +122,9 @@ os._exit(74)
                            check=True, capture_output=True, text=True, timeout=10).stdout.split()
     assert len(found) == 1
     crashed_row = system.store.read(created["id"])
-    assert crashed_row["submission_intent"]["phase"] == "dispatching"
+    # The dispatch fence is durable before provider I/O begins; after a worker
+    # crash, recovery must treat this boundary as ambiguous and reconcile it.
+    assert crashed_row["submission_intent"]["phase"] == "provider_call_started"
     assert crashed_row["submission_intent"]["attempt"] == 1
 
     # Force the persisted lease to expire, as would happen after process death.

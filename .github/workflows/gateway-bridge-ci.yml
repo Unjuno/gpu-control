@@ -30,9 +30,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install isolated gateway test dependencies
-        run: python -m pip install -r gateway/requirements-test.txt
-      - name: Install the repository package under test
-        run: python -m pip install -e .
+        working-directory: gateway
+        run: python -m pip install -r requirements-test.txt
       - name: Comment, identity, HTTP and real service/queue tests
         env:
           PYTHONPATH: gateway
