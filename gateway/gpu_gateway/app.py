@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import html
 import json
 from pathlib import Path
+import secrets
 import time
 from urllib.parse import parse_qs, urlencode
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -49,7 +51,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-        if request.url.path.startswith(("/api", "/mcp", "/auth")):
+        if request.url.path.startswith(("/api", "/mcp", "/auth", "/oauth")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -248,12 +250,52 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
             next_path = request.url.path + ("?" + request.url.query if request.url.query else "")
             return RedirectResponse("/auth/login?" + urlencode({"next": next_path}), 303)
         params = dict(request.query_params)
-        code = auth.local.authorize(params, session_token)
-        query = {"code": code}
-        if params.get("state"):
-            query["state"] = params["state"]
-        separator = "&" if "?" in params["redirect_uri"] else "?"
-        return RedirectResponse(params["redirect_uri"] + separator + urlencode(query), 303)
+        authorization = auth.local.authorization_request(params, session_token)
+        hidden = "".join(
+            "<input type='hidden' name='" + html.escape(key, quote=True) + "' value='" +
+            html.escape(str(value), quote=True) + "'>"
+            for key, value in params.items()
+        )
+        hidden += "<input type='hidden' name='csrf' value='" + html.escape(
+            authorization["session"]["csrf"], quote=True
+        ) + "'>"
+        client_name = html.escape(authorization["client"]["client_name"])
+        scopes = html.escape(authorization["scope"])
+        return HTMLResponse(
+            "<!doctype html><html><head><meta charset='utf-8'><title>Authorize client</title>"
+            "<link rel='stylesheet' href='/static/style.css'></head><body><main>"
+            "<h1>Authorize client</h1><p><strong>" + client_name + "</strong> is requesting:</p>"
+            "<p>" + scopes + "</p><form method='post' action='/oauth/authorize'>" + hidden +
+            "<button type='submit' name='decision' value='approve'>Approve</button> "
+            "<button type='submit' name='decision' value='deny'>Deny</button>"
+            "</form></main></body></html>",
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+
+    @app.post("/oauth/authorize")
+    async def oauth_authorize_post(request: Request):
+        ready()
+        if auth.external or auth.local is None:
+            raise GatewayError("not_found", "Built-in OAuth server is not enabled", 404)
+        values = await form(request)
+        session_token = request.cookies.get(SESSION, "")
+        authorization = auth.local.authorization_request(values, session_token)
+        supplied_csrf = values.pop("csrf", "")
+        expected_csrf = authorization["session"]["csrf"]
+        if not supplied_csrf or not secrets.compare_digest(supplied_csrf, expected_csrf):
+            raise GatewayError("csrf_failed", "Authorization approval failed CSRF validation", 403)
+        decision = values.pop("decision", "")
+        if decision == "approve":
+            code = auth.local.authorize(values, session_token, supplied_csrf)
+            query = {"code": code}
+        elif decision == "deny":
+            query = {"error": "access_denied"}
+        else:
+            raise GatewayError("invalid_request", "Authorization decision is required", 400)
+        if values.get("state"):
+            query["state"] = values["state"]
+        separator = "&" if "?" in values["redirect_uri"] else "?"
+        return RedirectResponse(values["redirect_uri"] + separator + urlencode(query), 303)
 
     @app.post("/oauth/token")
     async def oauth_token(request: Request):

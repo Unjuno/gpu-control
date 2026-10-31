@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from sqlalchemy import JSON, Boolean, Column, Integer, String, Table, Text, delete, insert, select, update
+from sqlalchemy import JSON, Boolean, Column, Integer, String, Table, Text, delete, insert, or_, select, update
 
 from .service import GatewayError
 from .store import metadata
@@ -49,6 +49,7 @@ oauth_clients = Table(
     Column("client_name", String(160), nullable=False),
     Column("created_at", Integer, nullable=False),
     Column("expires_at", Integer, nullable=False),
+    Column("persistent", Boolean, nullable=False, default=False, server_default="false"),
 )
 oauth_codes = Table(
     "gateway_oauth_codes_v1", metadata,
@@ -266,14 +267,16 @@ class LocalOAuth:
         now = int(time.time())
         expires_at = now + 3600
         with self.store.transaction() as c:
-            c.execute(delete(oauth_clients).where(oauth_clients.c.expires_at <= now))
+            c.execute(delete(oauth_clients).where(
+                oauth_clients.c.persistent.is_(False), oauth_clients.c.expires_at <= now,
+            ))
             existing = c.execute(select(oauth_clients).where(
                 oauth_clients.c.client_id == client_id
             ).with_for_update()).mappings().first()
             if existing is None:
                 c.execute(insert(oauth_clients).values(
                     client_id=client_id, redirect_uris=redirect_uris, client_name=name,
-                    created_at=now, expires_at=expires_at,
+                    created_at=now, expires_at=expires_at, persistent=False,
                 ))
             else:
                 c.execute(update(oauth_clients).where(
@@ -294,7 +297,7 @@ class LocalOAuth:
         with self.store.engine.connect() as c:
             row = c.execute(select(oauth_clients).where(
                 oauth_clients.c.client_id == client_id,
-                oauth_clients.c.expires_at > now,
+                or_(oauth_clients.c.persistent.is_(True), oauth_clients.c.expires_at > now),
             )).mappings().first()
         if row is None:
             raise GatewayError("invalid_client", "Unknown or expired OAuth client", 400)
@@ -306,7 +309,7 @@ class LocalOAuth:
             raise GatewayError("invalid_scope", "Unsupported OAuth scope", 400)
         return " ".join(dict.fromkeys(requested))
 
-    def authorize(self, params: dict, session_token: str) -> str:
+    def authorization_request(self, params: dict, session_token: str) -> dict:
         client_id = params.get("client_id", "")
         redirect_uri = params.get("redirect_uri", "")
         if params.get("response_type") != "code":
@@ -321,14 +324,25 @@ class LocalOAuth:
             raise GatewayError("invalid_request", "Valid PKCE code_challenge is required", 400)
         if params.get("resource") != self.resource:
             raise GatewayError("invalid_target", "OAuth resource must match the MCP resource", 400)
-        self.session(session_token)
+        session = self.session(session_token)
         scope = self._scope(params.get("scope"))
+        return {"client": client, "scope": scope, "session": session}
+
+    def authorize(self, params: dict, session_token: str, csrf: str) -> str:
+        request = self.authorization_request(params, session_token)
+        expected_csrf = request["session"]["csrf"]
+        if not isinstance(csrf, str) or not csrf or not secrets.compare_digest(csrf, expected_csrf):
+            raise GatewayError("csrf_failed", "Authorization approval failed CSRF validation", 403)
+        client_id = params.get("client_id", "")
+        redirect_uri = params.get("redirect_uri", "")
+        challenge = params.get("code_challenge", "")
+        scope = request["scope"]
         raw = "gc_" + secrets.token_urlsafe(32)
         now = int(time.time())
         with self.store.transaction() as c:
             c.execute(update(oauth_clients).where(
                 oauth_clients.c.client_id == client_id
-            ).values(expires_at=now + 30 * 86400))
+            ).values(expires_at=now + 30 * 86400, persistent=True))
             c.execute(insert(oauth_codes).values(
                 code_hash=_sha(raw), client_id=client_id, redirect_uri=redirect_uri,
                 scope=scope, resource=self.resource, code_challenge=challenge,

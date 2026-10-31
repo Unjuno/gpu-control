@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import re
 import secrets
 import threading
 import time
@@ -13,13 +14,25 @@ from sqlalchemy import select
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
 from gpu_gateway.config import Settings, Workload
-from gpu_gateway.local_oauth import LocalOAuth, oauth_tokens
+from gpu_gateway.local_oauth import LocalOAuth, oauth_clients, oauth_tokens
 from gpu_gateway.service import ExperimentService, GatewayError
 from gpu_gateway.store import Store
 
 
 def challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+
+
+def approve(client: TestClient, params: dict):
+    consent = client.get("/oauth/authorize", params=params, follow_redirects=False)
+    assert consent.status_code == 200
+    csrf = re.search(r"name='csrf' value='([^']+)'", consent.text)
+    assert csrf is not None
+    return client.post(
+        "/oauth/authorize",
+        data={**params, "csrf": csrf.group(1), "decision": "approve"},
+        follow_redirects=False,
+    )
 
 
 def test_refresh_rotation_and_grant_revocation_are_atomic(tmp_path, monkeypatch):
@@ -165,7 +178,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
         "code_challenge": challenge(verifier),
         "code_challenge_method": "S256",
     }
-    authorized = client.get("/oauth/authorize", params=params, follow_redirects=False)
+    authorized = approve(client, params)
     assert authorized.status_code == 303
     query = parse_qs(urlsplit(authorized.headers["location"]).query)
     assert query["state"] == ["state-1"]
@@ -305,7 +318,7 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
         "scope":"experiments:read", "resource":settings.resource,
         "code_challenge":challenge(verifier), "code_challenge_method":"S256",
     }
-    authorized = client.get("/oauth/authorize", params=params, follow_redirects=False)
+    authorized = approve(client, params)
     code = parse_qs(urlsplit(authorized.headers["location"]).query)["code"][0]
     failed = client.post("/oauth/token", data={
         "grant_type":"authorization_code", "client_id":client_id, "code":code,
@@ -313,6 +326,67 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
         "resource":settings.resource,
     })
     assert failed.status_code == 400
+
+
+def test_authorization_requires_explicit_csrf_protected_consent(tmp_path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'consent.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    service = ExperimentService(store, settings, {"demo": Workload(provider="demo")})
+    auth = Auth(settings, store=store)
+    auth.local.seed_bootstrap("bootstrap-secret")
+    auth.local.bootstrap_admin("bootstrap-secret", "correct horse battery staple")
+    client = TestClient(create_app(settings, service=service, auth=auth),
+                        base_url="https://gateway.example")
+    client.post("/auth/login", data={"password": "correct horse battery staple", "next": "/"})
+    client_id = client.post("/oauth/register", json={
+        "client_name": "ChatGPT consent test",
+        "redirect_uris": ["https://chatgpt.com/oauth/callback/test"],
+    }).json()["client_id"]
+    verifier = secrets.token_urlsafe(48)
+    params = {
+        "response_type": "code", "client_id": client_id,
+        "redirect_uri": "https://chatgpt.com/oauth/callback/test",
+        "scope": "experiments:read", "resource": settings.resource,
+        "state": "consent-state", "code_challenge": challenge(verifier),
+        "code_challenge_method": "S256",
+    }
+
+    consent = client.get("/oauth/authorize", params=params, follow_redirects=False)
+    assert consent.status_code == 200
+    assert "ChatGPT consent test" in consent.text
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is False
+
+    rejected = client.post("/oauth/authorize", data={
+        **params, "csrf": "wrong", "decision": "approve",
+    }, follow_redirects=False)
+    assert rejected.status_code == 403
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is False
+
+    csrf = re.search(r"name='csrf' value='([^']+)'", consent.text).group(1)
+    denied = client.post("/oauth/authorize", data={
+        **params, "csrf": csrf, "decision": "deny",
+    }, follow_redirects=False)
+    assert denied.status_code == 303
+    denied_query = parse_qs(urlsplit(denied.headers["location"]).query)
+    assert denied_query == {"error": ["access_denied"], "state": ["consent-state"]}
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is False
+
+    approved = client.post("/oauth/authorize", data={
+        **params, "csrf": csrf, "decision": "approve",
+    }, follow_redirects=False)
+    assert approved.status_code == 303
+    assert "code" in parse_qs(urlsplit(approved.headers["location"]).query)
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is True
 
 
 def test_local_oauth_failed_login_rate_limit_persists_and_expires(tmp_path, monkeypatch):
@@ -362,3 +436,56 @@ def test_dcr_registration_is_idempotent_and_reclaimable(tmp_path):
     second = client.post("/oauth/register", json=payload)
     assert first.status_code == 201 and second.status_code == 201
     assert first.json()["client_id"] == second.json()["client_id"]
+
+
+def test_consented_dcr_client_survives_expiry_for_reauthorization(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'persistent-dcr.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    local.seed_bootstrap("setup-token")
+    local.bootstrap_admin("setup-token", "correct horse battery staple")
+    session = local.login("correct horse battery staple")
+    client_id = local.register_client({
+        "client_name": "ChatGPT persistent client",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })["client_id"]
+    verifier = secrets.token_urlsafe(48)
+    local.authorize({
+        "response_type": "code", "client_id": client_id,
+        "redirect_uri": "https://chatgpt.com/connector_platform_oauth_redirect",
+        "scope": "experiments:read offline_access", "resource": settings.resource,
+        "state": "first", "code_challenge": challenge(verifier),
+        "code_challenge_method": "S256",
+    }, session.token, session.csrf)
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == client_id)).scalar_one() is True
+
+    now[0] += 31 * 86400
+    assert local._client(client_id)["client_id"] == client_id
+
+
+def test_expired_unconsented_dcr_client_is_pruned(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'provisional-dcr.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    first = local.register_client({
+        "client_name": "Unapproved client",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    })["client_id"]
+    now[0] += 3601
+    local.register_client({
+        "client_name": "Second client",
+        "redirect_uris": ["https://chatgpt.com/oauth/callback/second"],
+    })
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.client_id).where(
+            oauth_clients.c.client_id == first)).first() is None

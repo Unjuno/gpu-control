@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy import Column, Integer, MetaData, Table, inspect, insert, select, update
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -111,4 +111,28 @@ def migrate(engine) -> int:
                 )
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=7))
             current = 7
+        if current < 8:
+            tables = set(inspect(connection).get_table_names())
+            clients = "gateway_oauth_clients_v1"
+            if clients in tables:
+                if "persistent" not in _columns(connection, clients):
+                    default = "FALSE" if engine.dialect.name == "postgresql" else "0"
+                    connection.exec_driver_sql(
+                        f'ALTER TABLE "{clients}" ADD COLUMN "persistent" '
+                        f'BOOLEAN NOT NULL DEFAULT {default}'
+                    )
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=8))
+            current = 8
+        if current < 9:
+            tables = set(inspect(connection).get_table_names())
+            clients = "gateway_oauth_clients_v1"
+            if clients in tables and "persistent" in _columns(connection, clients):
+                # Schema v8 incorrectly inferred consent from historical token
+                # rows. No legacy field proves explicit owner consent, so reset
+                # every client and require the new consent POST to persist it.
+                connection.execute(update(Table(
+                    clients, MetaData(), autoload_with=connection
+                )).values(persistent=False))
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=9))
+            current = 9
     return current
