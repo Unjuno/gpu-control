@@ -4,7 +4,8 @@
 
 - PR: https://github.com/Unjuno/gpu-control/pull/65
 - Original source-fix commit: `a9d610d3682f1985a65280da05619462a5825cd1`
-- Entrypoint regression was added in `36a26af4b4f5abfb667d177b560e5b0e37e52a77`.
+- CI bridge fail-closed source commit: `f9e691f5af6267f9599f89f7bc160b8dbf583a5d`
+- Hosted-environment regression commit: `faedd8c474a38d851ce9e27adee30fb118059446`
 - Base: PR #62 head `317240d2224e05e23aa5bb190ce7a4f0fc101c01`
 - Change: classify `OSError` while loading Gateway settings/workloads as invalid configuration and keep health/readiness routes available. If optional CI bridge policy loading fails, keep the Gateway up and expose that bridge as unconfigured (503). Cover both cases through the deployed entrypoint.
 - Repository parked mode and all live GPU/paid execution gates remain unchanged.
@@ -33,28 +34,27 @@ PYTHONPATH="$PWD/gateway:$PWD/src" /Users/taka/Documents/ChatGPT/Gpuラッパリ
 116 passed, 1 skipped, 1 existing Starlette deprecation warning
 ```
 
-`git diff --check` passed before the commits. The source changes are limited to
-`gateway/gpu_gateway/app.py` and `gateway/tests/test_http_auth.py`; this
-acceptance record is the third changed path. A read-only Security Review of
-the source-fix branch diff found no issues before the entrypoint test was
-added; this is not a GitHub review or deployment approval.
+`git diff --check` passed before the commits. Source changes are limited to
+`gateway/gpu_gateway/app.py`, `gateway/gpu_gateway/ci_routes.py`, and
+`gateway/tests/test_http_auth.py`; this acceptance record is the fourth path.
+A read-only Security Review of the original source-fix branch diff found no
+issues, before the later CI policy handling change; it is not a GitHub review
+or deployment approval.
 
 ## CI and Preview
 
-Checks for the previous head all passed: Python 3.11/3.12/3.13, trusted
+Checks for the latest head all passed: Python 3.11/3.12/3.13, trusted
 reference container, Gateway offline tests, Gateway comment bridge tests,
-Project bridge tests, Vercel deployment, and Vercel Preview Comments. The new
-CI policy error path is a local candidate until its new-head CI completes.
+Project bridge tests, Vercel deployment, and Vercel Preview Comments.
 
-The READY Preview deployment sourced from the latest PR head `3cd5e70` is
-`dpl_FNRCNLmVN4KEj7REHQuAQEhJ5U3w`
-(`gpu-control-3xm2hhx73-unjunos-projects.vercel.app`), sourced before the
-latest CI policy hardening. Protected GET requests on 2026-10-31 at 07:26 UTC
-to `/healthz` and `/readyz` both returned HTTP 500
+The READY Preview deployment sourced from the latest source commit `f9e691f`
+is `dpl_3fhLVFC76Q8ANG3yxtYBqdVs8eo1`
+(`gpu-control-bvz68fejv-unjunos-projects.vercel.app`). Protected GET requests
+on 2026-10-31 at 07:30 UTC to `/healthz` and `/readyz` both returned HTTP 500
 `FUNCTION_INVOCATION_FAILED` before an application response. Request IDs:
 
-- `/healthz`: `hnd1:iad1::m6vm9-1793431582511-62a522aeb066`
-- `/readyz`: `hnd1:iad1::9lkp2-1793431585206-4509e46158ec`
+- `/healthz`: `hnd1:iad1::h2hdh-1793431819894-4de6a6d3f778`
+- `/readyz`: `hnd1:iad1::ghd2d-1793431825513-7120d64b18d7`
 
 Vercel runtime-log queries scoped to the deployment and request ID returned no
 records. Thus the missing-workload-file exception path is fixed and locally
