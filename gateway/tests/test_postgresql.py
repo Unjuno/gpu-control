@@ -10,6 +10,7 @@ from sqlalchemy import select, update
 from gpu_gateway.config import Settings, Workload
 from gpu_gateway.service import ExperimentService, Prepare, Principal
 from gpu_gateway.store import Store, control, runs
+from gpu_gateway.migrations import migrate, schema_version
 from gpu_gateway.worker import Worker
 from gpu_gateway.backends import DemoBackend
 
@@ -85,4 +86,24 @@ def test_postgres_worker_lease_has_one_current_owner():
 
     for worker in workers:
         worker.store.engine.dispose()
+    store.engine.dispose()
+
+
+def test_postgres_v4_to_v5_adds_supervisor_heartbeat_without_changing_worker_heartbeat():
+    url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('requires a dedicated PostgreSQL test database')
+    store = Store(url)
+    store.initialize()
+    worker_seen = int(time.time())
+    with store.engine.begin() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(worker_seen_at=worker_seen))
+        connection.exec_driver_sql('ALTER TABLE gateway_control_v1 DROP COLUMN supervisor_seen_at')
+        connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
+
+    assert migrate(store.engine) == 5
+    with store.engine.connect() as connection:
+        row = connection.execute(select(control.c.worker_seen_at, control.c.supervisor_seen_at)
+                                 .where(control.c.id == 1)).one()
+    assert row == (worker_seen, 0)
     store.engine.dispose()

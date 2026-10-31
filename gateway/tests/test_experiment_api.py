@@ -9,7 +9,8 @@ from gpu_gateway.experiment_api import invoke
 from gpu_gateway.protocol import CHATGPT_NAMES, dispatch, tools
 from gpu_gateway.registry import ProviderRegistration
 from gpu_gateway.service import GatewayError, Prepare, Principal
-from gpu_gateway.store import runs
+from gpu_gateway.store import control, runs
+from gpu_gateway.worker import Worker
 
 REPOSITORY = "Unjuno/gpu-control"
 SOURCE_SHA = "a" * 40
@@ -40,6 +41,118 @@ def test_capabilities_do_not_describe_demo_as_executable(system):
     result = invoke(system.service, system.owner, "experiment_capabilities", {})
     assert result["status"] == "blocked"
     assert result["blocking_reason"] == "NO_EXECUTABLE_WORKLOAD"
+
+
+def test_worker_does_not_start_provider_if_cancel_wins_dispatch_claim(system, monkeypatch):
+    prepared = system.service.prepare(
+        system.owner,
+        Prepare(workload="demo", parameters={}, runtime_seconds=30,
+                max_cost_usd="0.10", idempotency_key="cancel-before-dispatch-001"),
+    )
+    run_id = prepared["id"]
+    system.service.approve(system.browser, run_id, prepared["fingerprint"])
+    system.service.submit(system.owner, run_id)
+
+    class Backend:
+        started = 0
+
+        def start(self, _job):
+            self.started += 1
+            return {"id": "must-not-start"}
+
+    backend = Backend()
+    original_confirm = system.store.confirm_submission_dispatch
+
+    def cancel_then_claim(**kwargs):
+        system.service.cancel(system.owner, run_id)
+        return original_confirm(**kwargs)
+
+    monkeypatch.setattr(system.store, "confirm_submission_dispatch", cancel_then_claim)
+    worker = Worker(system.store, system.service.settings, {"demo": backend},
+                    system.clock, registry=system.service.registry)
+
+    assert worker.tick() is True
+    saved = system.store.read(run_id)
+    assert saved["cancel_requested"] is True
+    assert saved["state"] == "cancelled"
+    assert saved["error"] == "cancelled_before_submission"
+    assert backend.started == 0
+    with system.store.engine.connect() as connection:
+        assert connection.execute(select(control.c.active_count)).scalar_one() == 0
+
+
+def test_worker_does_not_start_provider_if_lease_expires_before_dispatch_claim(system, monkeypatch):
+    prepared = system.service.prepare(
+        system.owner,
+        Prepare(workload="demo", parameters={}, runtime_seconds=30,
+                max_cost_usd="0.10", idempotency_key="lease-expires-before-dispatch-001"),
+    )
+    run_id = prepared["id"]
+    system.service.approve(system.browser, run_id, prepared["fingerprint"])
+    system.service.submit(system.owner, run_id)
+
+    class Backend:
+        started = 0
+
+        def start(self, _job):
+            self.started += 1
+            return {"id": "must-not-start"}
+
+    backend = Backend()
+    original_confirm = system.store.confirm_submission_dispatch
+
+    def expire_lease_before_claim(**kwargs):
+        system.clock.advance(121)
+        return original_confirm(**kwargs)
+
+    monkeypatch.setattr(system.store, "confirm_submission_dispatch", expire_lease_before_claim)
+    worker = Worker(system.store, system.service.settings, {"demo": backend},
+                    system.clock, registry=system.service.registry)
+
+    assert worker.tick() is True
+    saved = system.store.read(run_id)
+    assert saved["attempt"] == 1
+    assert saved["submission_intent"]["phase"] == "dispatching"
+    assert backend.started == 0
+
+
+def test_worker_expires_run_if_approval_expires_before_dispatch_claim(system, monkeypatch):
+    prepared = system.service.prepare(
+        system.owner,
+        Prepare(workload="demo", parameters={}, runtime_seconds=30,
+                max_cost_usd="0.10", idempotency_key="approval-expires-before-dispatch-001"),
+    )
+    run_id = prepared["id"]
+    system.service.approve(system.browser, run_id, prepared["fingerprint"])
+    system.service.submit(system.owner, run_id)
+
+    class Backend:
+        started = 0
+
+        def start(self, _job):
+            self.started += 1
+            return {"id": "must-not-start"}
+
+    backend = Backend()
+    original_confirm = system.store.confirm_submission_dispatch
+
+    def expire_approval_before_claim(**kwargs):
+        with system.store.transaction() as connection:
+            connection.execute(runs.update().where(runs.c.id == run_id).values(
+                approved_until=int(system.clock()) + 1,
+            ))
+        system.clock.advance(2)
+        return original_confirm(**kwargs)
+
+    monkeypatch.setattr(system.store, "confirm_submission_dispatch", expire_approval_before_claim)
+    worker = Worker(system.store, system.service.settings, {"demo": backend},
+                    system.clock, registry=system.service.registry)
+
+    assert worker.tick() is True
+    saved = system.store.read(run_id)
+    assert saved["state"] == "expired"
+    assert saved["error"] == "approval_expired_before_submission"
+    assert backend.started == 0
 
 
 def test_prepare_blocks_unregistered_or_unsafe_backend_without_creating_run(system):

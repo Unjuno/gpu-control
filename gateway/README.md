@@ -1,6 +1,7 @@
-# GPU Control Gateway
+# GPU Control Experiment Gateway
 
-Additive gateway for **Modal + the existing RunPod pipeline**. Existing `src/`,
+Additive gateway for ChatGPT-driven experiments. The first real execution path is
+an operator-registered, digest-pinned local CPU smoke container. Existing `src/`,
 RunPod adapters, policy files, `uv.lock`, and existing workflows are unchanged.
 This is a separate optional deployment, not a replacement for RunPod CI.
 
@@ -14,7 +15,11 @@ This is a separate optional deployment, not a replacement for RunPod CI.
 - WebMCP registration via feature-detected `document.modelContext.registerTool`.
   Unsupported browsers keep the ordinary dashboard. Approval is NOT an MCP tool.
 - Durable PostgreSQL queue, owned experiments, atomic admission, idempotency,
-  expiring approval, worker leases and ambiguous-submission reconciliation.
+  expiring approval, worker leases, recovery-only supervision and
+  ambiguous-submission reconciliation.
+- Disabled-by-default `local_cpu` admission and a Docker worker backend with
+  non-root, no-network, read-only, resource-bounded CPU containers. Results are
+  persisted before cleanup; worker and PostgreSQL restart recovery is tested.
 - Modal Sandbox backend using prebuilt images, fixed argv, bounded runtime,
   blocked network, bounded logs and structured last-line JSON metrics.
 - Provider registry shared by API and worker; a tested third-provider extension.
@@ -24,12 +29,12 @@ This is a separate optional deployment, not a replacement for RunPod CI.
 
 ## What this does not claim
 
-Local tests use synthetic providers, fake Modal calls and generated JWTs. They do
-not prove live Modal, real OAuth-provider/ChatGPT/browser-agent interoperability,
-Vercel deployment or existing RunPod end-to-end success. An official MCP SDK client
-interoperability test remains a deployment acceptance item; this is not a complete
-implementation of every optional MCP feature. Existing upstream tests were not
-rerun in the isolated implementation environment; the PR retains them unchanged.
+Local test runs include synthetic providers, generated JWTs and real local Docker
+and PostgreSQL fault-injection tests. They do not prove live ChatGPT/OAuth
+interoperability, HTTPS deployment, or provider GPU execution. The local CPU
+admission policy remains disabled by default. An official MCP client and actual
+ChatGPT conversation acceptance are still required. This is not a complete
+implementation of every optional MCP feature.
 
 No billable compute is enabled by merely adding these files. No provider credential
 is stored here. **Do not enable a provider until you have reviewed its registered
@@ -39,17 +44,27 @@ access. The RunPod bridge is an extension seam, not an already-connected Web pat
 ## Topology
 
 ```text
-ChatGPT / Remote MCP client -> /mcp -----+
+ChatGPT / Remote MCP client -> HTTPS /mcp -----+
 Browser / WebMCP -> /api/tools ---------+-> ExperimentService -> PostgreSQL
 Browser human approval -> /api/approvals+
                                                  |
-                                     independent CPU worker
+                                     independent local CPU worker
                                                  |
-                                   Modal / existing RunPod bridge
+                                  isolated digest-pinned container
 ```
 
 Long GPU work never occupies a Vercel request. API requests reserve a durable job;
 worker invocations consume it. The provider owns the GPU process lifetime.
+
+`docker-compose.yml` is a **demo-only** stack: it runs the simulated `demo`
+provider and is not a local CPU execution deployment. `Dockerfile.worker` does
+not include Docker CLI or daemon access. The `local_cpu` backend requires an
+operator-managed worker host with Docker CLI access to a dedicated daemon. Access
+to `/var/run/docker.sock` is effectively host-root authority; if a container is
+used for that worker, grant socket access only on a dedicated trusted host and
+only to the worker. Never mount it into the public API or share that daemon with
+untrusted workloads. The job containers themselves are further restricted, but
+those restrictions do not remove the worker's authority over its daemon.
 
 ## Local installation and tests (no GPU)
 
@@ -87,9 +102,15 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    `GATEWAY_PUBLIC_URL` to the exact stable HTTPS origin, without a trailing path.
 4. Run `python -m gpu_gateway.worker --init-db` once against that database from a
    trusted operator environment. Schema creation is never triggered by an HTTP call.
-5. Deploy the Web/API application. Check `/healthz`, OAuth metadata, login, prepare,
-   explicit approval and simulation before registering a real GPU workload.
-6. Run a CPU worker sharing that database. A Vercel deployment alone does NOT run it.
+5. Deploy the Web/API application. `/healthz` reports liveness; `/readyz` reports
+   database/migration state, execution-worker and recovery-supervisor heartbeats,
+   authentication and workload-registry readiness.
+6. Run `gpu-control-worker.service` and `gpu-control-supervisor.service` against
+   that database. The supervisor claims expired active leases and may take over a
+   submitting intent after the worker heartbeat goes stale; it never takes newly
+   queued work. A Vercel deployment alone runs neither process.
+   The local Docker backend needs a dedicated worker host with Docker access;
+   never mount the Docker socket into the API container.
 
 Do not put `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, RunPod API/S3 credentials or an
 operator shell token into the Vercel frontend/API environment. They belong to the
@@ -133,10 +154,13 @@ when the token expires; it does not implement refresh-token storage/rotation.
 Oversized JWTs (> cookie capacity) require a future server-side session adapter.
 Neither login nor an MCP `approved=true` argument grants spending approval.
 
-Connect the remote MCP client to `https://YOUR_HOST/mcp`. Use the actual client's
-OAuth flow; do not paste Modal/RunPod credentials into ChatGPT. In the Web UI,
-approve the exact prepared plan, then submit from the UI or MCP. Native WebMCP
-requires a browser/agent exposing the current API; there is no misleading polyfill.
+See [`../docs/CHATGPT_SETUP.md`](../docs/CHATGPT_SETUP.md) for the current ChatGPT
+plan/permission, OAuth and live-acceptance gates. Connect to
+`https://YOUR_HOST/mcp`; do not paste provider credentials into ChatGPT. Human Web
+approval remains distinct from ChatGPT tool calls.
+
+See [`../docs/OPERATIONS.md`](../docs/OPERATIONS.md) for the PostgreSQL backup and
+isolated restore drill. A successful archive creation is not restore evidence.
 
 ## Worker placement
 
@@ -146,12 +170,32 @@ requires a browser/agent exposing the current API; there is no misleading polyfi
 cd gateway
 python -m pip install -r requirements-worker.txt
 python -m gpu_gateway.worker --poll-seconds 3
-# Alternatively build Dockerfile.worker and provide environment through a secret store.
+python -m gpu_gateway.worker --supervise --poll-seconds 3
+# Alternatively run these as separately supervised services with the shared secret store.
 ```
 
 The worker must stay available independently of browser sessions. Shutdown of the
 Web application must not disable worker recovery. A single global admission record
 limits in-flight jobs; an uncertain submission continues holding its slot.
+
+For `local_cpu`, install a Docker CLI compatible with the dedicated worker host's
+daemon and verify that the worker service identity can run `docker info` and
+inspect the exact digest-pinned image before enabling the policy. The API and
+worker must use the same operator-owned workload registry and policy file. Keep
+the policy disabled until the host, workload digest, resource limits, cleanup
+path and zero-provider-charge assumptions have been reviewed. The repository's
+demo Compose stack does not perform these steps and does not validate this path.
+
+`deploy/gpu-control-worker.service`, `deploy/gpu-control-supervisor.service` and
+`deploy/worker.env.example` are starting templates for a dedicated Linux host,
+not a tested installer. They assume the
+checkout is at `/opt/gpu-control`, its venv at `/opt/gpu-control/venv`, and the
+Docker daemon socket group is named `docker`; adjust and review those values for
+the host. Install the env file as root-owned mode 0600, keep workload and policy
+files operator-owned, then validate the service identities' DB and Docker access
+before enabling any policy. Neither service exposes an API listener. Both have
+the Docker daemon trust boundary; the supervisor needs access to cancel and clean
+only exact tracked resources.
 
 ### Modal CPU worker (no new GPU provider required)
 

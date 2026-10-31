@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import re
 
 from sqlalchemy import (JSON, Boolean, Column, Integer, MetaData, String, Table,
                         Text, UniqueConstraint, create_engine, insert, select, update)
@@ -44,6 +45,7 @@ control = Table(
     Column("id", Integer, primary_key=True),
     Column("active_count", Integer, nullable=False),
     Column("worker_seen_at", Integer, nullable=False),
+    Column("supervisor_seen_at", Integer, nullable=False, default=0, server_default="0"),
 )
 
 
@@ -62,7 +64,8 @@ class Store:
         metadata.create_all(self.engine)
         with self.engine.begin() as connection:
             if connection.execute(select(control.c.id).where(control.c.id == 1)).first() is None:
-                connection.execute(insert(control).values(id=1, active_count=0, worker_seen_at=0))
+                connection.execute(insert(control).values(id=1, active_count=0, worker_seen_at=0,
+                                                         supervisor_seen_at=0))
 
     @contextmanager
     def transaction(self):
@@ -90,6 +93,56 @@ class Store:
             row = connection.execute(select(runs).where(runs.c.id == run_id)).mappings().first()
             return dict(row) if row else None
 
-    def heartbeat(self, now: int):
+    def confirm_submission_dispatch(self, *, run_id: str, owner: str,
+                                    plan_fingerprint: str, run_lease_token: str,
+                                    attempt: int, now: int, clock=None) -> bool:
+        """Claim dispatch only while the worker lease and approval remain live."""
+        if (not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None or
+                not isinstance(owner, str) or not owner or len(owner) > 128 or
+                not isinstance(plan_fingerprint, str) or
+                re.fullmatch(r"[0-9a-f]{64}", plan_fingerprint) is None or
+                not isinstance(run_lease_token, str) or
+                re.fullmatch(r"[0-9a-f]{32}", run_lease_token) is None or
+                type(attempt) is not int or attempt < 1 or type(now) is not int or now < 0):
+            return False
         with self.transaction() as connection:
-            connection.execute(update(control).where(control.c.id == 1).values(worker_seen_at=now))
+            row = connection.execute(select(runs).where(
+                runs.c.id == run_id, runs.c.owner == owner,
+                runs.c.fingerprint == plan_fingerprint,
+                runs.c.lease_token == run_lease_token,
+                runs.c.lease_until > now, runs.c.state == "submitting",
+                runs.c.attempt == attempt, runs.c.cancel_requested.is_(False),
+            ).with_for_update()).mappings().first()
+            if row is None:
+                return False
+            # Read time after acquiring the row lock so work spent waiting for
+            # the lock cannot make a stale lease or approval look current.
+            dispatch_now = int(clock()) if clock is not None else now
+            if (dispatch_now < 0 or row["lease_until"] <= dispatch_now or
+                    row["approved_until"] <= dispatch_now):
+                return False
+            intent = row["submission_intent"]
+            if (not isinstance(intent, dict) or intent.get("run_id") != run_id or
+                    intent.get("owner") != owner or
+                    intent.get("plan_fingerprint") != plan_fingerprint or
+                    not isinstance(row["plan"], dict) or
+                    intent.get("provider") != row["plan"].get("provider") or
+                    type(intent.get("attempt")) is not int or intent["attempt"] != attempt or
+                    type(intent.get("created_at")) is not int or intent["created_at"] < 0 or
+                    intent.get("phase") != "dispatching"):
+                return False
+            changed = connection.execute(update(runs).where(
+                runs.c.id == run_id, runs.c.owner == owner,
+                runs.c.fingerprint == plan_fingerprint,
+                runs.c.lease_token == run_lease_token,
+                runs.c.lease_until > dispatch_now, runs.c.state == "submitting",
+                runs.c.attempt == attempt, runs.c.cancel_requested.is_(False),
+            ).values(submission_intent=intent | {"phase": "provider_call_started"}))
+            return changed.rowcount == 1
+
+    def heartbeat(self, now: int, *, role: str = "worker"):
+        if role not in {"worker", "supervisor"}:
+            raise ValueError("unsupported heartbeat role")
+        field = control.c.worker_seen_at if role == "worker" else control.c.supervisor_seen_at
+        with self.transaction() as connection:
+            connection.execute(update(control).where(control.c.id == 1).values({field.key: now}))

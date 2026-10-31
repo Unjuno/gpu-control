@@ -9,7 +9,7 @@ import uuid
 from urllib.parse import quote
 from decimal import Decimal
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 
 from .backends import Backend, build_backends
 from .config import Settings, load_workloads
@@ -20,6 +20,7 @@ from .admission import evaluate_admission, load_local_cpu_policy
 from .contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_binding
 
 logger = logging.getLogger(__name__)
+WORKER_HEARTBEAT_STALE_SECONDS = 15
 
 
 class Worker:
@@ -29,20 +30,34 @@ class Worker:
     keep their admission slot until an operator/provider supplies reliable evidence.
     """
     def __init__(self, store: Store, settings: Settings, backends: dict[str, Backend], clock=time.time, *, registry=None,
-                 workloads: dict | None = None):
+                 workloads: dict | None = None, role="worker"):
+        if role not in {"worker", "supervisor"}:
+            raise ValueError("unsupported worker role")
         self.store, self.settings, self.backends, self.clock = store, settings, backends, clock
         self.registry = default_registry() if registry is None else registry
         self.workloads = workloads
+        self.role = role
 
     def claim(self):
         now = int(self.clock())
         token = uuid.uuid4().hex
         with self.store.transaction() as c:
-            self.store.lock_control(c)
-            c.execute(update(control).where(control.c.id == 1).values(worker_seen_at=now))
+            control_row = self.store.lock_control(c)
+            heartbeat_column = control.c.supervisor_seen_at if self.role == "supervisor" else control.c.worker_seen_at
+            c.execute(update(control).where(control.c.id == 1).values({heartbeat_column.key: now}))
+            states = ["submitting", "submit_unknown", "running"]
+            if self.role == "worker":
+                states.insert(0, "queued")
+            eligible = runs.c.lease_until <= now
+            if self.role == "supervisor" and control_row["worker_seen_at"] > 0:
+                # A dead worker may leave a 120-second submission lease. Once its
+                # heartbeat is stale, recovery may inspect that intent early, but
+                # it still never calls start() for a non-queued job.
+                eligible = or_(eligible, and_(runs.c.state == "submitting",
+                                               control_row["worker_seen_at"] <= now - WORKER_HEARTBEAT_STALE_SECONDS))
             row = c.execute(select(runs).where(
-                runs.c.state.in_(["queued", "submitting", "submit_unknown", "running"]),
-                runs.c.lease_until <= now,
+                runs.c.state.in_(states),
+                eligible,
             ).order_by(runs.c.lease_until, runs.c.created_at).limit(1).with_for_update()).mappings().first()
             if row is None:
                 return None
@@ -182,6 +197,21 @@ class Worker:
             if not self.update(job, attempt=attempt, submission_intent=intent):
                 logger.info("Lease lost before submission intent for run %s", job["id"])
                 return True
+            if not self.store.confirm_submission_dispatch(
+                    run_id=job["id"], owner=job["owner"],
+                    plan_fingerprint=job["fingerprint"],
+                    run_lease_token=job["lease_token"], attempt=attempt, now=now,
+                    clock=self.clock):
+                latest = self.store.read(job["id"])
+                if latest and latest.get("cancel_requested") is True:
+                    self.finish(job, "cancelled", error="cancelled_before_submission")
+                    return True
+                if latest and latest.get("approved_until", 0) <= int(self.clock()):
+                    self.finish(job, "expired", error="approval_expired_before_submission")
+                    return True
+                self.update(job, state="submit_unknown",
+                            error="submission_dispatch_claim_lost", lease_until=now + 5)
+                return True
             try:
                 handle = backend.start(job)
                 if not isinstance(handle, dict) or not handle:
@@ -209,7 +239,7 @@ class Worker:
                     intent.get("owner") != job["owner"] or intent.get("run_id") != job["id"] or
                     intent.get("plan_fingerprint") != job["fingerprint"] or
                     type(intent.get("attempt")) is not int or intent["attempt"] < 1 or
-                    intent.get("phase") not in {"dispatching", "handle_persisted"}
+                    intent.get("phase") not in {"dispatching", "provider_call_started", "handle_persisted"}
                 ):
                     self.update(job, state="submit_unknown", error="submission_intent_mismatch",
                                 lease_until=now + 30)
@@ -272,6 +302,8 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--init-db", action="store_true")
     mode.add_argument("--bootstrap-auth", action="store_true")
+    mode.add_argument("--supervise", action="store_true",
+                      help="run recovery-only ticks; never claim newly queued jobs")
     parser.add_argument("--bootstrap-auth-ttl", type=int, default=3600)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=3)
@@ -297,7 +329,8 @@ def main():
         return
     if args.poll_seconds < 0.5:
         parser.error("poll-seconds must be at least 0.5")
-    worker = Worker(store, settings, build_backends(settings), workloads=load_workloads())
+    worker = Worker(store, settings, build_backends(settings), workloads=load_workloads(),
+                    role="supervisor" if args.supervise else "worker")
     while True:
         worker.tick()
         if args.once:

@@ -1,0 +1,29 @@
+[Unit]
+Description=GPU Control dedicated local CPU worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=gpu-control
+Group=gpu-control
+# Configure Docker socket access on this dedicated host only. Membership in the
+# daemon's socket group grants effective host-root authority.
+SupplementaryGroups=docker
+WorkingDirectory=/opt/gpu-control/gateway
+EnvironmentFile=/etc/gpu-control/worker.env
+ExecStart=/opt/gpu-control/venv/bin/python -m gpu_gateway.worker --poll-seconds 3
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+[Install]
+WantedBy=multi-user.target
