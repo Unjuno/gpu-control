@@ -56,6 +56,20 @@ def test_artifact_storage_probe_fails_closed_when_statvfs_raises(tmp_path, monke
                       "free_bytes": None, "reason": "unavailable"}
 
 
+def test_artifact_storage_probe_fails_closed_and_cleans_up_when_fsync_fails(tmp_path, monkeypatch):
+    root = tmp_path / "private"
+    root.mkdir()
+
+    def unavailable(_fd):
+        raise OSError("simulated durable-write failure")
+
+    monkeypatch.setattr("gpu_gateway.artifacts.os.fsync", unavailable)
+    result = inspect_artifact_storage(str(root))
+    assert result == {"configured": True, "available": False,
+                      "free_bytes": None, "reason": "unavailable"}
+    assert list(root.iterdir()) == []
+
+
 def test_artifact_storage_probe_enforces_configured_minimum_free_bytes(tmp_path, monkeypatch):
     root = tmp_path / "private"
     root.mkdir()

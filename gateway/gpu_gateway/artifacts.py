@@ -17,6 +17,33 @@ MAX_ARTIFACTS_PER_RUN = 10
 ARTIFACT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
+def _write_storage_probe(directory: Path, prefix: str) -> None:
+    """Prove create, durable write, unlink, and directory sync permissions."""
+    probe_file = directory / (prefix + secrets.token_hex(16))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(probe_file, flags, 0o600)
+    try:
+        if os.write(fd, b"x") != 1:
+            raise OSError("short artifact storage probe write")
+        os.fsync(fd)
+    finally:
+        try:
+            os.close(fd)
+        finally:
+            try:
+                probe_file.unlink()
+            except FileNotFoundError:
+                pass
+            else:
+                directory_fd = os.open(
+                    directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
+                    getattr(os, "O_NOFOLLOW", 0))
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+
+
 def inspect_artifact_storage(root: str, minimum_free_bytes: int = 0,
                              access_mode: str = "worker") -> dict:
     """Check storage capacity and the caller's documented filesystem access."""
@@ -56,16 +83,9 @@ def inspect_artifact_storage(root: str, minimum_free_bytes: int = 0,
             if not os.access(probe, os.W_OK | os.X_OK):
                 return {"configured": True, "available": False, "free_bytes": None,
                         "reason": "probe_permissions"}
-            probe_file = probe / (".api-probe-" + secrets.token_hex(16))
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-            fd = os.open(probe_file, flags, 0o600)
-            try:
-                os.close(fd)
-            finally:
-                try:
-                    probe_file.unlink()
-                except FileNotFoundError:
-                    pass
+            _write_storage_probe(probe, ".api-probe-")
+        else:
+            _write_storage_probe(path, ".worker-probe-")
         values = os.statvfs(path)
         free_bytes = values.f_bavail * values.f_frsize
         available = free_bytes > 0 and free_bytes >= minimum_free_bytes
