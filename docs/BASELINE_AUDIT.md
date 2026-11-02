@@ -197,10 +197,12 @@ cancellation-time semaphore leak. The full Gateway suite passed 372 tests
 against disposable PostgreSQL 17.11 with 5 optional Torch/CPU integration
 tests skipped. These are candidate checks, not approval or deployment evidence.
 
-The production alias still serves `main` SHA
-`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; read-only probes return `/healthz`
-200, `/readyz` 404, and anonymous `/mcp` 401. No schema migration, runtime-role
-grant, or production deployment was performed. PR #63 remains OPEN/DRAFT with
+The latest Vercel deployment metadata recorded in this audit lists the
+production alias on `main` SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`;
+the fresh HTTP responses themselves do not identify a revision. Read-only
+probes return `/healthz` 200, `/readyz` 404, and anonymous `/mcp` 401. No
+schema migration, runtime-role grant, or production deployment was performed.
+PR #63 remains OPEN/DRAFT with
 `REVIEW_REQUIRED`, and PR #66 remains OPEN/DRAFT without a GitHub review
 decision. The exact live acceptance boundary remains in
 `docs/CHATGPT_SETUP.md` and `docs/CHATGPT_ACCEPTANCE.md`.
