@@ -32,14 +32,16 @@ evidence and limits are recorded in
 PR #66 remains draft without a GitHub review decision; this is not hosted
 deployment evidence.
 
-Follow-up local candidate evidence, 2026-11-02: the independent recovery
-review of PR #66 head `2098ab2` found a P1 mismatch between the API/worker
-service identities and artifact filesystem modes. The uncommitted remediation
-and its Linux separate-UID validation are recorded in
+Follow-up PR evidence, 2026-11-02: the independent recovery review of PR #66
+head `2098ab2` found a P1 mismatch between the API/worker service identities
+and artifact filesystem modes. The remediation and its Linux separate-UID
+validation are recorded in
 [`2026-11-02 P1 artifact permission remediation`](acceptance/2026-11-02-p1-artifact-permissions-remediation.md).
-This does not resolve the `SECURITY` status: source commit `7e95de4` passes all
-GitHub checks but still awaits protected human review and target-host
-acceptance. Its first Gateway CI run at `dbef0d4` found a missing probe fixture
+The current PR #66 head `4deba187ad6fe8e8b3c6f0b008ba1e407fc53574` passes all
+reported GitHub checks. A completed Security diff scan of the exact remediation
+range reviewed all four changed source files and found zero reportable
+findings. PR #66 still awaits protected GitHub review and target-host
+acceptance. The first Gateway CI run at `dbef0d4` found a missing probe fixture
 in the real MCP integration test; the fixture was corrected in `0bdcd96`, then
 durable-write probes were added in `7e95de4`. ChatGPT retrieval remains unrun.
 
