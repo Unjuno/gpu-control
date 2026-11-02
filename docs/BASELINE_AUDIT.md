@@ -134,3 +134,18 @@ candidate-specific review remains local: its exact CPU/DB/security test output
 is recorded in `docs/acceptance/2026-11-02-pr58-runtime-db-security-validation.md`,
 but it has no GitHub CI, submitted review, or deployment evidence. Continue to
 keep P1 live ChatGPT acceptance and P3 deployment gates open.
+
+### Candidate follow-up — 2026-11-02
+
+The reconciliation candidate was published as draft PR #66 at
+`codex/pr58-cpu-vertical-reconcile-20261102`, stacked on PR #58. Source commit
+`1cb8d025a1f454b14b59004ea55871a71ba69fad` and the follow-up documentation
+commit `89ea9dfd252c0263b1fd959839c00b26ce84dfd3` both passed the GitHub CI,
+bridge, Python 3.11–3.13, trusted-container, and Vercel Preview checks. PR #66
+remains a Draft with no submitted GitHub review. The Vercel Preview is not a
+Gateway runtime deployment and does not satisfy ChatGPT, target-host, OAuth,
+or production acceptance. An independent source Security Review of the
+candidate's staged and unstaged changes found no actionable issues; this is
+not a GitHub approval or a live deployment/host review. See
+`docs/RELEASE_MATRIX.md` for current acceptance scope. PR #58 is still
+OPEN/DRAFT at its prior head, so PR #66 remains stacked and unmerged.
