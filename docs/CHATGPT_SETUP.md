@@ -33,7 +33,7 @@ and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secu
 
 ## Required deployment state
 
-### Observed production alias (2026-10-31)
+### Observed production alias (2026-11-02)
 
 Vercel's connected account lists the production deployment as READY at
 `dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ`, built from `main` SHA
@@ -55,8 +55,10 @@ Read-only HTTPS requests to the alias returned:
 These discovery documents do not prove the backing database, owner bootstrap,
 worker, recovery supervisor, or artifact storage are ready. No environment
 variable values or credentials were read, and no ChatGPT OAuth flow or tool
-scan was performed. The reviewed candidate still must complete review and be
-deployed before this alias can provide P1 readiness evidence.
+scan was performed. Draft PR #66 passed GitHub CI and an independent source
+review, but has no submitted GitHub approval and is not deployed. A Vercel
+Preview does not provide the persistent worker, recovery supervisor, or
+artifact filesystem required by this Gateway.
 
 Before connecting ChatGPT, provide all of the following:
 
