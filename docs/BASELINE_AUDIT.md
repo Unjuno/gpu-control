@@ -75,7 +75,7 @@ on `main` or passed independent GitHub review.
 | --- | --- |
 | Parked mode and paid/live flags | Current `policies/repository-state.yaml` says `mode: parked` and keeps paid workflow, live paid compute, and RunPod calls disallowed. Preserve this. |
 | Main branch protection | Verified with `gh api repos/Unjuno/gpu-control/branches/main/protection` on 2026-10-31. Requires one approving review including approval after the latest push; dismisses stale approvals; requires strict checks `Python 3.11`, `Python 3.12`, `Python 3.13`, `Trusted reference container`, `Gateway offline tests`, `Gateway comment bridge tests`, and `Project bridge tests`. Admin enforcement, linear history, and conversation resolution are enabled; force-push and deletion are disabled. No settings were changed. |
-| ChatGPT custom MCP entitlement and account setup | OpenAI's current Help Center says full custom MCP is available on ChatGPT Business and Enterprise/Edu on web; Pro is limited to read/fetch permissions. Workspace role and account policy still control creation and publishing. The intended account/plan/role has not been verified. [OpenAI setup and availability](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) |
+| ChatGPT custom MCP entitlement and account setup | Current Help Center guidance, checked 2026-11-02, lists full custom MCP support for ChatGPT Business and Enterprise/Edu on web. It does not list individual plans as eligible; do not infer that an unlisted plan supports this Gateway's write tools. Business creation/publishing is limited to admins/owners. Enterprise/Edu admins/owners can create/test and may delegate creation through RBAC; only admins/owners publish. The intended account, role, and workspace permission remain unverified. [OpenAI setup and availability](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) |
 | OAuth refresh | The Gateway advertises `offline_access` and `refresh_token`; OpenAI's setup guidance says OAuth providers should issue refresh tokens and advertise the offline scope. The real ChatGPT authorization and refresh cycle is unverified. [OpenAI OAuth guidance](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) |
 | Production HTTPS endpoint, OAuth, and persistent runtime | On 2026-10-31, Vercel lists production deployment `dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ` READY, sourced from `main` SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`, with alias `gpu-control.vercel.app`. Read-only requests return `/healthz` configured/auth configured and built-in OAuth, `/readyz` 404, and OAuth discovery with PKCE S256/refresh/`offline_access`. This is not the P1 candidate and does not prove DB, worker, supervisor, artifacts, or ChatGPT OAuth. **P1 deployment unverified**. |
 | End-user ChatGPT acceptance | No observed ChatGPT-originated `tools/list`, CPU `prepare`/`submit`, second-conversation lookup, or result/artifact retrieval is attached to this audit. **Not accepted**. |
@@ -104,7 +104,7 @@ port; its RunPod changes remain deferred.
 Until these items pass, keep the repository parked and treat ChatGPT product
 readiness as unproven.
 
-## Latest read-only refresh — 2026-10-31 15:19 JST
+## Historical read-only refresh — 2026-10-31 15:19 JST
 
 - Live `main` remains `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. Open Draft
   PRs are #43 and #51–#64. PR #43, #52, and #63 report `REVIEW_REQUIRED`;
@@ -230,3 +230,42 @@ and `reviewDecision=REVIEW_REQUIRED`; PR #63 remains a Draft. Its later
 docs-only head `72c727034a63040b2a0a4bedf1b3b13a8c1afbb1` also published and
 passed all seven required check names. To merge, the PR must be marked ready
 and receive an eligible approval, including the configured last-push approval.
+
+### Current read-only refresh — 2026-11-02
+
+- `main` remains `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. PR #43 remains
+  OPEN/DRAFT, base/head
+  `a96a24818a5f8bc03b479c35b5e3f957f08dbe04` /
+  `1699b75df8262023501d41279e83bf429dca1be4`, and its September checks remain
+  historical rather than current validation.
+- The latest read-only `main` protection response requires strict Python
+  3.11/3.12/3.13, trusted-container, Gateway offline, Gateway comment bridge,
+  and Project bridge checks. It also requires one approving review after the
+  latest push, dismisses stale reviews, and enforces protection for admins.
+  No repository settings were changed.
+- PR #63 is OPEN/DRAFT at `271555719e42bb6641eeea7bf76379d4e917a030` with
+  `REVIEW_REQUIRED`. Its checks are successful, but an approval is still
+  required.
+- PR #66 is OPEN/DRAFT at `1adc2417ef506bd0b9bac4dacafc8b0f5f8ea0f2`, stacked
+  on PR #58. All seven required checks and Vercel Preview succeeded on that
+  exact head, but no review decision is recorded. Local evidence now includes
+  the Linux systemd paired restore and corrected runtime-install procedure in
+  the candidate's acceptance records; this does not prove a deployed runtime.
+- Fresh unauthenticated production probes on 2026-11-02 returned
+  `/healthz`=200 with `configured=true`, `auth_configured=true`, and
+  `auth_mode=local_oauth`; `/readyz`=404; protected-resource discovery=200;
+  authorization-server discovery=200 with authorization-code and refresh
+  grants, PKCE S256, and `offline_access`. These routes do not identify the
+  deployed revision or prove database, worker, supervisor, artifact, OAuth
+  grant, ChatGPT tool discovery, or execution readiness.
+- Local browser use is disabled by the current Work settings and the ChatGPT
+  desktop app cannot be inspected through the available computer-use surface.
+  Therefore the intended account plan/role/permissions remain unverified and
+  the ChatGPT acceptance template remains NOT RUN.
+- The candidate's local tests and restored synthetic MCP result are evidence
+  for their stated layers only. Keep `mode: parked`; GPU and paid-provider
+  calls remain unauthorized and untested.
+
+P0 remains partial and open. The exact repository baseline and review policy
+are current; intended-account access, independent GitHub review/merge, deployed
+readiness, and real ChatGPT acceptance remain outstanding.
