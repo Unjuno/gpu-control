@@ -37,8 +37,8 @@ head `2098ab2` found a P1 mismatch between the API/worker service identities
 and artifact filesystem modes. The remediation and its Linux separate-UID
 validation are recorded in
 [`2026-11-02 P1 artifact permission remediation`](acceptance/2026-11-02-p1-artifact-permissions-remediation.md).
-The current PR #66 head `46fe723125322ea7047929d928fe5b3c65886d73` passes all
-required GitHub checks; this successor commit only updates acceptance records.
+At that point PR #66 head `46fe723125322ea7047929d928fe5b3c65886d73` passed all
+reported GitHub checks; the later successor commit only updated acceptance records.
 A completed Security diff scan of the exact remediation source range through
 `4deba187ad6fe8e8b3c6f0b008ba1e407fc53574` reviewed all four changed source
 files and found zero reportable findings. PR #66 still awaits protected GitHub
@@ -70,3 +70,14 @@ durable-write probes were added in `7e95de4`. ChatGPT retrieval remains unrun.
 
 Update this table only when new evidence is produced. Link acceptance artifacts
 and state the scope of each PASS.
+
+
+## Current PR #66 status (2026-11-02)
+
+The current PR head is `784fdfe9e758554621b0e336af618ce41a334f39`. GitHub
+reported all seven branch-protection checks successful on this revision. The PR
+remains OPEN/DRAFT with no review recorded and an empty `reviewDecision`; the
+required approving review after the latest push has not been satisfied. This
+status update does not change any release-axis acceptance: target-host deployment,
+ChatGPT OAuth/tool/run/retrieval, seven-day operations, target-host recovery,
+RPO/RTO, GPU, and paid execution remain unaccepted or parked.
