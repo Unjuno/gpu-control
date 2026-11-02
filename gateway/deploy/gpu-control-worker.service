@@ -9,7 +9,7 @@ User=gpu-control-worker
 Group=gpu-control-artifacts
 # Configure Docker socket access on this dedicated host only. Membership in the
 # daemon's socket group grants effective host-root authority.
-SupplementaryGroups=docker
+SupplementaryGroups=docker gpu-control-config
 WorkingDirectory=/opt/gpu-control/gateway
 EnvironmentFile=/etc/gpu-control/gateway.env
 EnvironmentFile=/etc/gpu-control/worker-db.env

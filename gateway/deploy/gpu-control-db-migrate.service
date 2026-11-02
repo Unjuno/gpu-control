@@ -7,6 +7,7 @@ After=network-online.target
 Type=oneshot
 User=gpu-control-migrate
 Group=gpu-control-migrate
+SupplementaryGroups=gpu-control-config
 WorkingDirectory=/opt/gpu-control/gateway
 EnvironmentFile=/etc/gpu-control/gateway.env
 EnvironmentFile=/etc/gpu-control/migrate-db.env

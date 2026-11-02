@@ -29,7 +29,7 @@ def test_gateway_api_is_loopback_only_and_has_no_docker_authority():
     service = unit["Service"]
     assert service["User"] == "gpu-control-api"
     assert service["Group"] == "gpu-control-artifacts"
-    assert service["SupplementaryGroups"] == "gpu-control-artifact-probes"
+    assert service["SupplementaryGroups"] == "gpu-control-artifact-probes gpu-control-config"
     env_files = [line.partition("=")[2] for line in
                  (DEPLOY / "gpu-control-api.service").read_text(encoding="utf-8").splitlines()
                  if line.startswith("EnvironmentFile=")]
@@ -79,7 +79,7 @@ def test_database_migration_unit_is_restricted_and_never_enabled_automatically()
     assert env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/migrate-db.env"]
     assert service["ExecStartPre"].endswith("-m gpu_gateway.worker --check-db")
     assert service["ExecStart"].endswith("-m gpu_gateway.worker --init-db")
-    assert "SupplementaryGroups" not in service
+    assert service["SupplementaryGroups"] == "gpu-control-config"
     assert service["ProtectSystem"] == "strict"
     assert service["NoNewPrivileges"] == "true"
     assert "Install" not in unit
@@ -90,6 +90,7 @@ def test_database_preflight_unit_is_manual_read_only_and_uses_migration_identity
     service = unit["Service"]
     assert service["Type"] == "oneshot"
     assert service["User"] == service["Group"] == "gpu-control-migrate"
+    assert service["SupplementaryGroups"] == "gpu-control-config"
     env_files = [line.partition("=")[2] for line in
                  (DEPLOY / "gpu-control-db-check.service").read_text(encoding="utf-8").splitlines()
                  if line.startswith("EnvironmentFile=")]
@@ -105,7 +106,7 @@ def test_only_worker_and_recovery_supervisor_join_docker_group():
     supervisor = load_unit("gpu-control-supervisor.service", strict=False)["Service"]
     assert worker["User"] == supervisor["User"] == "gpu-control-worker"
     assert worker["Group"] == supervisor["Group"] == "gpu-control-artifacts"
-    assert worker["SupplementaryGroups"] == supervisor["SupplementaryGroups"] == "docker"
+    assert worker["SupplementaryGroups"] == supervisor["SupplementaryGroups"] == "docker gpu-control-config"
     worker_env_files = [line.partition("=")[2].removeprefix("-") for line in
                         (DEPLOY / "gpu-control-worker.service").read_text(encoding="utf-8").splitlines()
                         if line.startswith("EnvironmentFile=")]

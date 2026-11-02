@@ -90,9 +90,10 @@ signing key and a simulation backend without changing deployed authentication.
 SQLite is for local tests/development ONLY. Vercel and `GATEWAY_HOSTED=true` require
 `postgresql+psycopg://...`; never use `/tmp` as production job state. Dependencies
 are isolated from the root project. Vercel's runtime dependencies are pinned by
-`gateway/uv.lock` and CI checks that lock with `uv sync --locked`. The pip
-requirements files pin direct runtime/test dependencies but do not lock the full
-transitive graph. Python 3.12 is the deployment baseline.
+root `uv.lock` and CI checks that lock with
+`uv sync --project gateway --all-packages --locked`. The pip requirements files
+pin direct runtime/test dependencies but do not lock the full transitive graph.
+Python 3.12 is the deployment baseline.
 
 ## Vercel setup
 

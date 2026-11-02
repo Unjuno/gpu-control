@@ -15,7 +15,7 @@ initialize/migrate PostgreSQL, enable CPU admission, or install credentials.
 The `/opt/gpu-control` path must not already exist. The checkout and virtual
 environment stay root-owned; service identities may read and execute files
 there but cannot modify them. Use the uv release pinned by the Gateway CI
-workflow, and preserve the repository's exact `gateway/uv.lock` through
+workflow, and preserve the repository's root `uv.lock` through
 `--locked`.
 
 ```sh
@@ -34,7 +34,7 @@ test "$(sudo git -C /opt/gpu-control rev-parse HEAD)" = "$release_sha"
 sudo chown -R root:root /opt/gpu-control
 sudo chmod -R go-w /opt/gpu-control
 sudo env UV_PROJECT_ENVIRONMENT=/opt/gpu-control/venv \
-  uv sync --project /opt/gpu-control/gateway --locked --no-dev --python 3.12
+  uv sync --project /opt/gpu-control/gateway --locked --all-packages --no-dev --python 3.12
 sudo /opt/gpu-control/venv/bin/python - <<'PY'
 from pathlib import Path
 import gpu_control
@@ -45,7 +45,7 @@ assert Path(gpu_control.__file__).resolve().is_relative_to(root / 'src')
 assert Path(gpu_gateway.__file__).resolve().is_relative_to(root / 'gateway')
 print('locked Gateway runtime imports from the pinned checkout')
 PY
-sha256sum /opt/gpu-control/gateway/uv.lock
+sha256sum /opt/gpu-control/uv.lock
 test -z "$(sudo git -C /opt/gpu-control status --porcelain)"
 ```
 
@@ -114,6 +114,7 @@ Create the dedicated identities before installing/starting units:
 ```sh
 sudo groupadd --system gpu-control-artifacts
 sudo groupadd --system gpu-control-artifact-probes
+sudo groupadd --system gpu-control-config
 sudo groupadd --system gpu-control-migrate
 sudo groupadd --system gpu-control-capacity-bridge
 sudo groupadd --system gpu-control-capacity-events
@@ -126,9 +127,15 @@ sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid gpu-contr
 ```
 
 The API unit joins the artifact-probe group so its readiness endpoint can
-create and remove a temporary probe; worker and recovery supervisor join only
-the Docker group because the worker UID owns the probe directory and artifact
-tree. The capacity process uses `gpu-control-capacity-events` as its primary group
+create and remove a temporary probe. API, worker, recovery supervisor, and
+migration units join `gpu-control-config` only to read the non-secret workload
+registry and local CPU policy. Keep `/etc/gpu-control` root-owned with this group
+and mode `0750`; keep those two files root-owned, group-readable (`0640`), and
+never group-writable. Environment files remain root-owned mode `0600` and are
+opened by the systemd manager, so the config group cannot read their contents.
+The worker and recovery supervisor also join the Docker group because the
+worker UID owns the probe directory and artifact tree. The capacity process
+uses `gpu-control-capacity-events` as its primary group
 for the event spool and joins the separate `gpu-control-capacity-probe` group
 for search-only access to the artifact path. The bridge belongs only to the
 event group and receives no artifact-path traversal. Neither group can read
@@ -172,13 +179,15 @@ credential-bearing files; do not put credentials in shell arguments or
 terminal history.
 
 ```sh
-sudo install -d -o root -g root -m 0750 /etc/gpu-control
+sudo install -d -o root -g gpu-control-config -m 0750 /etc/gpu-control
 sudo install -o root -g root -m 0600 gateway/deploy/gateway.env.example /etc/gpu-control/gateway.env
 sudo install -o root -g root -m 0600 gateway/deploy/api-db.env.example /etc/gpu-control/api-db.env
 sudo install -o root -g root -m 0600 gateway/deploy/worker-db.env.example /etc/gpu-control/worker-db.env
 sudo install -o root -g root -m 0600 gateway/deploy/migrate-db.env.example /etc/gpu-control/migrate-db.env
 sudo install -o root -g root -m 0600 gateway/deploy/api.env.example /etc/gpu-control/api.env
 sudo install -o root -g root -m 0600 gateway/deploy/capacity.env.example /etc/gpu-control/capacity.env
+sudo install -o root -g gpu-control-config -m 0640 gateway/examples/workloads.json /etc/gpu-control/workloads.json
+sudo install -o root -g gpu-control-config -m 0640 gateway/policies/local-cpu.json /etc/gpu-control/local-cpu.json
 sudoedit /etc/gpu-control/gateway.env
 sudoedit /etc/gpu-control/api-db.env
 sudoedit /etc/gpu-control/worker-db.env

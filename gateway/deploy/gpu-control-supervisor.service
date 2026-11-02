@@ -9,7 +9,7 @@ User=gpu-control-worker
 Group=gpu-control-artifacts
 # This process can recover/cancel tracked resources and thus shares the worker's
 # dedicated Docker trust boundary. It never claims newly queued jobs.
-SupplementaryGroups=docker
+SupplementaryGroups=docker gpu-control-config
 WorkingDirectory=/opt/gpu-control/gateway
 EnvironmentFile=/etc/gpu-control/gateway.env
 EnvironmentFile=/etc/gpu-control/worker-db.env

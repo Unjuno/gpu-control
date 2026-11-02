@@ -7,7 +7,7 @@ After=network-online.target
 Type=simple
 User=gpu-control-api
 Group=gpu-control-artifacts
-SupplementaryGroups=gpu-control-artifact-probes
+SupplementaryGroups=gpu-control-artifact-probes gpu-control-config
 # The API shares PostgreSQL and artifact state with worker/supervisor, but must
 # not join the Docker group or receive access to the container daemon.
 WorkingDirectory=/opt/gpu-control/gateway
