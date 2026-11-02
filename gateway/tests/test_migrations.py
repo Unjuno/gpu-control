@@ -1,6 +1,11 @@
+import time
+
 from sqlalchemy import create_engine, inspect, select, text
 
-from gpu_gateway.local_oauth import oauth_clients, oauth_tokens
+from gpu_gateway.config import Settings
+from gpu_gateway.local_oauth import (oauth_clients, oauth_login_budget,
+                                    oauth_login_guard, oauth_login_source_buckets,
+                                    oauth_tokens)
 from gpu_gateway.migrations import (
     UnsupportedSchemaVersion, migrate, schema_version,
 )
@@ -56,8 +61,8 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
     _legacy_v1(engine)
 
-    assert migrate(engine) == 9
-    assert migrate(engine) == 9
+    assert migrate(engine) == 10
+    assert migrate(engine) == 10
     store = Store(str(engine.url))
     store.initialize()
 
@@ -86,11 +91,42 @@ def test_v1_rows_and_oauth_tokens_survive_idempotent_migration(tmp_path):
 def test_fresh_database_migrates_before_table_creation(tmp_path):
     database = f"sqlite:///{tmp_path / 'fresh.db'}"
     store = Store(database)
-    assert migrate(store.engine) == 9
+    assert migrate(store.engine) == 10
     store.initialize()
     assert store.read("no-such-run") is None
     engine = store.engine
     engine.dispose()
+
+
+def test_v9_upgrade_adds_bounded_login_state_and_preserves_legacy_auth(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'v9-login-budget.db'}")
+    store.initialize()
+    settings = Settings(database_url=str(store.engine.url), public_url="https://gateway.example")
+    from gpu_gateway.auth import Auth
+    auth = Auth(settings, store=store)
+    auth.local.seed_bootstrap("setup-token")
+    auth.local.bootstrap_admin("setup-token", "correct horse battery staple")
+    now = int(time.time())
+    with store.engine.begin() as connection:
+        connection.execute(oauth_login_guard.insert().values(
+            id=1, failures=5, window_started=now, locked_until=now + 300))
+        connection.exec_driver_sql("DROP TABLE gateway_oauth_login_source_buckets_v1")
+        connection.exec_driver_sql("DROP TABLE gateway_oauth_login_budget_v1")
+        connection.execute(schema_version.update().where(schema_version.c.id == 1).values(version=9))
+
+    assert migrate(store.engine) == 10
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_login_guard.c.failures).where(
+            oauth_login_guard.c.id == 1)).scalar_one() == 5
+        assert connection.execute(select(oauth_login_budget.c.id).where(
+            oauth_login_budget.c.id == 1)).scalar_one() == 1
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == 10
+        assert connection.execute(select(oauth_login_source_buckets.c.source_hash)).first() is None
+
+    # The old shared lockout is retained for backup compatibility but ignored.
+    session = auth.local.login("correct horse battery staple", "c" * 64)
+    assert auth.local.session(session.token)["sub"] == "owner"
+    store.engine.dispose()
 
 
 def test_v6_migration_adds_oauth_grant_id_without_rewriting_existing_tokens(tmp_path):
@@ -106,10 +142,10 @@ def test_v6_migration_adds_oauth_grant_id_without_rewriting_existing_tokens(tmp_
         """)
         connection.execute(schema_version.update().values(version=6))
 
-    assert migrate(store.engine) == 9
-    assert migrate(store.engine) == 9
+    assert migrate(store.engine) == 10
+    assert migrate(store.engine) == 10
     with store.engine.connect() as connection:
-        assert connection.execute(select(schema_version.c.version)).scalar_one() == 9
+        assert connection.execute(select(schema_version.c.version)).scalar_one() == 10
         assert "grant_id" in {column["name"] for column in
                               inspect(store.engine).get_columns("gateway_oauth_tokens_v1")}
         token = connection.exec_driver_sql(
@@ -155,7 +191,7 @@ def test_v7_oauth_migration_does_not_infer_consent_from_historical_tokens(tmp_pa
             'ALTER TABLE "gateway_oauth_clients_v1" DROP COLUMN "persistent"')
         connection.execute(schema_version.update().values(version=7))
 
-    assert migrate(store.engine) == 9
+    assert migrate(store.engine) == 10
     with store.engine.connect() as connection:
         assert connection.execute(select(oauth_clients.c.persistent).where(
             oauth_clients.c.client_id == client_id)).scalar_one() is False
@@ -174,7 +210,7 @@ def test_v8_migration_revokes_legacy_inferred_persistence(tmp_path):
         ))
         connection.execute(schema_version.update().values(version=8))
 
-    assert migrate(store.engine) == 9
+    assert migrate(store.engine) == 10
     with store.engine.connect() as connection:
         assert connection.execute(select(oauth_clients.c.persistent).where(
             oauth_clients.c.client_id == client_id)).scalar_one() is False

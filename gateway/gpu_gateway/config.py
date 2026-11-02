@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import re
 from dataclasses import dataclass
@@ -109,6 +110,9 @@ class Settings:
     max_job_cost_usd: Decimal = Decimal("1")
     max_open_requests: int = 100
     hosted: bool = False
+    client_ip_mode: str = "direct"
+    trusted_proxy_cidrs: tuple[str, ...] = ()
+    vercel_runtime: bool = False
 
     @property
     def resource(self) -> str:
@@ -131,6 +135,23 @@ class Settings:
             raise ValueError("HTTPS required except for local development")
         if self.hosted and not self.database_url.startswith("postgresql+psycopg://"):
             raise ValueError("Hosted deployments require durable PostgreSQL, not SQLite or /tmp")
+        if self.client_ip_mode not in {"direct", "trusted_proxy", "vercel"}:
+            raise ValueError("GATEWAY_CLIENT_IP_MODE must be direct, trusted_proxy, or vercel")
+        try:
+            trusted_networks = tuple(ipaddress.ip_network(value, strict=False)
+                                     for value in self.trusted_proxy_cidrs)
+        except ValueError:
+            raise ValueError("GATEWAY_TRUSTED_PROXY_CIDRS contains an invalid network") from None
+        if any(network.prefixlen == 0 for network in trusted_networks):
+            raise ValueError("GATEWAY_TRUSTED_PROXY_CIDRS must not trust an entire address family")
+        if self.client_ip_mode == "trusted_proxy" and not trusted_networks:
+            raise ValueError("trusted_proxy mode requires explicit trusted proxy CIDRs")
+        if self.client_ip_mode != "trusted_proxy" and trusted_networks:
+            raise ValueError("trusted proxy CIDRs are only valid in trusted_proxy mode")
+        if self.client_ip_mode == "vercel" and not self.vercel_runtime:
+            raise ValueError("vercel client IP mode requires the Vercel runtime")
+        if self.hosted and self.client_ip_mode == "direct":
+            raise ValueError("Hosted deployments require a platform client IP or explicitly trusted proxy address mode")
         if self.hosted and self.artifact_dir:
             artifact_path = Path(self.artifact_dir).expanduser().resolve(strict=False)
             temporary_roots = (Path("/tmp").resolve(), Path("/var/tmp").resolve())
@@ -186,6 +207,12 @@ class Settings:
             artifact_dir=e.get("GATEWAY_ARTIFACT_DIR", ""),
             artifact_min_free_bytes=int(e.get("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "0")),
             hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
+            client_ip_mode=e.get("GATEWAY_CLIENT_IP_MODE") or (
+                "vercel" if e.get("VERCEL") == "1" else "direct"),
+            trusted_proxy_cidrs=tuple(
+                item.strip() for item in e.get("GATEWAY_TRUSTED_PROXY_CIDRS", "").split(",")
+                if item.strip()),
+            vercel_runtime=e.get("VERCEL") == "1",
         )
         value.validate()
         return value

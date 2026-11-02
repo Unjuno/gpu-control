@@ -7,8 +7,9 @@ states do not prove cleanup, so migrated cleanup state is conservatively unknown
 from __future__ import annotations
 
 from sqlalchemy import Column, Integer, MetaData, Table, inspect, insert, select, update
+import time
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -135,4 +136,24 @@ def migrate(engine) -> int:
                 )).values(persistent=False))
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=9))
             current = 9
+        if current < 10:
+            # Import locally: Store.initialize registers OAuth metadata before
+            # migrations run, while the migration module remains independently
+            # importable for read-only schema checks.
+            from .local_oauth import (
+                LOGIN_GLOBAL_BURST, LOGIN_TOKEN_SCALE,
+                oauth_login_budget, oauth_login_source_buckets,
+            )
+            oauth_login_source_buckets.create(connection, checkfirst=True)
+            oauth_login_budget.create(connection, checkfirst=True)
+            budget = connection.execute(select(oauth_login_budget.c.id).where(
+                oauth_login_budget.c.id == 1
+            )).first()
+            if budget is None:
+                connection.execute(insert(oauth_login_budget).values(
+                    id=1, tokens_micro=LOGIN_GLOBAL_BURST * LOGIN_TOKEN_SCALE,
+                    updated_at_us=int(time.time() * 1_000_000),
+                ))
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=10))
+            current = 10
     return current

@@ -72,9 +72,9 @@ P0 現行基準・接続条件確認
 
 ## P0: 現行基準を揃える（1〜2 PR）
 
-- [ ] mainとPR #43の正確なSHAを取得。各監査修正を「mainに存在／未適用／後続で置換／要調査」に分類する。
-- [ ] `docs/BASELINE_AUDIT.md`に対象ファイル、根拠、再現テスト、適用順序を記録する。PR全体を無条件にcherry-pickしない。
-- [ ] README/STATUS/実コードの相違を修正し、Gatewayとcoreの責務を記録する。
+- [x] mainとPR #43の正確なSHAを取得。各監査修正を「mainに存在／未適用／後続で置換／要調査」に分類する。2026-11-02 read-only refreshでもmain SHA `24ecb9b`、PR #43 base/head、3コミット未適用を再確認し、PR全体をcherry-pickしない判断を維持。
+- [x] `docs/BASELINE_AUDIT.md`に対象ファイル、根拠、再現テスト、適用順序を記録する。PR全体を無条件にcherry-pickしない。2026-11-02時点のPR #43/PR #63状態と候補固有の検証境界を同ファイルへ追記。
+- [x] README/STATUS/実コードの相違を修正し、Gatewayとcoreの責務を記録する。READMEと機械ポリシーのsource SHA/protocol差分を是正した記録は`docs/BASELINE_AUDIT.md`を参照。
 - [ ] 利用予定ChatGPTアカウントでcustom MCP接続が利用可能か確認する。HTTPS endpoint、OAuth、永続DB、常時workerの既存構成を調査し、不足を具体名で記録する。
 - [ ] PR #43のCPU/MCP公開にも関係する修正を小さいPRで取り込む。RunPod固有の残項目はP5の必須ゲートとして追跡する。
 
@@ -84,12 +84,12 @@ P0 現行基準・接続条件確認
 
 詳細は `2026-10-28-gpu-control-first-vertical.md`。
 
-- [ ] 現行DBから移行可能なversioned plan・状態・結果契約を導入する。
-- [ ] `experiment_capabilities / prepare / submit / status / result / cancel / list`を公開する。
-- [ ] trusted registryのCPU workloadを0ドルでprepareできるようにする。低リスクの事前運用許可を厳密に限定し、有償承認は維持する。
-- [ ] 既存project_controlの検証・隔離を再利用するlocal Docker CPU backendを独立workerへ接続する。
-- [ ] process/containerの実行証拠、source SHA、image digest、fingerprint、metrics、cleanupを返す。
-- [ ] 同じkeyの再送、再実験の新key、owner別検索、worker再起動、cancelを実containerで確認する。
+- [x] 現行DBから移行可能なversioned plan・状態・結果契約を導入する。SQLiteとPostgreSQL 16のT1/T2再検証: `docs/acceptance/2026-11-02-p1-t1-t2-postgres-revalidation.md`。
+- [x] `experiment_capabilities / prepare / submit / status / result / cancel / list`を公開する。8 canonical tools、scope、owner境界の回帰を同 acceptance 記録に記載。
+- [x] trusted registryのCPU workloadを0ドルでprepareできるようにする。低リスクの事前運用許可を厳密に限定し、有償承認は維持する。local policy revocation/expiry と worker直前再検証をテスト済み。
+- [x] 既存project_controlの検証・隔離を再利用するlocal Docker CPU backendを独立workerへ接続する。実Docker smokeとworker crash recoveryを `docs/acceptance/2026-11-02-p1-cpu-docker-recovery-revalidation.md` で再検証。
+- [x] process/containerの実行証拠、source SHA、image digest、fingerprint、metrics、cleanupを返す。実container結果とartifactを同 acceptance 記録に記載。
+- [x] 同じkeyの再送、再実験の新key、owner別検索、worker再起動、cancelを実containerで確認する。local MCP/worker/DB outage recoveryを同 acceptance 記録に記載。
 - [ ] 実ChatGPTで初回接続・実行・別会話での検索・結果取得を行う。
 
 最初のworkloadは標準ライブラリだけの決定的 `cpu-smoke-v1`。次に既存 `orbitune-tokenizer`を接続する。GPU必須入力にCPUを自動実行しない。CPUが許可された要求のみ0ドル経路を使う。

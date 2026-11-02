@@ -1,41 +1,88 @@
 # Release acceptance matrix
 
-This matrix reports evidence on the current working branch. It does not infer
-readiness from mocks, source inspection, or a green test suite alone.
+Baseline evidence snapshot: 2026-11-02 on branch
+`codex/pr58-cpu-vertical-reconcile-20261102`, based on PR #58 head
+`90bd6d8c84e319365d66951ca96c7ccceff40998`. Candidate commit
+`1cb8d025a1f454b14b59004ea55871a71ba69fad` passed GitHub CI on draft PR #66:
+Gateway offline and comment bridge, Project bridge, Python 3.11/3.12/3.13,
+trusted reference container, and Vercel Preview checks. The Preview is not a
+Gateway runtime deployment; no GitHub approval or production acceptance has
+been recorded. This matrix does not infer readiness from mocks, source
+inspection, or a green test suite alone.
 
 | Axis | Status | Current evidence | Remaining acceptance |
 | --- | --- | --- | --- |
-| `MCP_CONNECTIVITY` | UNCERTAIN | Rechecked 2026-10-28: public Vercel `/healthz` and OAuth discovery return 200, `/readyz` returns 404, and unauthenticated `/mcp` returns 401. Live authorization metadata advertises PKCE S256, refresh tokens and `offline_access`; Vercel reports the latest READY production deployment is still pre-vertical `main` SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`, with SSO enabled except on custom domains. A local PostgreSQL 16 v1-to-v6 rehearsal preserved synthetic run and OAuth state; local code now adds unverified v6-to-v7 OAuth grant migration/revocation. No ChatGPT OAuth or tool scan has completed. | Independently review the migration, validate paired production backup/restore, then deploy the reviewed CPU vertical with persistent worker/database/artifact storage and complete real OAuth and tool discovery/calls in the intended ChatGPT account. |
+| `MCP_CONNECTIVITY` | UNCERTAIN | Read-only probe on 2026-11-02: production alias `/healthz` 200 (`configured=true`, `auth_configured=true`, `auth_mode=local_oauth`, health check did not start GPU); `/readyz` 404; anonymous `/mcp` 401; OAuth discovery endpoints 200 and advertise PKCE S256, authorization-code/refresh grants, `offline_access`, and read/run/cancel scopes. These responses do not identify the deployed revision or prove a ChatGPT OAuth flow. Local official MCP SDK interop is recorded in `docs/acceptance/2026-10-31-mcp-sdk-interop.md`. | Deploy the reviewed CPU vertical with persistent worker/database/artifact storage, expose and verify readiness, then complete real OAuth, tool discovery and calls in the intended ChatGPT account. |
 | `CHATGPT_TOOL_USABILITY` | UNCERTAIN | Canonical experiment tools implement prepare/submit/status/result/artifact/cancel/list contracts and have service-level tests. | Complete a real CPU run through ChatGPT without CLI/Issue interaction, including a second conversation; record it in [`docs/CHATGPT_ACCEPTANCE.md`](CHATGPT_ACCEPTANCE.md). |
-| `CPU_EXECUTION` | PASS (local lane only) | Digest-pinned CPU container ran on OrbStack Linux/arm64 with bounded runtime, isolation settings, result binding, and cleanup. See `docs/acceptance/2026-10-28-recovery-supervisor.md` and `docs/IMPLEMENTATION_PROGRESS.md`. | Repeat on the selected persistent deployment host and workload; current evidence is local and not seven-day operational acceptance. |
+| `CPU_EXECUTION` | PASS (local lane only) | On 2026-11-02, real Docker/OrbStack CPU backend, worker-crash recovery, authenticated local MCP HTTP path and PostgreSQL outage recovery all passed using a digest-pinned CPU image; four focused integration tests and the complete Gateway suite passed. See `docs/acceptance/2026-11-02-p1-cpu-docker-recovery-revalidation.md`. Image source labels are operator metadata, not signed supply-chain attestations. | Repeat on the selected persistent deployment host and reviewed workload; current evidence is local and not seven-day operational acceptance. |
 | `FREE_GPU_EXECUTION` | BLOCKED | No GPU backend has been live-verified with device, quota, additional-cost, cancellation, and cleanup evidence. | Verify an eligible provider/account and run a bounded real GPU smoke with cost and cleanup proof; preserve `FREE_FIRST` gates. |
 | `PAID_GPU_EXECUTION` | BLOCKED | Paid mode remains parked; no current exact human authorization or live provider execution. | Complete P5 controls and obtain separate explicit authorization for a bounded canary before any spend. |
-| `RECOVERY` | PASS (local CPU lane only) | Real Docker recovery reconciled the same run after execution-worker exit before handle persistence. PostgreSQL restart and supervisor restart during `cleanup_pending` are covered. The latter process-exit boundary uses a fake backend. Timeout-cancellation intent is retained through a cleanup failure. A local PostgreSQL 16 paired backup tool now stages DB and artifact archives together, checksums and validates them, publishes atomically, and was exercised through separate-target restoration and owner-scoped artifact byte readback; injected archive failure published no partial generation. See `docs/acceptance/2026-10-28-atomic-backup-generation.md`. | Exercise the selected deployed host and provider; verify the full crash matrix and no duplicate resources there. Production backup retention, target-host recovery and measured RPO/RTO remain open. |
+| `RECOVERY` | PASS (local CPU lane only) | Real Docker recovery reconciled the same run after worker exit before handle persistence. PostgreSQL outage retained the run slot and container, then recovered the same run after restart. On 2026-11-02, a current schema-v10 PostgreSQL 16 paired backup was generated by the actual quiesced-backup path after all seven installed systemd units reported loaded/inactive, then restored into an independent cluster. The restored API/worker/supervisor reached ready; the same synthetic owner token retrieved the restored result and exact artifact bytes through MCP. Restored runtime-role ACLs and SECURITY DEFINER owner were verified. This is isolated OrbStack guest evidence, not target-host evidence. See `docs/acceptance/2026-11-02-p1-cpu-docker-recovery-revalidation.md`, `docs/acceptance/2026-11-02-p3-restore-definer-owner.md`, and `docs/acceptance/2026-11-02-p3-systemd-paired-restore.md`. | Exercise the selected deployed host and provider; verify the full crash matrix and no duplicate resources there. Production backup retention, target-host recovery, second-operator reproduction and measured RPO/RTO remain open. |
 | `CANCELLATION` | PASS (local CPU lane only) | Existing CPU container was cancelled and removed by the recovery supervisor while execution-worker ticks were stopped. | Repeat against the deployment host and, for GPU, its real provider resource. |
-| `RESULT_RETRIEVAL` | UNCERTAIN | A real digest-pinned local CPU smoke run emits a validated JSON report; worker recovery persists it to owner-scoped storage and retrieves its exact bytes. PostgreSQL outage recovery preserves the run; artifact chunk API/storage tests and local shared-volume checks pass. A separate synthetic paired PostgreSQL 16 dump/artifact archive restore retrieved the restored bytes through the owner-scoped application path and rejected an unrelated owner. No deployed API or real ChatGPT conversation was used. | Verify an actual run and exact plan/source binding from a second ChatGPT conversation, including returned artifact digest and bytes; test a deployed persistent volume and set a quota/alert policy. See `docs/acceptance/2026-10-28-artifact-storage.md` and `docs/acceptance/2026-10-28-paired-artifact-restore.md`. |
-| `SECURITY` | UNCERTAIN | Input contracts, owner scoping, local CPU admission, Docker hardening, bounded OIDC/GitHub/RunPod HTTP responses, redirect rejection, and targeted adversarial/recovery tests exist. RunPod adapters recheck permit, price freshness, and occupancy immediately before create; injected-clock tests prove stale evidence prevents create. No live identity-provider or RunPod API was exercised. | Complete independent provider-independent review, deployed OAuth/owner-boundary acceptance, target-host permissions review, live provider compatibility checks, and operational security checks. This is scoped evidence, not a claim of complete safety. |
+| `RESULT_RETRIEVAL` | UNCERTAIN | A real digest-pinned local CPU run emits a validated result and owner-scoped artifact; local MCP clients retrieve it through authenticated HTTP. In the 2026-11-02 systemd paired restore, the same synthetic owner token retrieved the restored schema-v10 result and all 46 artifact bytes from the restored API, with returned SHA-256 matching the manifest. A second synthetic owner received no result body. No deployed API or real ChatGPT conversation was used. | Verify an actual run and exact plan/source binding from a second ChatGPT conversation, including returned artifact digest and bytes; test a deployed persistent volume and set a quota/alert policy. See the 2026-11-02 P1 and P3 acceptance records. |
+| `SECURITY` | UNCERTAIN | Candidate adds separate API/worker/migration PostgreSQL roles, column-scoped Worker updates, a lease-checked slot-release function, and restore ownership repair for that SECURITY DEFINER function. PostgreSQL ACL and no-owner restore regressions pass; the full Gateway suite is 365 passed, 1 skipped. An independent source review of the current staged and unstaged changes found no actionable security issues. It does not verify live deployment, host permissions, OAuth setup, or provider behavior. | Complete deployed OAuth/owner-boundary and target-host permissions review, and verify live provider compatibility only when separately authorized. This is scoped evidence, not a claim of complete safety. |
+
+Post-snapshot candidate evidence: commit `27a34d10d722e4c08409b57bfd5aa1b72bf0ba87`
+on draft PR #66 contains the schema-v10 local OAuth login-throttle remediation.
+An independent security review found no remaining actionable issues, and the
+Gateway suite passed 372 tests against disposable PostgreSQL 17.11 (5 optional
+Torch/CPU integration tests skipped). All current PR checks passed. The
+evidence and limits are recorded in
+[`2026-11-02 P1 login-throttle remediation`](acceptance/2026-11-02-p1-local-oauth-login-throttle-remediation.md).
+PR #66 remains draft without a GitHub review decision; this is not hosted
+deployment evidence.
+
+Follow-up PR evidence, 2026-11-02: the independent recovery review of PR #66
+head `2098ab2` found a P1 mismatch between the API/worker service identities
+and artifact filesystem modes. The remediation and its Linux separate-UID
+validation are recorded in
+[`2026-11-02 P1 artifact permission remediation`](acceptance/2026-11-02-p1-artifact-permissions-remediation.md).
+At that point PR #66 head `46fe723125322ea7047929d928fe5b3c65886d73` passed all
+reported GitHub checks; the later successor commit only updated acceptance records.
+A completed Security diff scan of the exact remediation source range through
+`4deba187ad6fe8e8b3c6f0b008ba1e407fc53574` reviewed all four changed source
+files and found zero reportable findings. PR #66 still awaits protected GitHub
+review and target-host acceptance. The live branch rule requires one
+approving review after the latest push, including for administrators. The first
+Gateway CI run at `dbef0d4` found a missing probe fixture
+in the real MCP integration test; the fixture was corrected in `0bdcd96`, then
+durable-write probes were added in `7e95de4`. ChatGPT retrieval remains unrun.
 
 ## Operational gates
 
-- P2 recovery work remains in progress: durable owner-scoped artifact storage
-  and local CPU report retrieval are implemented and locally exercised;
-  provider-independent recovery review, deployed storage/quota controls, and
-  ChatGPT retrieval acceptance remain incomplete. Unsupported artifacts must
-  not be represented as retrievable.
-- P3 remains pending: systemd units are templates only; there is no selected
-  deployed Gateway/worker host, real ChatGPT connection, seven-day observation,
-  or timed production restore drill. The local synthetic paired restore in
-  `docs/acceptance/2026-10-28-paired-artifact-restore.md` does not establish
-  production backup controls, owner/OAuth parity, or worker reconciliation.
-  The atomic backup generation drill in
-  `docs/acceptance/2026-10-28-atomic-backup-generation.md` is also local-only;
-  encrypted off-host retention, second-operator restore, and timed production
-  recovery are still required.
-  The existing Neon production branch has no schema-version table and has not
-  been migrated; only zero aggregate run/active-slot counts were queried. Review
-  the migration and production backup/restore plan before any database change.
+- P2 recovery work is locally exercised on Docker and PostgreSQL 16, including
+  worker crash, cancellation, DB outage, schema-v10 paired restore across
+  independent local clusters, and runtime
+  ACL reapplication. Provider-independent recovery review, deployed
+  storage/quota/alert controls, and ChatGPT retrieval remain incomplete.
+  Unsupported artifacts must not be represented as retrievable.
+- P3 remains pending: there is no selected deployed Gateway/worker host, real
+  ChatGPT connection, seven-day observation, encrypted off-host retention,
+  second-operator restore, or target-host timed restore drill. The 2026-11-02
+  isolated Linux systemd rehearsal generated the current schema-v10 paired
+  backup only after all seven actual units reported loaded/inactive, restored
+  into an independent PostgreSQL cluster, and retrieved the artifact through
+  the restarted API. The guest reported an LXC context, so this is not
+  production-host or measured RPO/RTO evidence. Earlier synthetic restore
+  evidence remains described in its own acceptance record. Recheck hosted
+  database state and migration plan before any live database mutation.
 - Paid and GPU paths stay parked until their separate evidence and authorization
   gates are satisfied. Local CPU evidence does not satisfy either gate.
 
 Update this table only when new evidence is produced. Link acceptance artifacts
 and state the scope of each PASS.
+
+
+## Current PR #66 status (2026-11-02)
+
+The current PR head is `89aa5405913a62f5a76714d87ebb2519a3602aa3`. GitHub
+reported all seven required branch-protection checks and Vercel Preview
+successful on this revision. The PR remains OPEN/DRAFT with an empty
+`reviewDecision`; no GitHub approval has been submitted, and the latest-push
+approval requirement remains unsatisfied. An independent source Security
+Review found no actionable findings in the service/config-permission correction.
+Local Gateway tests passed 380 tests (1 skipped); the Linux systemd paired
+restore and deployment install evidence are linked above. This status does not
+change the release axes: target-host deployment, ChatGPT OAuth/tool/run/retrieval,
+seven-day operations, target-host recovery, RPO/RTO, GPU, and paid execution
+remain unaccepted or parked.

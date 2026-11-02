@@ -31,6 +31,7 @@ def _docker_ready():
 def test_authenticated_mcp_cpu_run_and_cross_client_artifact_retrieval(web, tmp_path, monkeypatch):
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    (artifact_root / ".gpu-control-probes").mkdir(mode=0o3770)
     settings = replace(web.settings, artifact_dir=str(artifact_root), artifact_min_free_bytes=0)
     web.service.settings = settings
     workload = Workload(

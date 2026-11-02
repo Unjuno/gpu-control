@@ -56,6 +56,20 @@ def test_artifact_storage_probe_fails_closed_when_statvfs_raises(tmp_path, monke
                       "free_bytes": None, "reason": "unavailable"}
 
 
+def test_artifact_storage_probe_fails_closed_and_cleans_up_when_fsync_fails(tmp_path, monkeypatch):
+    root = tmp_path / "private"
+    root.mkdir()
+
+    def unavailable(_fd):
+        raise OSError("simulated durable-write failure")
+
+    monkeypatch.setattr("gpu_gateway.artifacts.os.fsync", unavailable)
+    result = inspect_artifact_storage(str(root))
+    assert result == {"configured": True, "available": False,
+                      "free_bytes": None, "reason": "unavailable"}
+    assert list(root.iterdir()) == []
+
+
 def test_artifact_storage_probe_enforces_configured_minimum_free_bytes(tmp_path, monkeypatch):
     root = tmp_path / "private"
     root.mkdir()
@@ -78,8 +92,9 @@ def test_artifact_storage_probe_requires_separate_filesystem_when_floor_is_confi
                       "reason": "not_dedicated_filesystem"}
 
 
-def test_artifact_store_writes_private_content_addressed_blob_and_verifies_chunks(tmp_path):
-    store = ArtifactStore(str(tmp_path / "private"))
+def test_artifact_store_writes_group_readable_content_addressed_blob_and_verifies_chunks(tmp_path):
+    root = tmp_path / "artifacts"
+    store = ArtifactStore(str(root))
     data = bytes(range(256)) * 400
     metadata = store.put("owner", "a" * 32, "model-summary.bin", data,
                          media_type="application/octet-stream", expires_at=9999999999)
@@ -89,14 +104,63 @@ def test_artifact_store_writes_private_content_addressed_blob_and_verifies_chunk
               for offset in range(0, len(data), 24000)]
     assert b"".join(chunks) == data
     assert metadata["sha256"] == hashlib.sha256(data).hexdigest()
-    stored = list((tmp_path / "private").rglob("*.blob"))
+    stored = list(root.rglob("*.blob"))
     assert len(stored) == 1
-    assert stored[0].stat().st_mode & 0o777 == 0o600
+    assert root.stat().st_mode & 0o7777 == 0o2750
+    assert stored[0].parent.stat().st_mode & 0o7777 == 0o2750
+    assert stored[0].stat().st_mode & 0o777 == 0o640
     assert store.put("owner", "a" * 32, "model-summary.bin", data,
                      media_type="application/octet-stream", expires_at=9999999999) == metadata
     with pytest.raises(ValueError, match="different content"):
         store.put("owner", "a" * 32, "model-summary.bin", b"replacement",
                   media_type="application/octet-stream", expires_at=9999999999)
+
+
+def test_artifact_store_does_not_create_missing_parent_directories(tmp_path):
+    root = tmp_path / "unprovisioned" / "artifacts"
+    store = ArtifactStore(str(root))
+    with pytest.raises(FileNotFoundError):
+        store.put("owner", "a" * 32, "result.json", b"{}",
+                  media_type="application/json", expires_at=None)
+    assert not root.parent.exists()
+
+
+def test_artifact_store_preserves_preprovisioned_root_and_capacity_probe_modes(tmp_path):
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    os.chmod(root, 0o2750)
+    probe = root / ".gpu-control-probes"
+    probe.mkdir()
+    os.chmod(probe, 0o3770)
+
+    ArtifactStore(str(root)).put("owner", "c" * 32, "result.json", b"{}",
+                                 media_type="application/json", expires_at=None)
+
+    assert root.stat().st_mode & 0o7777 == 0o2750
+    assert probe.stat().st_mode & 0o7777 == 0o3770
+
+
+def test_api_artifact_probe_works_without_root_write_permission(tmp_path, monkeypatch):
+    root = tmp_path / "artifacts"
+    root.mkdir(mode=0o2750)
+    probe = root / ".gpu-control-probes"
+    probe.mkdir(mode=0o3770)
+    fake_dedicated_filesystem(monkeypatch, root)
+    monkeypatch.setattr("gpu_gateway.artifacts.os.statvfs", lambda _: SimpleNamespace(
+        f_bavail=8, f_frsize=1024 * 1024))
+    original_access = os.access
+
+    def api_access(path, mode, *args, **kwargs):
+        if Path(path) == root:
+            assert mode == os.R_OK | os.X_OK
+            return True
+        return original_access(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr("gpu_gateway.artifacts.os.access", api_access)
+    result = inspect_artifact_storage(str(root), 1, "api")
+    assert result["available"] is True
+    assert result["reason"] is None
+    assert list(probe.iterdir()) == []
 
 
 def test_artifact_tool_is_owner_scoped_and_returns_bounded_chunks(system, tmp_path):

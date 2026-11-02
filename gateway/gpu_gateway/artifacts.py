@@ -17,11 +17,42 @@ MAX_ARTIFACTS_PER_RUN = 10
 ARTIFACT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
-def inspect_artifact_storage(root: str, minimum_free_bytes: int = 0) -> dict:
-    """Report whether the configured artifact filesystem can accept writes."""
+def _write_storage_probe(directory: Path, prefix: str) -> None:
+    """Prove create, durable write, unlink, and directory sync permissions."""
+    probe_file = directory / (prefix + secrets.token_hex(16))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(probe_file, flags, 0o600)
+    try:
+        if os.write(fd, b"x") != 1:
+            raise OSError("short artifact storage probe write")
+        os.fsync(fd)
+    finally:
+        try:
+            os.close(fd)
+        finally:
+            try:
+                probe_file.unlink()
+            except FileNotFoundError:
+                pass
+            else:
+                directory_fd = os.open(
+                    directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
+                    getattr(os, "O_NOFOLLOW", 0))
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+
+
+def inspect_artifact_storage(root: str, minimum_free_bytes: int = 0,
+                             access_mode: str = "worker") -> dict:
+    """Check storage capacity and the caller's documented filesystem access."""
     if type(minimum_free_bytes) is not int or minimum_free_bytes < 0:
         return {"configured": bool(root), "available": False, "free_bytes": None,
                 "reason": "invalid_minimum_free_bytes"}
+    if not isinstance(access_mode, str) or access_mode not in {"api", "worker"}:
+        return {"configured": bool(root), "available": False, "free_bytes": None,
+                "reason": "invalid_access_mode"}
     if not isinstance(root, str) or not root:
         return {"configured": False, "available": False, "free_bytes": None,
                 "reason": "not_configured"}
@@ -38,9 +69,23 @@ def inspect_artifact_storage(root: str, minimum_free_bytes: int = 0) -> dict:
             return {"configured": True, "available": False, "free_bytes": None,
                     "minimum_free_bytes": minimum_free_bytes,
                     "reason": "not_dedicated_filesystem"}
-        if not os.access(path, os.R_OK | os.W_OK | os.X_OK):
+        required = os.R_OK | os.X_OK
+        if access_mode == "worker":
+            required |= os.W_OK
+        if not os.access(path, required):
             return {"configured": True, "available": False, "free_bytes": None,
                     "reason": "permissions"}
+        if access_mode == "api":
+            probe = path / ".gpu-control-probes"
+            if probe.is_symlink() or not probe.is_dir():
+                return {"configured": True, "available": False, "free_bytes": None,
+                        "reason": "probe_not_directory"}
+            if not os.access(probe, os.W_OK | os.X_OK):
+                return {"configured": True, "available": False, "free_bytes": None,
+                        "reason": "probe_permissions"}
+            _write_storage_probe(probe, ".api-probe-")
+        else:
+            _write_storage_probe(path, ".worker-probe-")
         values = os.statvfs(path)
         free_bytes = values.f_bavail * values.f_frsize
         available = free_bytes > 0 and free_bytes >= minimum_free_bytes
@@ -67,13 +112,30 @@ class ArtifactStore:
     def _directory(self, owner: str, run_id: str, *, create: bool) -> Path:
         directory = self.root / self._scope(owner, run_id)
         if create:
-            self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-            directory.mkdir(mode=0o700, exist_ok=True)
+            if self.root.is_symlink():
+                raise ValueError("artifact storage path must not contain symlinks")
+            try:
+                # The configured artifact root is a pre-provisioned mountpoint.
+                # Do not create missing ancestors under UMask=0077: the API
+                # would be unable to traverse those worker-private directories.
+                self.root.mkdir(mode=0o2750)
+            except FileExistsError:
+                pass
+            else:
+                # systemd's UMask=0077 masks group access at creation time.
+                # Set the intended mode only for the new worker-owned root;
+                # an existing root may carry an ACL used by the API probe.
+                os.chmod(self.root, 0o2750)
+            if self.root.is_symlink() or directory.is_symlink():
+                raise ValueError("artifact storage path must not contain symlinks")
+            try:
+                directory.mkdir(mode=0o2750)
+            except FileExistsError:
+                pass
+            else:
+                os.chmod(directory, 0o2750)
         if self.root.is_symlink() or directory.is_symlink():
             raise ValueError("artifact storage path must not contain symlinks")
-        if create:
-            os.chmod(self.root, 0o700)
-            os.chmod(directory, 0o700)
         return directory
 
     def put(self, owner: str, run_id: str, artifact_id: str, data: bytes, *,
@@ -93,8 +155,9 @@ class ArtifactStore:
         destination = directory / (hashlib.sha256(artifact_id.encode()).hexdigest() + ".blob")
         temporary = directory / ("." + secrets.token_hex(16) + ".tmp")
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(temporary, flags, 0o600)
+        fd = os.open(temporary, flags, 0o640)
         try:
+            os.fchmod(fd, 0o640)
             with os.fdopen(fd, "wb") as output:
                 output.write(data)
                 output.flush()

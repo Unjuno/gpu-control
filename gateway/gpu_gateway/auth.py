@@ -19,6 +19,8 @@ from .local_oauth import LocalOAuth
 from .service import GatewayError, Principal
 
 SCOPES = ("experiments:read", "experiments:run", "experiments:cancel")
+READINESS_DIAGNOSTICS_SCOPE = "gateway:ops:read"
+SUPPORTED_SCOPES = (*SCOPES, READINESS_DIAGNOSTICS_SCOPE)
 SESSION = "gpu_gateway_session"
 LOGIN_STATE = "gpu_gateway_login"
 MAX_OIDC_TOKEN_RESPONSE_BYTES = 65536
@@ -244,10 +246,10 @@ class Auth:
         )
         return response
 
-    def login_password(self, password: str, next_path: str) -> RedirectResponse:
+    def login_password(self, password: str, next_path: str, source_hash: str) -> RedirectResponse:
         if self.external or self.local is None:
             raise GatewayError("invalid_auth_mode", "Password login is unavailable", 404)
-        session = self.local.login(password)
+        session = self.local.login(password, source_hash)
         response = RedirectResponse(_safe_next(next_path), 303)
         response.set_cookie(
             SESSION, session.token, httponly=True, secure=self.settings.public_url.startswith("https:"),

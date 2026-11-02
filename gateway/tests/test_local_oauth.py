@@ -14,7 +14,8 @@ from sqlalchemy import select
 from gpu_gateway.app import create_app
 from gpu_gateway.auth import Auth
 from gpu_gateway.config import Settings, Workload
-from gpu_gateway.local_oauth import LocalOAuth, oauth_clients, oauth_tokens
+from gpu_gateway.local_oauth import (LOGIN_TOKEN_SCALE, LocalOAuth, oauth_clients,
+                                    oauth_login_budget, oauth_tokens)
 from gpu_gateway.service import ExperimentService, GatewayError
 from gpu_gateway.store import Store
 
@@ -133,7 +134,8 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     service = ExperimentService(store, settings, {"demo": Workload(provider="demo")})
     auth = Auth(settings, store=store)
     auth.local.seed_bootstrap("bootstrap-secret", ttl_seconds=3600)
-    client = TestClient(create_app(settings, service=service, auth=auth), base_url="https://gateway.example")
+    client = TestClient(create_app(settings, service=service, auth=auth),
+                        base_url="https://gateway.example", client=("127.0.0.1", 54321))
 
     health = client.get("/healthz").json()
     assert health["configured"] is True
@@ -151,10 +153,12 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
 
     meta = client.get("/.well-known/oauth-protected-resource/mcp").json()
     assert meta["authorization_servers"] == ["https://gateway.example"]
+    assert "gateway:ops:read" in meta["scopes_supported"]
     discovery = client.get("/.well-known/oauth-authorization-server").json()
     assert discovery["registration_endpoint"].endswith("/oauth/register")
     assert discovery["revocation_endpoint"] == "https://gateway.example/oauth/revoke"
     assert "offline_access" in discovery["scopes_supported"]
+    assert "gateway:ops:read" in discovery["scopes_supported"]
     assert "refresh_token" in discovery["grant_types_supported"]
 
     registered = client.post("/oauth/register", json={
@@ -172,7 +176,7 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": "https://chatgpt.com/oauth/callback/test",
-        "scope": "experiments:read offline_access",
+        "scope": "experiments:read gateway:ops:read offline_access",
         "resource": settings.resource,
         "state": "state-1",
         "code_challenge": challenge(verifier),
@@ -196,6 +200,12 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     token_data = tokens.json()
     assert token_data["token_type"] == "Bearer"
     assert token_data["refresh_token"].startswith("gr_")
+    assert "gateway:ops:read" in token_data["scope"].split()
+
+    readiness = client.get("/api/readiness", headers={
+        "Authorization": "Bearer " + token_data["access_token"],
+    })
+    assert "schema_version" in readiness.json()
 
     headers = {
         "Authorization": "Bearer " + token_data["access_token"],
@@ -302,7 +312,8 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
     auth = Auth(settings, store=store)
     auth.local.seed_bootstrap("bootstrap-secret")
     auth.local.bootstrap_admin("bootstrap-secret", "correct horse battery staple")
-    client = TestClient(create_app(settings, service=service, auth=auth), base_url="https://gateway.example")
+    client = TestClient(create_app(settings, service=service, auth=auth),
+                        base_url="https://gateway.example", client=("127.0.0.1", 54322))
 
     bad = client.post("/oauth/register", json={"redirect_uris":["https://attacker.example/callback"]})
     assert bad.status_code == 400
@@ -338,7 +349,7 @@ def test_authorization_requires_explicit_csrf_protected_consent(tmp_path):
     auth.local.seed_bootstrap("bootstrap-secret")
     auth.local.bootstrap_admin("bootstrap-secret", "correct horse battery staple")
     client = TestClient(create_app(settings, service=service, auth=auth),
-                        base_url="https://gateway.example")
+                        base_url="https://gateway.example", client=("127.0.0.1", 54323))
     client.post("/auth/login", data={"password": "correct horse battery staple", "next": "/"})
     client_id = client.post("/oauth/register", json={
         "client_name": "ChatGPT consent test",
@@ -401,24 +412,63 @@ def test_local_oauth_failed_login_rate_limit_persists_and_expires(tmp_path, monk
     auth = Auth(settings, store=store)
     auth.local.seed_bootstrap("one-time-setup", ttl_seconds=600)
     auth.local.bootstrap_admin("one-time-setup", "correct horse battery staple")
+    source_a, source_b = "a" * 64, "b" * 64
+    digest_calls = []
+    from gpu_gateway.local_oauth import _password_digest
+    original_digest = _password_digest
 
-    for _ in range(4):
+    def tracked_digest(password, salt):
+        digest_calls.append(password)
+        return original_digest(password, salt)
+
+    monkeypatch.setattr("gpu_gateway.local_oauth._password_digest", tracked_digest)
+
+    for _ in range(5):
         with pytest.raises(GatewayError) as error:
-            auth.local.login("incorrect password")
+            auth.local.login("incorrect password", source_a)
         assert error.value.code == "invalid_credentials"
-    with pytest.raises(GatewayError) as error:
-        auth.local.login("incorrect password")
-    assert error.value.code == "login_rate_limited"
-
-    # A separately constructed auth facade shares the persisted lockout state.
+        now[0] += 1  # replenish the global CPU budget while isolating this source bucket
+    assert len(digest_calls) == 5
     second_auth = Auth(settings, store=Store(settings.database_url))
     with pytest.raises(GatewayError) as error:
-        second_auth.local.login("correct horse battery staple")
+        second_auth.local.login("incorrect password", source_a)
     assert error.value.code == "login_rate_limited"
+    assert len(digest_calls) == 5  # rejected before password hashing
+
+    # A different source remains able to authenticate while source A is limited.
+    session = second_auth.local.login("correct horse battery staple", source_b)
+    assert session.token.startswith("gs_")
+    assert second_auth.local.session(session.token)["sub"] == "owner"
 
     now[0] += 301
     with pytest.raises(GatewayError) as error:
-        second_auth.local.login("incorrect password")
+        second_auth.local.login("incorrect password", source_a)
+    assert error.value.code == "invalid_credentials"
+
+
+def test_local_oauth_global_kdf_budget_bounds_rotating_sources(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'global-login-budget.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    local.seed_bootstrap("one-time-setup", ttl_seconds=600)
+    local.bootstrap_admin("one-time-setup", "correct horse battery staple")
+
+    for index in range(4):
+        with pytest.raises(GatewayError) as error:
+            local.login("bad password", f"{index:064x}")
+        assert error.value.code == "invalid_credentials"
+    with pytest.raises(GatewayError) as error:
+        local.login("bad password", "f" * 64)
+    assert error.value.code == "login_busy"
+    assert error.value.headers["Retry-After"] == "1"
+
+    now[0] += 1
+    with pytest.raises(GatewayError) as error:
+        local.login("bad password", "f" * 64)
     assert error.value.code == "invalid_credentials"
 
 
@@ -448,7 +498,7 @@ def test_consented_dcr_client_survives_expiry_for_reauthorization(tmp_path, monk
     local = Auth(settings, store=store).local
     local.seed_bootstrap("setup-token")
     local.bootstrap_admin("setup-token", "correct horse battery staple")
-    session = local.login("correct horse battery staple")
+    session = local.login("correct horse battery staple", "c" * 64)
     client_id = local.register_client({
         "client_name": "ChatGPT persistent client",
         "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],

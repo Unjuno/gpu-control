@@ -10,6 +10,7 @@ from urllib.parse import quote
 from decimal import Decimal
 
 from sqlalchemy import and_, or_, select, update
+from sqlalchemy import inspect as sqlalchemy_inspect
 
 from .artifacts import (ArtifactStore, MAX_ARTIFACTS_PER_RUN,
                         MAX_RUN_ARTIFACT_BYTES, inspect_artifact_storage)
@@ -18,6 +19,7 @@ from .config import Settings, load_workloads
 from .registry import default_registry
 from .service import TERMINAL, digest
 from .store import Store, control, runs
+from .migrations import SCHEMA_VERSION, UnsupportedSchemaVersion, schema_version
 from .admission import evaluate_admission, load_local_cpu_policy
 from .contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_binding
 from .health import HEARTBEAT_STALE_SECONDS, heartbeat_is_stale
@@ -191,19 +193,23 @@ class Worker:
                 result = {"result_omitted": True, "reason": "result_size_limit"}
         with self.store.transaction() as c:
             self.store.lock_control(c)
-            row = c.execute(select(runs).where(runs.c.id == job["id"])).mappings().one()
+            row = c.execute(select(runs).where(runs.c.id == job["id"]).with_for_update()).mappings().one()
             if row["lease_token"] != job["lease_token"] or row["state"] in TERMINAL:
                 return
-            if row["slot_reserved"]:
-                c.execute(update(control).where(control.c.id == 1).values(active_count=control.c.active_count - 1))
+            was_reserved = row["slot_reserved"]
             cleanup_state = ((result or {}).get("cleanup_state", "unknown") if isinstance(result, dict)
                              else "unknown")
             if cleanup_state not in {"not_required", "pending", "complete", "unknown"}:
                 cleanup_state = "unknown"
             c.execute(update(runs).where(runs.c.id == job["id"]).values(
-                state=state, result=result, error=error, slot_reserved=False,
-                lease_until=0, lease_token="", finished_at=int(self.clock()),
+                state=state, result=result, error=error, finished_at=int(self.clock()),
                 cleanup_state=cleanup_state, record_version=record_version))
+            if was_reserved and not self.store.release_finished_slot(
+                    c, job["id"], job["lease_token"]):
+                raise RuntimeError("Could not atomically release the current run slot")
+            c.execute(update(runs).where(
+                runs.c.id == job["id"], runs.c.lease_token == job["lease_token"]
+            ).values(lease_until=0, lease_token=""))
 
     def tick(self) -> bool:
         self._maybe_prune_artifacts(int(self.clock()))
@@ -277,7 +283,7 @@ class Worker:
                         return True
             if plan["provider"] == "local_cpu":
                 storage = inspect_artifact_storage(
-                    self.settings.artifact_dir, self.settings.artifact_min_free_bytes)
+                    self.settings.artifact_dir, self.settings.artifact_min_free_bytes, "worker")
                 if not storage["available"]:
                     self.finish(job, "failed", error="ARTIFACT_STORAGE_UNAVAILABLE")
                     return True
@@ -449,6 +455,8 @@ def main():
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--init-db", action="store_true")
+    mode.add_argument("--check-db", action="store_true",
+                      help="inspect migration state without changing database objects")
     mode.add_argument("--bootstrap-auth", action="store_true")
     mode.add_argument("--supervise", action="store_true",
                       help="run recovery-only ticks; never claim newly queued jobs")
@@ -458,6 +466,43 @@ def main():
     args = parser.parse_args()
     settings = Settings.from_env()
     store = Store(settings.database_url)
+    if args.check_db:
+        try:
+            inspector = sqlalchemy_inspect(store.engine)
+            tables = set(inspector.get_table_names())
+            current = 0
+            if schema_version.name in tables:
+                with store.engine.connect() as connection:
+                    current = connection.execute(
+                        select(schema_version.c.version).where(schema_version.c.id == 1)
+                    ).scalar_one_or_none()
+                if current is None:
+                    raise ValueError("schema-version row is missing")
+            elif "gateway_runs_v1" in tables:
+                current = 1
+            if type(current) is not int or current < 0 or current > SCHEMA_VERSION:
+                raise UnsupportedSchemaVersion("Gateway database schema version is unsupported")
+            report = {
+                "current_version": current,
+                "target_version": SCHEMA_VERSION,
+                "planned_versions": list(range(current + 1, SCHEMA_VERSION + 1)),
+                "gateway_tables_present": sorted(name for name in tables
+                    if name.startswith("gateway_")),
+                "read_only": True,
+            }
+            required = {
+                "gateway_runs_v1", "gateway_control_v1",
+                "gateway_oauth_login_source_buckets_v1", "gateway_oauth_login_budget_v1",
+            }
+            if current == SCHEMA_VERSION and not required.issubset(tables):
+                raise ValueError("current schema is missing required Gateway tables")
+            print(json.dumps(report, sort_keys=True))
+        except Exception as exc:
+            # Driver exceptions can embed connection URLs; emit no raw DB error.
+            print(json.dumps({"read_only": True, "error": "database preflight failed",
+                              "error_type": type(exc).__name__}, sort_keys=True))
+            raise SystemExit(2) from None
+        return
     if args.init_db:
         store.initialize()
         return

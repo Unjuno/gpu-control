@@ -168,6 +168,7 @@ def test_capabilities_block_when_artifact_headroom_is_below_configured_floor(sys
     )
     root = tmp_path / "artifacts"
     root.mkdir()
+    (root / ".gpu-control-probes").mkdir(mode=0o3770)
     system.service.settings = replace(system.settings, artifact_dir=str(root),
                                       artifact_min_free_bytes=10 * 1024 * 1024)
     fake_dedicated_filesystem(monkeypatch, root)
@@ -192,6 +193,7 @@ def test_capabilities_fail_closed_when_artifact_capacity_query_raises(system, tm
     )
     root = tmp_path / "artifacts"
     root.mkdir()
+    (root / ".gpu-control-probes").mkdir(mode=0o3770)
 
     def capacity_failure(_path):
         raise OSError("simulated statvfs failure")
@@ -379,6 +381,7 @@ def test_prepare_rechecks_artifact_storage_headroom_before_creating_run(system, 
     monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    (artifact_root / ".gpu-control-probes").mkdir(mode=0o3770)
     system.service.settings = replace(system.settings, artifact_dir=str(artifact_root),
                                       artifact_min_free_bytes=10 * 1024 * 1024)
     fake_dedicated_filesystem(monkeypatch, artifact_root)
@@ -412,6 +415,7 @@ def test_prepare_persists_distinct_operator_local_authorization(tmp_path, monkey
     policy_path.write_text(json.dumps(local_policy))
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    (artifact_root / ".gpu-control-probes").mkdir(mode=0o3770)
     system.service.settings = replace(system.settings, artifact_dir=str(artifact_root))
     monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
     args = {"repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "cpu",

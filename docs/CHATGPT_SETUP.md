@@ -6,21 +6,21 @@ container tests do not count as a ChatGPT connection test.
 ## Account and workspace gate
 
 The current [OpenAI Help Center instructions](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
-say full MCP support, including write actions, is available on ChatGPT Business,
-Enterprise and Edu on the web. Pro can connect custom MCP servers for read/fetch
-only. This Gateway exposes run and cancel operations, so a read-only Pro connection
-cannot satisfy product acceptance. The account plan and workspace permissions for
-this project have not been verified from the repository; an authorized workspace
-admin or owner must confirm access to create and test a custom MCP server.
+(checked 2026-11-02) list full MCP support, including write actions, for ChatGPT
+Business, Enterprise and Edu on the web. That guide does not list individual
+plans as eligible; do not assume that an unlisted plan supports this Gateway's
+write tools. The account plan and workspace permissions for this project have
+not been verified from the repository; an authorized workspace admin or owner
+must confirm access to create and test a custom MCP server.
 
 The current role rules are stricter than plan availability alone: in Business,
 only workspace admins/owners can create and publish a custom MCP app. In
 Enterprise/Edu, admins/owners can create and test; an admin may grant selected
 members permission to create/test through RBAC, while only admins/owners can
-publish the app. Record the actual tester's role, the workspace's `Create
-plugins with MCPs` permission, write-action permission, and the publisher role
-in the acceptance evidence. A plan name by itself does not prove these gates
-are satisfied.
+publish the app. The relevant creation permission is `Create plugins with MCPs`.
+Record the actual tester's role, that permission, write-action permission, and
+the publisher role in the acceptance evidence. A plan name by itself does not
+prove these gates are satisfied.
 
 For a permitted workspace, the current UI flow is **Plugins → + → Add custom MCP
 server**, then enter a public HTTPS MCP endpoint (or select an already configured
@@ -33,23 +33,32 @@ and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secu
 
 ## Required deployment state
 
-### Observed Vercel deployment (2026-10-28)
+### Observed production alias (2026-11-02)
 
-The `gpu-control.vercel.app` alias currently reaches a configured Gateway
-deployment. Read-only checks observed `/healthz` returning `configured=true` and
-`auth_configured=true` in built-in OAuth mode; protected-resource and
-authorization-server discovery advertise `https://gpu-control.vercel.app/mcp`,
-PKCE S256, refresh tokens, and `offline_access`. An unauthenticated MCP request
-returns 401, as expected before authorization.
+Vercel's connected account lists the production deployment as READY at
+`dpl_5XTNRHXiZ6C4zQmo949m2Mv9wDgJ`, built from `main` SHA
+`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; its aliases include
+`gpu-control.vercel.app`. This is the current public-main deployment, not the
+reviewed CPU vertical candidate.
 
-This is not the reviewed CPU vertical deployment. Vercel reports the production
-deployment is built from `main` SHA
-`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; that revision has no `/readyz`
-route, and a direct request returned 404. The unique deployment URL redirects
-to Vercel SSO. The Vercel integration denied access to environment-variable
-metadata (403), so database, OAuth bootstrap and other environment settings
-were not inspected. No credentials were read, and no ChatGPT OAuth flow or tool
-scan was performed.
+Read-only HTTPS requests to the alias returned:
+
+- `GET /healthz`: HTTP 200, `configured=true`, `auth_configured=true`,
+  `auth_mode=local_oauth`, `gpu_started_by_health_check=false`.
+- `GET /readyz`: HTTP 404 (`Not Found`). The deployed revision therefore does
+  not expose the readiness evidence required by the P1 candidate.
+- Protected-resource discovery advertises
+  `https://gpu-control.vercel.app/mcp` and read/run/cancel scopes.
+- Authorization-server discovery advertises authorization-code and refresh
+  grants, PKCE S256, and `offline_access`.
+
+These discovery documents do not prove the backing database, owner bootstrap,
+worker, recovery supervisor, or artifact storage are ready. No environment
+variable values or credentials were read, and no ChatGPT OAuth flow or tool
+scan was performed. Draft PR #66 passed GitHub CI and an independent source
+review, but has no submitted GitHub approval and is not deployed. A Vercel
+Preview does not provide the persistent worker, recovery supervisor, or
+artifact filesystem required by this Gateway.
 
 Before connecting ChatGPT, provide all of the following:
 
@@ -72,10 +81,12 @@ Before connecting ChatGPT, provide all of the following:
   are available under `gateway/deploy/`. They are templates only: adapt paths/socket group,
   install secrets with restrictive ownership, and verify service-level DB/Docker
   access on the target host before treating this as deployed.
-- Both systemd templates declare the persistent `gpu-control` state directory
-  with mode 0700. Artifact bytes live below `/var/lib/gpu-control/artifacts`, so
-  this path remains writable under `ProtectSystem=strict`; verify ownership and
-  the mounted filesystem on the chosen host.
+- The API's private `gpu-control-api` state directory is mode 0700; the worker
+  and recovery supervisor use the shared `gpu-control` state directory at
+  mode 2750. These are systemd-managed state paths, separate from the artifact
+  mount. Artifact bytes live below `/var/lib/gpu-control/artifacts`; verify its
+  owner/group, probe-directory permissions, mount identity, and writable
+  paths against the systemd units on the chosen host.
 - A configured authentication path. With external OIDC, configure issuer, JWKS,
   audience/resource, allowed subject, scopes and the MCP client's registration
   method. With built-in single-owner OAuth, run
@@ -101,8 +112,10 @@ evidence that lane is deployable.
 
 ## Live acceptance sequence
 
-1. Verify `/healthz` and `/readyz`. Readiness must report the current migration,
-   fresh worker heartbeat, database access and valid workload registry.
+1. Verify `/healthz` and `/readyz`. The public readiness endpoint returns only
+   an aggregate `ready` boolean; authenticated operators with the dedicated
+   `gateway:ops:read` scope can inspect migration, heartbeat, registry, admission
+   and artifact details at `/api/readiness`.
 2. Add the server to the authorized ChatGPT workspace and complete its OAuth flow.
 3. Confirm ChatGPT discovers the expected read, run and cancel tools. Check the
    server's discovered schema against this repository's MCP tool contract.

@@ -94,3 +94,84 @@ Before publishing a release candidate, review and configure GitHub main-branch
 protection and Production Environment approval rules. Their current absence is
 a verified gap; the connected account's admin permission does not itself
 authorize a configuration change.
+
+## Read-only baseline refresh — 2026-11-02
+
+The candidate was refreshed against GitHub immediately before this update:
+
+- `origin/main` is still `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`
+  (`Tolerate bounded GitHub runner queue delays (#50)`). The recorded baseline
+  SHA remains exact; it has not advanced since the earlier audit.
+- PR #43 remains OPEN/DRAFT, base `main` at
+  `a96a24818a5f8bc03b479c35b5e3f957f08dbe04`, head
+  `1699b75df8262023501d41279e83bf429dca1be4`, `REVIEW_REQUIRED`. Its latest
+  checks are successful but completed on 2026-09-07, so they are historical
+  and do not validate current `main` or this candidate.
+- `git cherry -v origin/main origin/pr-43-head` still marks all three PR #43
+  commits as absent. The `origin/main...origin/pr-43-head` diff contains 35
+  files. Do not cherry-pick the branch wholesale: the Gateway and provider
+  implementations on main have evolved independently.
+- Open PR #63, titled “P0: audit current main and PR #43 baseline,” is a
+  separate draft at head `4e54341d91cf10cbf97227b42b24e7ac4c314975`, based on
+  current `main`. It is not part of this candidate and its checks/review do
+  not apply here.
+- The current candidate has replayed the outbound HTTP hardening behavior and
+  allocation-time freshness checks with its own tests. It does not contain
+  PR #43's package-distribution release workflow, and the trusted
+  receipt-bound RunPod recovery-only behavior remains explicitly unverified
+  and deferred to P5. Paid/provider execution remains parked; no live provider
+  request was made.
+- This refresh did not query current branch-protection or Environment settings.
+  Their state remains **unknown for this refresh**; the 2026-10-28 settings
+  observation is historical and must be rechecked through an authorized
+  settings view before release. No GitHub settings, secrets, or deployments
+  were changed.
+
+### Disposition
+
+The P0 source baseline and PR #43 identity are confirmed unchanged. Current
+candidate-specific review remains local: its exact CPU/DB/security test output
+is recorded in `docs/acceptance/2026-11-02-pr58-runtime-db-security-validation.md`,
+but it has no GitHub CI, submitted review, or deployment evidence. Continue to
+keep P1 live ChatGPT acceptance and P3 deployment gates open.
+
+### Candidate follow-up — 2026-11-02
+
+The reconciliation candidate was published as draft PR #66 at
+`codex/pr58-cpu-vertical-reconcile-20261102`, stacked on PR #58. Source commit
+`1cb8d025a1f454b14b59004ea55871a71ba69fad` and the follow-up documentation
+commit `89ea9dfd252c0263b1fd959839c00b26ce84dfd3` both passed the GitHub CI,
+bridge, Python 3.11–3.13, trusted-container, and Vercel Preview checks. PR #66
+remains a Draft with no submitted GitHub review. The Vercel Preview is not a
+Gateway runtime deployment and does not satisfy ChatGPT, target-host, OAuth,
+or production acceptance. An independent source Security Review of the
+candidate's staged and unstaged changes found no actionable issues; this is
+not a GitHub approval or a live deployment/host review. See
+`docs/RELEASE_MATRIX.md` for current acceptance scope. PR #58 is still
+OPEN/DRAFT at its prior head, so PR #66 remains stacked and unmerged.
+
+### Live candidate and repository-protection refresh — 2026-11-02
+
+- PR #66 now points at `89aa5405913a62f5a76714d87ebb2519a3602aa3` and remains
+  OPEN/DRAFT, stacked on PR #58. All seven required GitHub checks and the Vercel
+  Preview passed on this exact head. The Preview remains a frontend deployment,
+  not a persistent Gateway runtime. PR review decision is still empty; no
+  submitted GitHub approval exists.
+- The service/config-permission patch received an independent source Security
+  Review with no actionable findings. Local validation passed 380 Gateway tests
+  (1 skipped), 3 WebMCP registration tests, Python entrypoint compilation, and
+  Linux `systemd-analyze verify`. This does not replace the protected GitHub
+  review.
+- A live read-only GitHub API query for `main` branch protection now returns
+  `enforce_admins=true`, strict required checks for Python 3.11/3.12/3.13,
+  Trusted reference container, Gateway offline tests, Gateway comment bridge
+  tests, and Project bridge tests. It also requires one approving PR review,
+  the latest push to be approved, and dismissal of stale approvals. This
+  supersedes the 2026-10-28 `protected: false` observation; no settings were
+  changed during this refresh.
+- The current candidate's exact systemd paired-restore and root-lockfile
+  installation evidence is recorded in
+  `docs/acceptance/2026-11-02-p3-systemd-paired-restore.md` and
+  `docs/acceptance/2026-11-02-p3-runtime-install-linux.md`. Target-host
+  deployment, ChatGPT account eligibility/permissions, OAuth connection, and
+  real ChatGPT run/retrieval remain NOT RUN.

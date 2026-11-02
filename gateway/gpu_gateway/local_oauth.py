@@ -4,16 +4,19 @@ import base64
 import hashlib
 import json
 import secrets
+import threading
 import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from sqlalchemy import JSON, Boolean, Column, Integer, String, Table, Text, delete, insert, or_, select, update
+from sqlalchemy import (BigInteger, JSON, Boolean, Column, Integer, String, Table,
+                        Text, delete, func, insert, or_, select, update)
 
 from .service import GatewayError
 from .store import metadata
 
-LOCAL_SCOPES = ("experiments:read", "experiments:run", "experiments:cancel", "offline_access")
+LOCAL_SCOPES = ("experiments:read", "experiments:run", "experiments:cancel",
+                "gateway:ops:read", "offline_access")
 
 oauth_admin = Table(
     "gateway_oauth_admin_v1", metadata,
@@ -28,6 +31,19 @@ oauth_login_guard = Table(
     Column("failures", Integer, nullable=False),
     Column("window_started", Integer, nullable=False),
     Column("locked_until", Integer, nullable=False),
+)
+oauth_login_source_buckets = Table(
+    "gateway_oauth_login_source_buckets_v1", metadata,
+    Column("source_hash", String(64), primary_key=True),
+    Column("attempts", Integer, nullable=False),
+    Column("window_started", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=False),
+)
+oauth_login_budget = Table(
+    "gateway_oauth_login_budget_v1", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("tokens_micro", Integer, nullable=False),
+    Column("updated_at_us", BigInteger, nullable=False),
 )
 oauth_bootstrap = Table(
     "gateway_oauth_bootstrap_v1", metadata,
@@ -77,6 +93,13 @@ oauth_tokens = Table(
     Column("grant_id", String(64), nullable=True),
 )
 
+LOGIN_SOURCE_ATTEMPTS = 5
+LOGIN_SOURCE_WINDOW_SECONDS = 300
+LOGIN_SOURCE_BUCKET_LIMIT = 1024
+LOGIN_GLOBAL_BURST = 4
+LOGIN_TOKEN_SCALE = 1_000_000
+LOGIN_GLOBAL_REFILL_MICRO_PER_SECOND = LOGIN_TOKEN_SCALE
+
 
 def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
@@ -112,6 +135,13 @@ class LocalOAuth:
     def __init__(self, settings, store):
         self.settings = settings
         self.store = store
+        self._login_kdf_slots = threading.BoundedSemaphore(2)
+
+    def try_acquire_login_slot(self) -> bool:
+        return self._login_kdf_slots.acquire(blocking=False)
+
+    def release_login_slot(self) -> None:
+        self._login_kdf_slots.release()
 
     @property
     def issuer(self) -> str:
@@ -151,57 +181,95 @@ class LocalOAuth:
             ))
             c.execute(delete(oauth_bootstrap))
 
-    def login(self, password: str) -> LocalSession:
+    def login(self, password: str, source_hash: str) -> LocalSession:
+        acquired_here = self.try_acquire_login_slot()
+        if not acquired_here:
+            raise GatewayError("login_busy", "Sign-in is temporarily busy", 503,
+                               headers={"Retry-After": "1"})
+        try:
+            return self._login_admitted(password, source_hash)
+        finally:
+            self.release_login_slot()
+
+    def _login_admitted(self, password: str, source_hash: str) -> LocalSession:
+        if not isinstance(source_hash, str) or len(source_hash) != 64 or any(
+                character not in "0123456789abcdef" for character in source_hash):
+            raise GatewayError("login_source_unavailable", "Sign-in is temporarily unavailable", 503)
         now = int(time.time())
+        now_us = int(time.time() * 1_000_000)
         raw = "gs_" + secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         expires = now + 12 * 3600
-        failure: tuple[str, int] | None = None
+        denial: GatewayError | None = None
+        admin = None
         with self.store.transaction() as c:
             row = c.execute(select(oauth_admin).where(oauth_admin.c.id == 1)).mappings().first()
             if row is None:
                 raise GatewayError("auth_not_configured", "Complete owner setup first", 503)
-            guard = c.execute(select(oauth_login_guard).where(
-                oauth_login_guard.c.id == 1
+            # The coordinator row serializes short reservations across API
+            # processes. Password hashing runs only after this transaction ends.
+            budget = c.execute(select(oauth_login_budget).where(
+                oauth_login_budget.c.id == 1
             ).with_for_update()).mappings().first()
-            if guard is None:
-                c.execute(insert(oauth_login_guard).values(
-                    id=1, failures=0, window_started=now, locked_until=0
-                ))
-                guard = {"failures": 0, "window_started": now, "locked_until": 0}
-            if guard["locked_until"] > now:
-                raise GatewayError("login_rate_limited", "Too many failed sign-in attempts; try again later", 429)
-            try:
-                actual = _password_digest(password, bytes.fromhex(row["salt_hex"])).hex()
-            except (ValueError, TypeError):
-                actual = ""
-            if not secrets.compare_digest(actual, row["password_hash_hex"]):
-                failures = guard["failures"]
-                window_started = guard["window_started"]
-                if now - window_started >= 300:
-                    failures, window_started = 0, now
-                failures += 1
-                locked_until = now + 300 if failures >= 5 else 0
-                c.execute(update(oauth_login_guard).where(oauth_login_guard.c.id == 1).values(
-                    failures=failures, window_started=window_started, locked_until=locked_until
-                ))
-                if locked_until:
-                    failure = ("login_rate_limited", 429)
-                else:
-                    failure = ("invalid_credentials", 401)
+            if budget is None:
+                raise GatewayError("login_budget_unavailable", "Sign-in is temporarily unavailable", 503)
+            c.execute(delete(oauth_login_source_buckets).where(
+                oauth_login_source_buckets.c.expires_at <= now
+            ))
+            source = c.execute(select(oauth_login_source_buckets).where(
+                oauth_login_source_buckets.c.source_hash == source_hash
+            ).with_for_update()).mappings().first()
+            if source is not None and source["attempts"] >= LOGIN_SOURCE_ATTEMPTS:
+                denial = GatewayError(
+                    "login_rate_limited", "Too many sign-in attempts from this network; try again later", 429,
+                    headers={"Retry-After": str(LOGIN_SOURCE_WINDOW_SECONDS)},
+                )
+            elif source is None and c.execute(
+                    select(func.count()).select_from(oauth_login_source_buckets)).scalar_one() >= LOGIN_SOURCE_BUCKET_LIMIT:
+                denial = GatewayError("login_busy", "Sign-in is temporarily busy", 503,
+                                      headers={"Retry-After": "1"})
             else:
-                c.execute(update(oauth_login_guard).where(oauth_login_guard.c.id == 1).values(
-                    failures=0, window_started=now, locked_until=0
-                ))
-                c.execute(delete(oauth_sessions).where(oauth_sessions.c.expires_at <= now))
-                c.execute(insert(oauth_sessions).values(
-                    token_hash=_sha(raw), csrf=csrf, expires_at=expires, created_at=now
-                ))
-        if failure is not None:
-            code, status = failure
-            if code == "login_rate_limited":
-                raise GatewayError(code, "Too many failed sign-in attempts; try again later", status)
-            raise GatewayError(code, "Invalid credentials", status)
+                elapsed_us = max(0, now_us - int(budget["updated_at_us"]))
+                tokens = min(
+                    LOGIN_GLOBAL_BURST * LOGIN_TOKEN_SCALE,
+                    int(budget["tokens_micro"]) + elapsed_us * LOGIN_GLOBAL_REFILL_MICRO_PER_SECOND // 1_000_000,
+                )
+                if tokens < LOGIN_TOKEN_SCALE:
+                    denial = GatewayError("login_busy", "Sign-in is temporarily busy", 503,
+                                          headers={"Retry-After": "1"})
+                else:
+                    c.execute(update(oauth_login_budget).where(
+                        oauth_login_budget.c.id == 1
+                    ).values(tokens_micro=tokens - LOGIN_TOKEN_SCALE, updated_at_us=max(now_us, budget["updated_at_us"])))
+                    if source is None:
+                        c.execute(insert(oauth_login_source_buckets).values(
+                            source_hash=source_hash, attempts=1, window_started=now,
+                            expires_at=now + LOGIN_SOURCE_WINDOW_SECONDS,
+                        ))
+                    else:
+                        c.execute(update(oauth_login_source_buckets).where(
+                            oauth_login_source_buckets.c.source_hash == source_hash
+                        ).values(attempts=source["attempts"] + 1))
+                    admin = dict(row)
+        if denial is not None:
+            raise denial
+        if admin is None:
+            raise GatewayError("login_budget_unavailable", "Sign-in is temporarily unavailable", 503)
+        try:
+            actual = _password_digest(password, bytes.fromhex(admin["salt_hex"])).hex()
+        except (ValueError, TypeError):
+            actual = ""
+        if not secrets.compare_digest(actual, admin["password_hash_hex"]):
+            raise GatewayError("invalid_credentials", "Invalid credentials", 401)
+        with self.store.transaction() as c:
+            current = c.execute(select(oauth_admin).where(oauth_admin.c.id == 1)).mappings().first()
+            if (current is None or current["salt_hex"] != admin["salt_hex"] or
+                    current["password_hash_hex"] != admin["password_hash_hex"]):
+                raise GatewayError("invalid_credentials", "Invalid credentials", 401)
+            c.execute(delete(oauth_sessions).where(oauth_sessions.c.expires_at <= now))
+            c.execute(insert(oauth_sessions).values(
+                token_hash=_sha(raw), csrf=csrf, expires_at=expires, created_at=now
+            ))
         return LocalSession(raw, csrf, expires)
 
     def session(self, raw: str) -> dict:

@@ -244,6 +244,8 @@ def test_vercel_neon_standard_env_fallback(monkeypatch):
     assert settings.database_url == "postgresql+psycopg://user:pass@example.neon.tech/db?sslmode=require"
     assert settings.public_url == "https://gpu-control-gateway.vercel.app"
     assert settings.hosted is True
+    assert settings.client_ip_mode == "vercel"
+    assert settings.vercel_runtime is True
     assert settings.artifact_min_free_bytes == 1073741824
 
 

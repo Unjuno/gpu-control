@@ -6,6 +6,7 @@ import subprocess
 import time
 import uuid
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select, update
@@ -46,6 +47,18 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
     settings = Settings(database_url=url, artifact_dir=str(artifact_root))
     store = Store(url)
     store.initialize()
+    deploy = Path(__file__).resolve().parents[1] / "deploy"
+    # Match the deployment sequence: migrations create schema first, then the
+    # environment's DBA provisions the isolated roles and migration identity
+    # applies the runtime ACL/function policy before API or workers start.
+    with store.engine.begin() as connection:
+        connection.exec_driver_sql(
+            (deploy / "database-runtime-roles-bootstrap.sql").read_text().replace("%", "%%"))
+        connection.exec_driver_sql(
+            (deploy / "database-runtime-roles-ownership.sql").read_text().replace("%", "%%"))
+        connection.exec_driver_sql("SET ROLE gpu_control_migrate")
+        connection.exec_driver_sql(
+            (deploy / "database-runtime-roles.sql").read_text().replace("%", "%%"))
     scopes = frozenset({"experiments:read", "experiments:run", "experiments:cancel"})
     principal = Principal("db-outage-" + uuid.uuid4().hex, scopes)
     now = int(time.time())
