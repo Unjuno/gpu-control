@@ -206,3 +206,15 @@ PR #63 remains OPEN/DRAFT with
 `REVIEW_REQUIRED`, and PR #66 remains OPEN/DRAFT without a GitHub review
 decision. The exact live acceptance boundary remains in
 `docs/CHATGPT_SETUP.md` and `docs/CHATGPT_ACCEPTANCE.md`.
+
+### Required-check trigger alignment — 2026-11-02
+
+The live `main` protection requires seven named Actions contexts on every
+pull request. The Gateway offline, Gateway comment bridge, and Project bridge
+workflows had `pull_request.paths` filters, so a docs-only PR such as #63 did
+not publish those required contexts and could not satisfy the branch rule.
+Their pull-request path filters are removed; their `push` filters on `main`
+remain, so ordinary main pushes still run only affected suites. This PR's new
+head should publish all seven required contexts; verify the actual check
+rollup before treating the change as effective. The required human approval
+and last-push approval remain in force.

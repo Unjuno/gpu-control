@@ -2,10 +2,6 @@ name: Gateway comment bridge tests
 
 on:
   pull_request:
-    paths:
-      - 'gateway/**'
-      - '.github/workflows/gateway-comments.yml'
-      - '.github/workflows/gateway-bridge-ci.yml'
   push:
     branches: [main]
     paths:
