@@ -2,10 +2,13 @@
 
 Evidence snapshot: 2026-11-02 on branch
 `codex/pr58-cpu-vertical-reconcile-20261102`, based on PR #58 head
-`90bd6d8c84e319365d66951ca96c7ccceff40998`. The candidate has local tests and
-acceptance records but no GitHub CI, submitted review, or deployment evidence.
-This matrix does not infer readiness from mocks, source inspection, or a green
-test suite alone.
+`90bd6d8c84e319365d66951ca96c7ccceff40998`. Candidate commit
+`1cb8d025a1f454b14b59004ea55871a71ba69fad` passed GitHub CI on draft PR #66:
+Gateway offline and comment bridge, Project bridge, Python 3.11/3.12/3.13,
+trusted reference container, and Vercel Preview checks. The Preview is not a
+Gateway runtime deployment; no GitHub approval or production acceptance has
+been recorded. This matrix does not infer readiness from mocks, source
+inspection, or a green test suite alone.
 
 | Axis | Status | Current evidence | Remaining acceptance |
 | --- | --- | --- | --- |
