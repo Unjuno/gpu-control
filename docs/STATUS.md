@@ -76,9 +76,8 @@ No live provider call is enabled by these implementations. The remaining provide
 
 `policies/repository-state.yaml` remains the source of truth. Important remaining activation requirements include:
 
-- protected `gpu-control/main` with required CI checks;
+- a separately protected, owner-only `paid-runpod` Environment;
 - control-plane context integrity and prompt/context gates;
-- an owner-only protected `paid-runpod` Environment;
 - Environment-scoped `RUNPOD_API_KEY` plus separate RunPod S3 credentials;
 - a pre-existing Network Volume in a supported S3 datacenter;
 - immutable published canary-image identity;
@@ -86,7 +85,7 @@ No live provider call is enabled by these implementations. The remaining provide
 - live verification of ambiguous-create, result collection, and cleanup reconciliation;
 - protected paid-workflow wiring that constructs the exact current `LiveExecutionPermit` from trusted runtime evidence.
 
-The public repository currently reports `main` as unprotected. Do not treat repository access, a successful dry-run, or available budget as authorization to spend money.
+`main` is protected: one approving review (including approval after the latest push), strict required CI checks, admin enforcement, linear history, and conversation resolution are enabled. Force-push and deletion are disabled. Paid execution still additionally requires the separately protected, owner-only `paid-runpod` Environment and all other gates above. Do not treat repository access, a successful dry-run, or available budget as authorization to spend money.
 
 ## What "ready" means here
 

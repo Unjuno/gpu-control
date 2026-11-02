@@ -1,7 +1,6 @@
 name: Project bridge tests
 on:
   pull_request:
-    paths: ['gateway/project_control/**', '.github/workflows/project-checks*.yml']
   push:
     branches: [main]
     paths: ['gateway/project_control/**', '.github/workflows/project-checks*.yml']
@@ -9,6 +8,7 @@ permissions:
   contents: read
 jobs:
   test:
+    name: Project bridge tests
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
