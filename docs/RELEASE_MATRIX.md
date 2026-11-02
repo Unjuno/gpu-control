@@ -56,15 +56,16 @@ durable-write probes were added in `7e95de4`. ChatGPT retrieval remains unrun.
   ACL reapplication. Provider-independent recovery review, deployed
   storage/quota/alert controls, and ChatGPT retrieval remain incomplete.
   Unsupported artifacts must not be represented as retrievable.
-- P3 remains pending: systemd units are templates only; there is no selected
-  deployed Gateway/worker host, real ChatGPT connection, seven-day observation,
-  or target-host timed restore drill. The 2026-11-02 paired restore exercises
-  current schema-v10 data, OAuth grant state, artifact bytes, and restored DB
-  function ownership locally; the service-stop attestation was injected, and
-  the source/restore databases shared a disposable PostgreSQL cluster.
-  Encrypted off-host retention, second-operator restore, worker/resource
-  reconciliation, and measured RPO/RTO remain required. Recheck hosted database
-  state and migration plan before any live database mutation.
+- P3 remains pending: there is no selected deployed Gateway/worker host, real
+  ChatGPT connection, seven-day observation, encrypted off-host retention,
+  second-operator restore, or target-host timed restore drill. The 2026-11-02
+  isolated Linux systemd rehearsal generated the current schema-v10 paired
+  backup only after all seven actual units reported loaded/inactive, restored
+  into an independent PostgreSQL cluster, and retrieved the artifact through
+  the restarted API. The guest reported an LXC context, so this is not
+  production-host or measured RPO/RTO evidence. Earlier synthetic restore
+  evidence remains described in its own acceptance record. Recheck hosted
+  database state and migration plan before any live database mutation.
 - Paid and GPU paths stay parked until their separate evidence and authorization
   gates are satisfied. Local CPU evidence does not satisfy either gate.
 
@@ -74,10 +75,14 @@ and state the scope of each PASS.
 
 ## Current PR #66 status (2026-11-02)
 
-The current PR head is `784fdfe9e758554621b0e336af618ce41a334f39`. GitHub
-reported all seven branch-protection checks successful on this revision. The PR
-remains OPEN/DRAFT with no review recorded and an empty `reviewDecision`; the
-required approving review after the latest push has not been satisfied. This
-status update does not change any release-axis acceptance: target-host deployment,
-ChatGPT OAuth/tool/run/retrieval, seven-day operations, target-host recovery,
-RPO/RTO, GPU, and paid execution remain unaccepted or parked.
+The current PR head is `89aa5405913a62f5a76714d87ebb2519a3602aa3`. GitHub
+reported all seven required branch-protection checks and Vercel Preview
+successful on this revision. The PR remains OPEN/DRAFT with an empty
+`reviewDecision`; no GitHub approval has been submitted, and the latest-push
+approval requirement remains unsatisfied. An independent source Security
+Review found no actionable findings in the service/config-permission correction.
+Local Gateway tests passed 380 tests (1 skipped); the Linux systemd paired
+restore and deployment install evidence are linked above. This status does not
+change the release axes: target-host deployment, ChatGPT OAuth/tool/run/retrieval,
+seven-day operations, target-host recovery, RPO/RTO, GPU, and paid execution
+remain unaccepted or parked.

@@ -149,3 +149,29 @@ candidate's staged and unstaged changes found no actionable issues; this is
 not a GitHub approval or a live deployment/host review. See
 `docs/RELEASE_MATRIX.md` for current acceptance scope. PR #58 is still
 OPEN/DRAFT at its prior head, so PR #66 remains stacked and unmerged.
+
+### Live candidate and repository-protection refresh — 2026-11-02
+
+- PR #66 now points at `89aa5405913a62f5a76714d87ebb2519a3602aa3` and remains
+  OPEN/DRAFT, stacked on PR #58. All seven required GitHub checks and the Vercel
+  Preview passed on this exact head. The Preview remains a frontend deployment,
+  not a persistent Gateway runtime. PR review decision is still empty; no
+  submitted GitHub approval exists.
+- The service/config-permission patch received an independent source Security
+  Review with no actionable findings. Local validation passed 380 Gateway tests
+  (1 skipped), 3 WebMCP registration tests, Python entrypoint compilation, and
+  Linux `systemd-analyze verify`. This does not replace the protected GitHub
+  review.
+- A live read-only GitHub API query for `main` branch protection now returns
+  `enforce_admins=true`, strict required checks for Python 3.11/3.12/3.13,
+  Trusted reference container, Gateway offline tests, Gateway comment bridge
+  tests, and Project bridge tests. It also requires one approving PR review,
+  the latest push to be approved, and dismissal of stale approvals. This
+  supersedes the 2026-10-28 `protected: false` observation; no settings were
+  changed during this refresh.
+- The current candidate's exact systemd paired-restore and root-lockfile
+  installation evidence is recorded in
+  `docs/acceptance/2026-11-02-p3-systemd-paired-restore.md` and
+  `docs/acceptance/2026-11-02-p3-runtime-install-linux.md`. Target-host
+  deployment, ChatGPT account eligibility/permissions, OAuth connection, and
+  real ChatGPT run/retrieval remain NOT RUN.
