@@ -38,8 +38,10 @@ service identities and artifact filesystem modes. The uncommitted remediation
 and its Linux separate-UID validation are recorded in
 [`2026-11-02 P1 artifact permission remediation`](acceptance/2026-11-02-p1-artifact-permissions-remediation.md).
 This does not resolve the `SECURITY` status: the candidate has not been pushed,
-checked by GitHub CI, or accepted on the target host, and ChatGPT retrieval
-remains unrun.
+accepted by GitHub CI, or accepted on the target host. Commit `dbef0d4` is now
+on the draft PR; its first Gateway CI run found a missing probe fixture in the
+real MCP integration test. The fixture has been corrected locally and awaits a
+follow-up CI run. ChatGPT retrieval remains unrun.
 
 ## Operational gates
 

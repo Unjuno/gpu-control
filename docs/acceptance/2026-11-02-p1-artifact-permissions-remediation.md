@@ -1,9 +1,10 @@
 # P1 artifact permission remediation
 
-Status: **LOCAL CANDIDATE VERIFIED; HOSTED ACCEPTANCE NOT RUN**.
+Status: **LOCAL CANDIDATE VERIFIED; CI FOLLOW-UP RUN REQUIRED; HOSTED ACCEPTANCE NOT RUN**.
 
 Target: draft PR #66, source HEAD `2098ab25056ca33f74577b301fa4692af0a1bca7`.
-The remediation is an uncommitted worktree diff based on that HEAD.
+The permission remediation is pushed as `dbef0d4`; the subsequent integration
+fixture correction is in the current follow-up candidate.
 
 ## Finding and change
 
@@ -25,8 +26,12 @@ ancestor directories.
 
 - Focused artifact, deploy-unit, owner-migration, backup, experiment API, and
   HTTP auth tests: **124 passed**, one Starlette deprecation warning.
-- Full Gateway suite: **365 passed, 15 skipped**, one Starlette deprecation
-  warning.
+- Full Gateway suite without its optional Docker/PostgreSQL integration
+  environment: **365 passed, 15 skipped**, one Starlette deprecation warning.
+- CI-equivalent full Gateway suite with a disposable PostgreSQL 16 container
+  and digest-pinned CPU smoke image: **379 passed, 1 skipped**, one Starlette
+  deprecation warning. The authenticated MCP CPU execution and cross-client
+  artifact retrieval test passed **1/1**.
 - `git diff --check`: passed.
 - Linux container check against the patched source, with worker UID `10001`,
   API UID `10002`, shared artifact GID `20000`, probe GID `20001`, and worker
@@ -38,6 +43,11 @@ ancestor directories.
   parent directories as a remaining access failure. The code now requires the
   artifact root's parent to be provisioned and has a regression test for that
   behavior. No second review of this final small adjustment was run.
+- The first GitHub CI run for commit `dbef0d4` caught a missing probe directory
+  in the real MCP integration test fixture (`probe_not_directory`). The fixture
+  now provisions that directory, and the same test plus the full configured
+  suite pass locally. The follow-up candidate still needs its own GitHub CI
+  run.
 
 ## Limits
 
