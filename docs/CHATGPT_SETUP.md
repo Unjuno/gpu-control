@@ -6,21 +6,21 @@ container tests do not count as a ChatGPT connection test.
 ## Account and workspace gate
 
 The current [OpenAI Help Center instructions](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
-say full MCP support, including write actions, is available on ChatGPT Business,
-Enterprise and Edu on the web. Pro can connect custom MCP servers for read/fetch
-only. This Gateway exposes run and cancel operations, so a read-only Pro connection
-cannot satisfy product acceptance. The account plan and workspace permissions for
-this project have not been verified from the repository; an authorized workspace
-admin or owner must confirm access to create and test a custom MCP server.
+(checked 2026-11-02) list full MCP support, including write actions, for ChatGPT
+Business, Enterprise and Edu on the web. That guide does not list individual
+plans as eligible; do not assume that an unlisted plan supports this Gateway's
+write tools. The account plan and workspace permissions for this project have
+not been verified from the repository; an authorized workspace admin or owner
+must confirm access to create and test a custom MCP server.
 
 The current role rules are stricter than plan availability alone: in Business,
 only workspace admins/owners can create and publish a custom MCP app. In
 Enterprise/Edu, admins/owners can create and test; an admin may grant selected
 members permission to create/test through RBAC, while only admins/owners can
-publish the app. Record the actual tester's role, the workspace's `Create
-plugins with MCPs` permission, write-action permission, and the publisher role
-in the acceptance evidence. A plan name by itself does not prove these gates
-are satisfied.
+publish the app. The relevant creation permission is `Create plugins with MCPs`.
+Record the actual tester's role, that permission, write-action permission, and
+the publisher role in the acceptance evidence. A plan name by itself does not
+prove these gates are satisfied.
 
 For a permitted workspace, the current UI flow is **Plugins → + → Add custom MCP
 server**, then enter a public HTTPS MCP endpoint (or select an already configured
