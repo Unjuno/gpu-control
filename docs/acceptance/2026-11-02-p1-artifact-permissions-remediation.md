@@ -1,10 +1,10 @@
 # P1 artifact permission remediation
 
-Status: **LOCAL CANDIDATE VERIFIED; CI FOLLOW-UP RUN REQUIRED; HOSTED ACCEPTANCE NOT RUN**.
+Status: **PR CI PASSED; TARGET-HOST AND CHATGPT ACCEPTANCE NOT RUN**.
 
 Target: draft PR #66, source HEAD `2098ab25056ca33f74577b301fa4692af0a1bca7`.
-The permission remediation is pushed as `dbef0d4`; the subsequent integration
-fixture correction is in the current follow-up candidate.
+The permission remediation is in `dbef0d4`; its test-fixture follow-up is
+`0bdcd969889d35fdd8bc767181a6784e8e12efea`.
 
 ## Finding and change
 
@@ -45,13 +45,13 @@ ancestor directories.
   behavior. No second review of this final small adjustment was run.
 - The first GitHub CI run for commit `dbef0d4` caught a missing probe directory
   in the real MCP integration test fixture (`probe_not_directory`). The fixture
-  now provisions that directory, and the same test plus the full configured
-  suite pass locally. The follow-up candidate still needs its own GitHub CI
-  run.
+  now provisions that directory. The same test and the configured full suite
+  pass locally; all GitHub checks pass on follow-up commit `0bdcd96`, including
+  the real Docker/PostgreSQL Gateway workflow.
 
 ## Limits
 
 This is not target-host systemd, filesystem ACL, mount-loss, ChatGPT, or hosted
 deployment acceptance. The recovery review's operational findings remain open.
-The candidate has not been committed or pushed, and GitHub checks have not run
-against this diff. Keep provider and paid-execution modes parked.
+PR #66 remains draft with no GitHub review decision. Keep provider and
+paid-execution modes parked.
