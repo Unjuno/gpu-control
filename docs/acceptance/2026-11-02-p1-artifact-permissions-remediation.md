@@ -1,8 +1,8 @@
 # P1 artifact permission remediation
 
-Status: **PR CI PASSED AT `4deba187`; scoped Security diff scan found zero reportable findings; TARGET-HOST AND CHATGPT ACCEPTANCE NOT RUN**.
+Status: **PR CI PASSED AT `46fe723`; scoped Security diff scan of unchanged source through `4deba187` found zero reportable findings; PROTECTED REVIEW, TARGET-HOST AND CHATGPT ACCEPTANCE NOT RUN**.
 
-Target: draft PR #66, base `2098ab25056ca33f74577b301fa4692af0a1bca7`, current source HEAD `4deba187ad6fe8e8b3c6f0b008ba1e407fc53574`.
+Target: draft PR #66, current branch HEAD `46fe723125322ea7047929d928fe5b3c65886d73`; artifact-permission source changes end at `4deba187ad6fe8e8b3c6f0b008ba1e407fc53574`; base `2098ab25056ca33f74577b301fa4692af0a1bca7`.
 The permission remediation is in `dbef0d4`; its test-fixture follow-up is
 `0bdcd969889d35fdd8bc767181a6784e8e12efea`; the durable-write probe follow-up
 is `7e95de4`.
@@ -33,6 +33,10 @@ directories.
   deprecation warning. The authenticated MCP CPU execution and cross-client
   artifact retrieval test passed **1/1**.
 - `git diff --check`: passed.
+- On 2026-11-02, read-only GitHub inspection confirmed the PR has no review
+  decision and no review request. The protected `main` branch rule requires one
+  approving review after the latest push and enforces it for administrators.
+- The docs-only successor commit `46fe723` passed the required GitHub CI checks.
 - Linux container check against the final local source, with worker UID
   `10001`, API UID `10002`, shared artifact GID `20000`, probe GID `20001`, and
   worker `umask(0077)`: worker readiness durably wrote and removed its root
