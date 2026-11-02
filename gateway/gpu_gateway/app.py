@@ -179,7 +179,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         artifact_storage_ok = True
         if local_cpu_storage_required:
             artifact_storage = inspect_artifact_storage(
-                settings.artifact_dir, settings.artifact_min_free_bytes)
+                settings.artifact_dir, settings.artifact_min_free_bytes, "api")
             artifact_storage_ok = artifact_storage["available"]
             local_cpu_admission_ready = True
             try:

@@ -283,7 +283,7 @@ class Worker:
                         return True
             if plan["provider"] == "local_cpu":
                 storage = inspect_artifact_storage(
-                    self.settings.artifact_dir, self.settings.artifact_min_free_bytes)
+                    self.settings.artifact_dir, self.settings.artifact_min_free_bytes, "worker")
                 if not storage["available"]:
                     self.finish(job, "failed", error="ARTIFACT_STORAGE_UNAVAILABLE")
                     return True

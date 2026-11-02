@@ -246,7 +246,7 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
     enabled_providers = {provider["id"] for provider in data["providers"]
                          if provider["enabled"]}
     artifact_storage = inspect_artifact_storage(
-        service.settings.artifact_dir, service.settings.artifact_min_free_bytes)
+        service.settings.artifact_dir, service.settings.artifact_min_free_bytes, "api")
     resources = []
     for workload_info in data["workloads"]:
         name = workload_info["id"]
@@ -476,7 +476,7 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                                  machine_state={"policy_digest": decision.policy_digest},
                                  next_actions=["retry_later"], blocker="LOCAL_CPU_BACKEND_UNAVAILABLE")
             artifact_storage = inspect_artifact_storage(
-                service.settings.artifact_dir, service.settings.artifact_min_free_bytes)
+                service.settings.artifact_dir, service.settings.artifact_min_free_bytes, "api")
             if not artifact_storage["available"]:
                 return _envelope(status="blocked", summary="local CPU実験の成果物ストレージを利用できません。",
                                  machine_state={"artifact_storage": artifact_storage},

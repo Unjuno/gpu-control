@@ -252,8 +252,8 @@ def test_readiness_checks_artifact_storage_for_enabled_local_cpu(
              "reason": None if storage_available else "not_configured"}
     calls = []
 
-    def inspect(root, minimum_free_bytes):
-        calls.append((root, minimum_free_bytes))
+    def inspect(root, minimum_free_bytes, access_mode):
+        calls.append((root, minimum_free_bytes, access_mode))
         return probe
 
     monkeypatch.setattr(gateway_app, "inspect_artifact_storage", inspect)
@@ -266,7 +266,7 @@ def test_readiness_checks_artifact_storage_for_enabled_local_cpu(
     assert response.json()["local_cpu_admission_ready"] is True
     assert response.json()["local_cpu_admission_blockers"] == []
     assert response.json()["artifact_storage"] == probe
-    assert calls == [(web.settings.artifact_dir, web.settings.artifact_min_free_bytes)]
+    assert calls == [(web.settings.artifact_dir, web.settings.artifact_min_free_bytes, "api")]
 
 
 @pytest.mark.parametrize(("path_exists", "separate_filesystem"), [

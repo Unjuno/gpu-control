@@ -32,6 +32,15 @@ evidence and limits are recorded in
 PR #66 remains draft without a GitHub review decision; this is not hosted
 deployment evidence.
 
+Follow-up local candidate evidence, 2026-11-02: the independent recovery
+review of PR #66 head `2098ab2` found a P1 mismatch between the API/worker
+service identities and artifact filesystem modes. The uncommitted remediation
+and its Linux separate-UID validation are recorded in
+[`2026-11-02 P1 artifact permission remediation`](acceptance/2026-11-02-p1-artifact-permissions-remediation.md).
+This does not resolve the `SECURITY` status: the candidate has not been pushed,
+checked by GitHub CI, or accepted on the target host, and ChatGPT retrieval
+remains unrun.
+
 ## Operational gates
 
 - P2 recovery work is locally exercised on Docker and PostgreSQL 16, including
