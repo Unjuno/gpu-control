@@ -220,3 +220,12 @@ confirmed the workflows started but exposed job check names (`gateway`,
 now match the three required contexts. Verify the new head's exact check-run
 names and conclusions before treating the change as effective. The required
 human approval and last-push approval remain in force.
+
+The follow-up head `cee2310009bfc01617db23fb1253bdfea2318df8` published all
+seven required check-run names exactly as configured, and all seven succeeded:
+Python 3.11, Python 3.12, Python 3.13, Trusted reference container, Gateway
+offline tests, Gateway comment bridge tests, and Project bridge tests. Vercel
+and Preview Comments also succeeded. GitHub reports `mergeStateStatus=BLOCKED`
+and `reviewDecision=REVIEW_REQUIRED`; the required human review is now the
+remaining PR merge gate. Recheck this after the next docs commit because it
+creates a new PR head and reruns CI.
