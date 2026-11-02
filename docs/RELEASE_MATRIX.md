@@ -37,11 +37,11 @@ review of PR #66 head `2098ab2` found a P1 mismatch between the API/worker
 service identities and artifact filesystem modes. The uncommitted remediation
 and its Linux separate-UID validation are recorded in
 [`2026-11-02 P1 artifact permission remediation`](acceptance/2026-11-02-p1-artifact-permissions-remediation.md).
-This does not resolve the `SECURITY` status: commit `0bdcd96` passes all GitHub
-checks but still awaits protected human review and target-host acceptance. Its
-first Gateway CI run at `dbef0d4` found a missing probe fixture in the real MCP
-integration test; the fixture was corrected in `0bdcd96`. ChatGPT retrieval
-remains unrun.
+This does not resolve the `SECURITY` status: source commit `7e95de4` passes all
+GitHub checks but still awaits protected human review and target-host
+acceptance. Its first Gateway CI run at `dbef0d4` found a missing probe fixture
+in the real MCP integration test; the fixture was corrected in `0bdcd96`, then
+durable-write probes were added in `7e95de4`. ChatGPT retrieval remains unrun.
 
 ## Operational gates
 

@@ -1,12 +1,11 @@
 # P1 artifact permission remediation
 
-Status: **LOCAL SOURCE FOLLOW-UP VERIFIED; PRIOR PR CI PASSED; NEW CI RUN REQUIRED**.
+Status: **PR CI PASSED AT `7e95de4`; TARGET-HOST AND CHATGPT ACCEPTANCE NOT RUN**.
 
 Target: draft PR #66, source HEAD `2098ab25056ca33f74577b301fa4692af0a1bca7`.
 The permission remediation is in `dbef0d4`; its test-fixture follow-up is
-`0bdcd969889d35fdd8bc767181a6784e8e12efea`. A further local source change
-adds durable-write probes on top of PR head `6822b21` and has not yet been
-pushed.
+`0bdcd969889d35fdd8bc767181a6784e8e12efea`; the durable-write probe follow-up
+is `7e95de4`.
 
 ## Finding and change
 
@@ -47,15 +46,12 @@ directories.
 - The first GitHub CI run for commit `dbef0d4` caught a missing probe directory
   in the real MCP integration test fixture (`probe_not_directory`). The fixture
   now provisions that directory. The same test and the configured full suite
-  pass locally; all GitHub checks pass on follow-up commit `0bdcd96`, including
-  the real Docker/PostgreSQL Gateway workflow. The subsequent durable-write
-  probe change was validated locally against that same configured test setup;
-  it still needs a GitHub run.
+  pass locally; all GitHub checks pass on `7e95de4`, including the real
+  Docker/PostgreSQL Gateway workflow with the durable-write probe change.
 
 ## Limits
 
 This is not target-host systemd, filesystem ACL, mount-loss, ChatGPT, or hosted
 deployment acceptance. The recovery review's operational findings remain open.
-PR #66 remains draft with no GitHub review decision. The current source
-follow-up has no GitHub checks yet. Keep provider and paid-execution modes
-parked.
+PR #66 remains draft with no GitHub review decision. Keep provider and
+paid-execution modes parked.
