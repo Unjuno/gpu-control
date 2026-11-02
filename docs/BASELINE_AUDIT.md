@@ -182,3 +182,25 @@ P0 remains partially complete and open. The repository audit is current, but
 independent review/merge, readiness-capable production deployment, eligible
 ChatGPT OAuth, and the real CPU lifecycle acceptance remain outstanding. Keep
 all GPU and spending gates closed.
+
+### P1 candidate refresh — 2026-11-02
+
+After the preceding snapshot, PR #66 advanced to
+`2098ab25056ca33f74577b301fa4692af0a1bca7` (draft, based on
+`codex/gpu-control-p1-dcr-v9-review`). Its code commit
+`27a34d10d722e4c08409b57bfd5aa1b72bf0ba87` adds schema-v10 LocalOAuth login
+throttling and IP-source validation; a follow-up commit corrected the evidence
+record. The PR's Python 3.11–3.13, Gateway offline, Gateway comment bridge,
+Project bridge, trusted-container and Vercel checks all pass. A fresh
+independent security review found no remaining actionable issue after fixing a
+cancellation-time semaphore leak. The full Gateway suite passed 372 tests
+against disposable PostgreSQL 17.11 with 5 optional Torch/CPU integration
+tests skipped. These are candidate checks, not approval or deployment evidence.
+
+The production alias still serves `main` SHA
+`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; read-only probes return `/healthz`
+200, `/readyz` 404, and anonymous `/mcp` 401. No schema migration, runtime-role
+grant, or production deployment was performed. PR #63 remains OPEN/DRAFT with
+`REVIEW_REQUIRED`, and PR #66 remains OPEN/DRAFT without a GitHub review
+decision. The exact live acceptance boundary remains in
+`docs/CHATGPT_SETUP.md` and `docs/CHATGPT_ACCEPTANCE.md`.
