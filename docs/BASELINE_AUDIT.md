@@ -94,3 +94,43 @@ Before publishing a release candidate, review and configure GitHub main-branch
 protection and Production Environment approval rules. Their current absence is
 a verified gap; the connected account's admin permission does not itself
 authorize a configuration change.
+
+## Read-only baseline refresh — 2026-11-02
+
+The candidate was refreshed against GitHub immediately before this update:
+
+- `origin/main` is still `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`
+  (`Tolerate bounded GitHub runner queue delays (#50)`). The recorded baseline
+  SHA remains exact; it has not advanced since the earlier audit.
+- PR #43 remains OPEN/DRAFT, base `main` at
+  `a96a24818a5f8bc03b479c35b5e3f957f08dbe04`, head
+  `1699b75df8262023501d41279e83bf429dca1be4`, `REVIEW_REQUIRED`. Its latest
+  checks are successful but completed on 2026-09-07, so they are historical
+  and do not validate current `main` or this candidate.
+- `git cherry -v origin/main origin/pr-43-head` still marks all three PR #43
+  commits as absent. The `origin/main...origin/pr-43-head` diff contains 35
+  files. Do not cherry-pick the branch wholesale: the Gateway and provider
+  implementations on main have evolved independently.
+- Open PR #63, titled “P0: audit current main and PR #43 baseline,” is a
+  separate draft at head `4e54341d91cf10cbf97227b42b24e7ac4c314975`, based on
+  current `main`. It is not part of this candidate and its checks/review do
+  not apply here.
+- The current candidate has replayed the outbound HTTP hardening behavior and
+  allocation-time freshness checks with its own tests. It does not contain
+  PR #43's package-distribution release workflow, and the trusted
+  receipt-bound RunPod recovery-only behavior remains explicitly unverified
+  and deferred to P5. Paid/provider execution remains parked; no live provider
+  request was made.
+- This refresh did not query current branch-protection or Environment settings.
+  Their state remains **unknown for this refresh**; the 2026-10-28 settings
+  observation is historical and must be rechecked through an authorized
+  settings view before release. No GitHub settings, secrets, or deployments
+  were changed.
+
+### Disposition
+
+The P0 source baseline and PR #43 identity are confirmed unchanged. Current
+candidate-specific review remains local: its exact CPU/DB/security test output
+is recorded in `docs/acceptance/2026-11-02-pr58-runtime-db-security-validation.md`,
+but it has no GitHub CI, submitted review, or deployment evidence. Continue to
+keep P1 live ChatGPT acceptance and P3 deployment gates open.

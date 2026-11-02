@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import re
 
 from sqlalchemy import (JSON, Boolean, Column, Integer, MetaData, String, Table,
-                        Text, UniqueConstraint, create_engine, insert, select, update)
+                        Text, UniqueConstraint, create_engine, insert, select, text, update)
 from sqlalchemy.pool import NullPool
 from .migrations import migrate
 
@@ -88,6 +88,27 @@ class Store:
         if row is None:
             raise RuntimeError("Initialize the gateway database before using it")
         return row
+
+    def release_finished_slot(self, connection, run_id: str, lease_token: str) -> bool:
+        """Release one terminal run's slot without exposing the counter to workers."""
+        if self.engine.dialect.name == "postgresql":
+            return bool(connection.execute(text(
+                "SELECT public.gpu_control_release_finished_slot(:run_id, :lease_token)"
+            ), {"run_id": run_id, "lease_token": lease_token}).scalar_one())
+        # SQLite keeps the same transaction/serialization contract for local tests.
+        changed = connection.execute(update(runs).where(
+            runs.c.id == run_id, runs.c.lease_token == lease_token,
+            runs.c.slot_reserved.is_(True), runs.c.state.in_(
+                ["succeeded", "failed", "cancelled", "expired"]),
+        ).values(slot_reserved=False)).rowcount
+        if changed != 1:
+            return False
+        counter = connection.execute(update(control).where(
+            control.c.id == 1, control.c.active_count > 0,
+        ).values(active_count=control.c.active_count - 1)).rowcount
+        if counter != 1:
+            raise RuntimeError("Gateway active-slot counter is inconsistent")
+        return True
 
     def read(self, run_id: str):
         with self.engine.connect() as connection:

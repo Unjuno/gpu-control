@@ -6,7 +6,9 @@
   enforces at most 10 objects and 1 MiB per object (10 MiB total maximum),
   rejects duplicate IDs, and generates metadata instead of trusting backend
   paths or URLs.
-- Blobs are written atomically with mode 0600 under mode 0700 directories. Disk
+- At the time of the earlier acceptance runs, blobs were written atomically
+  with mode 0600 under mode 0700 directories. Those historical runs predate the
+  service-UID and group-readable artifact layout described below.
   names derive from a hash of owner/run identity and artifact ID; client input
   is never interpreted as a path. Result metadata records SHA-256, size, media
   type and a 30-day expiry.
@@ -20,6 +22,13 @@
   accepted from the caller.
 - API and worker deployments that produce artifacts must share a persistent
   `GATEWAY_ARTIFACT_DIR`. Artifact-free workloads do not require this setting.
+- `inspect_artifact_storage` checks configured headroom, creates an exclusive
+  one-byte probe via a no-follow directory file descriptor, unlinks it, then
+  writes and syncs through the still-open file descriptor. This detects
+  read-only mounts and effective write failures while avoiding a visible probe
+  file during the write itself. The readiness endpoint requires this probe only
+  when an enabled `local_cpu` workload can produce artifacts; it reports
+  `artifact_storage: null` for demo-only deployments.
 - Worker and supervisor processes scan artifact manifests hourly. Expired
   manifest blobs are removed; unmanifested files are removed only after a
   24-hour grace period and never while their run is active. The cleanup is
@@ -102,6 +111,12 @@
   integration-test steps locally; it does not validate GitHub's Ubuntu runner.
 - Retention tests verify expired manifest deletion, 24-hour orphan grace,
   preservation of active-run blobs, and preservation of recent orphan files.
+- The readiness/storage follow-up adds an injected write-probe failure case and
+  verifies successful probes leave no temporary file. On the current local
+  worktree, the artifact-storage and HTTP-auth modules pass **38 tests**; the
+  full Gateway suite passes **272 tests, 9 skipped**, with one existing
+  Starlette deprecation warning. This is local filesystem/SQLite evidence, not
+  deployed-host mount or quota acceptance.
 - An injected artifact-volume write failure after terminal capture now persists a
   failed result with `failure_code: artifact_persistence_failed`, publishes no
   artifact metadata, retains the slot while cleanup is interrupted, and lets a
@@ -109,6 +124,22 @@
   and fake backend; it is not a real full-filesystem test.
 - Tests include a 102,400-byte artifact fetched in verified chunks, private file
   mode, owner mismatch, unlisted ID, expiry, and protocol tool count/scope.
+
+## Later service-boundary hardening
+
+The 2026-10-28 systemd follow-up now assigns separate UIDs to API, worker,
+migration, and capacity services; worker and recovery supervisor intentionally
+share one UID for tracked-resource cleanup. Artifact directories use mode
+02750 and complete blobs use 0640 so API/capacity can read through the dedicated
+artifact group. The API can write only to the sticky
+`.gpu-control-probes` directory (mode 03770), not to artifact blobs. The older
+Compose probe result above used a single shared container UID and does not
+validate these new Unix identity and sticky-directory boundaries.
+
+The focused regression suite after this change passed 61 tests across artifact
+storage, HTTP auth/readiness, systemd units, and backup generation. This remains
+local code/test evidence; no target Linux host permissions or live systemd
+service identity has been exercised.
 
 ## Limits
 
@@ -126,8 +157,27 @@
   configure the dedicated filesystem and host alert routing, then exercise a
   real quota-boundary write failure before enabling artifact-producing
   workloads.
+- Current-worktree review correction: readiness now fails closed when an
+  enabled local CPU workload points at the same filesystem as the artifact
+  directory's parent, even when `GATEWAY_ARTIFACT_MIN_FREE_BYTES=0`. This
+  matches the capacity monitor and deployment requirement. The regression
+  failed before the correction and passed after it; same-filesystem readiness
+  returns 503 and a separate-device fixture returns 200. The temporary test
+  filesystem does not prove a deployed mount.
 - A real ChatGPT conversation and cross-conversation artifact retrieval have
   not been exercised. The shared-volume check used a disposable local Compose
   volume, not a deployed persistent host volume. Result retrieval remains
   UNCERTAIN until deployed API access and a second-conversation ChatGPT check
   prove the owner, source, plan, digest, and returned bytes together.
+
+## Permission-migration partial-failure follow-up — 2026-10-28
+
+Added `test_partial_apply_failure_preserves_payload_and_is_recoverable_on_rerun`
+for the artifact permission migration utility. It injects an ownership-change
+failure after the root and scope directory have already been updated, confirms
+the blob bytes are preserved, then reruns the idempotent migration and checks
+the final root/scope/blob/probe modes. Focused
+`test_artifact_permission_migration.py`: **9 passed**, one existing Starlette
+deprecation warning. This verifies recovery from a local partial filesystem
+operation under a stopped-service test fixture; it does not validate target
+host ownership/groups, cross-host process shutdown, or production migration.

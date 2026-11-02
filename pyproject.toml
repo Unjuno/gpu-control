@@ -31,3 +31,6 @@ gpu_control = ["default_policy.yaml", "default_result_policy.yaml", "default_pai
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+
+[tool.uv.workspace]
+members = ["gateway"]

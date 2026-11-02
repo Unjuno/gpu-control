@@ -73,11 +73,11 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 - `migrate(engine) -> None`: version管理された冪等migration。workerとAPIで必要schema versionを検証する。
 - 追加永続情報: cleanup_state、finished_at、version、attempt、submission_intent、result_manifest。旧runのfingerprintは再計算・上書きせずv1 readerで扱う。
 
-- [ ] `test_v1_rows_survive_migration`: 旧DBのrun/owner/承認/key/fingerprintが保持され、2回migrationして変わらないことを書く。
-- [ ] `test_unknown_schema_fails_closed`: 未知versionを実行しないこと、旧version結果を読めることを書く。
-- [ ] `test_result_identity_is_control_plane_owned`: workload JSONに偽run_id/gpu_used/cleanupを入れても信頼フィールドを書き換えられないことを書く。
-- [ ] 契約とmigrationを実装し、v1/新規v2の読取を分岐する。旧行を無根拠に新しい承認へ変換しない。
-- [ ] `python -m pytest gateway/tests/test_contracts_v2.py gateway/tests/test_migrations.py -q`。SQLiteと一時PostgreSQLの両方でPASSを記録する。
+- [x] `test_v1_rows_survive_migration`: 旧DBのrun/owner/承認/key/fingerprintが保持され、2回migrationして変わらないことを書く。
+- [x] `test_unknown_schema_fails_closed`: 未知versionを実行しないこと、旧version結果を読めることを書く。
+- [x] `test_result_identity_is_control_plane_owned`: workload JSONに偽run_id/gpu_used/cleanupを入れても信頼フィールドを書き換えられないことを書く。
+- [x] 契約とmigrationを実装し、v1/新規v2の読取を分岐する。旧行を無根拠に新しい承認へ変換しない。
+- [x] `python -m pytest gateway/tests/test_contracts_v2.py gateway/tests/test_migrations.py -q`。SQLiteと一時PostgreSQLの両方でPASSを記録する。2026-11-02にPostgreSQL 16を含むT1/T2対象試験91件を再実行。記録: `docs/acceptance/2026-11-02-p1-t1-t2-postgres-revalidation.md`。
 - [ ] migrationとrollback互換性、移行前backupをPRへ記載してcommitする。
 
 ## T2: 8つのMCPツールと会話向け応答
@@ -86,11 +86,11 @@ workerが停止しても終了する期限監督をtrusted container launcherに
 
 **Interfaces:** `invoke_experiment(service, principal, name: str, arguments: dict) -> dict`。serviceはowner境界の単一実装を維持し、HTTP/MCPで別の実行ロジックを作らない。
 
-- [ ] `test_eight_advertised_tools_and_legacy_dispatch`: 新8ツール、scope別visibility、旧6名の互換処理を検証する。
-- [ ] `test_owner_isolation_for_status_result_list_cancel`: 別ownerで404、一覧に混入なし、取消不能を検証する。
-- [ ] `test_result_pending_does_not_claim_success`, `test_gpu_required_never_falls_back_to_cpu`を書く。
-- [ ] input/output schema、structuredContent、説明文、制限付きlogsを実装する。opaque cursorはownerに結びつけ、limitは既定20/最大50、UTC期間フィルタを受ける。
-- [ ] `python -m pytest gateway/tests/test_experiment_api.py gateway/tests/test_protocol_validation.py gateway/tests/test_ci_bridge.py -q`でPASS。workloadエラーとprotocolエラーの期待応答を確認する。
+- [x] `test_eight_advertised_tools_and_legacy_dispatch`: 新8ツール、scope別visibility、旧6名の互換処理を検証する。
+- [x] `test_owner_isolation_for_status_result_list_cancel`: 別ownerで404、一覧に混入なし、取消不能を検証する。
+- [x] `test_result_pending_does_not_claim_success`, `test_gpu_required_never_falls_back_to_cpu`を書く。
+- [x] input/output schema、structuredContent、説明文、制限付きlogsを実装する。opaque cursorはownerに結びつけ、limitは既定20/最大50、UTC期間フィルタを受ける。
+- [x] `python -m pytest gateway/tests/test_experiment_api.py gateway/tests/test_protocol_validation.py gateway/tests/test_ci_bridge.py -q`でPASS。workloadエラーとprotocolエラーの期待応答を確認する。2026-11-02の該当範囲とHTTP auth regressionは91 passed。詳細は`docs/acceptance/2026-11-02-p1-t1-t2-postgres-revalidation.md`。
 - [ ] API仕様と互換期間を文書化しcommitする。
 
 ## T3: 0ドルCPU受付と限定した事前許可
@@ -141,7 +141,7 @@ Historical T4 evidence: OrbStack Docker 29.8.2, host/image linux/arm64, image di
 - [x] schema v4にdurable submission intent/attemptを追加。intentをbackend start前に保存し、lease-token fencing、label-identity再照合、取消優先処理を確認。reconcileからstartは呼ばない。
 - [x] `python -m pytest gateway/tests/test_worker_recovery.py gateway/tests/test_local_lifecycle_integration.py -q`。実process/container障害試験とcancelを実行。
 
-T5 evidence: Gateway 198 passed, 2 skipped with pinned CPU image and PostgreSQL 16 configured; `project_control` 19 passed. The Docker integration starts a real Worker subprocess and terminates it immediately after the container starts but before its handle is persisted; the database retains `dispatching` intent/attempt=1. A replacement Worker reconciles exactly one label-bound container, captures the same run result, marks the intent handle_persisted, and cleans it up. A second real run is cancelled after local admission is disabled; repeated cancellation is safe and the container is absent. Unit fault injection verifies cleanup failure preserves the result and active slot until a replacement Worker confirms cleanup; expired lease tokens cannot overwrite a replacement claim. A collision test rejects a run-id match with the wrong owner digest before mutation. PostgreSQL 16 migration, concurrent admission, and concurrent worker-lease tests pass. In an outage integration, PostgreSQL is stopped immediately after a real CPU container's terminal result is captured; the result is not fabricated or dropped, the run slot and container remain held, and after PostgreSQL restarts a replacement worker saves the result and cleans the container. `project_control` 19 tests pass. T5 acceptance is complete for the single-host local CPU lane; provider-neutral supervisor and distributed production operation remain later work.
+T5 evidence: Gateway 198 passed, 2 skipped with pinned CPU image and PostgreSQL 16 configured; `project_control` 19 passed. The Docker integration starts a real Worker subprocess and terminates it immediately after the container starts but before its handle is persisted; the database retains `provider_call_started` intent/attempt=1, the recovery state added by the P2 dispatch fence. A replacement Worker reconciles exactly one label-bound container, captures the same run result, marks the intent handle_persisted, and cleans it up. A second real run is cancelled after local admission is disabled; repeated cancellation is safe and the container is absent. Unit fault injection verifies cleanup failure preserves the result and active slot until a replacement Worker confirms cleanup; expired lease tokens cannot overwrite a replacement claim. A collision test rejects a run-id match with the wrong owner digest before mutation. PostgreSQL 16 migration, concurrent admission, and concurrent worker-lease tests pass. In an outage integration, PostgreSQL is stopped immediately after a real CPU container's terminal result is captured; the result is not fabricated or dropped, the run slot and container remain held, and after PostgreSQL restarts a replacement worker saves the result and cleans the container. `project_control` 19 tests pass. T5 acceptance is complete for the single-host local CPU lane; provider-neutral supervisor and distributed production operation remain later work.
 
 ## T6: ChatGPT接続と単一CPU経路の配備
 
@@ -150,12 +150,28 @@ T5 evidence: Gateway 198 passed, 2 skipped with pinned CPU image and PostgreSQL 
 **Interfaces:** HTTPS `/mcp`、既存OAuth discovery、read/run/cancel scope、永続DB、独立worker。client固有の認証緩和や匿名実行を導入しない。
 
 - [ ] 現在のChatGPTアカウント/ワークスペースでcustom MCP接続権限を確認し、正式な接続方法を記録する。
-- [ ] endpoint→OAuth→tool discovery→read-only capabilitiesを実ChatGPTで通す。現行のprotocol version/header処理を公式仕様・実クライアント要求で検証する。
+- [x] 公式MCP Python SDK 2.3.0でローカルMCP endpointのStreamable HTTP、`2026-07-28` negotiation、8 canonical tools discovery、read-only `experiment_capabilities` 呼び出しを検証する。仕様上必須の`cacheScope`/`ttlMs`欠落を修正し、証拠を`docs/acceptance/2026-10-31-mcp-sdk-interop.md`に記録した。これはSDKプロトコル互換性の証拠であり、実ChatGPTのOAuth、アカウント権限、接続受入は引き続き未完了。
+- [ ] endpoint→OAuth→tool discovery→read-only capabilitiesを実ChatGPTで通す。現行のprotocol version/header処理とOAuth refresh/reconnectを実アカウントで検証する。
 - [ ] deployment protection、token audience/resource、HTTPS origin、refresh/revocation、scope不足を確認する。DB初期化/migrationをHTTP handlerに置かない。
 - [ ] 固定費と常時worker稼働条件を運用手順に記載し、local workerがsleep/offlineならcapabilitiesを実行可能と偽らない。
 - [ ] `python -m pytest gateway/tests/test_http_auth.py gateway/tests/test_local_oauth.py -q`、その後実ChatGPTの認証更新と再接続を検証する。
 - [ ] 本番操作に追加承認が必要なときは具体的な構成・費用・rollbackを提示し、その外部操作だけ保留する。offlineの残作業は続ける。
 - [ ] 設定手順と接続証拠をcommitする。トークン・パスワード・接続文字列は記録しない。
+
+### Candidate-local acceptance status (2026-11-02)
+
+- Local protocol/backend acceptance exists: the official MCP SDK interop and
+  the authenticated offline HTTP-to-Docker integration cover tool discovery,
+  CPU submit, recovery, result and artifact retrieval. These are not evidence
+  of a real ChatGPT account connection or a deployed endpoint.
+- The rebased stack now includes a PostgreSQL runtime-role policy and a
+  disposable PostgreSQL 16 ACL regression. See
+  `docs/acceptance/2026-11-02-pr58-runtime-db-security-validation.md` for the
+  exact local checks and residual trusted-worker boundary.
+- Remains unchecked until performed in the target account/environment: actual
+  workspace permission confirmation, deployed HTTPS/OAuth refresh and
+  revocation, hosted role provisioning, deployment, and user-facing ChatGPT
+  CPU run/retrieval. Do not treat this local candidate as a release.
 
 ## T7: 利用者受入とCPU版の完了判定
 

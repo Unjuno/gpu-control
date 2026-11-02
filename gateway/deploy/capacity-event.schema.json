@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpu-control.invalid/schemas/capacity-event.schema.json",
+  "title": "GPU Control artifact capacity status event",
+  "type": "object",
+  "required": ["check", "status", "available", "reason"],
+  "properties": {
+    "check": {"const": "gpu-control-artifact-capacity"},
+    "status": {"enum": ["ok", "alert"]},
+    "available": {"type": "boolean"},
+    "reason": {"type": ["string", "null"], "maxLength": 64},
+    "free_bytes": {"type": "integer", "minimum": 0},
+    "minimum_free_bytes": {"type": "integer", "minimum": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "ok"}}, "required": ["status"]},
+      "then": {
+        "properties": {"available": {"const": true}, "reason": {"const": null}},
+        "required": ["free_bytes", "minimum_free_bytes"]
+      },
+      "else": {
+        "properties": {
+          "available": {"const": false},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}
