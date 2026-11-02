@@ -226,6 +226,7 @@ seven required check-run names exactly as configured, and all seven succeeded:
 Python 3.11, Python 3.12, Python 3.13, Trusted reference container, Gateway
 offline tests, Gateway comment bridge tests, and Project bridge tests. Vercel
 and Preview Comments also succeeded. GitHub reports `mergeStateStatus=BLOCKED`
-and `reviewDecision=REVIEW_REQUIRED`; the required human review is now the
-remaining PR merge gate. Recheck this after the next docs commit because it
-creates a new PR head and reruns CI.
+and `reviewDecision=REVIEW_REQUIRED`; PR #63 remains a Draft. Its later
+docs-only head `72c727034a63040b2a0a4bedf1b3b13a8c1afbb1` also published and
+passed all seven required check names. To merge, the PR must be marked ready
+and receive an eligible approval, including the configured last-push approval.
