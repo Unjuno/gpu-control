@@ -214,7 +214,9 @@ pull request. The Gateway offline, Gateway comment bridge, and Project bridge
 workflows had `pull_request.paths` filters, so a docs-only PR such as #63 did
 not publish those required contexts and could not satisfy the branch rule.
 Their pull-request path filters are removed; their `push` filters on `main`
-remain, so ordinary main pushes still run only affected suites. This PR's new
-head should publish all seven required contexts; verify the actual check
-rollup before treating the change as effective. The required human approval
-and last-push approval remain in force.
+remain, so ordinary main pushes still run only affected suites. The first run
+confirmed the workflows started but exposed job check names (`gateway`,
+`bridge`, `test`) that do not match the protected contexts. Explicit job names
+now match the three required contexts. Verify the new head's exact check-run
+names and conclusions before treating the change as effective. The required
+human approval and last-push approval remain in force.

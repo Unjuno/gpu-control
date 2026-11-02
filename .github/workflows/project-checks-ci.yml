@@ -8,6 +8,7 @@ permissions:
   contents: read
 jobs:
   test:
+    name: Project bridge tests
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
