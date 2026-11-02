@@ -1,7 +1,7 @@
 -- Apply as gpu_control_migrate after migrations, then after each migration.
 -- Login roles must be distinct, NOINHERIT, non-superuser, with no incoming or
 -- outgoing memberships. Provision passwords out of band; never put them here.
--- This allowlist matches PR58 schema v9 plus its OAuth tables.
+-- This allowlist matches the current schema v10 and its OAuth tables.
 BEGIN;
 
 DO $$ BEGIN
@@ -22,6 +22,8 @@ REVOKE ALL ON TABLE
   public.gateway_control_v1,
   public.gateway_oauth_admin_v1,
   public.gateway_oauth_login_guard_v1,
+  public.gateway_oauth_login_source_buckets_v1,
+  public.gateway_oauth_login_budget_v1,
   public.gateway_oauth_bootstrap_v1,
   public.gateway_oauth_sessions_v1,
   public.gateway_oauth_clients_v1,
@@ -35,6 +37,8 @@ REVOKE ALL ON TABLE
   public.gateway_control_v1,
   public.gateway_oauth_admin_v1,
   public.gateway_oauth_login_guard_v1,
+  public.gateway_oauth_login_source_buckets_v1,
+  public.gateway_oauth_login_budget_v1,
   public.gateway_oauth_bootstrap_v1,
   public.gateway_oauth_sessions_v1,
   public.gateway_oauth_clients_v1,
@@ -75,13 +79,20 @@ GRANT UPDATE (worker_seen_at, supervisor_seen_at)
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.gateway_oauth_admin_v1,
-  public.gateway_oauth_login_guard_v1,
   public.gateway_oauth_bootstrap_v1,
   public.gateway_oauth_sessions_v1,
   public.gateway_oauth_clients_v1,
   public.gateway_oauth_codes_v1,
   public.gateway_oauth_tokens_v1
 TO gpu_control_api;
+
+-- New login admission state is API-only. The obsolete account-wide guard stays
+-- revoked so an accidentally running old API fails closed after the v10 role
+-- grant script is applied.
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON TABLE public.gateway_oauth_login_source_buckets_v1 TO gpu_control_api;
+GRANT SELECT, UPDATE
+  ON TABLE public.gateway_oauth_login_budget_v1 TO gpu_control_api;
 
 -- Version state is read-only to runtime processes; only the migration owner
 -- advances it. Table ownership remains with gpu_control_migrate.

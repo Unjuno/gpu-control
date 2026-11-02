@@ -22,8 +22,9 @@ TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 
 
 class GatewayError(Exception):
-    def __init__(self, code: str, message: str, status: int = 400):
+    def __init__(self, code: str, message: str, status: int = 400, *, headers=None):
         self.code, self.message, self.status = code, message, status
+        self.headers = dict(headers or {})
         super().__init__(message)
 
 

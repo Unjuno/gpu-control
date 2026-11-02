@@ -314,8 +314,10 @@ The companion `gateway.env.example`, the three `*-db.env.example` files,
 starting points. Bootstrap PostgreSQL roles with
 `database-runtime-roles-bootstrap.sql`, transfer existing Gateway table ownership
 before an upgrade when needed, and apply `database-runtime-roles.sql` after each
-migration. Its grants match the PR58 schema-v9 table allowlist; review the SQL
-when the schema changes.
+migration. Its grants match the current schema-v10 table allowlist, including
+per-source login throttles and the API-only global login budget; review the SQL
+when the schema changes. Stop the API before applying the schema-v10 migration,
+then apply the runtime-role SQL before restarting it.
 `worker-secrets.env.example` is optional and must remain absent while provider
 integrations are parked. These are configuration templates, not a tested
 installer. API, worker/supervisor, migration, and capacity run under separate

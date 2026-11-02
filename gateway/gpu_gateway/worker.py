@@ -490,7 +490,10 @@ def main():
                     if name.startswith("gateway_")),
                 "read_only": True,
             }
-            required = {"gateway_runs_v1", "gateway_control_v1"}
+            required = {
+                "gateway_runs_v1", "gateway_control_v1",
+                "gateway_oauth_login_source_buckets_v1", "gateway_oauth_login_budget_v1",
+            }
             if current == SCHEMA_VERSION and not required.issubset(tables):
                 raise ValueError("current schema is missing required Gateway tables")
             print(json.dumps(report, sort_keys=True))

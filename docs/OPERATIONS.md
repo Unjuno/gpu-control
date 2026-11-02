@@ -249,6 +249,11 @@ migration role. Verify the SQL's scope against current migration definitions
 before upgrading to a schema that adds tables. Start services only after
 checking effective grants and confirming no role memberships bypass them.
 
+Before upgrading an existing deployment to schema v10, stop the API and worker
+services, run the reviewed migration with the migration identity, apply the
+runtime-role SQL, run `--check-db`, then restart the API and worker. The v10
+login-budget tables are API-only; the worker receives no privileges on them.
+
 The worker remains a trusted service identity: it reads run rows across owners
 and may write allowed lifecycle/result columns for existing rows. The lease
 token fences stale cooperative workers; it does not authenticate a worker
@@ -317,9 +322,14 @@ credential, quote, quota, cancellation, and cleanup gates pass. This file is
 optional and remains absent while integrations are parked.
 
 Place the API behind a TLS-terminating reverse proxy. The API unit binds only to
-`127.0.0.1:8000` and has no Docker group membership; only the dedicated worker
+`127.0.0.1:8000`, Uvicorn proxy-header rewriting is disabled, and the API has no Docker group membership; only the dedicated worker
 and recovery supervisor receive access to the Docker daemon. Verify the proxy
-forwards the original HTTPS scheme/host safely and that the OAuth issuer,
+forwards the original HTTPS scheme/host safely and overwrites `X-Forwarded-For`.
+Set `GATEWAY_CLIENT_IP_MODE=trusted_proxy` and configure only the exact proxy
+CIDRs in `GATEWAY_TRUSTED_PROXY_CIDRS`; the application accepts a bounded,
+validated forwarding chain. On Vercel, use the platform `x-vercel-forwarded-for`
+mode and do not put an unverified proxy in front of it. Login fails closed when
+the configured source address cannot be resolved. Verify that the OAuth issuer,
 resource metadata, and public MCP origin all match. Do not expose port 8000
 directly to the network.
 
@@ -477,8 +487,9 @@ preventing recovery processing.
 
 The PostgreSQL database contains run plans/results and lifecycle state, the
 control/admission row, schema version, and (when built-in OAuth is enabled) owner,
-login guard, browser sessions, registered OAuth clients, authorization codes and
-hashed tokens. A full database dump captures these tables consistently. OAuth
+legacy login guard, per-source login buckets, global login budget, browser
+sessions, registered OAuth clients, authorization codes and hashed tokens. A
+full database dump captures these tables consistently. OAuth
 tokens are stored as hashes; restore the same configured public HTTPS origin and
 cookie key when returning service, or intentionally invalidate browser sessions
 and reauthorize clients.

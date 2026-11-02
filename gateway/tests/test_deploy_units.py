@@ -220,6 +220,8 @@ def test_shared_deployment_environment_uses_public_https_and_persistent_artifact
     assert values["GATEWAY_ENABLE_MODAL"] == "false"
     assert values["GATEWAY_ENABLE_RUNPOD_BRIDGE"] == "false"
     assert values["GATEWAY_HOSTED"] == "true"
+    assert values["GATEWAY_CLIENT_IP_MODE"] == "trusted_proxy"
+    assert values["GATEWAY_TRUSTED_PROXY_CIDRS"] == "127.0.0.1/32,::1/128"
     assert "GATEWAY_COOKIE_KEY" not in values
     assert "GATEWAY_OIDC_CLIENT_SECRET" not in values
 
@@ -253,6 +255,8 @@ def test_authentication_and_capacity_settings_are_environment_isolated():
                  "gpu-control-db-check.service", "gpu-control-db-migrate.service",
                  "gpu-control-capacity-bridge.service"):
         assert "worker-secrets.env" not in (DEPLOY / name).read_text(encoding="utf-8")
+    assert "--no-proxy-headers" in (DEPLOY / "gpu-control-api.service").read_text(encoding="utf-8")
+    assert "--no-proxy-headers" in (DEPLOY.parents[0] / "Dockerfile").read_text(encoding="utf-8")
     secret_example = (DEPLOY / "worker-secrets.env.example").read_text(encoding="utf-8")
     assert "MODAL_TOKEN_ID" in secret_example and "MODAL_TOKEN_SECRET" in secret_example
     assert "GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64" not in secret_example

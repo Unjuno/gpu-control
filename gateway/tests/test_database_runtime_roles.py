@@ -40,6 +40,10 @@ def test_postgresql_runtime_roles_enforce_api_worker_and_migration_boundaries():
         checks = {
             "api_reads_oauth": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_oauth_tokens_v1', 'SELECT')",
             "api_updates_oauth": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_oauth_tokens_v1', 'UPDATE')",
+            "api_reads_login_budget": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_oauth_login_budget_v1', 'SELECT')",
+            "api_updates_login_budget": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_oauth_login_budget_v1', 'UPDATE')",
+            "api_inserts_login_sources": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_oauth_login_source_buckets_v1', 'INSERT')",
+            "api_updates_legacy_login_guard": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_oauth_login_guard_v1', 'UPDATE')",
             "api_inserts_runs": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_runs_v1', 'INSERT')",
             "api_deletes_runs": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_runs_v1', 'DELETE')",
             "api_updates_approval": "SELECT has_column_privilege('gpu_control_api', 'public.gateway_runs_v1', 'approved_until', 'UPDATE')",
@@ -60,6 +64,8 @@ def test_postgresql_runtime_roles_enforce_api_worker_and_migration_boundaries():
             "worker_inserts_oauth": "SELECT has_table_privilege('gpu_control_worker', 'public.gateway_oauth_tokens_v1', 'INSERT')",
             "worker_updates_oauth": "SELECT has_table_privilege('gpu_control_worker', 'public.gateway_oauth_tokens_v1', 'UPDATE')",
             "worker_deletes_oauth": "SELECT has_table_privilege('gpu_control_worker', 'public.gateway_oauth_tokens_v1', 'DELETE')",
+            "worker_reads_login_budget": "SELECT has_table_privilege('gpu_control_worker', 'public.gateway_oauth_login_budget_v1', 'SELECT')",
+            "worker_inserts_login_sources": "SELECT has_table_privilege('gpu_control_worker', 'public.gateway_oauth_login_source_buckets_v1', 'INSERT')",
             "api_creates_schema": "SELECT has_schema_privilege('gpu_control_api', 'public', 'CREATE')",
             "worker_creates_schema": "SELECT has_schema_privilege('gpu_control_worker', 'public', 'CREATE')",
             "unpriv_creates_schema": "SELECT has_schema_privilege('gpu_control_unpriv', 'public', 'CREATE')",
@@ -75,6 +81,10 @@ def test_postgresql_runtime_roles_enforce_api_worker_and_migration_boundaries():
         assert observed == {
             "api_reads_oauth": True,
             "api_updates_oauth": True,
+            "api_reads_login_budget": True,
+            "api_updates_login_budget": True,
+            "api_inserts_login_sources": True,
+            "api_updates_legacy_login_guard": False,
             "api_inserts_runs": True,
             "api_deletes_runs": False,
             "api_updates_approval": True,
@@ -95,6 +105,8 @@ def test_postgresql_runtime_roles_enforce_api_worker_and_migration_boundaries():
             "worker_inserts_oauth": False,
             "worker_updates_oauth": False,
             "worker_deletes_oauth": False,
+            "worker_reads_login_budget": False,
+            "worker_inserts_login_sources": False,
             "api_creates_schema": False,
             "worker_creates_schema": False,
             "unpriv_creates_schema": False,
@@ -258,7 +270,7 @@ def test_check_db_is_read_only_and_reports_current_pr58_schema():
     assert result.returncode == 0, result.stderr
     report = __import__("json").loads(result.stdout)
     assert report["read_only"] is True
-    assert report["current_version"] == report["target_version"] == 9
+    assert report["current_version"] == report["target_version"] == 10
     assert report["planned_versions"] == []
     with store.engine.connect() as connection:
         connection.execute(text("SET ROLE gpu_control_migrate"))

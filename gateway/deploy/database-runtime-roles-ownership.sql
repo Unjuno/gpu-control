@@ -23,6 +23,7 @@ DO $$ DECLARE relation_name text; BEGIN
     WHERE schemaname = 'public' AND tablename IN (
       'gateway_schema_version', 'gateway_runs_v1', 'gateway_control_v1',
       'gateway_oauth_admin_v1', 'gateway_oauth_login_guard_v1',
+      'gateway_oauth_login_source_buckets_v1', 'gateway_oauth_login_budget_v1',
       'gateway_oauth_bootstrap_v1', 'gateway_oauth_sessions_v1',
       'gateway_oauth_clients_v1', 'gateway_oauth_codes_v1', 'gateway_oauth_tokens_v1'
     )

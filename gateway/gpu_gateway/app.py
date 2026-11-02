@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from .auth import Auth, READINESS_DIAGNOSTICS_SCOPE, SCOPES, SESSION, SUPPORTED_SCOPES
 from .admission import load_local_cpu_policy, local_cpu_workload_blocker
 from .artifacts import inspect_artifact_storage
+from .client_ip import resolve_login_source
 from .config import Settings, load_workloads
 from .protocol import dispatch, error, tools, validate_headers
 from .service import ExperimentService, GatewayError
@@ -59,7 +60,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
 
     @app.exception_handler(GatewayError)
     async def gateway_error(request, exc):
-        headers = {}
+        headers = dict(exc.headers)
         if exc.status in {401, 403} and settings:
             challenge = f'Bearer resource_metadata="{settings.public_url}/.well-known/oauth-protected-resource/mcp"'
             if exc.code == "insufficient_scope":
@@ -253,7 +254,13 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
     async def login_post(request: Request):
         ready()
         values = await form(request)
-        return auth.login_password(values.get("password", ""), values.get("next", "/"))
+        source_hash = resolve_login_source(request, settings) if auth.local is not None else ""
+        # LocalOAuth acquires/releases its bounded KDF slot inside the worker
+        # callback, so cancellation while waiting for AnyIO's thread limiter
+        # cannot leak a reservation.
+        return await run_in_threadpool(
+            auth.login_password, values.get("password", ""), values.get("next", "/"), source_hash,
+        )
 
     @app.get("/auth/setup")
     def setup(token: str = ""):
