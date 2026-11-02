@@ -14,9 +14,16 @@ supervisor may access the local Docker daemon; the API receives no Docker socket
 or provider credentials.
 
 This selects a topology, not a cloud provider, VM size, region, DNS name, price,
-purchase, or production deployment. Those remain operator decisions. Local CPU
-admission stays disabled until the independent review and P3 acceptance gates
-pass. Paid/GPU settings remain parked.
+purchase, or production deployment. Those remain operator decisions. The
+checked-in local CPU policy remains disabled by default. After the independent
+review, target-host readiness, storage quota/alerts, and a single-run ChatGPT
+CPU acceptance pass, an operator may explicitly install an expiring acceptance
+policy restricted to `cpu-smoke-v1`, smoke profile, 30-second maximum runtime,
+zero provider cost, and concurrency one for the seven-day observation. The
+policy has no built-in daily run-count field; the one-run-per-UTC-day cap is
+manual and must be enforced by the operator with idempotency/reconciliation
+checks. Disable the acceptance policy on any anomaly. Passing the observation
+does not enable GPU or paid settings, which remain parked.
 
 ## Evidence and rationale
 
@@ -128,16 +135,20 @@ credentials into this decision record.
 2. Verify SSH/admin ownership, TLS proxy, firewall, service account, Docker
    trust boundary, persistent filesystem quota, and alert destination.
 3. Rehearse the paired Neon/artifact backup and restore with a second operator;
-   the local synthetic PostgreSQL 16 v7 drill has passed, including artifact
-   bytes and OAuth grant/revocation state, but it does not substitute for this
-   second-operator rehearsal. Review the current v1-to-v7 schema migration and
-   OAuth preservation before applying it to production.
+   local synthetic PostgreSQL 16 drills cover schema v7 historically and schema
+   v10 across independent clusters, including artifact bytes and OAuth
+   grant/revocation state, but neither substitutes for this second-operator
+   rehearsal. Review the current v1-to-v10 schema migration and OAuth
+   preservation before applying it to production.
 4. Deploy the same reviewed source revision, check `/readyz`, complete actual
    ChatGPT OAuth/tool scan, and run/retrieve a registered local CPU smoke from
    two conversations.
-5. Complete the seven-day CPU observation, timed RPO/RTO drill, cancellation,
-   cleanup, quota-failure, and alert-delivery acceptance before enabling local
-   CPU policy.
+5. After the single-run ChatGPT CPU acceptance and all host/storage/alert gates
+   pass, issue the separate expiring acceptance policy described above. Complete
+   the seven-day CPU observation, timed RPO/RTO drill, cancellation, cleanup,
+   quota-failure, and alert-delivery acceptance before considering a normal
+   local CPU release policy. Revoke the temporary policy at the end or on any
+   anomaly.
 
 These requirements are gates, not authorization to purchase, deploy, change DNS,
 mutate Neon, enable CPU admission, or perform paid/GPU execution.

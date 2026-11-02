@@ -86,7 +86,12 @@ No live provider call is enabled by these implementations. The remaining provide
 - live verification of ambiguous-create, result collection, and cleanup reconciliation;
 - protected paid-workflow wiring that constructs the exact current `LiveExecutionPermit` from trusted runtime evidence.
 
-The public repository currently reports `main` as unprotected. Do not treat repository access, a successful dry-run, or available budget as authorization to spend money.
+Read-only GitHub branch-protection inspection on 2026-11-02 confirmed that
+`main` is protected: seven required status checks, one approving review after
+the latest push, stale-review dismissal, and administrator enforcement. This
+satisfies the branch-protection prerequisite only; control-plane context and
+prompt-security gates remain separate. Do not treat repository access, a
+successful dry-run, or available budget as authorization to spend money.
 
 ## What "ready" means here
 

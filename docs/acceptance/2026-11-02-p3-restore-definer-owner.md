@@ -47,11 +47,51 @@ administrator's authority.
 - The PostgreSQL test and restore containers, temporary backup generation, and
   artifact directories were removed after verification.
 
+## Schema v10 independent-cluster paired backup and restore refresh
+
+- Repeated the paired restore against two independent disposable PostgreSQL
+  16.15 clusters using the repository-pinned image digest. Both clusters used
+  ephemeral container storage; the only published ports were bound to
+  `127.0.0.1`. No persistent Docker volumes or hosted database were used.
+- Initialized the source at the current schema v10 with the three restricted
+  runtime roles. Seeded synthetic v10 login-throttle bucket/budget rows, an
+  OAuth client, live and revoked refresh-token grant state, one terminal CPU
+  run, and its owner-scoped result artifact.
+- Ran the actual `backup_generation.create_generation` and
+  `verify_generation` implementation. PostgreSQL client commands were bridged
+  into the source container because the macOS host has no `pg_dump`/`psql`/
+  `pg_restore`; the backup helper's systemd stopped-state attestation was
+  injected because the host has no Gateway systemd units.
+- Restored the dump into the second, separately initialized cluster with
+  `--no-owner --no-acl`, applied
+  `database-runtime-roles-ownership.sql` as the restore administrator, then
+  reapplied `database-runtime-roles.sql` through the `gpu_control_migrate`
+  login. All 12 `gateway_*` table row counts matched and the restored schema
+  version was 10.
+- The v10 login source bucket retained `attempts=3`; the global login budget
+  retained its synthetic remaining-token value; OAuth grants retained
+  `restore-grant-v10:false` and `revoked-grant-v10:true`. No raw token was
+  stored in the acceptance output.
+- The restored slot-release function owner was `gpu_control_migrate`; Worker
+  EXECUTE was present, PUBLIC EXECUTE absent, and the API/Worker table privilege
+  probe returned `true|false|true` for API run insert, Worker OAuth-token read,
+  and API OAuth-token read. No runtime role memberships existed.
+- Extracting the artifact archive and reading the blob through `ArtifactStore`
+  returned the exact synthetic payload. Its SHA-256 was
+  `4f60415fed5cd1f0da0615744b971a689fcb2efa77ac92c1107da91d9367b389`.
+  Backup generation took 0.563 seconds and restore plus local checks took
+  0.154 seconds after both databases were already available. These are local
+  procedure timings, not measured RPO/RTO.
+- Temporary databases, containers, backup files, and artifact directories
+  were removed. The prior schema-v9 drill remains historical evidence; this
+  refresh extends local synthetic restore evidence to v10 and independent
+  clusters.
+
 ## Limits
 
-The manual drill's systemd stopped-state attestation was injected by the
+The manual drills' systemd stopped-state attestation was injected by the
 disposable harness because the macOS host has no installed Gateway systemd
-units; it does not revalidate that live gate. Production/Preview restore,
+units; neither revalidates that live gate. Production/Preview restore,
 secret-manager credentials, target-host database-owner configuration,
 second-operator reproduction, and measured RPO/RTO remain unverified. The
 synthetic local drill is not completion of P3 operational acceptance.

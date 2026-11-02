@@ -81,10 +81,12 @@ Before connecting ChatGPT, provide all of the following:
   are available under `gateway/deploy/`. They are templates only: adapt paths/socket group,
   install secrets with restrictive ownership, and verify service-level DB/Docker
   access on the target host before treating this as deployed.
-- Both systemd templates declare the persistent `gpu-control` state directory
-  with mode 0700. Artifact bytes live below `/var/lib/gpu-control/artifacts`, so
-  this path remains writable under `ProtectSystem=strict`; verify ownership and
-  the mounted filesystem on the chosen host.
+- The API's private `gpu-control-api` state directory is mode 0700; the worker
+  and recovery supervisor use the shared `gpu-control` state directory at
+  mode 2750. These are systemd-managed state paths, separate from the artifact
+  mount. Artifact bytes live below `/var/lib/gpu-control/artifacts`; verify its
+  owner/group, probe-directory permissions, mount identity, and writable
+  paths against the systemd units on the chosen host.
 - A configured authentication path. With external OIDC, configure issuer, JWKS,
   audience/resource, allowed subject, scopes and the MCP client's registration
   method. With built-in single-owner OAuth, run

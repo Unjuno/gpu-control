@@ -2,6 +2,11 @@
 
 Date: 2026-11-02 UTC
 
+> Historical reconciliation snapshot. PR #58 was later replaced by PR #66;
+> this document's original merge/review/check status is not current PR state.
+> See `docs/STATUS.md`, `docs/RELEASE_MATRIX.md`, and the live PR #66 checks
+> for current candidate status.
+
 ## Candidate identity and source snapshots
 
 - Reconciliation branch: `codex/pr58-cpu-vertical-reconcile-20261102`.
