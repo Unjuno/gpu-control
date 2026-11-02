@@ -22,12 +22,15 @@ inspection, or a green test suite alone.
 | `RESULT_RETRIEVAL` | UNCERTAIN | A real digest-pinned local CPU run emits a validated result and owner-scoped artifact; local MCP test clients retrieve it through the authenticated HTTP path. PostgreSQL outage recovery preserves the same run. Current schema-v9 paired restore recovered synthetic run/OAuth/artifact state. No deployed API or real ChatGPT conversation was used. | Verify an actual run and exact plan/source binding from a second ChatGPT conversation, including returned artifact digest and bytes; test a deployed persistent volume and set a quota/alert policy. See the 2026-11-02 P1 acceptance records. |
 | `SECURITY` | UNCERTAIN | Candidate adds separate API/worker/migration PostgreSQL roles, column-scoped Worker updates, a lease-checked slot-release function, and restore ownership repair for that SECURITY DEFINER function. PostgreSQL ACL and no-owner restore regressions pass; the full Gateway suite is 365 passed, 1 skipped. An independent source review of the current staged and unstaged changes found no actionable security issues. It does not verify live deployment, host permissions, OAuth setup, or provider behavior. | Complete deployed OAuth/owner-boundary and target-host permissions review, and verify live provider compatibility only when separately authorized. This is scoped evidence, not a claim of complete safety. |
 
-Post-snapshot worktree evidence: the schema-v10 local OAuth login-throttle
-remediation was independently reviewed and the Gateway suite passed 372 tests
-against disposable PostgreSQL 17.11 (5 optional Torch/CPU integration tests
-skipped). The evidence and limits are recorded in
+Post-snapshot candidate evidence: commit `27a34d10d722e4c08409b57bfd5aa1b72bf0ba87`
+on draft PR #66 contains the schema-v10 local OAuth login-throttle remediation.
+An independent security review found no remaining actionable issues, and the
+Gateway suite passed 372 tests against disposable PostgreSQL 17.11 (5 optional
+Torch/CPU integration tests skipped). All current PR checks passed. The
+evidence and limits are recorded in
 [`2026-11-02 P1 login-throttle remediation`](acceptance/2026-11-02-p1-local-oauth-login-throttle-remediation.md).
-This worktree change is uncommitted and is not hosted deployment evidence.
+PR #66 remains draft without a GitHub review decision; this is not hosted
+deployment evidence.
 
 ## Operational gates
 

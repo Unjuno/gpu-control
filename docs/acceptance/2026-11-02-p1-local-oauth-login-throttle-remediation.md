@@ -42,8 +42,9 @@ service has been upgraded.
 
 ## Acceptance boundary
 
-This is local candidate evidence only. The patch is uncommitted and has not
-been deployed. No schema migration or role-grant change was applied to a live
+This is candidate evidence only. Commit `27a34d10d722e4c08409b57bfd5aa1b72bf0ba87`
+is pushed to draft PR #66 and its GitHub checks passed; it has not been merged
+or deployed. No schema migration or role-grant change was applied to a live
 database. Hosted `/readyz`, the intended ChatGPT account's OAuth flow, tool
 discovery, a real CPU run, and result/artifact retrieval remain separate
 acceptance gates. Paid execution and GPU paths remain parked.
