@@ -19,6 +19,8 @@ from .local_oauth import LocalOAuth
 from .service import GatewayError, Principal
 
 SCOPES = ("experiments:read", "experiments:run", "experiments:cancel")
+READINESS_DIAGNOSTICS_SCOPE = "gateway:ops:read"
+SUPPORTED_SCOPES = (*SCOPES, READINESS_DIAGNOSTICS_SCOPE)
 SESSION = "gpu_gateway_session"
 LOGIN_STATE = "gpu_gateway_login"
 MAX_OIDC_TOKEN_RESPONSE_BYTES = 65536

@@ -96,11 +96,11 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
 
 1. Import this repository and set **Root Directory = `gateway`** and framework
    **FastAPI**. `app.py` exports the ASGI app. `vercel.json` bounds HTTP requests
-   to 30 seconds; GPU execution is not inside that duration. Enable and verify
-   **Include source files outside of the Root Directory in the Build Step**:
-   `requirements.txt` installs the shared `gpu-control` package from `..`, and
-   its Python source lives in the repository-level `src/` directory. The Vercel
-   project's setting was not inspected, so this remains a deployment prerequisite.
+   to 30 seconds; GPU execution is not inside that duration. Its install command
+   installs Gateway requirements and the shared `gpu-control` package from `..`.
+   Enable and verify **Include source files outside of the Root Directory in the
+   Build Step** so that package's source under the repository-level `src/` directory
+   is available during the build. This project setting remains a deployment prerequisite.
 2. Provision a PostgreSQL database (any compatible provider), preferably using its
    connection pooler/TLS endpoint. Use a distinct DB for Preview and Production.
 3. Set gateway configuration from `.env.example` in Vercel project settings. Set
@@ -121,9 +121,11 @@ not a complete transitive lockfile. Python 3.12 is the deployment baseline.
    history or build logs, and complete setup before its 15-minute expiry. The token is consumed
    after successful setup. Do not run bootstrap in external OIDC mode or against
    a production database before its paired backup/restore and migration gates pass.
-6. Deploy the Web/API application. `/healthz` reports liveness; `/readyz` reports
-   database/migration state, execution-worker and recovery-supervisor heartbeats,
-   authentication and workload-registry readiness.
+6. Deploy the Web/API application. `/healthz` reports liveness; public `/readyz`
+   returns only aggregate readiness. Authenticated operators with
+   `gateway:ops:read` can inspect database/migration state, execution-worker and
+   recovery-supervisor heartbeats, authentication, workload/admission and
+   artifact readiness at `/api/readiness`.
 7. Run `gpu-control-worker.service` and `gpu-control-supervisor.service`
    against that database. The supervisor claims expired active leases and may take over a
    submitting intent after the worker heartbeat goes stale; it never takes newly

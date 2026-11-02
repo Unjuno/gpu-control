@@ -81,3 +81,31 @@ On 2026-11-02, PRs #52, #55, #57, #58, #59, #62, and #65 were OPEN/DRAFT;
 PR #52 reported `REVIEW_REQUIRED`. PRs #51 and #60–#64 contain broader or
 later-stage candidate work. The production alias `/readyz` returned HTTP 404.
 This local branch has not been pushed and has no GitHub CI or review evidence.
+
+## Readiness replay and current candidate verification
+
+- Replayed the exact PR #57→#62 patch followed by #62→#65 on top of PR #58
+  head `90bd6d8`. Both `git apply --check` operations passed; the combined
+  replay changes 10 paths. The original PRs remain untouched.
+- The CPU image was rebuilt from the source files unchanged at PR #58 base,
+  with OCI labels `Unjuno/gpu-control` and revision
+  `90bd6d8c84e319365d66951ca96c7ccceff40998`. Image ID:
+  `sha256:886c36f28f349781e02099dccefccf672fec2153df0bbe5fe9912912044a2b2a`.
+- Focused OAuth/readiness/migration tests: 49 passed on Python 3.14.5.
+- Full Gateway suite on Python 3.12.10, disposable PostgreSQL 16 image
+  `sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97`,
+  and the labeled CPU image: 277 passed, 2 skipped (optional Torch and Modal
+  dependencies). The run included real CPU container execution, worker
+  recovery, MCP result/artifact retrieval, PostgreSQL lifecycle/recovery, and
+  OAuth persistence.
+- Core suite on Python 3.12.10: 515 passed, 1 skipped.
+- A read-only independent Security Review of the #62/#65 replay on this exact
+  PR #58 base found no actionable security findings. It did identify a
+  functional limitation: external OIDC login requests do not request
+  `gateway:ops:read`, while detailed readiness diagnostics require it. Do not
+  broaden that scope for all users; define and test explicit operator-scope
+  provisioning if external OIDC diagnostics are required.
+- The candidate still has no GitHub checks/review and is not deployed. PR #58,
+  #62, and #65 green checks belong only to their distinct public heads.
+- Gateway source/test patch SHA-256 relative to exact PR #58 base:
+  `fdf7cd925880faf1d9d6aec9acac28342d8756b43fad38e3928c618b37cf4b6c`.
