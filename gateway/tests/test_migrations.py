@@ -308,3 +308,44 @@ def test_current_schema_revokes_legacy_inferred_client_persistence(tmp_path):
     with store.engine.connect() as connection:
         assert connection.execute(select(oauth_clients.c.persistent).where(
             oauth_clients.c.client_id == client_id)).scalar_one() is True
+
+
+def test_migration_repairs_provider_tables_missing_from_p1_v10_lineage(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'p1-v10-to-p5.db'}")
+    store.initialize()
+    with store.engine.begin() as connection:
+        connection.execute(oauth_clients.insert().values(
+            client_id="mcp_consented_client",
+            redirect_uris=["https://chatgpt.com/connector_platform_oauth_redirect"],
+            client_name="Explicitly consented P1 client", created_at=1,
+            expires_at=2000000000, persistent=True,
+        ))
+        connection.exec_driver_sql('DROP TABLE "gateway_provider_observations_v1"')
+        connection.exec_driver_sql('DROP TABLE "gateway_provider_account_leases_v1"')
+        connection.exec_driver_sql('DROP TABLE "gateway_paid_authorizations_v1"')
+        connection.exec_driver_sql("""
+            CREATE TABLE gateway_oauth_login_budget_v1 (
+                id INTEGER PRIMARY KEY, tokens_micro INTEGER NOT NULL,
+                updated_at_us BIGINT NOT NULL
+            )
+        """)
+        connection.exec_driver_sql(
+            "INSERT INTO gateway_oauth_login_budget_v1 VALUES (1, 123456, 1700000000000000)"
+        )
+        connection.execute(schema_version.update().values(version=10))
+
+    status = migration_status(store.engine)
+    assert status["current_version"] == 10
+    assert status["planned_versions"] == [11, 12, 13, 14]
+    assert migrate(store.engine) == SCHEMA_VERSION
+    assert "gateway_provider_observations_v1" in inspect(store.engine).get_table_names()
+    assert "gateway_provider_account_leases_v1" in inspect(store.engine).get_table_names()
+    assert store.read_provider_observation("runpod") is None
+    with store.engine.connect() as connection:
+        assert connection.execute(select(oauth_clients.c.persistent).where(
+            oauth_clients.c.client_id == "mcp_consented_client")).scalar_one() is True
+        assert connection.exec_driver_sql(
+            "SELECT tokens_micro, updated_at_us FROM gateway_oauth_login_budget_v1 WHERE id = 1"
+        ).one() == (123456, 1700000000000000)
+    assert migrate(store.engine) == SCHEMA_VERSION
+    store.engine.dispose()

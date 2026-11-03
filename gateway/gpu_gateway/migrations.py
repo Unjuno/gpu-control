@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy import (JSON, Column, Integer, MetaData, String, Table,
                         UniqueConstraint, inspect, insert, select, update)
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -150,6 +150,17 @@ def migrate(engine) -> int:
         if type(current) is not int or current < 0 or current > SCHEMA_VERSION:
             raise UnsupportedSchemaVersion("Gateway database schema version is unsupported")
 
+        initial_tables = set(inspect(connection).get_table_names())
+        # P1 and P5 assigned different meanings to schema v8-v10. P1 v9 already
+        # reset legacy OAuth consent, and P1 v10 adds login-budget tables. Keep
+        # consent created on that lineage; only reset databases that may have
+        # passed through the P5 v9 migration that inferred consent from tokens.
+        reset_inferred_consent = (
+            current < 9 or
+            provider_observations.name in initial_tables or
+            provider_account_leases.name in initial_tables
+        )
+
         if current < 2:
             tables = set(inspect(connection).get_table_names())
             if "gateway_runs_v1" in tables:
@@ -278,7 +289,8 @@ def migrate(engine) -> int:
         if current < 13:
             tables = set(inspect(connection).get_table_names())
             clients = "gateway_oauth_clients_v1"
-            if clients in tables and "persistent" in _columns(connection, clients):
+            if (reset_inferred_consent and clients in tables and
+                    "persistent" in _columns(connection, clients)):
                 # Schema v9 inferred owner consent from arbitrary historical
                 # token rows. Legacy state cannot prove an explicit consent
                 # POST, so require reauthorization before persistence.
@@ -287,4 +299,15 @@ def migrate(engine) -> int:
                 )).values(persistent=False))
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=13))
             current = 13
+        if current < 14:
+            # The P1 schema v10 lineage assigns versions 8-10 to OAuth consent
+            # and login-rate-limit migrations, while this P5 lineage used those
+            # numbers for provider observations and account leases. A database
+            # upgraded through P1 therefore skips the earlier P5 table creates.
+            # Reconcile both tables at a new additive version rather than
+            # assuming migration numbers identify a shared history.
+            provider_observations.create(connection, checkfirst=True)
+            provider_account_leases.create(connection, checkfirst=True)
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=14))
+            current = 14
     return current
