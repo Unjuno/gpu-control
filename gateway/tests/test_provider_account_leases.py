@@ -170,7 +170,7 @@ def test_provider_account_lease_schema_migrates_additively(tmp_path):
 
     status = migration_status(store.engine)
 
-    assert SCHEMA_VERSION == 13
+    assert SCHEMA_VERSION == 14
     assert status["current_version"] == SCHEMA_VERSION
     assert status["migration_required"] is False
     with store.engine.connect() as connection:
@@ -692,4 +692,44 @@ def test_provider_cleanup_release_and_terminal_run_commit_atomically(tmp_path):
         active_count = connection.execute(select(control.c.active_count)).scalar_one()
     assert lease_state == "released"
     assert active_count == 0
+    store.engine.dispose()
+
+
+def test_pre_submission_abort_releases_lease_slot_and_run_claim_atomically(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'provider-account-pre-submit-abort.db'}")
+    store.initialize()
+    run_id, run_token = uuid4().hex, uuid4().hex
+    scope, fingerprint = "d" * 64, "e" * 64
+    challenge = {"template_id": "template-a", "name": "gpu-control-" + run_id}
+    _queued_for_worker(store, run_id=run_id, owner="owner-a", plan_fingerprint=fingerprint,
+                       run_lease_token=run_token)
+    lease = store.reserve_provider_account_lease_with_submission_intent(
+        provider="runpod", account_scope=scope, run_id=run_id, owner="owner-a",
+        plan_fingerprint=fingerprint, core_plan_fingerprint="f" * 64,
+        authorization_id="paid-auth-2", run_lease_token=run_token,
+        attempt=1, request_challenge=challenge, now=110,
+    )
+    assert lease is not None
+    with store.transaction() as connection:
+        connection.execute(runs.update().where(runs.c.id == run_id).values(
+            state="submitting", slot_reserved=True, cancel_requested=True,
+        ))
+        connection.execute(control.update().where(control.c.id == 1).values(active_count=1))
+    result = {"schema_version": 2, "cleanup_state": "not_required", "checks": []}
+    kwargs = dict(
+        account_scope=scope, run_id=run_id, owner="owner-a", plan_fingerprint=fingerprint,
+        lease_token=lease.lease_token, run_lease_token=run_token,
+        core_plan_fingerprint="f" * 64, authorization_id="paid-auth-2",
+        state="cancelled", result=result, error="cancelled_before_submit",
+        record_version=2, now=120,
+    )
+    assert store.finish_run_after_pre_submission_abort(**kwargs)
+    assert not store.finish_run_after_pre_submission_abort(**kwargs)
+    saved = store.read(run_id)
+    assert saved["state"] == "cancelled"
+    assert saved["slot_reserved"] is False
+    assert saved["lease_token"] == ""
+    with store.engine.connect() as connection:
+        assert connection.execute(select(provider_account_leases.c.state)).scalar_one() == "released"
+        assert connection.execute(select(control.c.active_count)).scalar_one() == 0
     store.engine.dispose()

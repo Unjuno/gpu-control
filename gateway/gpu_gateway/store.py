@@ -8,6 +8,7 @@ import re
 
 from sqlalchemy import (JSON, Boolean, Column, Integer, MetaData, String, Table,
                         Text, UniqueConstraint, create_engine, insert, select, update)
+from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from .migrations import (migrate, paid_authorizations, provider_account_leases,
                         provider_observations)
@@ -120,6 +121,26 @@ class Store:
             raise RuntimeError("Initialize the gateway database before using it")
         return row
 
+    def release_finished_slot(self, connection, run_id: str, lease_token: str) -> bool:
+        """Release a terminal run slot through the narrow PostgreSQL function."""
+        if self.engine.dialect.name == "postgresql":
+            return bool(connection.execute(text(
+                "SELECT public.gpu_control_release_finished_slot(:run_id, :lease_token)"
+            ), {"run_id": run_id, "lease_token": lease_token}).scalar_one())
+        changed = connection.execute(update(runs).where(
+            runs.c.id == run_id, runs.c.lease_token == lease_token,
+            runs.c.slot_reserved.is_(True), runs.c.state.in_(
+                ["succeeded", "failed", "cancelled", "expired"]),
+        ).values(slot_reserved=False)).rowcount
+        if changed != 1:
+            return False
+        counter = connection.execute(update(control).where(
+            control.c.id == 1, control.c.active_count > 0,
+        ).values(active_count=control.c.active_count - 1)).rowcount
+        if counter != 1:
+            raise RuntimeError("Gateway active-slot counter is inconsistent")
+        return True
+
     def read(self, run_id: str):
         with self.engine.connect() as connection:
             row = connection.execute(select(runs).where(runs.c.id == run_id)).mappings().first()
@@ -224,8 +245,11 @@ class Store:
             if (run is None or run["state"] != "approved" or run["approval_id"] != approval_id or
                     run["fingerprint"] != plan_fingerprint or run["approved_until"] <= now):
                 return False
+            # The run row is the serialization lock shared with readers. Keep
+            # this supported writer and read_paid_authorization on that lock so
+            # worker SELECT-only access never needs UPDATE for row locking.
             old = connection.execute(select(paid_authorizations).where(
-                paid_authorizations.c.run_id == run_id).with_for_update()).mappings().first()
+                paid_authorizations.c.run_id == run_id)).mappings().first()
             values = dict(run_id=run_id, owner=owner, plan_fingerprint=plan_fingerprint,
                           approval_id=approval_id, authorization_id=authorization_id,
                           issuer=issuer, envelope=envelope,
@@ -279,7 +303,7 @@ class Store:
                 paid_authorizations.c.owner == owner,
                 paid_authorizations.c.plan_fingerprint == plan_fingerprint,
                 paid_authorizations.c.approval_id == approval_id,
-            ).with_for_update()).mappings().first()
+            )).mappings().first()
         if row is None or type(row["envelope"]) is not dict:
             return None
         envelope = row["envelope"]
@@ -855,16 +879,19 @@ class Store:
                     runs.c.state.in_(("submitting", "submit_unknown", "running")),
                     runs.c.cleanup_state == "pending", runs.c.slot_reserved.is_(True),
                 ).values(
-                    state=state, result=result, error=error, slot_reserved=False,
-                    lease_until=0, lease_token="", finished_at=now,
+                    state=state, result=result, error=error,
+                    finished_at=now,
                     cleanup_state="complete", record_version=record_version,
                 ))
                 if released.rowcount != 1 or finished.rowcount != 1:
                     raise _AbortProviderCleanupFinish()
-                decremented = connection.execute(update(control).where(
-                    control.c.id == 1, control.c.active_count >= 1,
-                ).values(active_count=control.c.active_count - 1))
-                if decremented.rowcount != 1:
+                if not self.release_finished_slot(connection, run_id, run_lease_token):
+                    raise _AbortProviderCleanupFinish()
+                cleared = connection.execute(update(runs).where(
+                    runs.c.id == run_id, runs.c.lease_token == run_lease_token,
+                    runs.c.slot_reserved.is_(False),
+                ).values(lease_until=0, lease_token=""))
+                if cleared.rowcount != 1:
                     raise _AbortProviderCleanupFinish()
         except _AbortProviderCleanupFinish:
             return False
@@ -962,16 +989,19 @@ class Store:
                     runs.c.cancel_requested.is_(state == "cancelled"),
                     runs.c.slot_reserved.is_(True),
                 ).values(
-                    state=state, result=result, error=error, slot_reserved=False,
-                    lease_until=0, lease_token="", finished_at=now,
+                    state=state, result=result, error=error, finished_at=now,
                     cleanup_state="not_required", record_version=record_version,
                 ))
                 if released.rowcount != 1 or finished.rowcount != 1:
                     raise _AbortPreSubmissionFinish()
-                decremented = connection.execute(update(control).where(
-                    control.c.id == 1, control.c.active_count >= 1,
-                ).values(active_count=control.c.active_count - 1))
-                if decremented.rowcount != 1:
+                if not self.release_finished_slot(connection, run_id, run_lease_token):
+                    raise _AbortPreSubmissionFinish()
+                cleared = connection.execute(update(runs).where(
+                    runs.c.id == run_id, runs.c.owner == owner,
+                    runs.c.lease_token == run_lease_token,
+                    runs.c.slot_reserved.is_(False),
+                ).values(lease_until=0, lease_token=""))
+                if cleared.rowcount != 1:
                     raise _AbortPreSubmissionFinish()
         except _AbortPreSubmissionFinish:
             return False
@@ -1062,9 +1092,14 @@ class Store:
             raise ValueError("locking provider evidence requires the active transaction connection")
         statement = select(provider_observations).where(
             provider_observations.c.provider == provider)
-        if lock:
-            statement = statement.with_for_update()
-        if connection is not None:
+        if lock and self.engine.dialect.name == "postgresql":
+            row = connection.execute(text(
+                "SELECT provider, version, observed_at, expires_at, envelope, envelope_sha256 "
+                "FROM public.gpu_control_lock_provider_observation(:provider)"
+            ), {"provider": provider}).mappings().first()
+        elif lock:
+            row = connection.execute(statement.with_for_update()).mappings().first()
+        elif connection is not None:
             row = connection.execute(statement).mappings().first()
         else:
             with self.engine.connect() as read_connection:
