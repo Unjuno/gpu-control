@@ -17,11 +17,20 @@ github_repository_security:
   branch_protection_required: true
   pull_request_required: true
   required_status_checks_required: true
+  required_approving_review_count: 1
+  approval_after_last_push_required: true
+  strict_status_checks_required: true
+  conversation_resolution_required: true
+  linear_history_required: true
+  administrators_enforced: true
   required_status_checks:
     - Python 3.11
     - Python 3.12
     - Python 3.13
     - Trusted reference container
+    - Gateway offline tests
+    - Gateway comment bridge tests
+    - Project bridge tests
   force_pushes_forbidden: true
   deletions_forbidden: true
   trusted_evidence_required_for_live_authorization: true
@@ -43,7 +52,7 @@ prompt_context_security:
 github_environment:
   name: paid-runpod
   required_reviewer: Unjuno
-  prevent_self_review: false
+  prevent_self_review: true
   protected_branch_only: true
   secret_scope: environment_only
   secret_names:

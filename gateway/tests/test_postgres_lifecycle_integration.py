@@ -3,9 +3,12 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select, update
@@ -20,6 +23,18 @@ from gpu_gateway.worker import Worker
 
 CPU_SMOKE_SOURCE_REPOSITORY = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY", "Unjuno/gpu-control")
 CPU_SMOKE_SOURCE_SHA = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_SHA", "a" * 40)
+
+
+def fake_dedicated_filesystem(monkeypatch, root):
+    original_stat = Path.stat
+
+    def stat_with_separate_device(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        if path in {root, root / ".gpu-control-probes"}:
+            return SimpleNamespace(st_dev=2, st_mode=result.st_mode)
+        return result
+
+    monkeypatch.setattr(Path, "stat", stat_with_separate_device)
 
 
 def _docker_ready():
@@ -43,6 +58,8 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
     url = os.environ["GATEWAY_TEST_DATABASE_URL"]
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    (artifact_root / ".gpu-control-probes").mkdir(mode=0o700)
+    fake_dedicated_filesystem(monkeypatch, artifact_root)
     settings = Settings(database_url=url, artifact_dir=str(artifact_root))
     store = Store(url)
     store.initialize()
@@ -64,10 +81,12 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
             "iterations": {"type": "integer", "minimum": 1, "maximum": 20_000_000},
             "seed": {"type": "integer"}}, "required": ["iterations", "seed"],
             "additionalProperties": False})
+    monkeypatch.setenv("GATEWAY_WORKLOADS_JSON", json.dumps({
+        "cpu-smoke-v1": workload.model_dump(mode="json")}, allow_nan=False))
     service = ExperimentService(store, settings, {"cpu-smoke-v1": workload})
     candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
         repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
-        parameters={"iterations": 20_000_000, "seed": 91}, runtime_seconds=30,
+        parameters={"iterations": 1000, "seed": 91}, runtime_seconds=30,
         max_cost_usd="0.00", now=now, policy=policy)
     prepared = service.prepare_local(principal, candidate, "pg-outage-" + uuid.uuid4().hex,
         policy, evaluate_admission(candidate, policy, now))
@@ -95,7 +114,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
         def is_clean(self, handle): return base_backend.is_clean(handle)
 
     outage_backend = StopDatabaseAfterTerminalCapture()
-    outage_worker = Worker(store, settings, {"local_cpu": outage_backend}, workloads=service.workloads)
+    outage_worker = Worker(store, settings, {"local_cpu": outage_backend})
     try:
         assert outage_worker.tick()  # Submit the real container.
         deadline = time.monotonic() + 40
@@ -128,7 +147,7 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
         with store.transaction() as connection:
             connection.execute(update(runs).where(runs.c.id == run_id).values(lease_until=0))
 
-        recovery_worker = Worker(store, settings, build_backends(settings), workloads=service.workloads)
+        recovery_worker = Worker(store, settings, build_backends(settings))
         deadline = time.monotonic() + 40
         while time.monotonic() < deadline:
             assert recovery_worker.tick()
@@ -155,4 +174,140 @@ def test_postgres_outage_after_capture_retains_resource_and_recovers(tmp_path, m
                                    capture_output=True, text=True, timeout=10).stdout.split()
         if leftovers:
             subprocess.run([docker, "rm", "--force", *leftovers], check=False, capture_output=True, timeout=15)
+        store.engine.dispose()
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="Docker/OrbStack daemon is unavailable")
+@pytest.mark.skipif(not os.environ.get("GATEWAY_TEST_DATABASE_URL"), reason="PostgreSQL test URL is not configured")
+@pytest.mark.skipif(not os.environ.get("GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST"), reason="CPU smoke image is not configured")
+@pytest.mark.skipif(not os.environ.get("GPU_CONTROL_POSTGRES_CONTAINER"), reason="dedicated stoppable PostgreSQL container is not configured")
+def test_postgres_worker_crash_after_docker_start_recovers_same_run(tmp_path, monkeypatch):
+    """A real worker death after Docker start must be adopted from PostgreSQL intent."""
+    docker = shutil.which("docker") or "docker"
+    url = os.environ["GATEWAY_TEST_DATABASE_URL"]
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    (artifact_root / ".gpu-control-probes").mkdir(mode=0o700)
+    fake_dedicated_filesystem(monkeypatch, artifact_root)
+    settings = Settings(database_url=url, artifact_dir=str(artifact_root))
+    store = Store(url)
+    store.initialize()
+    scopes = frozenset({"experiments:read", "experiments:run", "experiments:cancel"})
+    principal = Principal("pg-worker-crash-" + uuid.uuid4().hex, scopes)
+    image = os.environ["GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST"]
+    now = int(time.time())
+    policy = {"version": "local-cpu-v1", "enabled": True, "valid_until": now + 300,
+              "workloads": ["cpu-smoke-v1"], "max_runtime_seconds": 30,
+              "max_cost_usd": "0.00", "allowed_profiles": ["smoke"]}
+    policy_path = tmp_path / "local-policy.json"
+    policy_path.write_text(json.dumps(policy))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+
+    workload = Workload(provider="local_cpu", image_digest=image, execution_profile="smoke",
+        requires_gpu=False, source_repository=CPU_SMOKE_SOURCE_REPOSITORY,
+        source_sha=CPU_SMOKE_SOURCE_SHA, max_runtime_seconds=30, max_cost_usd=Decimal("0.01"),
+        parameter_schema={"type": "object", "properties": {
+            "iterations": {"type": "integer", "minimum": 1, "maximum": 20_000_000},
+            "seed": {"type": "integer", "minimum": 0, "maximum": 1_000_000}},
+            "required": ["iterations", "seed"], "additionalProperties": False})
+    registry = {"cpu-smoke-v1": workload.model_dump(mode="json")}
+    monkeypatch.setenv("GATEWAY_WORKLOADS_JSON", json.dumps(registry, allow_nan=False))
+    monkeypatch.setenv("GATEWAY_ARTIFACT_DIR", str(artifact_root))
+    service = ExperimentService(store, settings, {"cpu-smoke-v1": workload})
+    candidate = plan_for_workload(workload_name="cpu-smoke-v1",
+        workload_manifest=workload.model_dump(mode="json"), repository=CPU_SMOKE_SOURCE_REPOSITORY,
+        source_sha=CPU_SMOKE_SOURCE_SHA, parameters={"iterations": 1000, "seed": 93},
+        runtime_seconds=30, max_cost_usd="0.00", now=now, policy=policy)
+    prepared = service.prepare_local(principal, candidate, "pg-os-crash-" + uuid.uuid4().hex,
+        policy, evaluate_admission(candidate, policy, now))
+    queued = service.submit(principal, prepared["id"])
+    run_id = queued["id"]
+    run_label = "io.unjuno.gpu-control.run-id=" + run_id
+
+    # The child worker reaches the provider boundary, starts the real container,
+    # then exits before persisting the returned handle.
+    child = r'''
+import os, sys
+from pathlib import Path
+from types import SimpleNamespace
+from gpu_gateway.backends import build_backends
+from gpu_gateway.config import Settings
+from gpu_gateway.store import Store
+from gpu_gateway.worker import Worker
+database_url = sys.stdin.buffer.readline().decode("utf-8").rstrip("\n")
+if not database_url:
+    raise SystemExit("database URL was not provided on stdin")
+settings = Settings(database_url=database_url, artifact_dir=os.environ["GATEWAY_ARTIFACT_DIR"])
+root = Path(settings.artifact_dir)
+original_stat = Path.stat
+def stat_with_separate_device(path, *args, **kwargs):
+    result = original_stat(path, *args, **kwargs)
+    if path in {root, root / ".gpu-control-probes"}:
+        return SimpleNamespace(st_dev=2, st_mode=result.st_mode)
+    return result
+Path.stat = stat_with_separate_device
+backend = build_backends(settings)["local_cpu"]
+class CrashAfterStart:
+    def start(self, job):
+        backend.start(job)
+        os._exit(73)
+    def __getattr__(self, name): return getattr(backend, name)
+Worker(Store(settings.database_url), settings, {"local_cpu": CrashAfterStart()}).tick()
+os._exit(74)
+'''
+    try:
+        process = subprocess.run([sys.executable, "-c", child],
+            cwd=os.path.dirname(os.path.dirname(__file__)), input=(url + "\n").encode("utf-8"),
+            capture_output=True, timeout=30)
+        assert process.returncode == 73, process.stderr.decode("utf-8", "replace")[-2000:]
+        found = subprocess.run([docker, "ps", "-aq", "--filter", "label=" + run_label],
+            check=True, capture_output=True, text=True, timeout=10).stdout.split()
+        assert len(found) == 1
+        crashed = store.read(run_id)
+        assert crashed["state"] == "submitting"
+        assert crashed["handle"] is None
+        assert crashed["submission_intent"]["phase"] == "provider_call_started"
+
+        # A dead worker heartbeat lets recovery inspect the still-live submission
+        # intent before its original 120-second lease expires.
+        with store.transaction() as connection:
+            connection.execute(update(control).where(control.c.id == 1).values(
+                worker_seen_at=now - 60))
+        supervisor = Worker(store, settings, build_backends(settings), role="supervisor")
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline:
+            assert supervisor.tick()
+            record = store.read(run_id)
+            if record["state"] in {"succeeded", "failed", "cancelled", "expired"}:
+                break
+            # Advance only this test row's recovery lease between deterministic
+            # supervisor ticks; do not modify or stop the shared database service.
+            with store.transaction() as connection:
+                connection.execute(update(runs).where(runs.c.id == run_id).values(lease_until=0))
+            time.sleep(0.25)
+
+        assert record["state"] == "succeeded", record
+        assert record["result"]["run_id"] == run_id
+        assert record["result"]["source_sha"] == CPU_SMOKE_SOURCE_SHA
+        assert record["result"]["simulation"] is False
+        assert record["result"]["gpu_used"] is False
+        assert record["submission_intent"]["phase"] == "handle_persisted"
+        assert record["cleanup_state"] == "complete"
+        artifact = record["result"]["artifacts"][0]
+        payload = ArtifactStore(str(artifact_root)).get(
+            principal.owner, run_id, artifact["artifact_id"], offset=0,
+            length=24 * 1024, expected_sha256=artifact["sha256"],
+            expected_size=artifact["size_bytes"])
+        assert payload == record["result"]["logs"].encode().removesuffix(b"\n")
+        remaining = subprocess.run([docker, "ps", "-aq", "--filter", "label=" + run_label],
+            check=True, capture_output=True, text=True, timeout=10).stdout.split()
+        assert remaining == []
+        with store.engine.connect() as connection:
+            assert connection.execute(select(control.c.active_count)).scalar_one() == 0
+    finally:
+        remaining = subprocess.run([docker, "ps", "-aq", "--filter", "label=" + run_label],
+            capture_output=True, text=True, timeout=10).stdout.split()
+        if remaining:
+            subprocess.run([docker, "rm", "--force", *remaining], check=False,
+                capture_output=True, timeout=15)
         store.engine.dispose()

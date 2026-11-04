@@ -3,12 +3,15 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import secrets
+import threading
 import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from sqlalchemy import JSON, Boolean, Column, Integer, String, Table, Text, delete, insert, or_, select, update
+from sqlalchemy import (BigInteger, JSON, Boolean, Column, Integer, String, Table,
+                        Text, delete, func, insert, or_, select, update)
 
 from .service import GatewayError
 from .store import metadata
@@ -29,6 +32,25 @@ oauth_login_guard = Table(
     Column("window_started", Integer, nullable=False),
     Column("locked_until", Integer, nullable=False),
 )
+oauth_login_source_buckets = Table(
+    "gateway_oauth_login_source_buckets_v1", metadata,
+    Column("source_hash", String(64), primary_key=True),
+    Column("attempts", Integer, nullable=False),
+    Column("window_started", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=False),
+)
+oauth_login_budget = Table(
+    "gateway_oauth_login_budget_v1", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("tokens_micro", Integer, nullable=False),
+    Column("updated_at_us", BigInteger, nullable=False),
+)
+LOGIN_SOURCE_ATTEMPTS = 5
+LOGIN_SOURCE_WINDOW_SECONDS = 300
+LOGIN_SOURCE_BUCKET_LIMIT = 1024
+LOGIN_GLOBAL_BURST = 4
+LOGIN_TOKEN_SCALE = 1_000_000
+LOGIN_GLOBAL_REFILL_MICRO_PER_SECOND = LOGIN_TOKEN_SCALE
 oauth_bootstrap = Table(
     "gateway_oauth_bootstrap_v1", metadata,
     Column("id", Integer, primary_key=True),
@@ -112,6 +134,13 @@ class LocalOAuth:
     def __init__(self, settings, store):
         self.settings = settings
         self.store = store
+        self._login_kdf_slots = threading.BoundedSemaphore(2)
+
+    def try_acquire_login_slot(self) -> bool:
+        return self._login_kdf_slots.acquire(blocking=False)
+
+    def release_login_slot(self) -> None:
+        self._login_kdf_slots.release()
 
     @property
     def issuer(self) -> str:
@@ -151,57 +180,93 @@ class LocalOAuth:
             ))
             c.execute(delete(oauth_bootstrap))
 
-    def login(self, password: str) -> LocalSession:
+    def login(self, password: str, source_hash: str) -> LocalSession:
+        if not self.try_acquire_login_slot():
+            raise GatewayError("login_busy", "Sign-in is temporarily busy", 503,
+                               headers={"Retry-After": "1"})
+        try:
+            return self._login_admitted(password, source_hash)
+        finally:
+            self.release_login_slot()
+
+    def _login_admitted(self, password: str, source_hash: str) -> LocalSession:
+        if not isinstance(source_hash, str) or len(source_hash) != 64 or any(
+                character not in "0123456789abcdef" for character in source_hash):
+            raise GatewayError("login_source_unavailable", "Sign-in is temporarily unavailable", 503)
         now = int(time.time())
+        now_us = int(time.time() * 1_000_000)
         raw = "gs_" + secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         expires = now + 12 * 3600
-        failure: tuple[str, int] | None = None
+        denial: GatewayError | None = None
+        admin = None
         with self.store.transaction() as c:
             row = c.execute(select(oauth_admin).where(oauth_admin.c.id == 1)).mappings().first()
             if row is None:
                 raise GatewayError("auth_not_configured", "Complete owner setup first", 503)
-            guard = c.execute(select(oauth_login_guard).where(
-                oauth_login_guard.c.id == 1
+            budget = c.execute(select(oauth_login_budget).where(
+                oauth_login_budget.c.id == 1
             ).with_for_update()).mappings().first()
-            if guard is None:
-                c.execute(insert(oauth_login_guard).values(
-                    id=1, failures=0, window_started=now, locked_until=0
-                ))
-                guard = {"failures": 0, "window_started": now, "locked_until": 0}
-            if guard["locked_until"] > now:
-                raise GatewayError("login_rate_limited", "Too many failed sign-in attempts; try again later", 429)
-            try:
-                actual = _password_digest(password, bytes.fromhex(row["salt_hex"])).hex()
-            except (ValueError, TypeError):
-                actual = ""
-            if not secrets.compare_digest(actual, row["password_hash_hex"]):
-                failures = guard["failures"]
-                window_started = guard["window_started"]
-                if now - window_started >= 300:
-                    failures, window_started = 0, now
-                failures += 1
-                locked_until = now + 300 if failures >= 5 else 0
-                c.execute(update(oauth_login_guard).where(oauth_login_guard.c.id == 1).values(
-                    failures=failures, window_started=window_started, locked_until=locked_until
-                ))
-                if locked_until:
-                    failure = ("login_rate_limited", 429)
-                else:
-                    failure = ("invalid_credentials", 401)
+            if budget is None:
+                raise GatewayError("login_budget_unavailable", "Sign-in is temporarily unavailable", 503)
+            c.execute(delete(oauth_login_source_buckets).where(
+                oauth_login_source_buckets.c.expires_at <= now
+            ))
+            source = c.execute(select(oauth_login_source_buckets).where(
+                oauth_login_source_buckets.c.source_hash == source_hash
+            ).with_for_update()).mappings().first()
+            if source is not None and source["attempts"] >= LOGIN_SOURCE_ATTEMPTS:
+                denial = GatewayError(
+                    "login_rate_limited", "Too many sign-in attempts from this network; try again later", 429,
+                    headers={"Retry-After": str(LOGIN_SOURCE_WINDOW_SECONDS)},
+                )
+            elif source is None and c.execute(
+                    select(func.count()).select_from(oauth_login_source_buckets)).scalar_one() >= LOGIN_SOURCE_BUCKET_LIMIT:
+                denial = GatewayError("login_busy", "Sign-in is temporarily busy", 503,
+                                      headers={"Retry-After": "1"})
             else:
-                c.execute(update(oauth_login_guard).where(oauth_login_guard.c.id == 1).values(
-                    failures=0, window_started=now, locked_until=0
-                ))
-                c.execute(delete(oauth_sessions).where(oauth_sessions.c.expires_at <= now))
-                c.execute(insert(oauth_sessions).values(
-                    token_hash=_sha(raw), csrf=csrf, expires_at=expires, created_at=now
-                ))
-        if failure is not None:
-            code, status = failure
-            if code == "login_rate_limited":
-                raise GatewayError(code, "Too many failed sign-in attempts; try again later", status)
-            raise GatewayError(code, "Invalid credentials", status)
+                elapsed_us = max(0, now_us - int(budget["updated_at_us"]))
+                tokens = min(
+                    LOGIN_GLOBAL_BURST * LOGIN_TOKEN_SCALE,
+                    int(budget["tokens_micro"]) + elapsed_us * LOGIN_GLOBAL_REFILL_MICRO_PER_SECOND // 1_000_000,
+                )
+                if tokens < LOGIN_TOKEN_SCALE:
+                    denial = GatewayError("login_busy", "Sign-in is temporarily busy", 503,
+                                          headers={"Retry-After": "1"})
+                else:
+                    c.execute(update(oauth_login_budget).where(
+                        oauth_login_budget.c.id == 1
+                    ).values(tokens_micro=tokens - LOGIN_TOKEN_SCALE,
+                             updated_at_us=max(now_us, budget["updated_at_us"])))
+                    if source is None:
+                        c.execute(insert(oauth_login_source_buckets).values(
+                            source_hash=source_hash, attempts=1, window_started=now,
+                            expires_at=now + LOGIN_SOURCE_WINDOW_SECONDS,
+                        ))
+                    else:
+                        c.execute(update(oauth_login_source_buckets).where(
+                            oauth_login_source_buckets.c.source_hash == source_hash
+                        ).values(attempts=source["attempts"] + 1))
+                    admin = dict(row)
+        if denial is not None:
+            raise denial
+        if admin is None:
+            raise GatewayError("login_budget_unavailable", "Sign-in is temporarily unavailable", 503)
+        try:
+            actual = _password_digest(password, bytes.fromhex(admin["salt_hex"])).hex()
+        except (ValueError, TypeError):
+            actual = ""
+        if not secrets.compare_digest(actual, admin["password_hash_hex"]):
+            raise GatewayError("invalid_credentials", "Invalid credentials", 401)
+        with self.store.transaction() as c:
+            current = c.execute(select(oauth_admin).where(oauth_admin.c.id == 1)).mappings().first()
+            if (current is None or current["salt_hex"] != admin["salt_hex"] or
+                    current["password_hash_hex"] != admin["password_hash_hex"]):
+                raise GatewayError("invalid_credentials", "Invalid credentials", 401)
+            c.execute(delete(oauth_sessions).where(oauth_sessions.c.expires_at <= now))
+            c.execute(insert(oauth_sessions).values(
+                token_hash=_sha(raw), csrf=csrf, expires_at=expires, created_at=now
+            ))
         return LocalSession(raw, csrf, expires)
 
     def session(self, raw: str) -> dict:
@@ -228,12 +293,22 @@ class LocalOAuth:
             p = urlsplit(uri)
         except ValueError:
             raise GatewayError("invalid_client_metadata", "Invalid redirect URI", 400)
-        host = (p.hostname or "").lower()
-        if p.fragment or p.username or p.password:
+        if p.fragment or p.username or p.password or not uri.isascii():
             raise GatewayError("invalid_client_metadata", "Invalid redirect URI", 400)
-        trusted = host == "chatgpt.com" or host.endswith(".chatgpt.com") or host == "openai.com" or host.endswith(".openai.com")
+        host = (p.hostname or "").lower()
+        stable_chatgpt_callback = (
+            p.scheme == "https" and p.netloc == "chatgpt.com" and not p.query and
+            p.path == "/connector_platform_oauth_redirect"
+        )
+        callback_id = p.path.removeprefix("/connector/oauth/")
+        callback_id_chatgpt_callback = (
+            p.scheme == "https" and p.netloc == "chatgpt.com" and not p.query and
+            p.path.startswith("/connector/oauth/") and
+            bool(re.fullmatch(r"[A-Za-z0-9._~+-]{1,200}", callback_id)) and
+            callback_id not in {".", ".."}
+        )
         local = host in {"localhost", "127.0.0.1", "::1"} and p.scheme == "http" and not self.settings.hosted
-        if not ((p.scheme == "https" and trusted) or local):
+        if not (stable_chatgpt_callback or callback_id_chatgpt_callback or local):
             raise GatewayError("invalid_client_metadata", "OAuth redirect host is not allowed", 400)
         return uri
 
@@ -309,9 +384,12 @@ class LocalOAuth:
             raise GatewayError("invalid_scope", "Unsupported OAuth scope", 400)
         return " ".join(dict.fromkeys(requested))
 
-    def authorization_request(self, params: dict, session_token: str) -> dict:
+    def authorization_details(self, params: dict, session_token: str) -> dict:
         client_id = params.get("client_id", "")
         redirect_uri = params.get("redirect_uri", "")
+        state = params.get("state", "")
+        if not isinstance(client_id, str) or not isinstance(redirect_uri, str):
+            raise GatewayError("invalid_request", "OAuth client and redirect URI are required", 400)
         if params.get("response_type") != "code":
             raise GatewayError("unsupported_response_type", "Only response_type=code is supported", 400)
         client = self._client(client_id)
@@ -324,28 +402,32 @@ class LocalOAuth:
             raise GatewayError("invalid_request", "Valid PKCE code_challenge is required", 400)
         if params.get("resource") != self.resource:
             raise GatewayError("invalid_target", "OAuth resource must match the MCP resource", 400)
-        session = self.session(session_token)
+        self.session(session_token)
         scope = self._scope(params.get("scope"))
-        return {"client": client, "scope": scope, "session": session}
+        if (not isinstance(state, str) or len(state) > 2048 or
+                any(ord(char) < 0x20 or ord(char) == 0x7f for char in state)):
+            raise GatewayError("invalid_request", "Invalid OAuth state", 400)
+        return {"client_id": client_id, "client_name": client["client_name"],
+                "redirect_uri": redirect_uri, "scope": scope, "state": state}
 
-    def authorize(self, params: dict, session_token: str, csrf: str) -> str:
-        request = self.authorization_request(params, session_token)
-        expected_csrf = request["session"]["csrf"]
+    def authorize(self, params: dict, session_token: str, csrf: str = "",
+                  decision: str = "") -> str:
+        details = self.authorization_details(params, session_token)
+        expected_csrf = self.session(session_token)["csrf"]
         if not isinstance(csrf, str) or not csrf or not secrets.compare_digest(csrf, expected_csrf):
-            raise GatewayError("csrf_failed", "Authorization approval failed CSRF validation", 403)
-        client_id = params.get("client_id", "")
-        redirect_uri = params.get("redirect_uri", "")
-        challenge = params.get("code_challenge", "")
-        scope = request["scope"]
+            raise GatewayError("csrf_failed", "OAuth authorization confirmation failed CSRF validation", 403)
+        if decision != "approve":
+            raise GatewayError("consent_required", "Explicit owner approval is required", 403)
         raw = "gc_" + secrets.token_urlsafe(32)
         now = int(time.time())
         with self.store.transaction() as c:
             c.execute(update(oauth_clients).where(
-                oauth_clients.c.client_id == client_id
+                oauth_clients.c.client_id == details["client_id"]
             ).values(expires_at=now + 30 * 86400, persistent=True))
             c.execute(insert(oauth_codes).values(
-                code_hash=_sha(raw), client_id=client_id, redirect_uri=redirect_uri,
-                scope=scope, resource=self.resource, code_challenge=challenge,
+                code_hash=_sha(raw), client_id=details["client_id"], redirect_uri=details["redirect_uri"],
+                scope=details["scope"], resource=self.resource,
+                code_challenge=params["code_challenge"],
                 subject="owner", expires_at=now + 300, created_at=now
             ))
         return raw
@@ -361,41 +443,54 @@ class LocalOAuth:
             raise GatewayError("invalid_grant", "Authorization code expired", 400)
         return dict(row)
 
-    def _store_token(self, raw: str, *, kind: str, client_id: str, subject: str, scope: str,
-                     resource: str, expires_at: int, grant_id: str, connection=None) -> None:
-        statement = insert(oauth_tokens).values(
+    @staticmethod
+    def _insert_token(connection, raw: str, *, kind: str, client_id: str, subject: str,
+                      scope: str, resource: str, expires_at: int, grant_id: str) -> None:
+        connection.execute(insert(oauth_tokens).values(
             token_hash=_sha(raw), kind=kind, client_id=client_id, subject=subject,
             scope=scope, resource=resource, expires_at=expires_at,
             created_at=int(time.time()), revoked=False, grant_id=grant_id,
-        )
-        if connection is not None:
-            connection.execute(statement)
-            return
-        with self.store.transaction() as c:
-            c.execute(statement)
+        ))
 
     def _new_token_pair(self, *, client_id: str, subject: str, scope: str, resource: str,
                         grant_id: str | None = None, connection=None) -> dict:
-        if connection is None:
-            with self.store.transaction() as c:
-                return self._new_token_pair(
-                    client_id=client_id, subject=subject, scope=scope,
-                    resource=resource, grant_id=grant_id, connection=c,
-                )
         now = int(time.time())
         grant_id = grant_id or secrets.token_hex(32)
         access = "ga_" + secrets.token_urlsafe(32)
-        self._store_token(access, kind="access", client_id=client_id, subject=subject,
-                          scope=scope, resource=resource, expires_at=now + 3600, grant_id=grant_id,
-                          connection=connection)
+        tokens = [(access, "access", now + 3600)]
         value = {"access_token": access, "token_type": "Bearer", "expires_in": 3600, "scope": scope}
         if "offline_access" in scope.split():
             refresh = "gr_" + secrets.token_urlsafe(40)
-            self._store_token(refresh, kind="refresh", client_id=client_id, subject=subject,
-                              scope=scope, resource=resource, expires_at=now + 30 * 86400,
-                              grant_id=grant_id, connection=connection)
+            tokens.append((refresh, "refresh", now + 30 * 86400))
             value["refresh_token"] = refresh
+        if connection is None:
+            with self.store.transaction() as transaction:
+                for raw, kind, expires_at in tokens:
+                    self._insert_token(transaction, raw, kind=kind, client_id=client_id,
+                                       subject=subject, scope=scope, resource=resource,
+                                       expires_at=expires_at, grant_id=grant_id)
+        else:
+            for raw, kind, expires_at in tokens:
+                self._insert_token(connection, raw, kind=kind, client_id=client_id,
+                                   subject=subject, scope=scope, resource=resource,
+                                   expires_at=expires_at, grant_id=grant_id)
         return value
+
+    @staticmethod
+    def _lock_grant_family(connection, grant_id: str) -> None:
+        """Serialize refresh and revocation on every currently persisted family row.
+
+        Both operations acquire these row locks in the same token-hash order
+        before changing or inserting family members. Under PostgreSQL's
+        READ COMMITTED isolation, a waiting revoker's subsequent UPDATE gets
+        a fresh statement snapshot and therefore includes a successor inserted
+        by the refresh transaction it waited for.
+        """
+        list(connection.execute(
+            select(oauth_tokens.c.token_hash).where(
+                oauth_tokens.c.grant_id == grant_id
+            ).order_by(oauth_tokens.c.token_hash).with_for_update()
+        ).scalars())
 
     def token(self, form: dict) -> dict:
         grant = form.get("grant_type")
@@ -418,10 +513,25 @@ class LocalOAuth:
                                         scope=row["scope"], resource=resource)
         if grant == "refresh_token":
             raw = form.get("refresh_token", "")
+            token_hash = _sha(raw)
             now = int(time.time())
             with self.store.transaction() as c:
+                candidate = c.execute(select(oauth_tokens).where(
+                    oauth_tokens.c.token_hash == token_hash,
+                    oauth_tokens.c.kind == "refresh",
+                    oauth_tokens.c.client_id == client_id,
+                    oauth_tokens.c.resource == resource,
+                )).mappings().first()
+                if candidate is None:
+                    raise GatewayError("invalid_grant", "Refresh token is invalid or expired", 400)
+                if candidate.get("grant_id"):
+                    self._lock_grant_family(c, candidate["grant_id"])
+                else:
+                    c.execute(select(oauth_tokens.c.token_hash).where(
+                        oauth_tokens.c.token_hash == token_hash
+                    ).with_for_update()).first()
                 row = c.execute(select(oauth_tokens).where(
-                    oauth_tokens.c.token_hash == _sha(raw),
+                    oauth_tokens.c.token_hash == token_hash,
                     oauth_tokens.c.kind == "refresh",
                     oauth_tokens.c.client_id == client_id,
                     oauth_tokens.c.resource == resource,
@@ -437,7 +547,7 @@ class LocalOAuth:
                         raise GatewayError("invalid_scope", "Refresh scope cannot be expanded", 400)
                     scope = narrowed
                 changed = c.execute(update(oauth_tokens).where(
-                    oauth_tokens.c.token_hash == _sha(raw),
+                    oauth_tokens.c.token_hash == token_hash,
                     oauth_tokens.c.kind == "refresh",
                     oauth_tokens.c.client_id == client_id,
                     oauth_tokens.c.resource == resource,
@@ -459,22 +569,28 @@ class LocalOAuth:
         if not isinstance(token, str) or not token:
             raise GatewayError("invalid_request", "A token is required", 400)
         client_id = form.get("client_id", "")
-        self._client(client_id)
         # Public PKCE clients have no client secret. Scope lookup to the
-        # registered client so one client cannot revoke another's credentials.
+        # token's stored client so one client cannot revoke another's
+        # credentials. Revocation remains available after a registration
+        # expires or a consent-remediation migration resets persistence.
         with self.store.transaction() as c:
-            row = c.execute(select(oauth_tokens).where(
+            row = c.execute(select(oauth_tokens.c.kind, oauth_tokens.c.grant_id).where(
                 oauth_tokens.c.token_hash == _sha(token),
                 oauth_tokens.c.client_id == client_id,
-            ).with_for_update()).mappings().first()
+            )).mappings().first()
             if row is None:
                 return
             if row["kind"] == "refresh" and row.get("grant_id"):
+                self._lock_grant_family(c, row["grant_id"])
                 c.execute(update(oauth_tokens).where(
                     oauth_tokens.c.grant_id == row["grant_id"],
                     oauth_tokens.c.client_id == client_id,
                 ).values(revoked=True))
             else:
+                c.execute(select(oauth_tokens.c.token_hash).where(
+                    oauth_tokens.c.token_hash == _sha(token),
+                    oauth_tokens.c.client_id == client_id,
+                ).with_for_update()).first()
                 c.execute(update(oauth_tokens).where(
                     oauth_tokens.c.token_hash == _sha(token),
                     oauth_tokens.c.client_id == client_id,

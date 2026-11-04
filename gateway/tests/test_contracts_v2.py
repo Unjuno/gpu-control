@@ -3,7 +3,15 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from gpu_gateway.contracts import PlanV2, ResultV2, plan_fingerprint, validate_result_binding
+from gpu_gateway.contracts import (
+    CandidateBinding,
+    PlanV2,
+    ResultV2,
+    plan_fingerprint,
+    plan_payload,
+    validate_candidate_gpu_success,
+    validate_result_binding,
+)
 
 
 def _plan():
@@ -55,6 +63,70 @@ def test_plan_v2_round_trips_through_json_storage():
     assert plan_fingerprint(restored) == plan_fingerprint(plan)
 
 
+def test_selection_binding_is_persisted_and_changes_the_approved_plan_fingerprint():
+    base = _plan()
+    binding = CandidateBinding(
+        workload_fingerprint="sha256:" + "d" * 64,
+        provider="modal",
+        resource_id="gpu-a10-nyc-01",
+        evidence_fingerprint="sha256:" + "e" * 64,
+    )
+    approved = base.model_copy(update={
+        "provider": "modal",
+        "selection_binding": binding,
+    })
+    restored = PlanV2.model_validate_json(approved.model_dump_json())
+
+    assert restored.selection_binding == binding
+    assert plan_fingerprint(restored) != plan_fingerprint(base)
+    assert plan_fingerprint(restored.model_copy(update={
+        "selection_binding": binding.model_copy(update={"evidence_fingerprint": "sha256:" + "f" * 64})
+    })) != plan_fingerprint(restored)
+
+
+def test_selection_binding_requires_provider_match_and_strict_fields():
+    with pytest.raises(ValidationError):
+        CandidateBinding(
+            workload_fingerprint="sha256:" + "d" * 64,
+            provider="Modal",
+            resource_id="gpu-a10-nyc-01",
+            evidence_fingerprint="sha256:" + "e" * 64,
+        )
+    with pytest.raises(ValidationError):
+        CandidateBinding(
+            workload_fingerprint="sha256:" + "d" * 64,
+            provider="modal",
+            resource_id="gpu-a10-nyc-01",
+            evidence_fingerprint="sha256:" + "e" * 64,
+            quota_remaining="999",
+        )
+
+    data = _plan().model_dump()
+    data["selection_binding"] = {
+        "workload_fingerprint": "sha256:" + "d" * 64,
+        "provider": "modal",
+        "resource_id": "gpu-a10-nyc-01",
+        "evidence_fingerprint": "sha256:" + "e" * 64,
+    }
+    with pytest.raises(ValidationError, match="provider does not match"):
+        PlanV2.model_validate(data)
+
+
+def test_legacy_plan_without_selection_binding_keeps_its_canonical_fingerprint():
+    import hashlib
+    import json
+
+    legacy_payload = _plan().model_dump(mode="json")
+    legacy_payload.pop("selection_binding", None)
+    canonical = json.dumps(legacy_payload, sort_keys=True,
+                           separators=(",", ":"), allow_nan=False).encode()
+    expected = hashlib.sha256(canonical).hexdigest()
+
+    legacy_plan = PlanV2.model_validate_json(json.dumps(legacy_payload))
+    assert plan_fingerprint(legacy_plan) == expected
+    assert plan_payload(legacy_plan) == legacy_payload
+
+
 def test_result_v2_preserves_smoke_checks_and_checksum():
     plan = _plan()
     result = _result(plan, plan_fingerprint(plan)).model_dump()
@@ -71,6 +143,23 @@ def test_result_checks_are_bounded_ascii_tokens():
     result["checks"] = ["x" * 65]
     with pytest.raises(ValidationError):
         ResultV2.model_validate(result)
+
+
+def test_candidate_gpu_success_requires_device_and_resource_verification():
+    plan = _plan()
+    result = _result(plan, plan_fingerprint(plan))
+    with pytest.raises(ValueError, match="verified GPU and cleanup evidence"):
+        validate_candidate_gpu_success(result)
+
+    verified = result.model_copy(update={
+        "gpu_used": True,
+        "device": "NVIDIA A10",
+        "checks": ["candidate_resource_verified", "device_identity_verified"],
+    })
+    validate_candidate_gpu_success(verified)
+    unclean = verified.model_copy(update={"cleanup_state": "unknown"})
+    with pytest.raises(ValueError, match="cleanup evidence"):
+        validate_candidate_gpu_success(unclean)
 
 
 @pytest.mark.parametrize("field,value", [
@@ -111,6 +200,22 @@ def test_result_cannot_claim_different_source_or_fingerprint():
     result = _result(plan, fingerprint).model_copy(update={"image_digest": None})
     with pytest.raises(ValueError, match="does not match"):
         validate_result_binding(plan, fingerprint, result)
+
+
+def test_result_provider_and_image_are_bound_for_non_cpu_plans():
+    plan = _plan().model_copy(update={"provider": "modal"})
+    fingerprint = plan_fingerprint(plan)
+    result = _result(plan, fingerprint).model_copy(update={"provider": "modal"})
+    validate_result_binding(plan, fingerprint, result)
+
+    for changes in (
+        {"provider": "runpod"},
+        {"image_digest": "sha256:" + "e" * 64},
+        {"image_digest": None},
+    ):
+        mismatched = result.model_copy(update=changes)
+        with pytest.raises(ValueError, match="does not match"):
+            validate_result_binding(plan, fingerprint, mismatched)
 
 
 def test_unknown_result_fields_are_rejected():

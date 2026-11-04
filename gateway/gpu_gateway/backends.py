@@ -13,6 +13,7 @@ class Observation:
     state: str
     result: dict | None = None
     artifacts: tuple["ArtifactPayload", ...] = ()
+    candidate_receipt: dict | None = None
 
     def __post_init__(self):
         if self.state not in {"running", "succeeded", "failed", "cancelled"}:
@@ -26,6 +27,15 @@ class ArtifactPayload:
     media_type: str
 
 
+@dataclass(frozen=True)
+class ProviderAccountLeaseRequest:
+    """Non-secret adapter input committed before a RunPod create request."""
+
+    core_plan_fingerprint: str
+    authorization_id: str
+    request_challenge: dict
+
+
 class Backend(Protocol):
     """Terminal inspect() must mean billable compute is released.
 
@@ -36,6 +46,42 @@ class Backend(Protocol):
     def inspect(self, handle: dict) -> Observation: ...
     def cancel(self, handle: dict) -> None: ...
     def reconcile(self, run: dict) -> dict | None: ...
+
+
+class CandidateBoundBackend(Protocol):
+    """Execution boundary for a PlanV2 bound to one provider resource.
+
+    Implementations must authenticate the current provider object before
+    returning true from ``validate_candidate_observation``. ``capture`` must
+    retain terminal evidence before cleanup, and ``is_clean`` must prove that
+    billable resources are gone. ``reconcile`` must obey Backend's no-create
+    rule; a lost response must never start a replacement allocation.
+    """
+
+    def start_candidate_bound(self, run: dict) -> dict: ...
+    def capture(self, handle: dict) -> Observation: ...
+    def validate_candidate_observation(self, run: dict,
+                                       observation: Observation) -> bool: ...
+    def cancel(self, handle: dict) -> None: ...
+    def reconcile(self, run: dict) -> dict | None: ...
+    def cleanup(self, handle: dict) -> None: ...
+    def is_clean(self, handle: dict) -> bool: ...
+
+
+class RunPodAccountLeaseBackend(Protocol):
+    """RunPod candidate contract for account-wide durable allocation fencing.
+
+    ``request_challenge`` is prepared without provider I/O, persisted by the
+    Gateway, and then passed unchanged to create and reconciliation methods.
+    These methods must never log or return provider credentials.
+    """
+
+    def prepare_provider_account_lease(self, run: dict) -> ProviderAccountLeaseRequest: ...
+    def start_candidate_bound_with_account_lease(self, run: dict,
+                                                 request_challenge: dict) -> dict: ...
+    def reconcile_candidate_bound_with_account_lease(self, run: dict,
+                                                      request_challenge: dict) -> dict | None: ...
+    def provider_job_id(self, handle: dict) -> str: ...
 
 
 class DemoBackend:

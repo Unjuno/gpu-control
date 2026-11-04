@@ -244,10 +244,10 @@ class Auth:
         )
         return response
 
-    def login_password(self, password: str, next_path: str) -> RedirectResponse:
+    def login_password(self, password: str, next_path: str, source_hash: str) -> RedirectResponse:
         if self.external or self.local is None:
             raise GatewayError("invalid_auth_mode", "Password login is unavailable", 404)
-        session = self.local.login(password)
+        session = self.local.login(password, source_hash)
         response = RedirectResponse(_safe_next(next_path), 303)
         response.set_cookie(
             SESSION, session.token, httponly=True, secure=self.settings.public_url.startswith("https:"),

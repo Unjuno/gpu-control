@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import stat
+import time
 from pathlib import Path
 from collections.abc import Iterable
 
@@ -33,22 +34,90 @@ def inspect_artifact_storage(root: str, minimum_free_bytes: int = 0) -> dict:
         if not path.is_dir():
             return {"configured": True, "available": False, "free_bytes": None,
                     "reason": "not_directory"}
-        if (minimum_free_bytes > 0 and
-                path.stat().st_dev == path.parent.stat().st_dev):
+        if path.stat().st_dev == path.parent.stat().st_dev:
             return {"configured": True, "available": False, "free_bytes": None,
                     "minimum_free_bytes": minimum_free_bytes,
                     "reason": "not_dedicated_filesystem"}
-        if not os.access(path, os.R_OK | os.W_OK | os.X_OK):
+        probe_path = path / ".gpu-control-probes"
+        if probe_path.is_symlink() or not probe_path.is_dir():
+            return {"configured": True, "available": False, "free_bytes": None,
+                    "reason": "probe_directory_unavailable"}
+        if probe_path.stat().st_dev != path.stat().st_dev:
+            return {"configured": True, "available": False, "free_bytes": None,
+                    "reason": "probe_directory_not_on_artifact_filesystem"}
+        if not os.access(path, os.R_OK | os.X_OK):
             return {"configured": True, "available": False, "free_bytes": None,
                     "reason": "permissions"}
+        if not os.access(probe_path, os.R_OK | os.W_OK | os.X_OK):
+            return {"configured": True, "available": False, "free_bytes": None,
+                    "reason": "probe_directory_permissions"}
         values = os.statvfs(path)
         free_bytes = values.f_bavail * values.f_frsize
         available = free_bytes > 0 and free_bytes >= minimum_free_bytes
-        return {"configured": True, "available": available,
+        if not available:
+            return {"configured": True, "available": False,
+                    "free_bytes": free_bytes,
+                    "minimum_free_bytes": minimum_free_bytes,
+                    "reason": "no_free_space" if free_bytes == 0
+                    else "below_minimum_free_bytes"}
+
+        # os.access() can report writable for a read-only mount (and does not
+        # exercise the service account's actual create/write path). Create an
+        # exclusive file, unlink it immediately, then write and sync through
+        # its open descriptor so a stopped process does not leave a probe blob.
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        directory_fd = os.open(probe_path, directory_flags)
+        probe_name: str | None = ".gpu-control-write-probe-" + secrets.token_hex(16)
+        probe_fd = None
+        try:
+            # A hard stop between create and unlink can leave an empty probe
+            # file. Remove only old, empty files owned by this API account;
+            # the directory's sticky bit protects probes from other users.
+            cutoff = time.time() - 3600
+            with os.scandir(probe_path) as entries:
+                for entry in entries:
+                    if not entry.name.startswith(".gpu-control-write-probe-"):
+                        continue
+                    try:
+                        stale = os.stat(entry.name, dir_fd=directory_fd,
+                                        follow_symlinks=False)
+                        if (stat.S_ISREG(stale.st_mode) and stale.st_uid == os.geteuid()
+                                and stale.st_size == 0 and stale.st_mtime < cutoff):
+                            os.unlink(entry.name, dir_fd=directory_fd)
+                    except FileNotFoundError:
+                        continue
+            probe_fd = os.open(probe_name,
+                               os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                               0o600, dir_fd=directory_fd)
+            os.unlink(probe_name, dir_fd=directory_fd)
+            probe_name = None
+            os.fsync(directory_fd)
+            if os.write(probe_fd, b"\0") != 1:
+                raise OSError("short artifact storage write probe")
+            os.fsync(probe_fd)
+            os.close(probe_fd)
+            probe_fd = None
+        except Exception:
+            if probe_fd is not None:
+                try:
+                    os.close(probe_fd)
+                except OSError:
+                    pass
+            if probe_name is not None:
+                try:
+                    os.unlink(probe_name, dir_fd=directory_fd)
+                except OSError:
+                    pass
+            return {"configured": True, "available": False,
+                    "free_bytes": free_bytes,
+                    "minimum_free_bytes": minimum_free_bytes,
+                    "reason": "write_probe_failed"}
+        finally:
+            os.close(directory_fd)
+        return {"configured": True, "available": True,
                 "free_bytes": free_bytes,
                 "minimum_free_bytes": minimum_free_bytes,
-                "reason": (None if available else "no_free_space" if free_bytes == 0
-                           else "below_minimum_free_bytes")}
+                "reason": None}
     except Exception:
         return {"configured": True, "available": False, "free_bytes": None,
                 "reason": "unavailable"}
@@ -67,13 +136,13 @@ class ArtifactStore:
     def _directory(self, owner: str, run_id: str, *, create: bool) -> Path:
         directory = self.root / self._scope(owner, run_id)
         if create:
-            self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-            directory.mkdir(mode=0o700, exist_ok=True)
+            self.root.mkdir(mode=0o2750, parents=True, exist_ok=True)
+            directory.mkdir(mode=0o2750, exist_ok=True)
         if self.root.is_symlink() or directory.is_symlink():
             raise ValueError("artifact storage path must not contain symlinks")
         if create:
-            os.chmod(self.root, 0o700)
-            os.chmod(directory, 0o700)
+            os.chmod(self.root, 0o2750)
+            os.chmod(directory, 0o2750)
         return directory
 
     def put(self, owner: str, run_id: str, artifact_id: str, data: bytes, *,
@@ -98,6 +167,11 @@ class ArtifactStore:
             with os.fdopen(fd, "wb") as output:
                 output.write(data)
                 output.flush()
+                os.fsync(output.fileno())
+                # The API account has read-only membership in the artifact
+                # group. Publish group-readable bytes only after the complete
+                # temporary file has been written and synced.
+                os.fchmod(output.fileno(), 0o640)
                 os.fsync(output.fileno())
             try:
                 os.link(temporary, destination, follow_symlinks=False)

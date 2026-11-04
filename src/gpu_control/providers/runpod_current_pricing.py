@@ -19,6 +19,7 @@ from .runpod_v2 import RunPodV2Error
 
 RUNPOD_GRAPHQL_URL = "https://api.runpod.io/graphql"
 RUNPOD_PRICING_CONTRACT_COMMIT = "51ca7f02ab5cb57c09ad917172af36c29a58790c"
+RUNPOD_GRAPHQL_SPEC_REVISION = "graphql-spec-1.1.0"
 _MAX_EVIDENCE_TTL_SECONDS = 300
 _MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
 _GPU_TYPES_QUERY = """
@@ -31,6 +32,7 @@ query GpuControlGpuTypes {
     communityCloud
     securePrice
     communityPrice
+    maxGpuCountSecureCloud
   }
 }
 """.strip()
@@ -44,6 +46,8 @@ query GpuControlDataCenters {
       gpuTypeId
       displayName
       stockStatus
+      available
+      availableCount
     }
   }
 }

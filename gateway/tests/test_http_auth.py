@@ -1,5 +1,6 @@
 from dataclasses import replace
 import json
+from pathlib import Path
 import time
 from types import SimpleNamespace
 
@@ -14,7 +15,11 @@ def rpc(w, method, params=None, **extra):
     data = {"jsonrpc": "2.0", "id": 1, "method": method}
     if params is not None: data["params"] = params
     data.update(extra)
-    return w.client.post("/mcp", json=data, headers=w.headers)
+    # These assertions exercise the structured tool result contract. Keep the
+    # request on a legacy revision that supports structuredContent; the server
+    # default for an unversioned request is the older 2025-03-26 profile.
+    headers = {**w.headers, "MCP-Protocol-Version": "2025-06-18"}
+    return w.client.post("/mcp", json=data, headers=headers)
 
 
 def test_metadata_and_unauthenticated_challenge(web):
@@ -136,7 +141,10 @@ def test_readiness_requires_current_database_migration_worker_and_registry(web):
     assert worker_only.json()["supervisor"] is False
     with web.service.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(supervisor_seen_at=int(time.time())))
-    assert web.client.get("/readyz").status_code == 200
+    ready = web.client.get("/readyz")
+    assert ready.status_code == 200
+    assert ready.json()["local_cpu_storage_required"] is False
+    assert ready.json()["artifact_storage"] is None
     with web.service.store.transaction() as connection:
         connection.execute(update(control).where(control.c.id == 1).values(
             supervisor_seen_at=int(time.time()) - 16))
@@ -161,6 +169,160 @@ def test_readiness_requires_current_database_migration_worker_and_registry(web):
 
     # A liveness response remains independent from a stale schema or worker.
     assert web.client.get("/healthz").status_code == 200
+
+
+@pytest.mark.parametrize(("storage_available", "expected_status"), [(False, 503), (True, 200)])
+def test_readiness_checks_artifact_storage_for_enabled_local_cpu(
+        web, tmp_path, monkeypatch, storage_available, expected_status):
+    from sqlalchemy import update
+    from gpu_gateway import app as gateway_app
+    from gpu_gateway.config import Workload
+    from gpu_gateway.registry import ProviderRegistration
+    from gpu_gateway.store import control
+
+    now = int(time.time())
+    policy_path = tmp_path / "local-cpu.json"
+    policy_path.write_text(json.dumps({
+        "version": "local-cpu-v1", "enabled": True, "valid_until": now + 3600,
+        "workloads": ["cpu-smoke"], "max_runtime_seconds": 30,
+        "max_cost_usd": "0.00", "allowed_profiles": ["smoke"],
+    }))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            worker_seen_at=now, supervisor_seen_at=now))
+
+    web.service.workloads["cpu-smoke"] = Workload(
+        provider="local_cpu", image_digest="sha256:" + "a" * 64,
+        execution_profile="smoke", requires_gpu=False,
+        source_repository="Unjuno/gpu-control", source_sha="a" * 40)
+    web.service.registry["local_cpu"] = ProviderRegistration(
+        name="local_cpu", execution="local_worker_container",
+        enabled=lambda _settings: True, factory=lambda _settings: None)
+    probe = {"configured": storage_available, "available": storage_available,
+             "free_bytes": 1024 if storage_available else None,
+             "minimum_free_bytes": 0,
+             "reason": None if storage_available else "not_configured"}
+    calls = []
+
+    def inspect(root, minimum_free_bytes):
+        calls.append((root, minimum_free_bytes))
+        return probe
+
+    monkeypatch.setattr(gateway_app, "inspect_artifact_storage", inspect)
+    response = web.client.get("/readyz")
+
+    assert response.status_code == expected_status
+    assert response.json()["ready"] is storage_available
+    assert response.json()["local_cpu_storage_required"] is True
+    assert response.json()["local_cpu_admission_required"] is True
+    assert response.json()["local_cpu_admission_ready"] is True
+    assert response.json()["local_cpu_admission_blockers"] == []
+    assert response.json()["artifact_storage"] == probe
+    assert calls == [(web.settings.artifact_dir, web.settings.artifact_min_free_bytes)]
+
+
+@pytest.mark.parametrize(("path_exists", "separate_filesystem"), [
+    (False, True), (True, False), (True, True),
+])
+def test_readiness_probes_configured_artifact_path_for_enabled_local_cpu(
+        web, tmp_path, monkeypatch, path_exists, separate_filesystem):
+    from sqlalchemy import update
+    from gpu_gateway.app import create_app
+    from gpu_gateway.config import Workload
+    from gpu_gateway.registry import ProviderRegistration
+    from gpu_gateway.store import control
+
+    now = int(time.time())
+    policy_path = tmp_path / "local-cpu.json"
+    policy_path.write_text(json.dumps({
+        "version": "local-cpu-v1", "enabled": True, "valid_until": now + 3600,
+        "workloads": ["cpu-smoke"], "max_runtime_seconds": 30,
+        "max_cost_usd": "0.00", "allowed_profiles": ["smoke"],
+    }))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            worker_seen_at=now, supervisor_seen_at=now))
+
+    artifact_path = tmp_path / "artifacts"
+    if path_exists:
+        artifact_path.mkdir()
+        probe_path = artifact_path / ".gpu-control-probes"
+        probe_path.mkdir(mode=0o3770)
+        probe_path.chmod(0o3770)
+    settings = replace(web.settings, artifact_dir=str(artifact_path), artifact_min_free_bytes=0)
+    if path_exists and separate_filesystem:
+        original_stat = Path.stat
+        probe_path = artifact_path / ".gpu-control-probes"
+
+        def stat_with_dedicated_mount(path, *args, **kwargs):
+            result = original_stat(path, *args, **kwargs)
+            if path in {artifact_path, probe_path}:
+                return SimpleNamespace(st_dev=2, st_mode=result.st_mode)
+            return result
+
+        monkeypatch.setattr(Path, "stat", stat_with_dedicated_mount)
+    web.service.workloads["cpu-smoke"] = Workload(
+        provider="local_cpu", image_digest="sha256:" + "b" * 64,
+        execution_profile="smoke", requires_gpu=False,
+        source_repository="Unjuno/gpu-control", source_sha="b" * 40)
+    web.service.registry["local_cpu"] = ProviderRegistration(
+        name="local_cpu", execution="local_worker_container",
+        enabled=lambda _settings: True, factory=lambda _settings: None)
+    client = TestClient(create_app(settings, service=web.service, auth=web.auth))
+
+    response = client.get("/readyz")
+    expected_ready = path_exists and separate_filesystem
+    assert response.status_code == (200 if expected_ready else 503)
+    assert response.json()["ready"] is expected_ready
+    assert response.json()["local_cpu_admission_ready"] is True
+    assert response.json()["artifact_storage"]["available"] is expected_ready
+
+
+@pytest.mark.parametrize(("allowed_workloads", "source_repository", "source_sha", "expected_blocker"), [
+    ([], "Unjuno/gpu-control", "c" * 40, "WORKLOAD_NOT_ALLOWLISTED"),
+    (["cpu-smoke"], "", "", "SOURCE_IDENTITY_UNCONFIGURED"),
+])
+def test_readiness_fails_when_enabled_cpu_workload_is_not_admissible(
+        web, tmp_path, monkeypatch, allowed_workloads, source_repository, source_sha, expected_blocker):
+    from sqlalchemy import update
+    from gpu_gateway import app as gateway_app
+    from gpu_gateway.config import Workload
+    from gpu_gateway.registry import ProviderRegistration
+    from gpu_gateway.store import control
+
+    now = int(time.time())
+    with web.service.store.transaction() as connection:
+        connection.execute(update(control).where(control.c.id == 1).values(
+            worker_seen_at=now, supervisor_seen_at=now))
+    policy_path = tmp_path / "local-cpu.json"
+    policy_path.write_text(json.dumps({
+        "version": "local-cpu-v1", "enabled": True, "valid_until": now + 3600,
+        "workloads": allowed_workloads, "max_runtime_seconds": 30,
+        "max_cost_usd": "0.00", "allowed_profiles": ["smoke"],
+    }))
+    monkeypatch.setenv("GATEWAY_LOCAL_CPU_POLICY_FILE", str(policy_path))
+    web.service.workloads["cpu-smoke"] = Workload(
+        provider="local_cpu", image_digest="sha256:" + "c" * 64,
+        execution_profile="smoke", requires_gpu=False,
+        source_repository=source_repository, source_sha=source_sha)
+    web.service.registry["local_cpu"] = ProviderRegistration(
+        name="local_cpu", execution="local_worker_container",
+        enabled=lambda _settings: True, factory=lambda _settings: None)
+    monkeypatch.setattr(gateway_app, "inspect_artifact_storage", lambda *_: {
+        "configured": True, "available": True, "free_bytes": 1024,
+        "minimum_free_bytes": 0, "reason": None,
+    })
+
+    response = web.client.get("/readyz")
+
+    assert response.status_code == 503
+    assert response.json()["ready"] is False
+    assert response.json()["local_cpu_admission_ready"] is False
+    assert response.json()["local_cpu_admission_blockers"] == [
+        {"workload": "cpu-smoke", "reason": expected_blocker},
+    ]
 
 
 def test_readiness_uses_stale_boundary_at_exactly_fifteen_seconds(web, monkeypatch):

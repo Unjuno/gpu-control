@@ -7,13 +7,15 @@ import sys
 import time
 import uuid
 from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import update
 
 from gpu_gateway.backends import build_backends
 from gpu_gateway.artifacts import ArtifactStore
-from gpu_gateway.config import Settings, Workload, load_workloads
+from gpu_gateway.config import Settings, Workload
 from gpu_gateway.admission import evaluate_admission, plan_for_workload
 from gpu_gateway.contracts import plan_fingerprint
 from gpu_gateway.store import runs
@@ -21,6 +23,18 @@ from gpu_gateway.worker import Worker
 
 CPU_SMOKE_SOURCE_REPOSITORY = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY", "Unjuno/gpu-control")
 CPU_SMOKE_SOURCE_SHA = os.environ.get("GPU_CONTROL_CPU_SMOKE_SOURCE_SHA", "a" * 40)
+
+
+def fake_dedicated_filesystem(monkeypatch, root):
+    original_stat = Path.stat
+
+    def stat_with_separate_device(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        if path in {root, root / ".gpu-control-probes"}:
+            return SimpleNamespace(st_dev=2, st_mode=result.st_mode)
+        return result
+
+    monkeypatch.setattr(Path, "stat", stat_with_separate_device)
 
 
 def _docker_ready():
@@ -35,6 +49,8 @@ def _docker_ready():
 def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_path, monkeypatch):
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
+    (artifact_root / ".gpu-control-probes").mkdir(mode=0o700)
+    fake_dedicated_filesystem(monkeypatch, artifact_root)
     system.settings = replace(system.settings, artifact_dir=str(artifact_root))
     system.service.settings = system.settings
     monkeypatch.setenv("GATEWAY_ARTIFACT_DIR", str(artifact_root))
@@ -54,9 +70,8 @@ def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_p
             "seed": {"type": "integer"}}, "required": ["iterations", "seed"],
             "additionalProperties": False})
     system.service.workloads["cpu-smoke-v1"] = workload
-    registry_path = tmp_path / "workloads.json"
-    registry_path.write_text(json.dumps({"cpu-smoke-v1": workload.model_dump(mode="json")}))
-    monkeypatch.setenv("GATEWAY_WORKLOADS_FILE", str(registry_path))
+    monkeypatch.setenv("GATEWAY_WORKLOADS_JSON", json.dumps({
+        "cpu-smoke-v1": workload.model_dump(mode="json")}, allow_nan=False))
     candidate = plan_for_workload(workload_name="cpu-smoke-v1", workload_manifest=workload.model_dump(mode="json"),
         repository=CPU_SMOKE_SOURCE_REPOSITORY, source_sha=CPU_SMOKE_SOURCE_SHA,
         parameters={"iterations": 1000, "seed": 17}, runtime_seconds=30,
@@ -64,6 +79,7 @@ def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_p
     prepared = system.service.prepare_local(system.owner, candidate, "os-crash-recovery-0001",
         policy, evaluate_admission(candidate, policy, now))
     queued = system.service.submit(system.owner, prepared["id"])
+    assert queued["state"] == "queued"
     created = {"id": queued["id"]}
     fingerprint = plan_fingerprint(candidate)
 
@@ -72,18 +88,27 @@ def test_os_worker_crash_after_container_start_reconciles_same_run(system, tmp_p
     child = r'''
 import os, sys
 from gpu_gateway.backends import build_backends
-from gpu_gateway.config import Settings, load_workloads
+from gpu_gateway.config import Settings
 from gpu_gateway.store import Store
 from gpu_gateway.worker import Worker
+from pathlib import Path
+from types import SimpleNamespace
 settings = Settings(database_url=sys.argv[1], artifact_dir=os.environ.get("GATEWAY_ARTIFACT_DIR", ""))
+artifact_root = Path(settings.artifact_dir)
+original_stat = Path.stat
+def stat_with_separate_device(path, *args, **kwargs):
+    result = original_stat(path, *args, **kwargs)
+    if path in {artifact_root, artifact_root / ".gpu-control-probes"}:
+        return SimpleNamespace(st_dev=2, st_mode=result.st_mode)
+    return result
+Path.stat = stat_with_separate_device
 class CrashAfterDockerStart:
     def __init__(self): self.backend = build_backends(settings)["local_cpu"]
     def start(self, job):
         self.backend.start(job)
         os._exit(73)
     def __getattr__(self, name): return getattr(self.backend, name)
-Worker(Store(settings.database_url), settings, {"local_cpu": CrashAfterDockerStart()},
-       workloads=load_workloads()).tick()
+Worker(Store(settings.database_url), settings, {"local_cpu": CrashAfterDockerStart()}).tick()
 os._exit(74)
 '''
     process = subprocess.run([sys.executable, "-c", child, system.settings.database_url],
@@ -97,6 +122,8 @@ os._exit(74)
                            check=True, capture_output=True, text=True, timeout=10).stdout.split()
     assert len(found) == 1
     crashed_row = system.store.read(created["id"])
+    # The dispatch fence is durable before provider I/O begins; after a worker
+    # crash, recovery must treat this boundary as ambiguous and reconcile it.
     assert crashed_row["submission_intent"]["phase"] == "provider_call_started"
     assert crashed_row["submission_intent"]["attempt"] == 1
 
@@ -108,7 +135,7 @@ os._exit(74)
 
     recovery_supervisor = Worker(system.store, system.settings,
                                  build_backends(system.settings), system.clock,
-                                 workloads=system.service.workloads, role="supervisor")
+                                 role="supervisor")
     cancel_run_id = None
     try:
         deadline = time.monotonic() + 35
@@ -138,8 +165,7 @@ os._exit(74)
 
         # New submissions are disabled after this second run starts. Cancellation
         # and cleanup must still work for an already-admitted resource.
-        worker = Worker(system.store, system.settings, build_backends(system.settings), system.clock,
-                        workloads=system.service.workloads)
+        worker = Worker(system.store, system.settings, build_backends(system.settings), system.clock)
         next_now = int(system.clock())
         cancel_candidate = plan_for_workload(workload_name="cpu-smoke-v1",
             workload_manifest=workload.model_dump(mode="json"), repository=CPU_SMOKE_SOURCE_REPOSITORY,
@@ -159,7 +185,7 @@ os._exit(74)
             connection.execute(update(runs).where(runs.c.id == cancel_queued["id"]).values(lease_until=0))
         recovery_supervisor = Worker(system.store, system.settings,
                                      build_backends(system.settings), system.clock,
-                                     workloads=system.service.workloads, role="supervisor")
+                                     role="supervisor")
         assert recovery_supervisor.tick()
         cancelled = system.store.read(cancel_queued["id"])
         assert cancelled["state"] == "cancelled"

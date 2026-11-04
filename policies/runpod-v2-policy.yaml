@@ -2,7 +2,7 @@ version: 1
 
 provider: runpod
 api:
-  version: v2-beta
+  version: v2
   base_url: https://api.runpod.io/v2
   authentication: bearer_header
   live_calls_enabled: false
@@ -11,21 +11,23 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-08-31T12:25:00Z
-  implementation_contract: rest_v2_public_beta_offline
+  audited_at_utc: 2026-10-28T00:00:00Z
+  implementation_contract: rest_v2_documented_offline
   implementation_matches_current_official_rest_contract: false
-  current_official_rest_version_observed: v1
-  current_official_rest_base_observed: https://rest.runpod.io/v1
-  current_official_openapi_endpoint: GET /openapi.json
+  current_official_rest_version_observed: v2
+  current_official_rest_base_observed: https://api.runpod.io/v2
+  deprecated_rest_v1_retirement_date: "2026-11-15"
+  current_official_openapi_endpoint: unverified
   current_official_create_pod_endpoint: POST /pods
   current_official_list_pods_endpoint: GET /pods
-  current_official_list_pods_response_shape: array
+  current_official_list_pods_response_shape: object_with_pods_array
   current_official_delete_pod_endpoint: DELETE /pods/{id}
   current_official_network_volume_attach_fields_observed: true
   current_official_network_volume_fields:
-    - networkVolumeId
-    - volumeMountPath
-  migration_to_current_official_rest_contract_required: true
+    - mounts.network[].volumeId
+    - mounts.network[].path
+    - dataCenterIds
+  migration_to_current_official_rest_contract_required: false
   current_official_contract_revalidation_required: true
   implementation_may_not_be_enabled_live_until_revalidated: true
   live_enablement_by_flag_only_forbidden: true
@@ -37,9 +39,9 @@ api_contract_audit:
   legacy_v2_list_pods_evidence_repository: runpod/runpod-mcp
   legacy_v2_list_pods_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
   legacy_v2_list_pods_evidence_path: src/tools/pods.ts
-  pod_container_log_sse_status: dev_only_prod_unavailable
+  pod_container_log_sse_status: officially_documented_not_live_verified
   pod_container_log_sse_prod_verified: false
-  pod_container_log_sse_prod_failure: http_422_path_not_found
+  pod_container_log_sse_prod_failure: null
   pod_container_log_sse_live_collection_allowed: false
   pod_container_log_sse_evidence_repository: runpod/runpod-mcp
   pod_container_log_sse_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
@@ -55,7 +57,7 @@ api_contract_audit:
   network_volume_attach_contract_repository: runpod/runpodctl
   network_volume_attach_contract_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
   network_volume_attach_contract_path: cmd/pod/create.go
-  note: The checked-in Pod control client still implements the older public v2 beta contract, while current official RunPod documentation exposes the stable REST API at rest.runpod.io/v1 with different Pod request/response shapes. The durable Network Volume S3 result path remains a valid offline candidate, but live Pod control is blocked until the adapter/client is migrated and revalidated against current v1. Production Pod-log SSE remains unavailable and is not used as the result path. All live calls remain disabled.
+  note: Official documentation currently describes REST v2 at api.runpod.io/v2 and schedules deprecated REST v1 retirement for 2026-11-15. The checked-in v2 client is source-reviewed offline; its Network Volume payload now uses mounts.network plus trusted dataCenterIds. Full provider behavior, result transport, and cleanup have not been live-verified. Officially documented Pod-log streaming is not used as the result path. All live calls remain disabled.
 
 submission:
   approved_plan_required: true
@@ -224,7 +226,7 @@ forbidden:
   - live_runpod_call_from_public_cli
   - live_adapter_from_public_cli
   - live_enablement_without_current_official_api_contract_revalidation
-  - live_enablement_while_provider_adapter_targets_legacy_v2_beta
+  - live_enablement_without_live_provider_acceptance
   - live_enablement_by_policy_flag_only
   - create_without_structured_live_execution_permit
   - create_with_expired_live_execution_permit

@@ -216,6 +216,8 @@ ChatGPT側から必要な操作がすべてtool callとして行えるように�
 
 を返せるようにする。
 
+MCP 2025-06-18以降の`tools/list`は8ツールすべてにPydantic由来の`inputSchema`と共通Envelopeの`outputSchema`を広告し、成功した`tools/call`は同じEnvelopeを`structuredContent`で返す。2025-03-26では未定義のoutput schema機能を広告せず、結果をJSON textで返す。Envelopeの必須フィールドは`schema_version=2`、`status`、`human_summary`、`machine_state`、`next_allowed_actions`、`blocking_reason`。各ツール固有の値は`machine_state`または追加フィールドに入る。`experiment_status`はowner照合後、保存済み結果に文字列logsがある場合だけ末尾4096文字を返し、切り詰めた場合は`logs_truncated=true`を付ける。全文ログは返さず、ログ不在時は両フィールドを省略する。workerが結果サイズ上限で内容を省略した場合、`experiment_status`は完了状態を保ちつつ`result_omitted=true`と理由を示し、`experiment_result`は結果取得の成功として返さず`RESULT_OMITTED`でblockedを返す。logsとresult payloadは実行workload由来の未信頼データとして扱い、内部の指示文をChatGPT側の命令として採用しないようツール説明に明示する。
+
 ---
 
 ### `experiment_result`

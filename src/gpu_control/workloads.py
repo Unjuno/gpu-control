@@ -66,6 +66,8 @@ class WorkloadRequirements:
     max_result_bytes: int
     cancellation_required: bool
     cleanup_proof_required: bool
+    runtime_requirements: tuple[str, ...] = ()
+    max_queue_wait_seconds: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.workload_id, str) or not _WORKLOAD_ID.fullmatch(self.workload_id):
@@ -98,6 +100,16 @@ class WorkloadRequirements:
                 raise ValueError(f"{field} must be a nonnegative integer")
         if self.minimum_memory_mib == 0 or self.max_runtime_seconds == 0 or self.max_result_bytes == 0:
             raise ValueError("memory, runtime, and result-size limits must be positive")
+        if (not isinstance(self.runtime_requirements, tuple) or
+                any(not isinstance(item, str) or not item or item != item.strip() or
+                    any(ord(char) < 32 or ord(char) == 127 for char in item)
+                    for item in self.runtime_requirements) or
+                len(set(self.runtime_requirements)) != len(self.runtime_requirements)):
+            raise ValueError("runtime_requirements must be unique canonical strings")
+        if (self.max_queue_wait_seconds is not None and
+                (type(self.max_queue_wait_seconds) is not int or
+                 self.max_queue_wait_seconds < 0)):
+            raise ValueError("max_queue_wait_seconds must be a nonnegative integer or None")
         if (not isinstance(self.minimum_cpu_cores, Decimal) or
                 not self.minimum_cpu_cores.is_finite() or self.minimum_cpu_cores <= 0):
             raise ValueError("minimum_cpu_cores must be a finite positive Decimal")

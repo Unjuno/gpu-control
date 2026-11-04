@@ -8,7 +8,7 @@ import re
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -37,6 +37,23 @@ class CostEvidence(StrictContract):
         return value
 
 
+class CandidateBinding(StrictContract):
+    """Exact read-only capability selection approved as part of a plan."""
+
+    workload_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    resource_id: str = Field(min_length=1, max_length=256)
+    evidence_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("resource_id")
+    @classmethod
+    def canonical_resource_id(cls, value):
+        if (value != value.strip() or
+                any(ord(char) < 32 or ord(char) == 127 for char in value)):
+            raise ValueError("resource_id must be canonical text")
+        return value
+
+
 class PlanV2(StrictContract):
     schema_version: Literal[2]
     repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -51,6 +68,13 @@ class PlanV2(StrictContract):
     max_cost_usd: Decimal = Field(ge=0, le=Decimal("100000"))
     cost_evidence: CostEvidence
     authorization_policy_version: str = Field(min_length=1, max_length=64)
+    selection_binding: CandidateBinding | None = None
+
+    @model_validator(mode="after")
+    def selection_provider_matches_plan(self):
+        if self.selection_binding is not None and self.selection_binding.provider != self.provider:
+            raise ValueError("selection binding provider does not match the approved plan")
+        return self
 
     @field_validator("source_sha")
     @classmethod
@@ -132,16 +156,39 @@ class ResultV2(StrictContract):
         return value
 
 
+def plan_payload(plan: PlanV2) -> dict:
+    """Return the canonical persisted form, retaining legacy v2 bytes when unbound."""
+    payload = plan.model_dump(mode="json")
+    # Older schema-v2 plans did not contain this optional field. Keep their
+    # fingerprint and persisted representation stable across this extension.
+    if plan.selection_binding is None:
+        payload.pop("selection_binding", None)
+    return payload
+
+
 def plan_fingerprint(plan: PlanV2) -> str:
     """Hash a canonical JSON representation of the validated immutable plan."""
-    canonical = json.dumps(plan.model_dump(mode="json"), sort_keys=True,
+    canonical = json.dumps(plan_payload(plan), sort_keys=True,
                            separators=(",", ":"), allow_nan=False).encode()
     return hashlib.sha256(canonical).hexdigest()
 
 
 def validate_result_binding(plan: PlanV2, fingerprint: str, result: ResultV2) -> None:
-    """Reject result identity that disagrees with its persisted run plan."""
+    """Reject new worker results that disagree with the persisted plan.
+
+    ``ResultV2.image_digest`` remains optional when reading legacy v2 data,
+    but a result accepted for a newly completed plan must bind its exact
+    provider and image. This function is only used at the worker finish gate.
+    """
     if (fingerprint != plan_fingerprint(plan) or result.source_sha != plan.source_sha or
-            result.plan_fingerprint != fingerprint or
-            plan.provider == "local_cpu" and result.image_digest != plan.image_digest):
+            result.plan_fingerprint != fingerprint or result.provider != plan.provider or
+            result.image_digest != plan.image_digest):
         raise ValueError("result identity does not match the persisted plan")
+
+
+def validate_candidate_gpu_success(result: ResultV2) -> None:
+    """Require normalized evidence from the trusted candidate adapter."""
+    if (result.simulation or result.gpu_used is not True or not result.device or
+            result.exit_code != 0 or result.cleanup_state != "complete" or
+            not {"candidate_resource_verified", "device_identity_verified"}.issubset(result.checks)):
+        raise ValueError("terminal result lacks verified GPU and cleanup evidence")

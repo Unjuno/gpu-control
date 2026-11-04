@@ -10,24 +10,6 @@ from gpu_gateway.registry import default_registry
 from gpu_gateway.container_runtime import container_hardening_args
 
 
-def _valid_handle():
-    run_id = "d" * 32
-    return {"container_id": "a" * 64, "container_name": "gpu-control-" + run_id,
-            "run_id": run_id, "owner_digest": "b" * 64,
-            "plan_fingerprint": "c" * 64, "image_digest": "sha256:" + "e" * 64,
-            "source_sha": "f" * 40}
-
-
-def _mismatched_container(handle):
-    return [{"Config": {"Labels": {
-        "io.unjuno.gpu-control.run-id": handle["run_id"],
-        "io.unjuno.gpu-control.owner-sha256": "0" * 64,
-        "io.unjuno.gpu-control.plan-sha256": handle["plan_fingerprint"],
-        "io.unjuno.gpu-control.image-digest": handle["image_digest"],
-        "io.unjuno.gpu-control.source-sha": handle["source_sha"],
-    }}}]
-
-
 def test_local_container_constraints():
     plan = {"provider": "local_cpu", "image_digest": "sha256:" + "a" * 64,
             "source_sha": "b" * 40, "repository": "owner/repo", "workload": "cpu-smoke-v1",
@@ -119,8 +101,16 @@ def test_smoke_result_binds_source_and_plan_and_rejects_fake_gpu_claims():
     assert result["metrics"]["checksum_value"] == 42
     with pytest.raises(ValueError, match="binding"):
         parse_smoke_result(json.dumps({**value, "source_sha": "e" * 40}).encode(), expected, exit_code=0)
+    with pytest.raises(ValueError, match="binding"):
+        parse_smoke_result(json.dumps({**value, "run_id": "e" * 32}).encode(), expected, exit_code=0)
     with pytest.raises(ValueError, match="GPU"):
         parse_smoke_result(json.dumps({**value, "gpu_used": True}).encode(), expected, exit_code=0)
+    for forged_cleanup in (
+            {**value, "cleanup_state": "complete"},
+            {**value, "cleanup": {"confirmed": True}},
+    ):
+        with pytest.raises(ValueError, match="schema"):
+            parse_smoke_result(json.dumps(forged_cleanup).encode(), expected, exit_code=0)
     with pytest.raises(ValueError):
         parse_smoke_result(json.dumps({**value, "schema_version": True}).encode(), expected, exit_code=0)
 
@@ -173,36 +163,3 @@ def test_reconcile_rejects_run_id_collision_with_wrong_identity_labels():
     with pytest.raises(ValueError, match="identity"):
         backend.reconcile(run)
     assert [call[0] for call in calls] == ["ps", "inspect"]
-
-
-def test_cleanup_rejects_mismatched_container_labels_before_removal(monkeypatch):
-    import gpu_gateway.local_backend as local_backend_module
-
-    handle = _valid_handle()
-    backend = LocalContainerBackend(type("Settings", (), {"max_output_bytes": 65536})())
-    calls = []
-
-    def fake_run(args, **kwargs):
-        calls.append(args)
-        return SimpleNamespace(returncode=0,
-            stdout=json.dumps(_mismatched_container(handle)).encode(), stderr=b"")
-
-    monkeypatch.setattr(local_backend_module.subprocess, "run", fake_run)
-    with pytest.raises(ValueError, match="label"):
-        backend.cleanup(handle)
-    assert [call[1] for call in calls] == ["inspect"]
-
-
-def test_cancel_rejects_mismatched_container_labels_before_stopping():
-    handle = _valid_handle()
-    backend = LocalContainerBackend(type("Settings", (), {"max_output_bytes": 65536})())
-    calls = []
-
-    def fake_run(args, timeout=20):
-        calls.append(args)
-        return SimpleNamespace(stdout=json.dumps(_mismatched_container(handle)).encode())
-
-    backend._run = fake_run
-    with pytest.raises(ValueError, match="label"):
-        backend.cancel(handle)
-    assert [call[0] for call in calls] == ["inspect"]

@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically check GPU Control artifact filesystem capacity
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=gpu-control-artifact-capacity.service
+
+[Install]
+WantedBy=timers.target
