@@ -145,3 +145,53 @@ deployment is not ready, independent security scan is incomplete, no provider
 credential is available, the RunPod Gateway bridge is unconfigured, and no
 ChatGPT conversation has run a job. Therefore provider activation and live
 compute remain disabled.
+
+## Continuation update — 2026-11-04
+
+The status above records the earlier checks in this file. The following
+read-only checks and review supersede only the stated current status; the
+earlier events and evidence remain part of the history.
+
+- The candidate was committed as `073201b056b72cd04872272d0d83c029dd60469f`.
+  Codex Security Diff Scan `c6e65f0f-8ec2-4afa-be20-1150fc518dad` completed
+  against `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e..073201b056b72cd04872272d0d83c029dd60469f`.
+  The scan reviewed 67 changed source items, recorded zero reportable findings,
+  and left external account/deployment state outside scope. Its report is
+  `/Users/taka/.codex/state/plugins/codex-security/scans/gpu-control-pr58-current-candidate/073201b056b72cd04872272d0d83c029dd60469f_20261104T025442Z_7t1wyn3q/report.md`.
+- A fresh Vercel read showed `gpu-control` has `live=false`; its latest READY
+  deployment is still the old `main`-era SHA
+  `22e3caf2de079e35345b39aef4e5215eaa40993f` and has no Production target.
+  The project has SSO protection enabled for deployments except custom domains.
+  The public custom-domain liveness response therefore does not prove that this
+  candidate, its database, or workers are deployed and ready.
+- Modal and RunPod account screens were not revalidated in this continuation.
+  Earlier account observations in this document may be stale. No provider token,
+  payment method, workload, or paid call was created. The Mac became locked
+  during the attempt to inspect the logged-in provider dashboard.
+- Current Modal documentation says Starter includes $30 monthly compute credit,
+  GPU use requires a valid payment method, and Service Users are available only
+  on Team/Enterprise. Team is listed at $250/month plus compute. No plan upgrade
+  or payment change is authorized by this record. Sources:
+  [Modal GPU requirements](https://modal.com/docs/guide/gpu),
+  [Modal Service Users](https://modal.com/docs/guide/service-users),
+  [Modal pricing](https://modal.com/pricing).
+- Current RunPod documentation supports scoped API keys, including per-endpoint
+  permissions; a created key still carries access to the account balance and
+  must be scoped to the exact operations required. RunPod REST v2 is the
+  current integration target, but the repository's live paid path remains
+  disabled and no provider acceptance or result transport was live-tested.
+  Sources: [RunPod scoped API keys](https://www.runpod.io/blog/scoped-api-keys-runpod),
+  [RunPod REST API v2](https://www.runpod.io/blog/runpods-rest-api-v2-is-here-one-api-for-your-entire-gpu-stack).
+- A separate ChatGPT web session opened logged out. OpenAI's current guidance
+  lists full MCP with write actions for Business, Enterprise, and Edu, with
+  workspace admin/owner controls for developer mode and publication. The
+  account plan and workspace role for the intended ChatGPT workspace remain
+  unverified. Source:
+  [ChatGPT developer mode and full MCP](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt).
+
+The candidate security review is complete, but the public ChatGPT workflow is
+not live. The remaining execution blockers are current Modal/RunPod account
+state and appropriately scoped credentials, the selected public Gateway host
+and its persistent worker/database readiness, and an eligible ChatGPT web
+workspace. Keep provider activation parked until those facts and the exact
+bounded first workload are reviewed.
