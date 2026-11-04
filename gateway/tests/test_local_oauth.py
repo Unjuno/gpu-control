@@ -110,6 +110,22 @@ def test_refresh_rotation_and_grant_revocation_are_atomic(tmp_path, monkeypatch)
     assert error.value.code == "invalid_grant"
 
 
+def test_configuration_required_does_not_claim_oidc_is_mandatory():
+    settings = Settings(
+        database_url="sqlite:///./invalid-hosted-config.db",
+        public_url="https://gateway.example",
+        hosted=True,
+        client_ip_mode="vercel",
+        vercel_runtime=True,
+    )
+    client = TestClient(create_app(settings))
+
+    response = client.get("/.well-known/oauth-authorization-server")
+
+    assert response.status_code == 503
+    assert response.json()["message"] == "The Gateway is not configured"
+
+
 def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'oauth.db'}",

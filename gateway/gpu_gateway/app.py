@@ -71,7 +71,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
 
     def ready():
         if configuration_error or service is None or auth is None:
-            raise GatewayError("configuration_required", "Configure durable database, OIDC and workload registry", 503)
+            raise GatewayError("configuration_required", "The Gateway is not configured", 503)
 
     async def raw_body(request):
         data = bytearray()
