@@ -41,6 +41,24 @@ ChatGPT acceptance, GPU execution, or paid-provider readiness.
   delta reported no actionable issue. This source review does not substitute
   for a GitHub approval or runtime configuration review.
 
+## PostgreSQL recovery integration
+
+- At 2026-11-04 18:50 UTC, a fresh disposable PostgreSQL container using the
+  CI-pinned image and a separately named disposable volume was used with the
+  exact CPU image above.
+- The runtime-role schema test ran first, followed by both tests in
+  `gateway/tests/test_postgres_lifecycle_integration.py`: database outage
+  after terminal result capture, and worker process death immediately after
+  starting the CPU container. All three passed. The recovery path retained the
+  same run, collected and verified its artifact, completed cleanup, and
+  released the admission slot.
+- An initial lifecycle-only invocation failed because it omitted the
+  prerequisite runtime-role/schema DDL setup and therefore lacked
+  `gpu_control_release_finished_slot(text,text)`. Re-running with the suite's
+  schema prerequisite first passed. This was test setup order, not an
+  application change.
+- The disposable PostgreSQL container and named volume were removed afterward.
+
 ## Remote state and limits
 
 - PR #60 is OPEN, Draft, and mergeable at the exact commit above. Python 3.11,
