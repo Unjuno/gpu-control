@@ -37,6 +37,7 @@ def test_gateway_api_is_loopback_only_and_has_no_docker_authority():
                          "/etc/gpu-control/api.env"]
     assert "--host 127.0.0.1 --port 8000" in service["ExecStart"]
     assert "--no-proxy-headers" in service["ExecStart"]
+    assert "--no-access-log" in service["ExecStart"]
     assert "docker" not in service["SupplementaryGroups"]
     assert service["ReadWritePaths"] == "-/var/lib/gpu-control/artifacts/.gpu-control-probes"
     assert service["StateDirectory"] == "gpu-control-api"
@@ -196,7 +197,7 @@ def test_shared_deployment_environment_uses_public_https_and_persistent_artifact
     assert "GATEWAY_OIDC_CLIENT_SECRET" not in values
 
 
-def test_caddy_example_uses_local_admin_and_loopback_gateway_without_access_logs():
+def test_caddy_example_filters_request_secrets_and_uses_local_admin_and_gateway():
     caddy = (DEPLOY / "Caddyfile.example").read_text(encoding="utf-8")
     assert "admin 127.0.0.1:2019" in caddy
     assert "mcp.example.com" in caddy
@@ -205,7 +206,11 @@ def test_caddy_example_uses_local_admin_and_loopback_gateway_without_access_logs
     assert "X-Content-Type-Options \"nosniff\"" in caddy
     assert "X-Frame-Options \"DENY\"" in caddy
     assert "Referrer-Policy \"no-referrer\"" in caddy
-    assert "log {" not in caddy.lower()
+    assert "log default {" in caddy.lower()
+    assert "request>uri delete" in caddy
+    for header in ("Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie"):
+        assert f"request>headers>{header} delete" in caddy
+    assert "\n\tlog {" not in caddy.lower()
     assert ":8000 {" not in caddy
 
 

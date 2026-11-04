@@ -1,6 +1,18 @@
 {
 	# Keep Caddy's management endpoint on loopback; do not expose it publicly.
 	admin 127.0.0.1:2019
+
+	# Error logs can include request context even when access logging is disabled.
+	# Drop the full URI and credential-bearing headers before either logger writes.
+	log default {
+		format filter {
+			request>uri delete
+			request>headers>Authorization delete
+			request>headers>Proxy-Authorization delete
+			request>headers>Cookie delete
+			request>headers>Set-Cookie delete
+		}
+	}
 }
 
 # Replace this hostname only after selecting and configuring the public origin.

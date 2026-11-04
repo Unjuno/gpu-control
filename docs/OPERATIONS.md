@@ -285,8 +285,11 @@ Place the API behind a TLS-terminating reverse proxy. A starter Caddy site
 configuration is provided at `gateway/deploy/Caddyfile.example`; replace its
 example hostname only after selecting the public origin and configuring DNS.
 The template binds Caddy's admin API to loopback, sends traffic only to the
-Gateway's loopback listener, sets basic browser security headers, and omits
-access logs so OAuth codes and request payloads are not copied into a new log.
+Gateway's loopback listener, sets basic browser security headers, and filters
+the full request URI and credential-bearing headers from Caddy's default logs.
+The API unit disables Uvicorn access logs as well, since OAuth codes and setup
+tokens can appear in query strings. This limits request-level diagnostics in
+exchange for keeping those values out of the service logs.
 Before enabling the proxy, validate its configuration and confirm TCP 80/443
 reach the host for certificate issuance and renewal. The API unit binds only
 to `127.0.0.1:8000` and has no Docker group membership; only the dedicated
