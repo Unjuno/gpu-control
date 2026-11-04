@@ -337,3 +337,14 @@ gap without making the provider executable:
   checks only; no issuer, ChatGPT OAuth, provider account, paid call, hosted
   deployment, or GPU run was involved. This slice does not enable worker
   admission or establish paid execution acceptance.
+
+### Live account-session recheck — 2026-11-04
+
+Opened the RunPod console read-only in the available in-app browser. It
+redirected to `console.runpod.io/signup?redirect=%2Fpods` and displayed the
+account creation page; this browser session is not authenticated to RunPod.
+The Chrome session also shows ChatGPT logged out. The existing Modal in-app tab
+remains on the signed-in `unjuno` workspace, but no Modal quota or credential
+settings were opened. No login, token, billing, resource, deployment, or
+provider setting was changed. Account-specific RunPod and ChatGPT checks cannot
+proceed from the currently available browser sessions.
