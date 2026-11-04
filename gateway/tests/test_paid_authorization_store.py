@@ -17,7 +17,7 @@ def _verified(*, authorization_id="auth-1", run_id=RUN_ID, owner=OWNER,
               plan=PLAN, valid_until=200):
     return VerifiedPaidAuthorization(
         authorization_id=authorization_id, revocation_id="rev-1", issuer="issuer-a",
-        run_id=run_id, owner=owner, actor=owner, decision_record_id=APPROVAL,
+        run_id=run_id, approval_id=APPROVAL, owner=owner, actor=owner, decision_record_id=APPROVAL,
         gateway_plan_fingerprint=plan, core_plan_fingerprint="c" * 64,
         valid_until=valid_until, authorization_reference="decision-1",
     )
@@ -29,6 +29,7 @@ def _envelope(verified):
         "issuer": verified.issuer,
         "revocation_id": verified.revocation_id,
         "run_id": verified.run_id,
+        "approval_id": verified.approval_id,
         "owner": verified.owner,
         "actor": verified.actor,
         "decision_record_id": verified.decision_record_id,
@@ -138,7 +139,7 @@ def test_paid_authorization_replacement_requires_a_new_browser_approval(tmp_path
             approval_id=next_approval, approved_until=250,
         ))
     second = replace(_verified(authorization_id="auth-2", valid_until=240),
-                     decision_record_id=next_approval)
+                     approval_id=next_approval, decision_record_id=next_approval)
     second_envelope = _envelope(second)
     assert store.persist_verified_paid_authorization(
         run_id=RUN_ID, owner=OWNER, plan_fingerprint=PLAN, approval_id=next_approval,
@@ -196,5 +197,23 @@ def test_paid_authorization_reload_requires_live_browser_and_envelope_approval(t
         ))
     assert store.read_paid_authorization(
         run_id=RUN_ID, owner=OWNER, plan_fingerprint=PLAN, approval_id=APPROVAL, now=120,
+    ) is None
+    store.engine.dispose()
+
+
+def test_paid_authorization_reload_reads_clock_after_acquiring_run_lock(tmp_path):
+    store = Store(f"sqlite:///{tmp_path / 'paid-auth-lock-clock.db'}")
+    store.initialize()
+    _approved_run(store)
+    verified = _verified()
+    assert store.persist_verified_paid_authorization(
+        run_id=RUN_ID, owner=OWNER, plan_fingerprint=PLAN, approval_id=APPROVAL,
+        envelope=_envelope(verified), verified=verified, now=100,
+    ) is True
+    clock_values = iter((181,))
+
+    assert store.read_paid_authorization(
+        run_id=RUN_ID, owner=OWNER, plan_fingerprint=PLAN,
+        approval_id=APPROVAL, now=lambda: next(clock_values),
     ) is None
     store.engine.dispose()

@@ -26,15 +26,17 @@ from .registry import candidate_plan_requires_paid_authorization
 MAX_AUTHORIZATION_BYTES = 16_384
 MAX_AUTHORIZATION_TTL_SECONDS = 900
 RUNPOD_PAID_AUTHORIZATION_AUDIENCE = "gpu-control:runpod-paid-execution"
+RUNPOD_PAID_AUTHORIZATION_SCHEMA_VERSION = 2
 _FIELDS = {
     "schema_version", "issuer", "key_id", "audience", "authorization_id",
-    "revocation_id", "run_id", "owner", "actor", "decision_record_id",
+    "revocation_id", "run_id", "owner", "actor", "decision_record_id", "approval_id",
     "control_plane_sha", "gateway_plan_fingerprint", "core_plan_fingerprint",
     "provider", "resource_id", "image_digest", "runtime_seconds",
     "max_cost_usd", "authorization_reference", "policy_version", "issued_at",
     "expires_at", "signature",
 }
 _RUN_ID = re.compile(r"^[0-9a-f]{32}$")
+_APPROVAL_ID = re.compile(r"^[0-9a-f]{32,64}$")
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _SHA64 = re.compile(r"^[0-9a-f]{64}$")
 _ISSUER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -55,6 +57,7 @@ class VerifiedPaidAuthorization:
     revocation_id: str
     issuer: str
     run_id: str
+    approval_id: str
     owner: str
     actor: str
     decision_record_id: str
@@ -66,7 +69,7 @@ class VerifiedPaidAuthorization:
 
 def _canonical(value: object) -> bytes:
     try:
-        # The v1 envelope is a flat object. Rejecting nested Python/JSON
+        # The v2 envelope is a flat object. Rejecting nested Python/JSON
         # containers also bounds work before serialization and prevents JSON
         # coercions from changing signed meaning.
         if type(value) is not dict:
@@ -134,6 +137,7 @@ def verify_paid_authorization(
     owner: str,
     actor: str,
     decision_record_id: str,
+    expected_approval_id: str,
     control_plane_sha: str,
     run_id: str,
     gateway_plan: PlanV2,
@@ -158,6 +162,9 @@ def verify_paid_authorization(
     if (type(trusted_keys) is not dict or len(trusted_keys) > 16 or
             not callable(is_revoked)):
         raise PaidAuthorizationBridgeError("authorization trust configuration is invalid")
+    if (not isinstance(expected_approval_id, str) or
+            not _APPROVAL_ID.fullmatch(expected_approval_id)):
+        raise PaidAuthorizationBridgeError("current approval identity is invalid")
     if not isinstance(gateway_plan, PlanV2) or gateway_plan.selection_binding is None:
         raise PaidAuthorizationBridgeError("candidate-bound Gateway plan is required")
     if not candidate_plan_requires_paid_authorization(gateway_plan):
@@ -211,7 +218,8 @@ def verify_paid_authorization(
 
     if _required_text(envelope, "audience") != RUNPOD_PAID_AUTHORIZATION_AUDIENCE:
         raise PaidAuthorizationBridgeError("authorization audience does not match")
-    if envelope.get("schema_version") != 1 or type(envelope.get("schema_version")) is not int:
+    if (envelope.get("schema_version") != RUNPOD_PAID_AUTHORIZATION_SCHEMA_VERSION or
+            type(envelope.get("schema_version")) is not int):
         raise PaidAuthorizationBridgeError("authorization schema is unsupported")
     issued, expires = envelope.get("issued_at"), envelope.get("expires_at")
     if (type(issued) is not int or type(expires) is not int or issued < 0 or issued > now or
@@ -223,7 +231,7 @@ def verify_paid_authorization(
         "authorization_id", "revocation_id", "owner", "actor", "decision_record_id",
         "control_plane_sha", "gateway_plan_fingerprint", "core_plan_fingerprint",
         "provider", "resource_id", "image_digest", "max_cost_usd",
-        "authorization_reference", "policy_version",
+        "authorization_reference", "policy_version", "approval_id",
     )
     values = {field: _required_text(envelope, field) for field in text_fields}
     if values["policy_version"] != expected_policy_version:
@@ -234,6 +242,9 @@ def verify_paid_authorization(
     if (values["owner"] != owner or values["actor"] != actor or
             values["decision_record_id"] != decision_record_id):
         raise PaidAuthorizationBridgeError("authorization owner or decision identity does not match")
+    if (not _APPROVAL_ID.fullmatch(values["approval_id"]) or
+            values["approval_id"] != expected_approval_id):
+        raise PaidAuthorizationBridgeError("authorization approval identity does not match")
     if not _SHA40.fullmatch(values["control_plane_sha"]) or values["control_plane_sha"] != control_plane_sha:
         raise PaidAuthorizationBridgeError("authorization control-plane identity does not match")
     if (not _SHA64.fullmatch(values["gateway_plan_fingerprint"]) or
@@ -281,7 +292,7 @@ def verify_paid_authorization(
 
     return VerifiedPaidAuthorization(
         authorization_id=values["authorization_id"], revocation_id=values["revocation_id"],
-        issuer=issuer, run_id=run_id,
+        issuer=issuer, run_id=run_id, approval_id=values["approval_id"],
         owner=owner, actor=actor, decision_record_id=decision_record_id,
         gateway_plan_fingerprint=values["gateway_plan_fingerprint"],
         core_plan_fingerprint=values["core_plan_fingerprint"], valid_until=expires,

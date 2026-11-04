@@ -10,18 +10,93 @@ from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, inspect, select, text, update
+from sqlalchemy import create_engine, inspect, insert, select, text, update
 from sqlalchemy.engine import make_url
 
 from gpu_gateway.config import Settings, Workload
 from gpu_gateway.service import ExperimentService, GatewayError, Prepare, Principal
 from gpu_gateway.store import Store, control, runs
-from gpu_gateway.migrations import SCHEMA_VERSION, migrate, migration_status, schema_version
+from gpu_gateway.migrations import (SCHEMA_VERSION, migrate, migration_status,
+                                    paid_authorizations, schema_version)
+from gpu_gateway.paid_authorization_bridge import VerifiedPaidAuthorization
 from gpu_gateway.worker import Worker
 from gpu_gateway.backends import DemoBackend
 from gpu_gateway.local_oauth import LocalOAuth, oauth_clients, oauth_tokens
 
 from test_migrations import _legacy_v1
+
+
+def test_postgres_paid_authorization_rechecks_approval_clock_after_lock_wait():
+    url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('requires a dedicated PostgreSQL test database')
+    store = Store(url); store.initialize()
+    run_id, owner, plan, approval = uuid4().hex, 'lock-clock-' + uuid4().hex, 'a' * 64, 'b' * 32
+    authorization_id = 'auth-' + uuid4().hex
+    envelope = {
+        'authorization_id': authorization_id, 'issuer': 'issuer-test',
+        'revocation_id': 'rev-' + uuid4().hex, 'run_id': run_id,
+        'approval_id': approval, 'owner': owner, 'actor': owner,
+        'decision_record_id': approval, 'gateway_plan_fingerprint': plan,
+        'core_plan_fingerprint': 'c' * 64,
+        'authorization_reference': 'decision-test', 'expires_at': 300,
+    }
+    verified = VerifiedPaidAuthorization(
+        authorization_id=authorization_id, revocation_id=envelope['revocation_id'],
+        issuer='issuer-test', run_id=run_id, approval_id=approval, owner=owner,
+        actor=owner, decision_record_id=approval, gateway_plan_fingerprint=plan,
+        core_plan_fingerprint='c' * 64, valid_until=300,
+        authorization_reference='decision-test',
+    )
+    with store.transaction() as connection:
+        connection.execute(insert(runs).values(
+            id=run_id, owner=owner, idempotency_key='lock-clock-' + run_id, request_hash='d' * 64,
+            fingerprint=plan, plan={'schema_version': 2}, state='approved',
+            created_at=1, started_at=0, approved_until=180, approval_id=approval,
+            handle=None, result=None, error='', lease_until=0, lease_token='',
+            cancel_requested=False, slot_reserved=False,
+        ))
+    assert store.persist_verified_paid_authorization(
+        run_id=run_id, owner=owner, plan_fingerprint=plan, approval_id=approval,
+        envelope=envelope, verified=verified, now=170,
+    ) is True
+
+    clock = {'now': 170}
+    reader = Store(url)
+    started = threading.Event()
+    result = []
+
+    def read_authorization():
+        started.set()
+        result.append(reader.read_paid_authorization(
+            run_id=run_id, owner=owner, plan_fingerprint=plan,
+            approval_id=approval, now=lambda: clock['now'],
+        ))
+
+    with store.engine.connect() as blocker:
+        transaction = blocker.begin()
+        blocker.execute(select(runs.c.id).where(runs.c.id == run_id).with_for_update()).first()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(read_authorization)
+            assert started.wait(timeout=5)
+            deadline = time.monotonic() + 10
+            waiting = False
+            while time.monotonic() < deadline:
+                with store.engine.connect() as observer:
+                    rows = observer.execute(text(
+                        "SELECT wait_event_type FROM pg_stat_activity "
+                        "WHERE datname = current_database() AND wait_event_type = 'Lock' "
+                        "AND query LIKE '%gateway_runs_v1%'"
+                    )).all()
+                if rows:
+                    waiting = True
+                    break
+                time.sleep(0.05)
+            assert waiting, 'reader did not enter a PostgreSQL row-lock wait'
+            clock['now'] = 181
+            transaction.commit()
+            assert future.result(timeout=10) is None
+    reader.engine.dispose(); store.engine.dispose()
 
 
 def _reserve_provider_account_intent_process(url, barrier, result_queue, *, index,

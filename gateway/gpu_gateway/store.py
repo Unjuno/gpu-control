@@ -40,6 +40,14 @@ _PROVIDER_LEASE_TRANSITIONS = {
     "released": set(),
 }
 
+
+def _authorization_now(value) -> int:
+    """Resolve an integer timestamp or a trusted clock callback fail-closed."""
+    current = value() if callable(value) else value
+    if type(current) is not int or current < 0:
+        raise ValueError("paid authorization clock value is invalid")
+    return current
+
 metadata = MetaData()
 runs = Table(
     "gateway_runs_v1", metadata,
@@ -195,7 +203,7 @@ class Store:
 
     def persist_verified_paid_authorization(self, *, run_id: str, owner: str,
                                             plan_fingerprint: str, approval_id: str,
-                                            envelope: dict, verified, now: int) -> bool:
+                                            envelope: dict, verified, now) -> bool:
         """Persist a previously verified envelope against the current exact approval.
 
         Callers must run the signature, authority, revocation, and plan verifier
@@ -209,18 +217,22 @@ class Store:
                 not isinstance(owner, str) or not owner or len(owner) > 128 or
                 not isinstance(plan_fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", plan_fingerprint) is None or
                 not isinstance(approval_id, str) or re.fullmatch(r"[0-9a-f]{32,64}", approval_id) is None or
-                type(now) is not int or now < 0 or type(envelope) is not dict):
+                not (callable(now) or (type(now) is int and now >= 0)) or type(envelope) is not dict):
             raise ValueError("paid authorization persistence binding is invalid")
+        initial_now = _authorization_now(now)
         if type(verified) is not VerifiedPaidAuthorization:
             raise ValueError("paid authorization must be returned by the trusted verifier")
+        if verified.approval_id != approval_id:
+            return False
         authorization_id = verified.authorization_id
         issuer = verified.issuer
         if (not isinstance(authorization_id, str) or
                 re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", authorization_id) is None or
                 not isinstance(issuer, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", issuer) is None or
                 verified.run_id != run_id or verified.owner != owner or
+                envelope.get("approval_id") != approval_id or
                 verified.gateway_plan_fingerprint != plan_fingerprint or
-                verified.valid_until <= now or
+                verified.valid_until <= initial_now or
                 envelope.get("authorization_id") != authorization_id or envelope.get("issuer") != issuer or
                 envelope.get("run_id") != run_id or envelope.get("owner") != owner or
                 envelope.get("gateway_plan_fingerprint") != plan_fingerprint or
@@ -242,8 +254,10 @@ class Store:
         with self.transaction() as connection:
             run = connection.execute(select(runs).where(
                 runs.c.id == run_id, runs.c.owner == owner).with_for_update()).mappings().first()
+            locked_now = _authorization_now(now)
             if (run is None or run["state"] != "approved" or run["approval_id"] != approval_id or
-                    run["fingerprint"] != plan_fingerprint or run["approved_until"] <= now):
+                    run["fingerprint"] != plan_fingerprint or run["approved_until"] <= locked_now or
+                    verified.valid_until <= locked_now):
                 return False
             # The run row is the serialization lock shared with readers. Keep
             # this supported writer and read_paid_authorization on that lock so
@@ -253,7 +267,7 @@ class Store:
             values = dict(run_id=run_id, owner=owner, plan_fingerprint=plan_fingerprint,
                           approval_id=approval_id, authorization_id=authorization_id,
                           issuer=issuer, envelope=envelope,
-                          envelope_sha256=envelope_sha256, created_at=now)
+                          envelope_sha256=envelope_sha256, created_at=locked_now)
             if old is None:
                 connection.execute(insert(paid_authorizations).values(**values))
             elif old["approval_id"] != approval_id:
@@ -268,7 +282,7 @@ class Store:
 
     def read_paid_authorization(self, *, run_id: str, owner: str,
                                 plan_fingerprint: str, approval_id: str,
-                                now: int) -> dict | None:
+                                now) -> dict | None:
         """Reload only an unexpired envelope bound to the current approval.
 
         This checks the durable browser approval and envelope identity at read
@@ -282,13 +296,14 @@ class Store:
                 not isinstance(plan_fingerprint, str) or
                 re.fullmatch(r"[0-9a-f]{64}", plan_fingerprint) is None or
                 not isinstance(approval_id, str) or re.fullmatch(r"[0-9a-f]{32,64}", approval_id) is None or
-                type(now) is not int or now < 0):
+                not (callable(now) or (type(now) is int and now >= 0))):
             raise ValueError("paid authorization read binding is invalid")
         with self.transaction() as connection:
             run = connection.execute(select(runs).where(
                 runs.c.id == run_id,
                 runs.c.owner == owner,
             ).with_for_update()).mappings().first()
+            locked_now = _authorization_now(now)
             # Worker.claim atomically moves a queued run to submitting before
             # pre-intent authorization validation. Keep that exact live approval
             # usable in that state, while refusing recovery/terminal states.
@@ -296,7 +311,7 @@ class Store:
                     run["cancel_requested"] is not False or
                     run["approval_id"] != approval_id or
                     run["fingerprint"] != plan_fingerprint or
-                    type(run["approved_until"]) is not int or run["approved_until"] <= now):
+                    type(run["approved_until"]) is not int or run["approved_until"] <= locked_now):
                 return None
             row = connection.execute(select(paid_authorizations).where(
                 paid_authorizations.c.run_id == run_id,
@@ -307,11 +322,12 @@ class Store:
         if row is None or type(row["envelope"]) is not dict:
             return None
         envelope = row["envelope"]
+        checked_at = _authorization_now(now)
         if (envelope.get("authorization_id") != row["authorization_id"] or
                 envelope.get("issuer") != row["issuer"] or
                 envelope.get("run_id") != run_id or envelope.get("owner") != owner or
                 envelope.get("gateway_plan_fingerprint") != plan_fingerprint or
-                type(envelope.get("expires_at")) is not int or envelope["expires_at"] <= now):
+                type(envelope.get("expires_at")) is not int or envelope["expires_at"] <= checked_at):
             return None
         try:
             encoded = json.dumps(envelope, ensure_ascii=True, sort_keys=True,

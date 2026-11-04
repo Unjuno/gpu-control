@@ -195,3 +195,145 @@ state and appropriately scoped credentials, the selected public Gateway host
 and its persistent worker/database readiness, and an eligible ChatGPT web
 workspace. Keep provider activation parked until those facts and the exact
 bounded first workload are reviewed.
+
+## Continuation update — RunPod included — 2026-11-04
+
+The user explicitly confirmed that RunPod is in scope alongside Modal. The goal
+is both providers usable through the same normal ChatGPT web conversation, not
+just a Modal proof or an offline RunPod adapter.
+
+- The local candidate branch is `codex/gpu-control-current-p5-on-pr58`, at
+  `9792100` (`docs: reconcile provider readiness after security scan`), ten
+  commits ahead of its remote branch; the worktree was clean at inspection.
+- GitHub PR #60 is still open, Draft, and unmerged. Its remote head remains
+  `14361c32091db9789e38ffe84d0150a0527185f8`; latest recorded local code
+  candidate is `073201b056b72cd04872272d0d83c029dd60469f`. The candidate has no
+  combined commit statuses. Do not mistake the existing PR or deployment for
+  the local candidate being released.
+- Vercel project `gpu-control` is still `live=false`. Its latest READY
+  deployment uses `22e3caf2de079e35345b39aef4e5215eaa40993f`, has no target,
+  and is not the candidate. SSO protection is enabled except on custom domains.
+  Listing project environment variables returned 403 to the connected Vercel
+  identity; values were not requested or read.
+- The in-app Modal dashboard is logged in, but its tab is unavailable to this
+  computer-control session (`browser.user is unavailable`). No current account
+  balance, cap, token, or provider configuration was inspected. The other
+  available browser session is logged out of ChatGPT. No RunPod account state
+  was observed.
+- Source inspection confirms that `ExistingRunPodBridge` still requires an
+  operator-supplied factory. The separate RunPod v2 adapter, signed paid
+  authorization verifier, lease contracts, and credit verifier exist, but the
+  ChatGPT-origin authorization issuer, durable authorization integration,
+  concrete Gateway-to-RunPod v2 wiring, and external acceptance are incomplete.
+  Modal credit authorization is likewise not wired into worker admission. Live
+  provider calls remain disabled by repository policy.
+- No provider token, payment method, plan, deployment, database, or paid
+  resource was changed. No ChatGPT OAuth/tool call, provider call, or GPU job
+  was attempted.
+
+## Continuation update — production database read-only check — 2026-11-04
+
+The connected Neon integration was used for read-only inventory and `SELECT`
+queries against project `delicate-smoke-00521013`, branch
+`br-raspy-cell-b3l93n46`, database `gpu_control`:
+
+- Project `gpu-control-gateway` is PostgreSQL 17 in `aws-ap-southeast-1`.
+  Its default `production` branch is `ready` but unprotected. The branch's
+  read-write endpoint was `idle` when listed; the project allows public
+  connections. No Neon setting or branch was changed.
+- `gateway_runs_v1` exists with zero rows. `gateway_schema_version` does not
+  exist, so this is still the legacy unversioned shape rather than the current
+  local schema (v15). No migration was run.
+- The only matching role is `gpu_control`; it is a login role with
+  `CREATEROLE`, `CREATEDB`, `BYPASSRLS`, and `INHERIT`. Separate
+  `gpu_control_api`, `gpu_control_worker`, and `gpu_control_migrate` roles
+  were not present. The query used this role only to read metadata and a row
+  count. No secret, hash, token, session, password, or run content was read.
+- Do not connect current deployed services to this branch or run the current
+  migration with this role as-is: that would not establish the reviewed runtime
+  least-privilege boundary. First identify all consumers and preserve existing
+  OAuth state; perform an isolated branch rehearsal with reviewed backup/restore,
+  role ownership/grants, migration to current schema, and `/readyz` checks.
+
+### RunPod and Modal completion work
+
+1. **Prepare a release candidate:** reconcile the complete local branch with
+   PR #60 and its base; review/update CI and security evidence for the exact
+   release SHA; retain the security scan record for `073201b` and scan any
+   later source changes. Resolve conflicts and publish the reviewed code only
+   through the repository's accepted release flow.
+2. **Finish the shared public control plane:** choose the stable HTTPS host;
+   deploy the exact reviewed SHA; configure protected Preview/Production
+   environments, persistent Postgres, runtime roles, backups, artifact store,
+   worker/supervisor, secrets, logs/alerts, and verify `/healthz`, `/readyz`,
+   OAuth metadata, migrations, and worker heartbeats. Preserve provider
+   secrets exclusively on worker infrastructure.
+3. **Connect ChatGPT:** verify the intended ChatGPT plan/workspace and admin
+   authority for full MCP tools; publish/register the public MCP service with
+   OAuth; perform authorization-code/PKCE, tool discovery, refresh, and revoke
+   checks in an ordinary ChatGPT web chat.
+4. **Finish RunPod's exact path:** implement a reviewed independent issuer for
+   human spend decisions; bind a short-lived, revocable signed permit to the
+   owner, run, Gateway and core plan fingerprints, control-plane SHA, exact
+   immutable image, GPU/resource, runtime and maximum total cost. Persist and
+   recheck it before worker intent and provider create. Wire the REST v2
+   adapter with scoped credential loading, account-wide lease/fencing,
+   inventory/reconciliation, status, cancellation, authenticated result
+   collection, cleanup, and spend evidence. Preserve no-retry-on-ambiguous
+   create and all parked defaults until acceptance gates pass.
+5. **Finish Modal's credit path:** obtain current account-specific quota and
+   spend-cap evidence and a worker-only credential. If appropriate least
+   privilege cannot be achieved on the current plan, record the account-owner
+   plan/billing decision before any upgrade. Wire the separate signed
+   credit-consumption decision to worker admission and quota revalidation;
+   hard-enforce zero out-of-pocket cost and stop-on-overage.
+6. **Review and verify:** independently threat-review authority, OAuth,
+   credential boundaries, result integrity, replay, concurrency, spend caps,
+   cleanup, and rollback. Run local contract/security suites and the exact
+   release scan. Test account access read-only first; do not create keys until
+   exact permissions and revocation are established.
+7. **Bounded live acceptance:** only after each provider's code, release,
+   security, account, authority, and cost gates pass, present a concrete
+   resource/image/runtime/charge-ceiling/cleanup plan for action-time review.
+   For separately authorized RunPod and Modal runs, capture ChatGPT tool
+   request/response, OAuth refresh/revocation, actual device/training/loss and
+   checkpoint evidence, provider charge or credit debit, cancellation, and
+   independent resource-cleanup proof. A provider dashboard, connected MCP,
+   or synthetic lifecycle alone does not satisfy acceptance.
+
+## Continuation update — P5 authorization coordinator source slice — 2026-11-04
+
+Implemented an internal-only seam to remove the disconnected verifier/Store
+gap without making the provider executable:
+
+- The signed RunPod paid-authorization envelope now uses schema version 2 and
+  includes the exact Gateway `approval_id`. The verifier rejects an envelope
+  issued for an older approval generation, including when the same plan is
+  approved again. The verified claim carries the approval ID, and the Store
+  requires it to match the exact persisted browser approval before writing.
+- Added `PaidAuthorizationCoordinator`, which accepts only an injected
+  server-owned resolver for current actor, DecisionRecord, control-plane SHA,
+  exact Gateway/core plans, and approval. It verifies the real Ed25519
+  signature, issuer/key/policy, expiry and live revocation state before Store
+  write; then reloads and verifies again. Reload repeats the trusted-context,
+  approval, signature, expiry, and revocation checks. Returned persistence
+  metadata contains only authorization ID, approval ID, and issuer.
+- The coordinator has no HTTP/MCP or worker caller, holds no signing key, and
+  cannot issue a provider permit. The Worker still refuses RunPod paid plans
+  with `runpod_authorization_persistence_unavailable`; RunPod and Modal live
+  registrations remain unchanged and disabled. No credit path was changed.
+- Independent security review found a stale-clock race: a database reader
+  blocked on the run-row lock could validate expiry using a timestamp captured
+  before the browser approval expired. Store persistence and reload now accept
+  a trusted clock callback and re-read it after acquiring the run lock. Added a
+  PostgreSQL regression that held the row lock, observed the reader waiting in
+  `pg_stat_activity`, advanced time beyond the approval deadline, and confirmed
+  the reader returned no authorization after the lock released.
+- Verification on this source: full Gateway suite **552 passed, 26 skipped**;
+  disposable PostgreSQL integration suite **12 passed** (including the actual
+  lock wait); Core suite **559 passed, 1 skipped**; `git diff --check` passed.
+  The only warning was the existing Starlette deprecation. The disposable
+  PostgreSQL 17 container was stopped after the run. These are source-level
+  checks only; no issuer, ChatGPT OAuth, provider account, paid call, hosted
+  deployment, or GPU run was involved. This slice does not enable worker
+  admission or establish paid execution acceptance.

@@ -21,8 +21,7 @@ def _canonical(value):
                       separators=(",", ":"), allow_nan=False).encode("ascii")
 
 
-@pytest.fixture
-def bridge_case():
+def _build_bridge_case():
     now = 1_800_000_000
     run_id = "a" * 32
     key_id = "paid:org-authority:key-v1"
@@ -59,10 +58,11 @@ def bridge_case():
     )
     core_plan.validate_shape()
     body = {
-        "schema_version": 1, "issuer": "org-authority", "key_id": key_id,
+        "schema_version": 2, "issuer": "org-authority", "key_id": key_id,
         "audience": "gpu-control:runpod-paid-execution",
         "authorization_id": "authz-abc", "revocation_id": "revoke-abc",
         "run_id": run_id, "owner": "owner-subject", "actor": "taka",
+        "approval_id": "9" * 32,
         "decision_record_id": "decision-record-abc", "control_plane_sha": "1" * 40,
         "gateway_plan_fingerprint": plan_fingerprint(plan),
         "core_plan_fingerprint": core_plan.fingerprint().removeprefix("sha256:"),
@@ -79,6 +79,7 @@ def bridge_case():
         now=now,
         expected_policy_version="paid-authority-v1",
         owner="owner-subject", actor="taka", decision_record_id="decision-record-abc",
+        expected_approval_id="9" * 32,
         control_plane_sha="1" * 40, run_id=run_id, gateway_plan=plan,
         core_plan=core_plan, is_revoked=lambda _issuer, _id: False,
     )
@@ -90,6 +91,11 @@ def bridge_case():
     return envelope, args, resign
 
 
+@pytest.fixture
+def bridge_case():
+    return _build_bridge_case()
+
+
 def test_verifies_independent_authorization_and_exact_plan_binding(bridge_case):
     envelope, args, _ = bridge_case
     result = verify_paid_authorization(envelope, **args)
@@ -97,6 +103,20 @@ def test_verifies_independent_authorization_and_exact_plan_binding(bridge_case):
     assert result.revocation_id == "revoke-abc"
     assert result.gateway_plan_fingerprint == plan_fingerprint(args["gateway_plan"])
     assert result.valid_until == envelope["expires_at"]
+    assert result.approval_id == "9" * 32
+
+
+def test_reapproval_cannot_reuse_an_old_signed_spend_decision(bridge_case):
+    envelope, args, _ = bridge_case
+    with pytest.raises(PaidAuthorizationBridgeError, match="approval"):
+        verify_paid_authorization(
+            envelope, **(args | {"expected_approval_id": "8" * 32}))
+
+
+def test_approval_binding_requires_version_two_envelope(bridge_case):
+    envelope, args, resign = bridge_case
+    with pytest.raises(PaidAuthorizationBridgeError, match="schema is unsupported"):
+        verify_paid_authorization(resign(dict(envelope, schema_version=1)), **args)
 
 
 def test_rejects_core_worst_case_cost_above_gateway_quote(bridge_case):
