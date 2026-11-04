@@ -162,3 +162,21 @@ production readiness, authenticated ChatGPT use, or GPU-provider acceptance.
   environment: **10 passed** with one Starlette deprecation warning. The first
   attempt with system Python stopped during conftest import because `jwt` was
   not installed there; no package was installed.
+
+## Current candidate recheck — 2026-11-05 02:56 JST
+
+- PR #60 is still OPEN/Draft at `e2d69ba5defb4edfdb5e33739648398752e326c7`.
+  GitHub reports all required checks successful on this exact head: Python
+  3.11/3.12/3.13, trusted reference container, Gateway offline tests, Gateway
+  comment bridge tests, Project bridge tests, Vercel Preview, and Preview
+  Comments. Earlier `in_progress` labels for Python 3.11 and Project bridge
+  were stale; the underlying job records show both completed successfully.
+- The READY Preview deployment is `dpl_EbbaCaWwVzhjBEoxZjPGoLLbpTND` at
+  `gpu-control-h92iqz31r-unjunos-projects.vercel.app`. Exact-head read-only
+  probes remain `/healthz` 200 with `configured=false` and
+  `auth_configured=false`, `/readyz` 503, and OAuth discovery 503
+  `configuration_required`; no Preview credentials or settings were changed.
+- The PR still has no independent approval and remains Draft. Passing CI and a
+  READY Preview do not satisfy deployment readiness, ChatGPT OAuth/tool/CPU
+  acceptance, or the separate GPU/provider gates. Repository mode remains
+  `parked`.
