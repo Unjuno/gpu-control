@@ -180,3 +180,21 @@ production readiness, authenticated ChatGPT use, or GPU-provider acceptance.
   READY Preview do not satisfy deployment readiness, ChatGPT OAuth/tool/CPU
   acceptance, or the separate GPU/provider gates. Repository mode remains
   `parked`.
+
+## Docs-only head and protected Preview — 2026-11-05 02:59 JST
+
+- Documentation-only commit `8ba91d80fae253744f39a6ebb39d01e52a885106` is the
+  current PR head. Vercel reports its Preview deployment
+  `dpl_7QE5EGKfQ1Uar7Q57LR849e1Sc6N` as READY at
+  `gpu-control-n39syf0i0-unjunos-projects.vercel.app`; Vercel Preview Comments
+  passed. No GitHub Actions run was created for this docs-only SHA. The
+  preceding source-change SHA `e2d69ba5defb4edfdb5e33739648398752e326c7` has
+  all required GitHub Actions and Vercel checks successful.
+- Direct unauthenticated GETs to `/healthz`, `/readyz`, and
+  `/.well-known/oauth-authorization-server` on the new Preview each returned
+  HTTP 302 to Vercel SSO. No temporary bypass link was created or used in this
+  recheck. Runtime readiness and OAuth discovery for this exact deployment
+  therefore remain unobserved.
+- PR #60 remains OPEN/Draft with no independent approval. Repository mode
+  remains `parked`; no Preview or Production settings, credentials, or provider
+  state were changed.
