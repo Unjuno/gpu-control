@@ -196,6 +196,19 @@ def test_shared_deployment_environment_uses_public_https_and_persistent_artifact
     assert "GATEWAY_OIDC_CLIENT_SECRET" not in values
 
 
+def test_caddy_example_uses_local_admin_and_loopback_gateway_without_access_logs():
+    caddy = (DEPLOY / "Caddyfile.example").read_text(encoding="utf-8")
+    assert "admin 127.0.0.1:2019" in caddy
+    assert "mcp.example.com" in caddy
+    assert "reverse_proxy 127.0.0.1:8000" in caddy
+    assert "Strict-Transport-Security \"max-age=15552000\"" in caddy
+    assert "X-Content-Type-Options \"nosniff\"" in caddy
+    assert "X-Frame-Options \"DENY\"" in caddy
+    assert "Referrer-Policy \"no-referrer\"" in caddy
+    assert "log {" not in caddy.lower()
+    assert ":8000 {" not in caddy
+
+
 def test_authentication_and_capacity_settings_are_environment_isolated():
     def values(name):
         result = {}

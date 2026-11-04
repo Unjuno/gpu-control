@@ -281,10 +281,17 @@ supervisor, and keep that integration's admission switch disabled until its
 credential, quote, quota, cancellation, and cleanup gates pass. This file is
 optional and remains absent while integrations are parked.
 
-Place the API behind a TLS-terminating reverse proxy. The API unit binds only to
-`127.0.0.1:8000` and has no Docker group membership; only the dedicated worker
-and recovery supervisor receive access to the Docker daemon. Verify the proxy
-forwards the original HTTPS scheme/host safely and that the OAuth issuer,
+Place the API behind a TLS-terminating reverse proxy. A starter Caddy site
+configuration is provided at `gateway/deploy/Caddyfile.example`; replace its
+example hostname only after selecting the public origin and configuring DNS.
+The template binds Caddy's admin API to loopback, sends traffic only to the
+Gateway's loopback listener, sets basic browser security headers, and omits
+access logs so OAuth codes and request payloads are not copied into a new log.
+Before enabling the proxy, validate its configuration and confirm TCP 80/443
+reach the host for certificate issuance and renewal. The API unit binds only
+to `127.0.0.1:8000` and has no Docker group membership; only the dedicated
+worker and recovery supervisor receive access to the Docker daemon. Verify the
+proxy forwards the original HTTPS scheme/host safely and that the OAuth issuer,
 resource metadata, and public MCP origin all match. Do not expose port 8000
 directly to the network.
 

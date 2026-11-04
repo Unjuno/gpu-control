@@ -1,0 +1,21 @@
+{
+	# Keep Caddy's management endpoint on loopback; do not expose it publicly.
+	admin 127.0.0.1:2019
+}
+
+# Replace this hostname only after selecting and configuring the public origin.
+# Caddy obtains and renews HTTPS certificates automatically when DNS points to
+# this host and inbound TCP 80/443 are reachable.
+mcp.example.com {
+	header {
+		Strict-Transport-Security "max-age=15552000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Keep the Gateway bound to loopback. Do not add a public listener on :8000.
+	reverse_proxy 127.0.0.1:8000
+}
