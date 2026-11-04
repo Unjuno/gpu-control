@@ -24,7 +24,7 @@ The project is **usable today for offline validation and control-plane developme
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
-| Remote MCP Gateway and built-in OAuth discovery | An older Vercel deployment is reachable; this candidate is not deployed and ChatGPT OAuth is not accepted |
+| Remote MCP Gateway and built-in OAuth discovery | This candidate has a READY, SSO-protected Vercel Preview; runtime readiness and ChatGPT OAuth are not accepted or verified |
 | Registered CPU experiment through ChatGPT | Implemented and locally exercised on this branch; not deployed or ChatGPT-verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
