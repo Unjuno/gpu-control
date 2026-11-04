@@ -1,24 +1,29 @@
 # PR #60 Preview and security evidence — 2026-11-05
 
-This record covers the pushed PR #60 candidate at commit
-`0c1cef2c1d9446d283c12833db2394e57b9fe1d5`. It does not establish production
-readiness, authenticated ChatGPT use, or GPU-provider acceptance.
+This record began with the pushed PR #60 candidate at commit
+`0c1cef2c1d9446d283c12833db2394e57b9fe1d5`; the incremental update below
+covers head `a21623114a696b15020db04c0bdc55765a31d3ef`. It does not establish
+production readiness, authenticated ChatGPT use, or GPU-provider acceptance.
 
 ## GitHub and Preview
 
 - PR #60 remains OPEN and Draft, based on the Draft OAuth branch for PR #58.
-- The published head is `0c1cef2c1d9446d283c12833db2394e57b9fe1d5`.
-- The head's CI, Gateway offline tests, Gateway comment bridge tests, Project
-  bridge tests, Python 3.11/3.12/3.13 jobs, trusted reference container,
-  Vercel deployment, and Vercel Preview Comments all passed.
-- Vercel reports deployment `dpl_HvdM62dMHM43U6dcJ3EumbMNKB5T` READY from the
-  exact commit above. It is a Preview deployment (`target: null`), not a
-  production promotion.
+- The initial published head was `0c1cef2c1d9446d283c12833db2394e57b9fe1d5`;
+  its CI, Gateway offline tests, Gateway comment bridge tests, Project bridge
+  tests, Python 3.11/3.12/3.13 jobs, trusted reference container, Vercel
+  deployment, and Vercel Preview Comments passed.
+- The incremental head `a21623114a696b15020db04c0bdc55765a31d3ef` has a READY
+  Preview deployment `dpl_2e8jinmr5Eyxxpu2QwafCyfhfURY` at
+  `gpu-control-3jp7ho454-unjunos-projects.vercel.app` (`target: null`, not
+  production). Its GitHub Actions jobs were still queued at the latest check;
+  do not infer that the previous head's successful checks cover this SHA.
 - After Owner/Admin login, the exact deployment's `/healthz` returned
   `configured=false`, `auth_configured=false`, `auth_mode=local_oauth`;
   `/readyz` returned HTTP 503 with `ready=false`; both OAuth discovery endpoints
-  returned HTTP 503 `configuration_required`. This is direct runtime evidence,
-  not an SSO redirect.
+  returned HTTP 503 `configuration_required` on the initial head. On the
+  incremental head, both OAuth discovery endpoints still return 503 but now
+  with the corrected generic message `The Gateway is not configured`. These
+  are direct runtime observations from authenticated Vercel fetches.
 - The Vercel Preview environment-variable screen listed
   `GATEWAY_WORKLOADS_JSON`, `GATEWAY_ENABLE_MODAL`,
   `GATEWAY_ENABLE_RUNPOD_BRIDGE`, `GATEWAY_MAX_INFLIGHT`, and
@@ -87,3 +92,19 @@ readiness, authenticated ChatGPT use, or GPU-provider acceptance.
   retrieval.
 - Keep GPU-provider acceptance separate; no live GPU or paid execution was
   performed by this record.
+
+
+## Incremental head refresh — 2026-11-05
+
+- Commit `a21623114a696b15020db04c0bdc55765a31d3ef` changes the shared
+  `configuration_required` response message and adds a regression test; the
+  exact Preview confirms the new message. `/healthz` remains
+  `configured=false` and `auth_configured=false`; `/readyz` remains HTTP 503
+  with database, migration, worker, supervisor, registry, and authentication
+  false. ChatGPT OAuth and experiment execution remain unavailable.
+- Incremental Codex Security diff scan
+  `ebd260db-3a17-4625-8969-18122ba9ebc1` recorded zero findings for the
+  `0c1cef2..a216231` delta. Its coverage is marked partial; this narrow static
+  review is not a service-wide security certification or runtime assessment.
+- GitHub Actions runs for this head remained queued with no job steps started
+  during the observation window. Vercel deployment succeeded.
