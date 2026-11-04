@@ -121,3 +121,44 @@ production readiness, authenticated ChatGPT use, or GPU-provider acceptance.
 - The browser ChatGPT session displayed Log in; its Google sign-in confirmation
   was not accepted. No ChatGPT account, workspace, OAuth grant, or tool call was
   used.
+
+
+## Current recheck — 2026-11-05 17:42 UTC
+
+- Current PR #60 head is `3b4b7f554446443e4df13e52fdf8e1272a25b99d`, still
+  OPEN/Draft. Its exact Preview `dpl_CjeFu16VhcKNW25gQ4fVTuHmJMwq`
+  (`gpu-control-9n59n2qxf-unjunos-projects.vercel.app`) is READY. Authenticated
+  fetches returned `/healthz` `configured=false`, `/readyz` 503 with database,
+  migration, worker, supervisor, registry, and authentication false, and OAuth
+  discovery 503 `configuration_required`. No application credentials or
+  Preview settings were changed.
+- The current Actions run was created at 17:37:37 UTC. At 17:42 UTC, Python
+  3.11 had passed; Python 3.12/3.13, trusted container, Gateway offline, Gateway
+  comment bridge, and Project bridge jobs remained queued with no steps. The
+  Vercel deployment status succeeded.
+- An independent Astra **source review only** examined the executable change
+  from `0c1cef2` to `a216231` and found no reportable security regression. The
+  review observed that only the fixed message changed; the readiness guard,
+  503 status and error code are unchanged. It is not a formal scanner run, did
+  not validate runtime security, and does not cover the whole repository.
+  Informational test limitation: the added misconfiguration test uses hosted
+  SQLite, so it exercises fail-closed initialization and the generic error
+  response; it does not demonstrate hosted OAuth initialization. It asserts the
+  message and status, not the error code. The existing local OAuth vertical is
+  separately covered by its dedicated integration test.
+- Codex Security Cloud reported `available=false` / `credits_exhausted` despite
+  also showing an allowance figure; no Cloud scan was launched. The manually
+  sealed artifact described above remains invalid as independent scan evidence.
+- Read-only RunPod UI inspection showed $15.00 balance. CPU Pod choices included
+  2 vCPU/8 GB at $0.08/hour and 4 vCPU/16 GB at $0.16/hour; the standard
+  Network Volume page showed $0.07/GB/month. The Pod container disk is erased
+  when a Pod stops, so it cannot be the required durable artifact store. No Pod
+  or volume was created. The repository remains parked, with external container
+  execution disallowed.
+- The ChatGPT browser remains logged out. Its Google sign-in prompt discloses
+  name, email address, and profile picture to ChatGPT; the user must complete
+  that account-consent step before an authenticated ChatGPT acceptance run.
+- Re-ran `gateway/tests/test_local_oauth.py` in the repository Gateway virtual
+  environment: **10 passed** with one Starlette deprecation warning. The first
+  attempt with system Python stopped during conftest import because `jwt` was
+  not installed there; no package was installed.
