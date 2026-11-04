@@ -7,11 +7,12 @@ states do not prove cleanup, so migrated cleanup state is conservatively unknown
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 from sqlalchemy import (JSON, Column, Integer, MetaData, String, Table,
                         UniqueConstraint, inspect, insert, select, update)
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -310,4 +311,21 @@ def migrate(engine) -> int:
             provider_account_leases.create(connection, checkfirst=True)
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=14))
             current = 14
+        if current < 15:
+            # P1 v10 added global and per-source login admission tables, but
+            # P5 previously used that version for provider reservation tables.
+            # Install both OAuth tables additively for every converged lineage.
+            from .local_oauth import oauth_login_budget, oauth_login_source_buckets
+            oauth_login_source_buckets.create(connection, checkfirst=True)
+            oauth_login_budget.create(connection, checkfirst=True)
+            budget = connection.execute(select(oauth_login_budget.c.id).where(
+                oauth_login_budget.c.id == 1
+            )).first()
+            if budget is None:
+                connection.execute(insert(oauth_login_budget).values(
+                    id=1, tokens_micro=4_000_000,
+                    updated_at_us=int(time.time() * 1_000_000),
+                ))
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=15))
+            current = 15
     return current

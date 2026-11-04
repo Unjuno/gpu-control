@@ -120,7 +120,8 @@ def test_local_oauth_bootstrap_login_dcr_pkce_refresh_and_mcp(tmp_path):
     service = ExperimentService(store, settings, {"demo": Workload(provider="demo")})
     auth = Auth(settings, store=store)
     auth.local.seed_bootstrap("bootstrap-secret", ttl_seconds=3600)
-    client = TestClient(create_app(settings, service=service, auth=auth), base_url="https://gateway.example")
+    client = TestClient(create_app(settings, service=service, auth=auth),
+                        base_url="https://gateway.example", client=("127.0.0.1", 54321))
 
     health = client.get("/healthz").json()
     assert health["configured"] is True
@@ -326,7 +327,8 @@ def test_local_oauth_rejects_untrusted_redirect_and_wrong_pkce(tmp_path):
     auth = Auth(settings, store=store)
     auth.local.seed_bootstrap("bootstrap-secret")
     auth.local.bootstrap_admin("bootstrap-secret", "correct horse battery staple")
-    client = TestClient(create_app(settings, service=service, auth=auth), base_url="https://gateway.example")
+    client = TestClient(create_app(settings, service=service, auth=auth),
+                        base_url="https://gateway.example", client=("127.0.0.1", 54321))
 
     for redirect_uri in (
         "https://attacker.example/callback",
@@ -421,7 +423,7 @@ def test_authorized_dcr_client_survives_expired_refresh_grant_for_reauthorizatio
     local = Auth(settings, store=store).local
     local.seed_bootstrap("setup-token")
     local.bootstrap_admin("setup-token", "correct horse battery staple")
-    owner_session = local.login("correct horse battery staple")
+    owner_session = local.login("correct horse battery staple", "a" * 64)
     client = local.register_client({
         "client_name": "ChatGPT rolling refresh",
         "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
@@ -457,7 +459,7 @@ def test_authorized_dcr_client_survives_expired_refresh_grant_for_reauthorizatio
     # same registered client must still be valid when the owner reauthorizes.
     now[0] += 31 * 86400
     assert local._client(client_id)["client_id"] == client_id
-    renewed_session = local.login("correct horse battery staple")
+    renewed_session = local.login("correct horse battery staple", "a" * 64)
     new_verifier = secrets.token_urlsafe(48)
     params["state"] = "reauthorization"
     params["code_challenge"] = challenge(new_verifier)
@@ -523,7 +525,7 @@ def test_revocation_remains_available_after_persistence_remediation(tmp_path, mo
         )).scalars())
 
 
-def test_local_oauth_failed_login_rate_limit_persists_and_expires(tmp_path, monkeypatch):
+def test_local_oauth_failed_login_source_limit_and_expiry(tmp_path, monkeypatch):
     now = [1_800_000_000]
     monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
     settings = Settings(
@@ -536,23 +538,55 @@ def test_local_oauth_failed_login_rate_limit_persists_and_expires(tmp_path, monk
     auth.local.seed_bootstrap("one-time-setup", ttl_seconds=600)
     auth.local.bootstrap_admin("one-time-setup", "correct horse battery staple")
 
-    for _ in range(4):
+    source_a, source_b = "a" * 64, "b" * 64
+    for _ in range(5):
         with pytest.raises(GatewayError) as error:
-            auth.local.login("incorrect password")
+            auth.local.login("incorrect password", source_a)
         assert error.value.code == "invalid_credentials"
-    with pytest.raises(GatewayError) as error:
-        auth.local.login("incorrect password")
-    assert error.value.code == "login_rate_limited"
+        now[0] += 1
 
-    # A separately constructed auth facade shares the persisted lockout state.
+    # A separately constructed auth facade shares the source budget.
     second_auth = Auth(settings, store=Store(settings.database_url))
     with pytest.raises(GatewayError) as error:
-        second_auth.local.login("correct horse battery staple")
+        second_auth.local.login("incorrect password", source_a)
     assert error.value.code == "login_rate_limited"
+    with pytest.raises(GatewayError) as retry:
+        second_auth.local.login("incorrect password", source_a)
+    assert retry.value.headers["Retry-After"] == "300"
+
+    # A different source remains able to authenticate while source A is limited.
+    session = second_auth.local.login("correct horse battery staple", source_b)
+    assert second_auth.local.session(session.token)["sub"] == "owner"
 
     now[0] += 301
     with pytest.raises(GatewayError) as error:
-        second_auth.local.login("incorrect password")
+        second_auth.local.login("incorrect password", source_a)
+    assert error.value.code == "invalid_credentials"
+
+
+def test_local_oauth_global_budget_bounds_rotating_sources(tmp_path, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr("gpu_gateway.local_oauth.time.time", lambda: now[0])
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'global-login-budget.db'}",
+                        public_url="https://gateway.example")
+    store = Store(settings.database_url)
+    store.initialize()
+    local = Auth(settings, store=store).local
+    local.seed_bootstrap("one-time-setup", ttl_seconds=600)
+    local.bootstrap_admin("one-time-setup", "correct horse battery staple")
+
+    for index in range(4):
+        with pytest.raises(GatewayError) as error:
+            local.login("bad password", f"{index:064x}")
+        assert error.value.code == "invalid_credentials"
+    with pytest.raises(GatewayError) as error:
+        local.login("bad password", "f" * 64)
+    assert error.value.code == "login_busy"
+    assert error.value.headers["Retry-After"] == "1"
+
+    now[0] += 1
+    with pytest.raises(GatewayError) as error:
+        local.login("bad password", "f" * 64)
     assert error.value.code == "invalid_credentials"
 
 

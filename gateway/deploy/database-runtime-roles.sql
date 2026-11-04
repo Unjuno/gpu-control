@@ -1,7 +1,7 @@
 -- Apply as gpu_control_migrate after migrations, then after each migration.
 -- Login roles must be distinct, NOINHERIT, non-superuser, with no incoming or
 -- outgoing memberships. Provision passwords out of band; never put them here.
--- This allowlist matches the current schema v14 and its OAuth/P5 tables.
+-- This allowlist matches the current schema v15 and its OAuth/P5 tables.
 BEGIN;
 
 DO $$ BEGIN
@@ -61,6 +61,36 @@ REVOKE UPDATE (id, owner, idempotency_key, request_hash, fingerprint, plan,
 ON TABLE public.gateway_runs_v1 FROM PUBLIC, gpu_control_api, gpu_control_worker;
 REVOKE UPDATE (id, active_count, worker_seen_at, supervisor_seen_at)
 ON TABLE public.gateway_control_v1 FROM PUBLIC, gpu_control_api, gpu_control_worker;
+REVOKE SELECT (provider, version, observed_at, expires_at, envelope, envelope_sha256),
+  INSERT (provider, version, observed_at, expires_at, envelope, envelope_sha256),
+  UPDATE (provider, version, observed_at, expires_at, envelope, envelope_sha256),
+  REFERENCES (provider, version, observed_at, expires_at, envelope, envelope_sha256)
+ON TABLE public.gateway_provider_observations_v1
+FROM PUBLIC, gpu_control_api, gpu_control_worker;
+REVOKE SELECT (account_scope, provider, run_id, owner, plan_fingerprint,
+  core_plan_fingerprint, authorization_id, request_challenge,
+  request_challenge_sha256, state, lease_token, provider_job_id, updated_at),
+  INSERT (account_scope, provider, run_id, owner, plan_fingerprint,
+  core_plan_fingerprint, authorization_id, request_challenge,
+  request_challenge_sha256, state, lease_token, provider_job_id, updated_at),
+  UPDATE (account_scope, provider, run_id, owner, plan_fingerprint,
+  core_plan_fingerprint, authorization_id, request_challenge,
+  request_challenge_sha256, state, lease_token, provider_job_id, updated_at),
+  REFERENCES (account_scope, provider, run_id, owner, plan_fingerprint,
+  core_plan_fingerprint, authorization_id, request_challenge,
+  request_challenge_sha256, state, lease_token, provider_job_id, updated_at)
+ON TABLE public.gateway_provider_account_leases_v1
+FROM PUBLIC, gpu_control_api, gpu_control_worker;
+REVOKE SELECT (run_id, owner, plan_fingerprint, approval_id, authorization_id,
+  issuer, envelope, envelope_sha256, created_at),
+  INSERT (run_id, owner, plan_fingerprint, approval_id, authorization_id,
+  issuer, envelope, envelope_sha256, created_at),
+  UPDATE (run_id, owner, plan_fingerprint, approval_id, authorization_id,
+  issuer, envelope, envelope_sha256, created_at),
+  REFERENCES (run_id, owner, plan_fingerprint, approval_id, authorization_id,
+  issuer, envelope, envelope_sha256, created_at)
+ON TABLE public.gateway_paid_authorizations_v1
+FROM PUBLIC, gpu_control_api, gpu_control_worker;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC, gpu_control_api, gpu_control_worker;
 GRANT USAGE ON SCHEMA public TO gpu_control_api, gpu_control_worker, gpu_control_migrate;

@@ -1,8 +1,9 @@
 # P1/P5 PostgreSQL role reconciliation acceptance
 
-This candidate reconciles P5 provider-account leases, signed provider observations,
-paid-authorization reads, and terminal slot release with the P1 API/worker database
-role boundary. It does not enable provider calls or change parked execution policy.
+This local candidate reconciles P1 OAuth login admission and P5 provider-account
+leases, signed provider observations, paid-authorization reads, and terminal slot
+release with the API/worker database role boundary. It does not enable provider
+calls or change parked execution policy.
 
 ## Changes
 
@@ -25,6 +26,11 @@ role boundary. It does not enable provider calls or change parked execution poli
 - Ownership transfer includes the three P5 tables and the new function; role
   reapplication revokes old grants before installing the allowlist and keeps
   PUBLIC function execution revoked.
+- Local OAuth login now applies a bounded per-source attempt window, a durable
+  global token budget, and a bounded per-process KDF semaphore. IP source
+  resolution is explicit for direct, trusted-proxy, and Vercel deployments;
+  only a keyed/hash-derived source bucket is persisted. KDF work runs outside
+  the database transaction.
 
 The worker lease-table grants support the current trusted worker implementation.
 They do not claim isolation against a compromised worker database credential;
@@ -33,20 +39,21 @@ mutations behind constrained database functions.
 
 ## Verification
 
-- `gateway/.venv` has application dependencies but not pytest. Tests were run
-  with the locked project environment plus ephemeral `pytest==8.4.2` via `uv`;
-  no dependency files were changed.
-- `uv run --locked --with pytest==8.4.2 python -m pytest -q
-  tests/test_provider_account_leases.py tests/test_migrations.py`: **29 passed**,
-  including completion/abort terminal-accounting regression coverage.
-- `tests/test_database_runtime_roles.py`: collected successfully but **3 skipped**
-  because `GATEWAY_TEST_DATABASE_URL` is unavailable. OrbStack's Docker socket
-  was not running, and no local `postgres` server/client was available, so the
-  effective-role PostgreSQL integration checks remain unverified.
-- `python3 -m compileall -q gateway/gpu_gateway` and `git diff --check` passed
-  after the code/test edits.
+- Disposable PostgreSQL 16.14 cluster, database `gpu_control_runtime_test`:
+  effective-role integration checks passed, including Store paths, actual
+  `Worker.finish`, provider cleanup, pre-submission abort, observation locking,
+  paid-authorization reader, and role privileges.
+- Full Gateway suite: **564 collected; all runnable tests passed, 7 skipped**.
+  Skips are environment-dependent tests; the database role tests were run
+  separately against the disposable PostgreSQL cluster.
+- `python3 -m compileall -q gateway/gpu_gateway` and `git diff --check` passed.
+- PR #66 Preview `/healthz` returned 200 with `configured=false` and
+  `auth_configured=false`; `/readyz` returned 503. This is Preview configuration
+  evidence only; no secrets, Production settings, or environment variables were
+  read or changed.
 
-This is a local integration candidate only. Do not merge, deploy, or represent
-the PostgreSQL privilege boundary as accepted until the role tests run against
-a disposable PostgreSQL instance, including API/worker Store calls, rollback,
-concurrent observation locking, and ownership/default-privilege checks.
+This is a locally verified integration candidate, not a hosted or production
+acceptance. The working-tree changes are uncommitted and unpushed. Preview remains
+unconfigured and not ready. Live ChatGPT OAuth/tool execution, hosted database
+role application, durable worker operation, and paid GPU execution remain
+unverified; RunPod policy is parked and no pod was created.

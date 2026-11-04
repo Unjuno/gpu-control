@@ -293,19 +293,30 @@ class Worker:
         state, result, error, record_version = self._terminal_record(job, state, result, error)
         with self.store.transaction() as c:
             self.store.lock_control(c)
-            row = c.execute(select(runs).where(runs.c.id == job["id"])).mappings().one()
+            row = c.execute(select(runs).where(
+                runs.c.id == job["id"]
+            ).with_for_update()).mappings().one()
             if row["lease_token"] != job["lease_token"] or row["state"] in TERMINAL:
                 return
-            if row["slot_reserved"]:
-                c.execute(update(control).where(control.c.id == 1).values(active_count=control.c.active_count - 1))
             cleanup_state = ((result or {}).get("cleanup_state", "unknown") if isinstance(result, dict)
                              else "unknown")
             if cleanup_state not in {"not_required", "pending", "complete", "unknown"}:
                 cleanup_state = "unknown"
-            c.execute(update(runs).where(runs.c.id == job["id"]).values(
-                state=state, result=result, error=error, slot_reserved=False,
-                lease_until=0, lease_token="", finished_at=int(self.clock()),
-                cleanup_state=cleanup_state, record_version=record_version))
+            values = dict(state=state, result=result, error=error,
+                          finished_at=int(self.clock()),
+                          cleanup_state=cleanup_state, record_version=record_version)
+            c.execute(update(runs).where(
+                runs.c.id == job["id"], runs.c.lease_token == job["lease_token"],
+                runs.c.state.not_in(TERMINAL),
+            ).values(**values))
+            if row["slot_reserved"] and not self.store.release_finished_slot(
+                    c, job["id"], job["lease_token"]):
+                raise RuntimeError("Could not atomically release the current run slot")
+            cleared = c.execute(update(runs).where(
+                runs.c.id == job["id"], runs.c.lease_token == job["lease_token"],
+            ).values(lease_until=0, lease_token=""))
+            if cleared.rowcount != 1:
+                raise RuntimeError("Could not clear the completed worker claim")
 
     def _provider_lease_cleanup_context(self, job: dict, backend, handle: dict):
         intent = job.get("submission_intent")

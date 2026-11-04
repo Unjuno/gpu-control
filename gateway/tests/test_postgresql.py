@@ -3,6 +3,7 @@ import os
 import threading
 import hashlib
 import time
+from contextlib import contextmanager
 from multiprocessing import get_context
 from queue import Empty
 from concurrent.futures import ThreadPoolExecutor
@@ -221,6 +222,8 @@ def test_postgres_v4_to_current_additive_recovery_oauth_and_provider_evidence():
         connection.exec_driver_sql('ALTER TABLE gateway_control_v1 DROP COLUMN supervisor_seen_at')
         connection.exec_driver_sql('ALTER TABLE gateway_runs_v1 DROP COLUMN last_observed_at')
         connection.exec_driver_sql('ALTER TABLE gateway_oauth_tokens_v1 DROP COLUMN grant_id')
+        connection.exec_driver_sql(
+            'DROP FUNCTION IF EXISTS gpu_control_lock_provider_observation(text)')
         connection.exec_driver_sql('DROP TABLE gateway_provider_observations_v1')
         connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
 
@@ -432,6 +435,108 @@ def test_postgres_refresh_rotation_and_grant_revocation_race():
     store.engine.dispose()
 
 
+def test_postgres_revoking_rotated_predecessor_blocks_current_refresh(monkeypatch):
+    url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('requires a dedicated PostgreSQL test database')
+    settings = Settings(database_url=url, public_url='https://gateway.example')
+    store = Store(url)
+    store.initialize()
+    oauth = LocalOAuth(settings, store)
+    client_id = oauth.register_client({
+        'client_name': 'ChatGPT predecessor race ' + uuid4().hex,
+        'redirect_uris': ['https://chatgpt.com/connector_platform_oauth_redirect'],
+    })['client_id']
+    predecessor = oauth._new_token_pair(
+        client_id=client_id, subject='owner',
+        scope='experiments:read offline_access', resource=settings.resource,
+    )
+    current = oauth.token({
+        'grant_type': 'refresh_token', 'client_id': client_id,
+        'refresh_token': predecessor['refresh_token'], 'resource': settings.resource,
+    })
+
+    pair_entered = threading.Event()
+    allow_pair_to_finish = threading.Event()
+    revoke_transaction_entered = threading.Event()
+    revoke_backend_pids = []
+    original_new_pair = oauth._new_token_pair
+    original_transaction = store.transaction
+    errors = []
+    successor = []
+
+    def pause_replacement_pair(**kwargs):
+        pair_entered.set()
+        if not allow_pair_to_finish.wait(timeout=10):
+            raise TimeoutError('test did not release current token rotation')
+        return original_new_pair(**kwargs)
+
+    @contextmanager
+    def track_revocation_backend():
+        with original_transaction() as connection:
+            if threading.current_thread().name == 'postgres-oauth-predecessor-revoke':
+                revoke_backend_pids.append(connection.execute(
+                    text('SELECT pg_backend_pid()')).scalar_one())
+                revoke_transaction_entered.set()
+            yield connection
+
+    monkeypatch.setattr(oauth, '_new_token_pair', pause_replacement_pair)
+    monkeypatch.setattr(store, 'transaction', track_revocation_backend)
+
+    def refresh_current():
+        try:
+            successor.append(oauth.token({
+                'grant_type': 'refresh_token', 'client_id': client_id,
+                'refresh_token': current['refresh_token'], 'resource': settings.resource,
+            }))
+        except Exception as exc:
+            errors.append(exc)
+
+    def revoke_predecessor():
+        try:
+            oauth.revoke({'client_id': client_id, 'token': predecessor['refresh_token']})
+        except Exception as exc:
+            errors.append(exc)
+
+    refresh_thread = threading.Thread(target=refresh_current, name='postgres-oauth-current-refresh')
+    refresh_thread.start()
+    assert pair_entered.wait(timeout=10)
+    revoke_thread = threading.Thread(target=revoke_predecessor,
+                                     name='postgres-oauth-predecessor-revoke')
+    revoke_thread.start()
+    assert revoke_transaction_entered.wait(timeout=5)
+
+    # Verify the revoker is blocked on the grant-family lock, not merely that
+    # its Python thread was scheduled before the refresh was released.
+    blocked_on_lock = False
+    for _ in range(200):
+        with store.engine.connect() as connection:
+            wait_type = connection.execute(text(
+                'SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid'
+            ), {'pid': revoke_backend_pids[0]}).scalar_one_or_none()
+        if wait_type == 'Lock':
+            blocked_on_lock = True
+            break
+        time.sleep(0.025)
+    allow_pair_to_finish.set()
+    refresh_thread.join(timeout=10)
+    revoke_thread.join(timeout=10)
+    assert blocked_on_lock
+    assert not refresh_thread.is_alive() and not revoke_thread.is_alive()
+    assert not errors and len(successor) == 1
+
+    raw_tokens = [predecessor['access_token'], predecessor['refresh_token'],
+                  current['access_token'], current['refresh_token'],
+                  successor[0]['access_token'], successor[0]['refresh_token']]
+    token_hashes = [hashlib.sha256(value.encode()).hexdigest() for value in raw_tokens]
+    with store.engine.connect() as connection:
+        revoked = connection.execute(select(oauth_tokens.c.revoked).where(
+            oauth_tokens.c.token_hash.in_(token_hashes)
+        )).scalars().all()
+    assert len(revoked) == 6 and all(revoked)
+    store.engine.dispose()
+
+
 def test_postgres_refresh_token_can_only_be_consumed_once_concurrently():
     url = os.environ.get('GATEWAY_TEST_DATABASE_URL')
     if not url:
@@ -539,6 +644,8 @@ def test_postgres_v4_to_current_additive_recovery_oauth_and_provider_evidence():
         connection.exec_driver_sql('ALTER TABLE gateway_control_v1 DROP COLUMN supervisor_seen_at')
         connection.exec_driver_sql('ALTER TABLE gateway_runs_v1 DROP COLUMN last_observed_at')
         connection.exec_driver_sql('ALTER TABLE gateway_oauth_tokens_v1 DROP COLUMN grant_id')
+        connection.exec_driver_sql(
+            'DROP FUNCTION IF EXISTS gpu_control_lock_provider_observation(text)')
         connection.exec_driver_sql('DROP TABLE gateway_provider_observations_v1')
         connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=4))
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import re
 from dataclasses import dataclass, field
@@ -133,6 +134,11 @@ class Settings:
     max_job_cost_usd: Decimal = Decimal("1")
     max_open_requests: int = 100
     hosted: bool = False
+    client_ip_mode: str = "direct"
+    trusted_proxy_cidrs: tuple[str, ...] = ()
+    vercel_runtime: bool = False
+    client_ip_hash_key: str = field(
+        default="local-development-only-do-not-use", repr=False, compare=False)
     provider_evidence_public_keys_json: str = "{}"
     candidate_receipt_public_keys_json: str = "{}"
     paid_authorization_issuer: str = ""
@@ -262,6 +268,21 @@ class Settings:
         return keys
 
     def validate(self) -> None:
+        if self.client_ip_mode not in {"direct", "trusted_proxy", "vercel"}:
+            raise ValueError("GATEWAY_CLIENT_IP_MODE must be direct, trusted_proxy, or vercel")
+        try:
+            trusted_networks = tuple(ipaddress.ip_network(value, strict=False)
+                                     for value in self.trusted_proxy_cidrs)
+        except ValueError:
+            raise ValueError("GATEWAY_TRUSTED_PROXY_CIDRS contains an invalid network") from None
+        if any(network.prefixlen == 0 for network in trusted_networks):
+            raise ValueError("GATEWAY_TRUSTED_PROXY_CIDRS must not trust an entire address family")
+        if self.client_ip_mode == "trusted_proxy" and not trusted_networks:
+            raise ValueError("trusted_proxy mode requires explicit trusted proxy CIDRs")
+        if self.client_ip_mode != "trusted_proxy" and trusted_networks:
+            raise ValueError("trusted proxy CIDRs are only valid in trusted_proxy mode")
+        if self.client_ip_mode == "vercel" and not self.vercel_runtime:
+            raise ValueError("vercel client IP mode requires the Vercel runtime")
         parsed = urlsplit(self.public_url)
         if parsed.path not in ("", "/") or parsed.query or parsed.fragment or parsed.username:
             raise ValueError("public URL must be an origin without credentials, path, query or fragment")
@@ -331,6 +352,16 @@ class Settings:
             if self.provider_evidence_signing_key_pem is None:
                 raise ValueError("RunPod evidence collection requires a worker signing key")
 
+    def validate_api_security(self) -> None:
+        """Validate public HTTP login source handling; worker processes don't need this secret."""
+        if self.hosted and self.client_ip_mode == "direct":
+            raise ValueError(
+                "Hosted API deployments require a platform client IP or explicitly trusted proxy address mode")
+        if self.hosted and (len(self.client_ip_hash_key.encode("utf-8")) < 32 or
+                            self.client_ip_hash_key == "local-development-only-do-not-use"):
+            raise ValueError(
+                "Hosted API deployments require a unique GATEWAY_CLIENT_IP_HASH_KEY of at least 32 bytes")
+
     @classmethod
     def from_env(cls) -> "Settings":
         e = os.environ
@@ -376,6 +407,14 @@ class Settings:
             artifact_dir=e.get("GATEWAY_ARTIFACT_DIR", ""),
             artifact_min_free_bytes=int(e.get("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "0")),
             hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
+            client_ip_mode=e.get("GATEWAY_CLIENT_IP_MODE") or (
+                "vercel" if e.get("VERCEL") == "1" else "direct"),
+            trusted_proxy_cidrs=tuple(
+                item.strip() for item in e.get("GATEWAY_TRUSTED_PROXY_CIDRS", "").split(",")
+                if item.strip()),
+            vercel_runtime=e.get("VERCEL") == "1",
+            client_ip_hash_key=e.get(
+                "GATEWAY_CLIENT_IP_HASH_KEY", "local-development-only-do-not-use"),
             provider_evidence_public_keys_json=e.get("GATEWAY_PROVIDER_EVIDENCE_PUBLIC_KEYS_JSON", "{}"),
             candidate_receipt_public_keys_json=e.get("GATEWAY_CANDIDATE_RECEIPT_PUBLIC_KEYS_JSON", "{}"),
             paid_authorization_issuer=e.get("GATEWAY_PAID_AUTHORIZATION_ISSUER", ""),

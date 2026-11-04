@@ -277,7 +277,7 @@ def test_current_schema_revokes_legacy_inferred_client_persistence(tmp_path):
     local = Auth(settings, store=store).local
     local.seed_bootstrap("setup-token")
     local.bootstrap_admin("setup-token", "correct horse battery staple")
-    session = local.login("correct horse battery staple")
+    session = local.login("correct horse battery staple", "d" * 64)
     client_metadata = {
         "client_name": "Legacy inferred client",
         "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
@@ -323,12 +323,7 @@ def test_migration_repairs_provider_tables_missing_from_p1_v10_lineage(tmp_path)
         connection.exec_driver_sql('DROP TABLE "gateway_provider_observations_v1"')
         connection.exec_driver_sql('DROP TABLE "gateway_provider_account_leases_v1"')
         connection.exec_driver_sql('DROP TABLE "gateway_paid_authorizations_v1"')
-        connection.exec_driver_sql("""
-            CREATE TABLE gateway_oauth_login_budget_v1 (
-                id INTEGER PRIMARY KEY, tokens_micro INTEGER NOT NULL,
-                updated_at_us BIGINT NOT NULL
-            )
-        """)
+        connection.exec_driver_sql("DELETE FROM gateway_oauth_login_budget_v1")
         connection.exec_driver_sql(
             "INSERT INTO gateway_oauth_login_budget_v1 VALUES (1, 123456, 1700000000000000)"
         )
@@ -336,7 +331,7 @@ def test_migration_repairs_provider_tables_missing_from_p1_v10_lineage(tmp_path)
 
     status = migration_status(store.engine)
     assert status["current_version"] == 10
-    assert status["planned_versions"] == [11, 12, 13, 14]
+    assert status["planned_versions"] == [11, 12, 13, 14, 15]
     assert migrate(store.engine) == SCHEMA_VERSION
     assert "gateway_provider_observations_v1" in inspect(store.engine).get_table_names()
     assert "gateway_provider_account_leases_v1" in inspect(store.engine).get_table_names()

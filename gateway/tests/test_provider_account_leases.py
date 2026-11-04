@@ -170,7 +170,7 @@ def test_provider_account_lease_schema_migrates_additively(tmp_path):
 
     status = migration_status(store.engine)
 
-    assert SCHEMA_VERSION == 14
+    assert SCHEMA_VERSION == 15
     assert status["current_version"] == SCHEMA_VERSION
     assert status["migration_required"] is False
     with store.engine.connect() as connection:
