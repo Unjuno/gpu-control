@@ -70,9 +70,12 @@ production readiness, authenticated ChatGPT use, or GPU-provider acceptance.
 
 ## Remaining acceptance gates
 
-- Create or select an isolated, empty Preview database project; the only
-  existing Neon branch is Production. Provision least-privilege API, worker,
-  and migration database roles without copying Production's OAuth/run data.
+- Select one persistent Linux host for API, worker, supervisor, and the shared
+  artifact filesystem required by `docs/OPERATIONS.md`. Then select an isolated
+  empty database (or a verified new local PostgreSQL instance) and provision
+  least-privilege API, worker, and migration roles without copying Production's
+  OAuth/run data. A Neon project alone does not satisfy artifact sharing or
+  worker heartbeat requirements.
 - Configure the Preview-only `GATEWAY_DATABASE_URL`, a unique API-only
   `GATEWAY_CLIENT_IP_HASH_KEY` (at least 32 bytes), and an exact public
   `GATEWAY_PUBLIC_URL`; keep the values out of the repository and logs. The
@@ -102,9 +105,19 @@ production readiness, authenticated ChatGPT use, or GPU-provider acceptance.
   `configured=false` and `auth_configured=false`; `/readyz` remains HTTP 503
   with database, migration, worker, supervisor, registry, and authentication
   false. ChatGPT OAuth and experiment execution remain unavailable.
-- Incremental Codex Security diff scan
-  `ebd260db-3a17-4625-8969-18122ba9ebc1` recorded zero findings for the
-  `0c1cef2..a216231` delta. Its coverage is marked partial; this narrow static
-  review is not a service-wide security certification or runtime assessment.
-- GitHub Actions runs for this head remained queued with no job steps started
-  during the observation window. Vercel deployment succeeded.
+- The incremental Codex Security artifact
+  `ebd260db-3a17-4625-8969-18122ba9ebc1` is **not a valid independent scan**.
+  The parent authored an empty findings/surfaces draft and asked the tool to seal
+  it; no independent candidate discovery or validation occurred. Its empty
+  findings must not be treated as a clean scan. The `0c1cef2..a216231` code
+  delta still requires independent security review before merge. The earlier
+  scan listed above covers only its own exact range and does not cover this
+  incremental change.
+- GitHub Actions for head `7da953c63d0e13df340a7e7d2c7944419b34a853` remained
+  queued on `ubuntu-24.04` with no job steps started as of 2026-11-04 17:34 UTC;
+  Vercel deployment succeeded. At that observation, the current run had waited
+  about 3.5 minutes and the predecessor about 9 minutes. GitHub Status reported
+  Actions operational; account quota/capacity remains undiagnosed.
+- The browser ChatGPT session displayed Log in; its Google sign-in confirmation
+  was not accepted. No ChatGPT account, workspace, OAuth grant, or tool call was
+  used.
