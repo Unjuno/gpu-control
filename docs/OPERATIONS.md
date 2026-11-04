@@ -62,14 +62,37 @@ only after this source/runtime step has passed.
 recovery-only supervisor. Install the application and locked Python
 dependencies under `/opt/gpu-control`, create separate API, worker, migration,
 capacity-monitor, and capacity-bridge service users plus artifact/probe groups,
-and install `/etc/gpu-control/gateway.env` from `gateway.env.example` for the
-common database, workload, policy, public-origin, and artifact settings.
-Install `/etc/gpu-control/api.env` from `api.env.example` for API-only
-cookie/OIDC credentials, and `/etc/gpu-control/capacity.env` from
+and install `/etc/gpu-control/gateway.env` from `gateway.env.example` for
+non-secret common workload, policy, public-origin, proxy, and artifact
+settings. Database login credentials must use separate URLs and roles:
+`api-db.env.example` for the API's restricted DML role,
+`worker-db.env.example` for worker/supervisor run-control DML, and
+`migrate-db.env.example` for the operator-only migration role. Provision and
+verify these PostgreSQL roles using the reviewed `database-runtime-roles-*.sql`
+scripts before installing the service units; never copy one broad database
+credential into all three files. The bootstrap SQL creates the three
+least-privilege roles as `NOLOGIN`; provision each same-named role as `LOGIN`
+with its own password through the database provider's protected role-management
+interface, keeping `NOINHERIT` and all elevated attributes disabled. Do not
+grant memberships between these roles. Enable the migration login first for
+schema setup, apply the runtime grants as the migration role, then enable and
+verify the API and worker logins. Never put a password in shell arguments,
+SQL history, logs, or this repository. The database URLs use
+`sslmode=verify-full` and an absolute `sslrootcert` path. Install the trusted
+provider CA or system bundle at that path as a root-owned, non-writable file
+readable by the API, worker, and migration service identities, and verify the
+database hostname matches its certificate before starting units. Install
+`/etc/gpu-control/api.env` from
+`api.env.example` for API-only IP-hash/OIDC credentials, and
+`/etc/gpu-control/capacity.env` from
 `capacity.env.example` for the capacity monitor's artifact path/headroom only.
-All files must be root-owned mode `0600`. API loads common plus API-only
-settings; worker, supervisor, and manual migration load common settings only;
-capacity monitoring receives filesystem settings only. Worker and supervisor
+All environment files must be root-owned mode `0600`. API loads common,
+API-database, and API-only settings; worker and supervisor load common,
+worker-database, and (when explicitly configured) worker-secret settings;
+manual migration loads common and migration-database settings only. Capacity
+monitoring receives filesystem settings only. The API, worker, and migration
+users need read access to the root-owned workload/config files through the
+dedicated `gpu-control-config` group. Worker and supervisor
 may also load the optional root-owned `worker-secrets.env`, which is not loaded
 by API, migration, or capacity services. Do not add OAuth credentials to the
 common file. Keep the local CPU policy disabled until its independent
@@ -89,6 +112,7 @@ Create the dedicated identities before installing/starting units:
 ```sh
 sudo groupadd --system gpu-control-artifacts
 sudo groupadd --system gpu-control-artifact-probes
+sudo groupadd --system gpu-control-config
 sudo groupadd --system gpu-control-migrate
 sudo groupadd --system gpu-control-capacity-bridge
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid gpu-control-artifacts gpu-control-api
@@ -100,7 +124,12 @@ sudo usermod --append --groups systemd-journal gpu-control-capacity-bridge
 ```
 
 The API unit joins the artifact-probe group so its readiness endpoint can
-create and remove a temporary probe; worker and recovery supervisor join only
+create and remove a temporary probe. API, worker/supervisor, and migration
+units also join `gpu-control-config` to read only the operator-owned workload
+and local-policy files. The `/etc/gpu-control` directory should be
+`root:gpu-control-config` mode `0750`; workload and policy files should be
+`root:gpu-control-config` mode `0640`. Environment files remain root-owned
+mode `0600` and are loaded by systemd. Worker and recovery supervisor join
 the Docker group because the worker UID owns the probe directory and artifact
 tree. The capacity user receives only its primary artifact-read group, allowing
 `statvfs` and blob reads without probe-directory write permission, database/auth
@@ -129,9 +158,10 @@ Do not use these commands as a recursive migration for an existing artifact
 tree. For an existing tree, follow the quiesced migration procedure below and
 verify all stored digests before restarting services.
 
-From the repository root, install the three required environment-file examples
+From the repository root, install the six required environment-file examples
 first, edit their settings, then install all eight unit files (seven services
-and one timer). The sample
+and one timer). Provision the three distinct PostgreSQL login roles and the
+readable TLS CA bundle before starting services. The sample
 database URL must be replaced with a value from the approved configuration
 source. Set `GATEWAY_COOKIE_KEY` only for external OIDC browser login; generate
 it with `Fernet.generate_key()` as described in the Gateway README. Built-in
@@ -140,11 +170,17 @@ credential-bearing files; do not put credentials in shell arguments or
 terminal history.
 
 ```sh
-sudo install -d -o root -g root -m 0750 /etc/gpu-control
+sudo install -d -o root -g gpu-control-config -m 0750 /etc/gpu-control
 sudo install -o root -g root -m 0600 gateway/deploy/gateway.env.example /etc/gpu-control/gateway.env
+sudo install -o root -g root -m 0600 gateway/deploy/api-db.env.example /etc/gpu-control/api-db.env
+sudo install -o root -g root -m 0600 gateway/deploy/worker-db.env.example /etc/gpu-control/worker-db.env
+sudo install -o root -g root -m 0600 gateway/deploy/migrate-db.env.example /etc/gpu-control/migrate-db.env
 sudo install -o root -g root -m 0600 gateway/deploy/api.env.example /etc/gpu-control/api.env
 sudo install -o root -g root -m 0600 gateway/deploy/capacity.env.example /etc/gpu-control/capacity.env
 sudoedit /etc/gpu-control/gateway.env
+sudoedit /etc/gpu-control/api-db.env
+sudoedit /etc/gpu-control/worker-db.env
+sudoedit /etc/gpu-control/migrate-db.env
 sudoedit /etc/gpu-control/api.env
 sudoedit /etc/gpu-control/capacity.env
 
@@ -178,10 +214,10 @@ disabled until the fixed-size artifact filesystem is mounted and verified.
 
 | Unit | Unix identity | Environment files | Runtime secret boundary |
 | --- | --- | --- | --- |
-| `gpu-control-api.service` | `gpu-control-api:gpu-control-artifacts` | `gateway.env`, `api.env` | DB/API auth; artifact read and probe-only write; no provider token |
-| `gpu-control-worker.service` | `gpu-control-worker:gpu-control-artifacts` | `gateway.env`, optional `worker-secrets.env` | DB and approved execution-provider credentials; artifact read/write |
-| `gpu-control-supervisor.service` | `gpu-control-worker:gpu-control-artifacts` | `gateway.env`, optional `worker-secrets.env` | Same worker identity for exact tracked-resource recovery/cleanup |
-| `gpu-control-db-migrate.service` | `gpu-control-migrate:gpu-control-migrate` | `gateway.env` | DB credential only; no API auth/provider token |
+| `gpu-control-api.service` | `gpu-control-api:gpu-control-artifacts` plus config/probe read groups | `gateway.env`, `api-db.env`, `api.env` | API DB role and API auth; artifact read and probe-only write; no provider token |
+| `gpu-control-worker.service` | `gpu-control-worker:gpu-control-artifacts` plus config read group | `gateway.env`, `worker-db.env`, optional `worker-secrets.env` | Worker DB role and approved execution-provider credentials; artifact read/write |
+| `gpu-control-supervisor.service` | `gpu-control-worker:gpu-control-artifacts` plus config read group | `gateway.env`, `worker-db.env`, optional `worker-secrets.env` | Same worker identity for exact tracked-resource recovery/cleanup |
+| `gpu-control-db-migrate.service` | `gpu-control-migrate:gpu-control-migrate` plus config read group | `gateway.env`, `migrate-db.env` | Migration-only DB credential; no API auth/provider token |
 | `gpu-control-artifact-capacity.service` | `gpu-control-capacity:gpu-control-artifacts` | `capacity.env` | Artifact mount identity and free-space headroom via `statvfs`; no artifact or probe writes |
 | `gpu-control-capacity-bridge.service` | `gpu-control-capacity-bridge:gpu-control-capacity-bridge` plus `systemd-journal` | none | Read-only journal polling and private outbox state; no network or workload authority |
 
@@ -221,13 +257,16 @@ if any service receives an unexpected variable.
 When updating an installation made from the earlier single-file
 `worker.env.example`, do not point the new units at the old file or copy it
 wholesale into `gateway.env`: that file may contain API authentication values.
-During a planned, quiesced deployment, prepare three required root-owned `0600`
-files:
-move only database, hosted-mode, public-origin, workload, policy, artifact,
-provider-disable, and concurrency settings into `gateway.env`; put only cookie
-and configured OIDC settings into `api.env`; and put only artifact path and
-headroom settings into `capacity.env`. Preserve the existing cookie key and
-database URL exactly unless their rotation is separately planned. Validate
+During a planned, quiesced deployment, prepare separate root-owned `0600`
+database files for the API, worker/supervisor, and migration roles. Move only
+non-secret hosted-mode, public-origin, proxy, workload, policy, artifact,
+provider-disable, and concurrency settings into `gateway.env`; move the old
+shared database URL only into a temporary legacy rollback file, then provision
+the least-privilege role URLs separately in `api-db.env`, `worker-db.env`, and
+`migrate-db.env`. Put API IP-hash, cookie, and configured OIDC settings into
+`api.env`; keep artifact path/headroom in `capacity.env`. Preserve the existing
+cookie key; do not preserve a broad shared database login by copying it into
+the new role-specific files. Validate
 variable names and file ownership without printing values, copy the new unit
 files, run `systemd-analyze verify`, and only then perform the reviewed service
 restart. Keep the old file root-only and mode `0600` until the new services are

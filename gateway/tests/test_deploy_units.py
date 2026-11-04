@@ -29,37 +29,47 @@ def test_gateway_api_is_loopback_only_and_has_no_docker_authority():
     service = unit["Service"]
     assert service["User"] == "gpu-control-api"
     assert service["Group"] == "gpu-control-artifacts"
-    assert service["SupplementaryGroups"] == "gpu-control-artifact-probes"
+    assert service["SupplementaryGroups"] == "gpu-control-artifact-probes gpu-control-config"
     env_files = [line.partition("=")[2] for line in
                  (DEPLOY / "gpu-control-api.service").read_text(encoding="utf-8").splitlines()
                  if line.startswith("EnvironmentFile=")]
-    assert env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/api.env"]
+    assert env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/api-db.env",
+                         "/etc/gpu-control/api.env"]
     assert "--host 127.0.0.1 --port 8000" in service["ExecStart"]
+    assert "--no-proxy-headers" in service["ExecStart"]
     assert "docker" not in service["SupplementaryGroups"]
     assert service["ReadWritePaths"] == "-/var/lib/gpu-control/artifacts/.gpu-control-probes"
     assert service["StateDirectory"] == "gpu-control-api"
 
 
 def test_database_migration_unit_is_restricted_and_never_enabled_automatically():
-    unit = load_unit("gpu-control-db-migrate.service")
+    unit = load_unit("gpu-control-db-migrate.service", strict=False)
     service = unit["Service"]
     assert service["Type"] == "oneshot"
     assert service["User"] == service["Group"] == "gpu-control-migrate"
-    assert service["EnvironmentFile"] == "/etc/gpu-control/gateway.env"
+    assert service["SupplementaryGroups"] == "gpu-control-config"
+    env_files = [line.partition("=")[2] for line in
+                 (DEPLOY / "gpu-control-db-migrate.service").read_text(encoding="utf-8").splitlines()
+                 if line.startswith("EnvironmentFile=")]
+    assert env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/migrate-db.env"]
     assert service["ExecStartPre"].endswith("-m gpu_gateway.worker --check-db")
     assert service["ExecStart"].endswith("-m gpu_gateway.worker --init-db")
-    assert "SupplementaryGroups" not in service
+    assert service["SupplementaryGroups"] == "gpu-control-config"
     assert service["ProtectSystem"] == "strict"
     assert service["NoNewPrivileges"] == "true"
     assert "Install" not in unit
 
 
 def test_database_preflight_unit_is_manual_read_only_and_uses_migration_identity():
-    unit = load_unit("gpu-control-db-check.service")
+    unit = load_unit("gpu-control-db-check.service", strict=False)
     service = unit["Service"]
     assert service["Type"] == "oneshot"
     assert service["User"] == service["Group"] == "gpu-control-migrate"
-    assert service["EnvironmentFile"] == "/etc/gpu-control/gateway.env"
+    assert service["SupplementaryGroups"] == "gpu-control-config"
+    env_files = [line.partition("=")[2] for line in
+                 (DEPLOY / "gpu-control-db-check.service").read_text(encoding="utf-8").splitlines()
+                 if line.startswith("EnvironmentFile=")]
+    assert env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/migrate-db.env"]
     assert service["ExecStart"].endswith("-m gpu_gateway.worker --check-db")
     assert service["ProtectSystem"] == "strict"
     assert service["NoNewPrivileges"] == "true"
@@ -71,16 +81,18 @@ def test_only_worker_and_recovery_supervisor_join_docker_group():
     supervisor = load_unit("gpu-control-supervisor.service", strict=False)["Service"]
     assert worker["User"] == supervisor["User"] == "gpu-control-worker"
     assert worker["Group"] == supervisor["Group"] == "gpu-control-artifacts"
-    assert worker["SupplementaryGroups"] == supervisor["SupplementaryGroups"] == "docker"
+    assert worker["SupplementaryGroups"] == supervisor["SupplementaryGroups"] == "docker gpu-control-config"
     worker_env_files = [line.partition("=")[2].removeprefix("-") for line in
                         (DEPLOY / "gpu-control-worker.service").read_text(encoding="utf-8").splitlines()
                         if line.startswith("EnvironmentFile=")]
     supervisor_env_files = [line.partition("=")[2].removeprefix("-") for line in
                             (DEPLOY / "gpu-control-supervisor.service").read_text(encoding="utf-8").splitlines()
                             if line.startswith("EnvironmentFile=")]
-    assert worker_env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/worker-secrets.env",
+    assert worker_env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/worker-db.env",
+                                "/etc/gpu-control/worker-secrets.env",
                                 "/etc/gpu-control/provider-evidence.env"]
-    assert supervisor_env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/worker-secrets.env"]
+    assert supervisor_env_files == ["/etc/gpu-control/gateway.env", "/etc/gpu-control/worker-db.env",
+                                    "/etc/gpu-control/worker-secrets.env"]
     assert worker["StateDirectory"] == supervisor["StateDirectory"] == "gpu-control"
     assert worker["StateDirectoryMode"] == supervisor["StateDirectoryMode"] == "2750"
     assert worker["ReadWritePaths"] == supervisor["ReadWritePaths"] == "-/var/lib/gpu-control/artifacts"
@@ -94,7 +106,7 @@ def test_service_unix_users_isolate_worker_secrets_from_api_and_oneshots():
     api = load_unit("gpu-control-api.service", strict=False)["Service"]
     worker = load_unit("gpu-control-worker.service", strict=False)["Service"]
     supervisor = load_unit("gpu-control-supervisor.service", strict=False)["Service"]
-    migration = load_unit("gpu-control-db-migrate.service")["Service"]
+    migration = load_unit("gpu-control-db-migrate.service", strict=False)["Service"]
     capacity = load_unit("gpu-control-artifact-capacity.service")["Service"]
     bridge = load_unit("gpu-control-capacity-bridge.service")["Service"]
     assert api["User"] not in {worker["User"], migration["User"], capacity["User"]}
@@ -148,8 +160,10 @@ def test_gateway_ci_runs_systemd_verification_for_all_service_templates():
     helper_path = DEPLOY / "verify_systemd_units_ci.sh"
     assert "bash deploy/verify_systemd_units_ci.sh" in workflow
     helper = helper_path.read_text(encoding="utf-8")
-    assert '"${GITHUB_ACTIONS:-}" != true' in helper
-    assert '"${RUNNER_OS:-}" != Linux' in helper
+    assert "GITHUB_ACTIONS" not in helper and "RUNNER_OS" not in helper
+    assert "mktemp -d" in helper and 'systemd-analyze verify "$copy:$unit"' in helper
+    assert "sudo " not in helper and "groupadd" not in helper and "useradd" not in helper
+    assert "/etc/" not in helper and "/opt/" not in helper
     for unit in (
         "gpu-control-api.service", "gpu-control-worker.service",
         "gpu-control-supervisor.service", "gpu-control-db-check.service",
@@ -158,7 +172,7 @@ def test_gateway_ci_runs_systemd_verification_for_all_service_templates():
         "gpu-control-capacity-bridge.service",
     ):
         assert unit in helper
-    assert "systemd-analyze verify" in helper
+    assert "systemd-analyze --root" not in helper
     assert "systemctl start" not in helper
 
 
@@ -175,6 +189,9 @@ def test_shared_deployment_environment_uses_public_https_and_persistent_artifact
     assert values["GATEWAY_ENABLE_MODAL"] == "false"
     assert values["GATEWAY_ENABLE_RUNPOD_BRIDGE"] == "false"
     assert values["GATEWAY_HOSTED"] == "true"
+    assert "GATEWAY_DATABASE_URL" not in values
+    assert values["GATEWAY_CLIENT_IP_MODE"] == "trusted_proxy"
+    assert values["GATEWAY_TRUSTED_PROXY_CIDRS"] == "127.0.0.1/32,::1/128"
     assert "GATEWAY_COOKIE_KEY" not in values
     assert "GATEWAY_OIDC_CLIENT_SECRET" not in values
 
@@ -190,6 +207,9 @@ def test_authentication_and_capacity_settings_are_environment_isolated():
         return result
 
     api = values("api.env.example")
+    api_db = values("api-db.env.example")
+    worker_db = values("worker-db.env.example")
+    migrate_db = values("migrate-db.env.example")
     capacity = values("capacity.env.example")
     api_example = (DEPLOY / "api.env.example").read_text(encoding="utf-8")
     assert "# GATEWAY_COOKIE_KEY=" in api_example
@@ -197,6 +217,26 @@ def test_authentication_and_capacity_settings_are_environment_isolated():
     assert "Fernet.generate_key()" in api_example
     assert "GATEWAY_COOKIE_KEY" not in api
     assert "GATEWAY_OIDC_CLIENT_SECRET" not in api  # external OIDC is opt-in
+    assert "GATEWAY_CLIENT_IP_HASH_KEY" not in api
+    assert all("GATEWAY_DATABASE_URL" in source
+               for source in (api_db, worker_db, migrate_db))
+    assert "gpu_control_api:" in api_db["GATEWAY_DATABASE_URL"]
+    assert "gpu_control_worker:" in worker_db["GATEWAY_DATABASE_URL"]
+    assert "gpu_control_migrate:" in migrate_db["GATEWAY_DATABASE_URL"]
+    assert all("sslmode=verify-full" in source["GATEWAY_DATABASE_URL"]
+               for source in (api_db, worker_db, migrate_db))
+    assert all("sslrootcert=/etc/ssl/certs/ca-certificates.crt" in source["GATEWAY_DATABASE_URL"]
+               for source in (api_db, worker_db, migrate_db))
+    api_example = (DEPLOY / "api.env.example").read_text(encoding="utf-8")
+    assert "GATEWAY_CLIENT_IP_HASH_KEY=" in api_example
+    assert "GATEWAY_CLIENT_IP_HASH_KEY=" not in (
+        DEPLOY / "gateway.env.example").read_text(encoding="utf-8")
+    assert "--no-proxy-headers" in (DEPLOY.parent / "Dockerfile").read_text(encoding="utf-8")
+    api_deployment = (DEPLOY.parent / ".env.example").read_text(encoding="utf-8")
+    assert "API-only deployment example" in api_deployment
+    assert "gpu_control_api:" in api_deployment and "sslmode=verify-full" in api_deployment
+    assert "sslrootcert=/absolute/path/to/trusted-provider-ca.pem" in api_deployment
+    assert "Vercel runtime CA paths have not" in api_deployment
     assert not {"GATEWAY_DATABASE_URL", "GATEWAY_COOKIE_KEY", "GATEWAY_OIDC_CLIENT_SECRET"} & capacity.keys()
     assert set(capacity) == {"GATEWAY_ARTIFACT_DIR", "GATEWAY_ARTIFACT_MIN_FREE_BYTES"}
     for name in ("gpu-control-worker.service", "gpu-control-supervisor.service"):

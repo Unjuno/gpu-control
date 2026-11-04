@@ -19,8 +19,9 @@ training job can be submitted, monitored, cancelled and retrieved.
   ChatGPT OAuth exchange or tool scan was performed in this acceptance.
 - GitHub `main` is `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`. PR #60 remains
   Draft at `14361c32091db9789e38ffe84d0150a0527185f8`. The current candidate
-  is `534c84402f7e1ba8bcef246a06bfae7d29622e22`, eight commits ahead of its
-  remote branch, with 22 changed/untracked worktree paths. It is not the
+  was `97f4d3887005c9c7cf42bd2dbf1c8c923c0815ba` at the start of the
+  2026-11-05 continuation, 12 commits ahead of its remote branch, with
+  additional uncommitted worktree changes. It is not the
   revision deployed at the existing public URL.
 - Repository policy is `parked`. GitHub Preview and Production environments
   have no protection rules or deployment branch policy; repository and both
@@ -47,11 +48,11 @@ training job can be submitted, monitored, cancelled and retrieved.
 - Local CPU, PostgreSQL, and MCP contract tests recorded in
   `2026-11-04-current-worktree-local-validation.md` passed; they do not prove
   public deployment, real ChatGPT, Modal GPU, or RunPod execution.
-- During this continuation, the current Gateway suite passed **543 tests**
-  with **25 environment-dependent skips**; WebMCP passed **3 tests**. The
-  current PostgreSQL-backed ACL/store/provider-lease/migration/OAuth suite
-  passed **87 tests** against a fresh disposable PostgreSQL 17.11 database.
-  The container was removed afterward. A deterministic predecessor-revocation
+- During this continuation, the Gateway suite passed **571 tests** with
+  **7 environment-dependent skips** against a fresh disposable PostgreSQL
+  17.11 database; the container was removed afterward. The separate Core
+  suite passed **559 tests** with **1 Python-version-specific skip**. A
+  deterministic predecessor-revocation
   race test observed the actual database lock wait and proved all six
   predecessor/current/successor access and refresh tokens were revoked.
 - Vercel's official request-header documentation confirms that
@@ -348,3 +349,228 @@ remains on the signed-in `unjuno` workspace, but no Modal quota or credential
 settings were opened. No login, token, billing, resource, deployment, or
 provider setting was changed. Account-specific RunPod and ChatGPT checks cannot
 proceed from the currently available browser sessions.
+
+## Continuation update — RunPod and Modal execution boundary — 2026-11-04
+
+The user reiterated that RunPod must be delivered alongside Modal, with both
+usable from an ordinary ChatGPT conversation. This remains the active product
+acceptance target.
+
+- The local candidate is `97f4d3887005c9c7cf42bd2dbf1c8c923c0815ba` on
+  `codex/gpu-control-current-p5-on-pr58`, 12 commits ahead of the remote PR
+  branch. The worktree was clean before this documentation/status correction.
+- The existing older Vercel deployment is reachable, but its source SHA is not
+  this candidate; the current candidate has not been deployed. PR #60 remains
+  Draft and unmerged. No push or deployment was performed.
+- RunPod v2 adapter and account-lease contracts exist in source, but the
+  default Gateway registry still points to `ExistingRunPodBridge`, requiring
+  an operator factory. No ChatGPT-origin issuer or durable paid authorization
+  caller is wired. Worker admission continues to refuse RunPod paid/credit
+  plans with `runpod_authorization_persistence_unavailable`.
+- Modal Sandbox backend exists, but Modal credit authorization is not wired to
+  Worker admission. The account-specific quota, zero-out-of-pocket cap, and a
+  worker-only least-privilege credential are not verified. Neither provider is
+  currently accepted for live ChatGPT GPU execution.
+- The Codex Security Diff Scan completed for the exact range
+  `14361c32091db9789e38ffe84d0150a0527185f8..97f4d3887005c9c7cf42bd2dbf1c8c923c0815ba`
+  (scan `60d410e1-83aa-420d-b01f-d9fd63572899`). It covered all 14 changed
+  security source files and reported zero reportable findings. Report:
+  `/Users/taka/.codex/state/plugins/codex-security/scans/gpu-control-pr58-current-candidate/97f4d3887005c9c7cf42bd2dbf1c8c923c0815ba_20261104T034224Z_glxmqtwk/report.md`.
+  This is a source-diff scan, not a deployment, account, credential, or live
+  provider security acceptance.
+- README status was corrected to say the reachable Vercel deployment is older,
+  the current candidate is not deployed or ChatGPT-verified, and RunPod's
+  authorization/Gateway wiring and Modal's credit admission remain incomplete.
+- No provider credential, billing setting, database, resource, token, public
+  deployment, or GitHub PR state was changed. No ChatGPT tool call or GPU job
+  was attempted.
+
+The next technical acceptance sequence is: reconcile and publish the reviewed
+candidate through the repository release flow; establish a correctly protected
+public Gateway and least-privilege runtime; complete normal ChatGPT OAuth and
+tool discovery; then finish and separately accept the RunPod and Modal worker
+paths with explicit account, cost, cleanup, and result evidence. Keep policy
+`parked` until all of these gates pass.
+
+## Continuation update — live account and GitHub checks — 2026-11-05
+
+The user authenticated in the RunPod browser and asked to use RunPod through
+GitHub Actions as well as Modal. The following checks were read-only; no
+credentials, billing settings, workflows, or provider resources were changed.
+
+- RunPod Billing shows a prepaid balance of **$15.00**, current spend
+  **$0.000/hour**, a spend-rate limit of **$80/hour**, and Auto-Pay disabled.
+  The account currently has zero GPUs, vCPUs, storage, and endpoints. The
+  credentials page has no API key rows, and there is no existing Network
+  Volume. The saved payment method was not used. The account's hourly rate
+  limit is not a cumulative $15 cap. RunPod says compute/storage usage is
+  deducted from prepaid credits, top-ups are non-refundable, and an existing
+  Network Volume continues to incur storage cost; see [RunPod billing
+  documentation](https://github.com/runpod/docs/blob/main/accounts-billing/billing.mdx).
+- Modal remains on Starter. Its dashboard shows **$1 of $30/month** free
+  compute credit remaining, with a payment method required to unlock the
+  remainder. Workspace limits show 0/10 concurrent GPUs and the API tokens
+  page has no tokens. No upgrade, payment method, token, or resource was
+  created. Service Users are restricted to Team/Enterprise per [Modal Service
+  Users](https://modal.com/docs/guide/service-users) and [Modal
+  pricing](https://modal.com/pricing).
+- GitHub `Unjuno/gpu-control` main has required review and CI protections, but
+  its only Actions environments are Preview and Production and both have zero
+  protection rules. There is no `paid-runpod` environment, repository Actions
+  secret, or RunPod GPU workflow. The live paid-compute policy remains parked.
+- `Unjuno/orbitune` run `41629597889` succeeded publishing the immutable
+  selected-source image. Its evidence artifact records source SHA
+  `fc131174a9b529a9825f54fccf1a7df4c63c9a1a` and image digest
+  `sha256:489348337940c858f83ab056769a5c843ed8f778b906e7e16a8120581b0dd08e`.
+  The existing `runpod-canary-smoke` is a CPU-only GitHub Actions contract
+  smoke; image publication does not create a RunPod Pod or prove GPU training.
+- The present candidate cannot safely spend the $15 from GitHub: there is no
+  protected paid environment, scoped RunPod credential, concrete live
+  Gateway-to-RunPod workflow, existing result-storage volume, or verified
+  live result/cleanup path. No GPU was started and no money was spent. Keep
+  the existing balance intact until these gates and the exact first-run
+  resource, runtime, cumulative charge ceiling, storage cost, and cleanup are
+  reviewed together.
+
+The next roadmap work is to reconcile the current P1 CPU/recovery candidate
+with the P5 authorization changes, close the deployment credential-isolation
+and trusted-proxy gaps, then complete the actual hosted ChatGPT CPU acceptance.
+Only after those release, operational, provider, result-transport, and human
+authorization gates are independently satisfied may a paid RunPod workflow be
+added and a bounded live run considered. A GitHub image build or a successful
+CPU smoke must not be reported as a paid GPU execution.
+
+## Continuation update — branch protection and image evidence — 2026-11-05
+
+- The live GitHub API showed `main` required one approving review and seven
+  required checks. The initial query mistakenly selected the code-owner-review
+  field under the alias `strict`, so it did not establish the prior
+  required-status-check strict value. Updated only required-status-check
+  protection to `strict=true`, retaining the seven known contexts. A
+  follow-up API read confirmed strict checks, one approving review, and admin
+  enforcement are enabled. The prior strict value is unknown. No source branch,
+  PR, deployment, or billing state was changed by this GitHub setting update.
+- Read-only inspection confirmed open Draft PRs #51–#66 remain a stacked
+  release sequence; PR #66 is the current P1 CPU vertical/recovery candidate,
+  not a merged or deployed release. No PR was approved or merged.
+- The published Orbitune image digest was reconciled into the machine policy,
+  correcting its stale `published: false` value. The corresponding parked-mode
+  documentation now records that publication does not itself authorize or
+  prove GPU execution.
+- `pytest -q tests/test_repository_state.py` passed (4 tests), and
+  `git diff --check` passed. No provider secret, paid workflow, GPU resource,
+  RunPod balance, or Modal billing setting was touched. ChatGPT MCP acceptance
+  and live provider execution remain unverified.
+
+## Continuation update — P1 deployment credential isolation — 2026-11-05
+
+Applied the bounded deployment-hardening changes from PR #66 to the current
+P5 candidate without merging the diverged PR stack:
+
+- Removed the shared database URL from `gateway.env.example` and added
+  separate API, worker/supervisor, and migration URL templates for
+  `gpu_control_api`, `gpu_control_worker`, and `gpu_control_migrate`, all
+  requiring TLS hostname verification. Systemd units now load only their
+  service's URL; API-only IP-hash/OIDC settings remain in `api.env.example`.
+- Added the read-only `gpu-control-config` group to API, worker/supervisor,
+  and migration services so they can read operator-owned workload/policy
+  files. Updated the Operations runbook for directory/file ownership, role
+  provisioning, installation, and the distinct database URLs. The runbook now
+  explains the SQL bootstrap roles start `NOLOGIN`; each same-named least-
+  privilege role must be provisioned as a distinct `LOGIN` out of band, without
+  cross-role membership, before its URL is used.
+- Added Uvicorn `--no-proxy-headers` to the API systemd unit and container
+  entrypoint so the application's trusted-proxy resolver sees the actual
+  socket peer. The API-only HMAC key stays out of common and worker settings.
+- Reworked the CI systemd verifier to copy units into a disposable temporary
+  directory and validate there; it no longer creates host users/groups or
+  installs placeholders under `/etc` and `/opt`.
+- Astra's second pass found that `verify-full` alone was incomplete for these
+  no-home, `ProtectHome=true` services. All DB URL examples now specify the
+  trusted CA bundle by absolute `sslrootcert` path, and the runbook requires a
+  root-owned readable CA file plus certificate-hostname verification.
+- The separate Vercel/API `.env.example` uses an explicit placeholder CA path
+  and warns against deploying it unchanged. Current Vercel docs identify
+  Amazon Linux 2023 for the build image, but do not establish the deployed
+  Function's CA-bundle path; that runtime path must be measured before hosted
+  DB connectivity is accepted. No assumption was copied from the build image
+  into the function-runtime configuration.
+- Extended deployment-boundary tests for DB-role separation, API-only secrets,
+  trusted-proxy configuration, and the safe CI verifier. Result:
+  `gateway/.venv/bin/python -m pytest -o addopts= -q tests/test_deploy_units.py`
+  — **15 passed**, one existing Starlette deprecation warning. The installed
+  Uvicorn help confirms `--no-proxy-headers` is supported, and `git diff
+  --check` passed.
+- The full PR #66 P1 stack is still not integrated: only the deployment
+  credential/proxy slice was carried over. No systemd host, PostgreSQL role,
+  GitHub PR, deployment, provider credential, paid workflow, or GPU was
+  changed or used. Actual host `systemd-analyze`, live DB-role permissions,
+  hosted ChatGPT CPU acceptance, and independent review of this new delta
+  remain pending. Keep provider policy `parked`.
+
+## Continuation update — local registered CPU/MCP rerun — 2026-11-05
+
+Built the repository-owned CPU smoke image from
+`gateway/workloads/cpu-smoke/Dockerfile` on the current worktree and exercised
+the authenticated local MCP integration route:
+
+- Image ID: `sha256:daf290a3a6d909d5791c0cbcac7f0f1854f49fc4c2994f2649fdd67702085192`
+  (`linux/arm64`), with OCI source label `Unjuno/gpu-control` and a deliberately
+  synthetic all-`a` source SHA required by this local fixture. This label is
+  not a claim that the image was built from a published commit.
+- Command from `gateway/`:
+  `GPU_CONTROL_CPU_SMOKE_IMAGE_DIGEST=sha256:daf290a3a6d909d5791c0cbcac7f0f1854f49fc4c2994f2649fdd67702085192 GPU_CONTROL_CPU_SMOKE_SOURCE_REPOSITORY=Unjuno/gpu-control GPU_CONTROL_CPU_SMOKE_SOURCE_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ./.venv/bin/python -m pytest -o addopts= -q tests/test_local_mcp_integration.py`
+- Result: **1 passed** in 1.26 seconds, with one existing Starlette
+  deprecation warning. The assertion path listed tools, prepared and replayed
+  a registered workload idempotently, submitted it, ran the real local Docker
+  container through the Worker, retrieved the result and artifact through a
+  second MCP client, verified the exact artifact bytes/digest, and confirmed
+  terminal cleanup. The returned result was `simulation=false`, `gpu_used=false`,
+  and `cost_classification=LOCAL`.
+- After the run, no container using the unique image tag remained. The
+  pre-existing unrelated Docker container remained running and was not touched.
+  This is local MCP/CPU evidence with synthetic OAuth and source identity; it
+  does not prove a hosted deployment, ChatGPT conversation, real model
+  inference, GPU use, provider billing, or paid execution.
+
+## Continuation update — full local regression — 2026-11-05
+
+- Gateway with disposable PostgreSQL 17.11: **571 passed, 7 skipped** in
+  15.88 seconds. Database ACL, migration, OAuth and provider-lease tests ran;
+  the temporary container was removed after the run.
+- Core: **559 passed, 1 skipped** in 0.99 seconds. The skip is the documented
+  Python 3.11-only malformed RunPod decoder reproducer.
+- `git diff --check` passed after the recorded implementation changes.
+- These are local source regression results. Hosted OAuth, Vercel deployment,
+  ChatGPT web conversation, live worker heartbeats, provider credentials and
+  real GPU execution remain unverified. Policy remains `parked`.
+
+## Continuation update — hosted PR #66 preview recheck — 2026-11-05
+
+Using the previously approved, account-scoped temporary Vercel share-link
+access, read-only GETs rechecked the existing preview deployment. Vercel's
+deployment API identifies it as READY at source
+`1adc2417ef506bd0b9bac4dacafc8b0f5f8ea0f2` on
+`codex/pr58-cpu-vertical-reconcile-20261102` (deployment
+`dpl_HXNz6AnPwCpdtaUDfeFesRjDpK7T`, target `null`). The registered custom
+domain and Production settings were not changed.
+
+- `/healthz`: HTTP 200, `configured=false`, `auth_configured=false`,
+  `auth_mode=local_oauth`.
+- `/readyz`: HTTP 503, `{"ready":false}`.
+- `/.well-known/oauth-protected-resource/mcp` and
+  `/.well-known/oauth-authorization-server`: HTTP 503 with
+  `configuration_required` during Gateway configuration initialization. The
+  shared response does not identify the specific missing or invalid setting;
+  external OIDC is not necessarily required when built-in OAuth is selected.
+- A metadata-only Vercel environment-variable listing returned HTTP 403. No
+  environment values were requested or read; the denied listing does not prove
+  which variables are present or absent. The Vercel MCP has no authorized CLI
+  fallback available in this workspace.
+
+This proves the preview is reachable and fail-closed, but not ready for
+ChatGPT OAuth or MCP use. No deployment, project setting, environment variable,
+database, provider credential, or billing state was changed. Keep the release
+and spending gates closed until an authorized operator configures and verifies
+the Preview database, CA trust, OAuth and registered workload, then repeats
+these checks against the exact reviewed revision.

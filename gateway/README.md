@@ -154,8 +154,12 @@ worker's secret store. The API only needs DB access, trusted workload manifests
 and the selected OAuth settings. A stable encrypted-cookie key is needed only
 for external OIDC browser login; built-in local OAuth stores opaque sessions in
 PostgreSQL. The separate
-`deploy/gateway.env.example` supplies common non-auth settings to the dedicated
-Linux services. Put OAuth and cookie settings only in `deploy/api.env.example`,
+`deploy/gateway.env.example` supplies common non-secret settings to the
+dedicated Linux services. Database credentials are separate: use
+`deploy/api-db.env.example`, `deploy/worker-db.env.example`, and
+`deploy/migrate-db.env.example` with their matching least-privilege PostgreSQL
+roles; never share a broad login across API, worker, and migration. Keep API
+client-IP hash, OAuth, and cookie settings only in `deploy/api.env.example`,
 loaded by the API unit only. `deploy/capacity.env.example` gives the capacity
 monitor only artifact path/headroom settings. Keep provider integrations disabled;
 the API-only authentication file is not loaded by worker services. The worker and
@@ -298,8 +302,9 @@ demo Compose stack does not perform these steps and does not validate this path.
 `deploy/` contains eight dedicated Linux systemd unit files: API, worker,
 recovery supervisor, read-only database check, manual database migration,
 artifact-capacity check, its timer, and the manual capacity journal bridge.
-The companion `gateway.env.example`, `api.env.example`, and
-`capacity.env.example` files are the required environment starting points;
+The companion `gateway.env.example`, three role-specific database environment
+examples, `api.env.example`, and `capacity.env.example` files are the required
+environment starting points;
 `worker-secrets.env.example` is optional and must remain absent while provider
 integrations are parked. These are configuration templates, not a tested
 installer. API, worker/supervisor, migration, and capacity run under separate

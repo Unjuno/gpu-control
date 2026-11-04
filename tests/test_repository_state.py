@@ -38,7 +38,10 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
         "authenticated_completion_envelope": "passed",
         "completion_protocol": "gpu-control-hmac-sha256-v3",
     }
-    assert workload["immutable_image"] == {"published": False, "digest": None}
+    assert workload["immutable_image"] == {
+        "published": True,
+        "digest": "sha256:489348337940c858f83ab056769a5c843ed8f778b906e7e16a8120581b0dd08e",
+    }
     assert workload["completion_evidence"] == {
         "workload_protocol": "gpu-control-hmac-sha256-v3",
         "legacy_v2_compatibility": "temporary_migration_only",
