@@ -72,3 +72,26 @@ ChatGPT acceptance, GPU execution, or paid-provider readiness.
   still lacks its required isolated database/API configuration and worker
   heartbeats, and ChatGPT OAuth, tool discovery, and a ChatGPT-originated CPU
   run/result retrieval remain unverified.
+
+## ChatGPT tool OAuth challenge compatibility
+
+- OpenAI's current plugin authentication guidance requires per-tool
+  `securitySchemes`, protected-resource metadata, and a runtime tool result
+  carrying `_meta["mcp/www_authenticate"]` with `error` and
+  `error_description` to trigger the ChatGPT OAuth linking UI:
+  https://developers.openai.com/plugins/build/auth
+- The gateway already published protected-resource metadata and declared the
+  scope for each ChatGPT tool. This change adds the runtime challenge for
+  unauthenticated calls and insufficient-scope tool calls, while retaining
+  HTTP `WWW-Authenticate` for discovery and other MCP requests.
+- Verification on 2026-11-11: `uv run --project gateway pytest -q
+  gateway/tests/test_http_auth.py gateway/tests/test_protocol_validation.py`
+  passed (38 tests), and `uv run --project gateway pytest -q gateway/tests`
+  passed (592 passed, 27 skipped).
+- Independent read-only Security Review of the uncommitted OAuth challenge
+  change found no actionable issue.
+- This is local protocol compatibility evidence only. The hosted Preview still
+  redirects unauthenticated health checks to Vercel SSO, and this environment's
+  computer-control setting disables access to the user's browser. ChatGPT
+  account linking, tool discovery, and a ChatGPT-originated experiment remain
+  unverified.

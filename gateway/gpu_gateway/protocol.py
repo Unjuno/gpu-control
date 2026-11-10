@@ -53,6 +53,11 @@ CHATGPT_TOOL_DATA = (
 )
 LEGACY_NAMES = {row[0] for row in TOOL_DATA}
 CHATGPT_NAMES = {row[0] for row in CHATGPT_TOOL_DATA}
+CHATGPT_SCOPES = {row[0]: row[2] for row in CHATGPT_TOOL_DATA}
+
+
+def required_chatgpt_scope(name: str) -> str | None:
+    return CHATGPT_SCOPES.get(name)
 
 
 def tools(principal: Principal, version: str = MODERN) -> list[dict]:

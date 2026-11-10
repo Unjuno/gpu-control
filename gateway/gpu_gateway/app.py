@@ -19,13 +19,27 @@ from .admission import load_local_cpu_policy, local_cpu_workload_blocker
 from .artifacts import inspect_artifact_storage
 from .config import Settings, load_workloads
 from .client_ip import resolve_login_source
-from .protocol import dispatch, error, tools, validate_headers
+from .protocol import dispatch, error, required_chatgpt_scope, tools, validate_headers
 from .service import ExperimentService, GatewayError
 from .store import Store, control
 from .migrations import SCHEMA_VERSION, schema_version
 from .health import heartbeat_age as calculate_heartbeat_age, heartbeat_is_fresh
 
 STATIC = Path(__file__).parent / "static"
+
+
+def _oauth_tool_auth_error(identifier, public_url: str, scope: str, *, insufficient_scope: bool):
+    error_code = "insufficient_scope" if insufficient_scope else "invalid_token"
+    description = ("Authorize this connection with the required permission" if insufficient_scope
+                   else "Sign in to authorize this connection")
+    challenge = (f'Bearer resource_metadata="{public_url}/.well-known/oauth-protected-resource/mcp", '
+                 f'error="{error_code}", error_description="{description}"')
+    if insufficient_scope:
+        challenge += f', scope="{scope}"'
+    return {"jsonrpc": "2.0", "id": identifier, "result": {
+        "content": [{"type": "text", "text": description}], "isError": True,
+        "_meta": {"mcp/www_authenticate": [challenge]},
+    }}
 
 
 def create_app(settings: Settings | None = None, *, service=None, auth=None) -> FastAPI:
@@ -436,10 +450,6 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         origin = request.headers.get("origin")
         if origin is not None and origin != settings.public_url:
             raise GatewayError("invalid_origin", "Origin is not allowed", 403)
-        authorization = request.headers.get("authorization", "")
-        if not authorization.startswith("Bearer "):
-            raise GatewayError("invalid_token", "Bearer access token is required", 401)
-        principal = await run_in_threadpool(auth.verify, authorization[7:])
         if request.method != "POST":
             return Response(status_code=405, headers={"Allow": "POST"})
         accept = request.headers.get("accept", "")
@@ -451,10 +461,47 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
             if exc.code == "invalid_json":
                 return JSONResponse(error(None, -32700, "Parse error"), 400)
             raise
+        authorization = request.headers.get("authorization", "")
+        if ("application/json" not in request.headers.get("accept", "") or
+                "text/event-stream" not in request.headers.get("accept", "")) and not request.headers.get("content-type", "").startswith("application/json") and not authorization.startswith("Bearer "):
+            raise GatewayError("invalid_token", "Bearer access token is required", 401)
+        principal = None
+        auth_error = None
+        if authorization.startswith("Bearer "):
+            try:
+                principal = await run_in_threadpool(auth.verify, authorization[7:])
+            except GatewayError as exc:
+                auth_error = exc
+        else:
+            auth_error = GatewayError("invalid_token", "Bearer access token is required", 401)
+
+        # ChatGPT's tool-level linking UI requires an MCP tool error carrying
+        # mcp/www_authenticate. Keep the HTTP challenge for discovery and
+        # non-tool requests; only return a JSON-RPC tool result when the caller
+        # is attempting a registered tool.
+        params = payload.get("params", {}) if isinstance(payload, dict) else {}
+        tool_name = params.get("name") if isinstance(params, dict) else None
+        required_scope = required_chatgpt_scope(tool_name) if isinstance(tool_name, str) else None
+        if auth_error is not None and isinstance(payload, dict) and payload.get("method") == "tools/call" and required_scope:
+            identifier = payload.get("id")
+            if isinstance(identifier, bool) or not isinstance(identifier, (str, int)):
+                identifier = None
+            result = _oauth_tool_auth_error(identifier, settings.public_url, required_scope,
+                                            insufficient_scope=auth_error.status == 403)
+            return JSONResponse(result, status_code=200)
+        if auth_error is not None:
+            raise auth_error
         version, header_error = validate_headers(payload, request.headers)
         if header_error:
             return JSONResponse(header_error[0], header_error[1])
-        value, status = await run_in_threadpool(dispatch, service, principal, payload, version)
+        try:
+            value, status = await run_in_threadpool(dispatch, service, principal, payload, version)
+        except GatewayError as exc:
+            if exc.status not in {401, 403} or not (isinstance(payload, dict) and payload.get("method") == "tools/call" and required_scope):
+                raise
+            identifier = payload.get("id")
+            value, status = (_oauth_tool_auth_error(identifier, settings.public_url, required_scope,
+                                                    insufficient_scope=exc.status == 403), 200)
         return Response(status_code=status) if value is None else JSONResponse(value, status)
 
     return app

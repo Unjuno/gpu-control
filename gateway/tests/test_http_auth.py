@@ -23,12 +23,28 @@ def rpc(w, method, params=None, **extra):
 
 
 def test_metadata_and_unauthenticated_challenge(web):
-    response = web.client.post("/mcp", json={})
+    response = web.client.post("/mcp", headers={"Accept": "application/json, text/event-stream"}, json={})
     assert response.status_code == 401
     assert "oauth-protected-resource/mcp" in response.headers["www-authenticate"]
     meta = web.client.get("/.well-known/oauth-protected-resource/mcp").json()
     assert meta["resource"] == web.settings.resource
     assert meta["authorization_servers"] == [web.settings.issuer]
+
+
+def test_unauthenticated_tool_call_returns_chatgpt_oauth_challenge(web):
+    headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json",
+               "MCP-Protocol-Version": "2025-06-18"}
+    response = web.client.post("/mcp", headers=headers, json={
+        "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+        "params": {"name": "experiment_capabilities", "arguments": {}},
+    })
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["isError"] is True
+    challenge = result["_meta"]["mcp/www_authenticate"][0]
+    assert 'error="invalid_token"' in challenge
+    assert "error_description=" in challenge
+    assert web.settings.public_url + "/.well-known/oauth-protected-resource/mcp" in challenge
 
 
 def test_initialize_list_and_notification(web):
@@ -69,9 +85,13 @@ def test_jwt_rejections(web, override):
 def test_scope_is_enforced_at_tool_call(web):
     token = web.token(scope="experiments:read")
     headers = dict(web.headers, Authorization="Bearer " + token)
-    response = web.client.post("/mcp", headers=headers, json={"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"experiments_prepare", "arguments":{"workload":"demo", "idempotency_key":"no-permission"}}})
-    assert response.status_code == 403
-    assert "insufficient_scope" in response.headers["www-authenticate"]
+    response = web.client.post("/mcp", headers=headers, json={"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"experiment_prepare", "arguments":{"repository":"owner/repo", "commit":"a" * 40, "workload":"demo", "idempotency_key":"scope-check-01"}}})
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["isError"] is True
+    challenge = result["_meta"]["mcp/www_authenticate"][0]
+    assert 'error="insufficient_scope"' in challenge
+    assert 'scope="experiments:run"' in challenge
 
 
 def test_origin_and_transport_headers(web):
