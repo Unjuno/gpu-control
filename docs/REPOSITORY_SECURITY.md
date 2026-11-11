@@ -9,7 +9,7 @@ Before live paid authorization can succeed, a trusted preflight must read GitHub
 - `main` is protected;
 - changes to `main` require a pull request;
 - required status checks are enforced;
-- all seven current required checks pass: `Python 3.11`, `Python 3.12`, `Python 3.13`, `Trusted reference container`, `Gateway offline tests`, `Gateway comment bridge tests`, and `Project bridge tests`;
+- the current required checks cover the Python 3.11/3.12/3.13 suites, the trusted reference container, the Sites Worker/D1/Runner contract, and Project bridge tests. The legacy FastAPI/PostgreSQL Gateway checks are archived and are not release gates for the ChatGPT Sites product path;
 - force pushes are blocked;
 - branch deletion is blocked.
 
