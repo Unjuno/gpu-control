@@ -3,7 +3,7 @@
 Private ChatGPT MCP Site target for `Unjuno/gpu-control`.
 
 The owner-private Site now publishes the fixed TinyStories CPU inference
-workload. ChatGPT has completed one provenance-valid end-to-end inference,
+workload. ChatGPT has completed two provenance-valid end-to-end inferences,
 retrieved its persisted result, and confirmed container cleanup. Two earlier
 outputs with a non-resolving source SHA are excluded from acceptance. This is a narrow acceptance
 slice; recovery, cross-owner isolation, R2 artifacts, GPU execution, and paid
@@ -36,6 +36,8 @@ The Worker lease is a fixed 180 seconds, exceeding the runner's bounded Docker s
 ## Current verification boundary
 
 On 2026-11-12, ChatGPT run `d17dcc650783466088bacb734826bcdb` used source `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`, prompt `Once upon a time`, seed `61112`, and a maximum of 24 tokens. It generated the TinyStories result in 430 ms, passed registered identity/checksum checks, reported `gpu_used=false`, persisted the result in D1, and confirmed cleanup. Paid execution stays parked.
+
+A second run, `6175c7a710e4424bb30f595d019d3eb7`, used the same registered source and image with seed `61113` and a 16-token limit. It completed in 313 ms, passed the same identity/checksum checks, returned checksum `3d67d5c215c128d7bf8a556e532cdfd867542e2056c9977d66b3275989fdcdd5`, reported `gpu_used=false`, was retrieved through the ChatGPT result tool, and confirmed cleanup. Its cost ceiling was `$0.00`. A request using the Sites source repository's own commit instead of the separately registered workload source was safely rejected before execution.
 
 The runner requires `GPU_CONTROL_SITE_URL`, `GPU_CONTROL_RUNNER_BEARER_TOKEN`, `GPU_CONTROL_SITES_SERVICE_TOKEN`, and the exact three `CPU_WORKLOAD_*` registration values. Store the Site service token and runner bearer token only in the runner host's secret store and the Sites runtime secret store where applicable. The runner sends both the Sites service authorization header and independent bearer token. It never logs response bodies or credentials. It does not accept code, image names, Docker options, or provider selection from tool callers.
 
