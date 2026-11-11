@@ -137,6 +137,40 @@ test("duplicate submit returns the succeeded run without claiming it was newly q
   const result = JSON.parse(rpc.result.content[0].text);
   assert.equal(result.run_id, runId);
   assert.equal(result.machine_state.state, "succeeded");
-  assert.match(result.human_summary, /既に完了/);
-  assert.match(result.human_summary, /追加実行は作成していません/);
+  assert.equal(result.human_summary, "この実験は完了しています。");
+});
+
+test("submit uses the persisted state when D1 batch resolves without creating a new row", async () => {
+  const runId = "e".repeat(32);
+  const env = environment({ heartbeatAt: Math.floor(Date.now() / 1000), admission: "true" });
+  env.DB.prepare = (sql) => ({
+    bind() {
+      return {
+        async first() {
+          if (sql.includes("runner_heartbeats")) return {
+            last_seen_at: Math.floor(Date.now() / 1000), image_digest: imageDigest, source_sha: sourceSha,
+          };
+          if (sql.includes("SELECT id, state, created_at FROM runs")) {
+            return { id: runId, state: "succeeded", created_at: 123 };
+          }
+          throw new Error("unexpected query");
+        },
+      };
+    },
+  });
+  env.DB.batch = async () => [{ meta: { changes: 0 } }, { meta: { changes: 0 } }];
+  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 3, method: "tools/call",
+      params: { name: "experiment_submit", arguments: { run_id: runId, plan_fingerprint: "f".repeat(64) } },
+    }),
+  }), env);
+
+  assert.equal(response.status, 200);
+  const result = JSON.parse((await response.json()).result.content[0].text);
+  assert.equal(result.run_id, runId);
+  assert.equal(result.machine_state.state, "succeeded");
+  assert.equal(result.human_summary, "この実験は完了しています。");
 });

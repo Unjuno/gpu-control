@@ -119,6 +119,17 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 
+function submitSummary(state) {
+  const summaries = {
+    queued: "この実験はqueue済みです。",
+    running: "この実験は実行中です。",
+    succeeded: "この実験は完了しています。",
+    failed: "この実験は失敗として記録されています。",
+    cancelled: "この実験はキャンセル済みです。",
+  };
+  return summaries[state] || "この実験の保存済み状態を取得しました。";
+}
+
 async function sha256(text) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -269,14 +280,7 @@ async function callTool(name, args, request, env) {
       const existing = await env.DB.prepare("SELECT id, state, created_at FROM runs WHERE owner_id = ? AND plan_id = ?")
         .bind(owner, args.run_id).first();
       if (existing) {
-        const summaries = {
-          queued: "このplanは既にqueue済みです。追加実行は作成していません。",
-          running: "このplanは既に実行中です。追加実行は作成していません。",
-          succeeded: "このplanは既に完了しています。追加実行は作成していません。",
-          failed: "このplanは既に失敗として記録されています。追加実行は作成していません。",
-          cancelled: "このplanは既にキャンセル済みです。追加実行は作成していません。",
-        };
-        return { schema_version: 2, status: "ok", human_summary: summaries[existing.state] || "このplanの既存runを再利用しました。追加実行は作成していません。", run_id: existing.id, machine_state: { state: existing.state, created_at: existing.created_at } };
+        return { schema_version: 2, status: "ok", human_summary: submitSummary(existing.state), run_id: existing.id, machine_state: { state: existing.state, created_at: existing.created_at } };
       }
       const active = await env.DB.prepare("SELECT id, state FROM runs WHERE state IN ('queued', 'running') LIMIT 1").first();
       if (active) return { schema_version: 2, status: "blocked", human_summary: "CPU実行枠は使用中です。", blocking_reason: "CPU_SLOT_BUSY", run_id: null };
@@ -285,7 +289,7 @@ async function callTool(name, args, request, env) {
     const run = await env.DB.prepare("SELECT id, state, created_at FROM runs WHERE owner_id = ? AND plan_id = ?")
       .bind(owner, args.run_id).first();
     if (!run) throw new Error("PLAN_EXPIRED_OR_ALREADY_USED");
-    return { schema_version: 2, status: "ok", human_summary: "実験をqueueに登録しました。", run_id: run.id, machine_state: { state: run.state, created_at: run.created_at } };
+    return { schema_version: 2, status: "ok", human_summary: submitSummary(run.state), run_id: run.id, machine_state: { state: run.state, created_at: run.created_at } };
   }
   if (name === "experiment_status" || name === "experiment_result") {
     const row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state,
