@@ -25,6 +25,22 @@ CHECKS = ["source_identity_present", "parameter_bounds", "model_digest_verified"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
+_KEYCHAIN_SECRETS: dict[str, str] | None = None
+
+
+def set_keychain_secrets(values: dict[str, str]) -> None:
+    """Install in-memory secrets supplied by the macOS Keychain launcher."""
+    global _KEYCHAIN_SECRETS
+    expected = {"GPU_CONTROL_RUNNER_BEARER_TOKEN", "GPU_CONTROL_SITES_SERVICE_TOKEN"}
+    if set(values) != expected or any(not isinstance(value, str) or not value for value in values.values()):
+        raise RunnerError("KEYCHAIN_SECRET_INVALID")
+    _KEYCHAIN_SECRETS = dict(values)
+
+
+def secret(name: str) -> str:
+    if _KEYCHAIN_SECRETS is not None:
+        return _KEYCHAIN_SECRETS.get(name, "")
+    return os.environ.get(name, "")
 
 
 class RejectRedirects(urllib.request.HTTPRedirectHandler):
@@ -43,8 +59,8 @@ class RunnerError(Exception):
 def config() -> dict[str, str]:
     values = {
         "origin": os.environ.get("GPU_CONTROL_SITE_URL", "").rstrip("/"),
-        "runner_token": os.environ.get("GPU_CONTROL_RUNNER_BEARER_TOKEN", ""),
-        "sites_token": os.environ.get("GPU_CONTROL_SITES_SERVICE_TOKEN", ""),
+        "runner_token": secret("GPU_CONTROL_RUNNER_BEARER_TOKEN"),
+        "sites_token": secret("GPU_CONTROL_SITES_SERVICE_TOKEN"),
         "repository": os.environ.get("CPU_WORKLOAD_REPOSITORY", ""),
         "source_sha": os.environ.get("CPU_WORKLOAD_SOURCE_SHA", ""),
         "image_digest": os.environ.get("CPU_WORKLOAD_IMAGE_DIGEST", ""),

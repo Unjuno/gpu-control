@@ -64,6 +64,45 @@ cancellation behavior.
   classified and any retained data has a verified export or is explicitly
   recorded as disposable. The live control plane uses D1.
 
+## macOS Runner secret and service management
+
+The tested local candidate reads both Runner credentials from the user's
+login Keychain at launch and keeps them in process memory. Its LaunchAgent plist
+contains only the fixed Site URL, registered source/image identity, and polling
+settings. The plist is written atomically with mode `0600`; a missing Keychain
+entry fails closed. The candidate has not yet replaced the currently running
+ephemeral Runner.
+
+To provision or operate it after admission is closed and all runs are terminal:
+
+1. Generate a fresh high-entropy Runner bearer, configure it as the masked
+   `RUNNER_BEARER_TOKEN` Sites secret, and store that same value in the login
+   Keychain under service `com.unjuno.gpu-control.runner`, account
+   `runner-bearer`. Also store the Sites service-access credential in account
+   `sites-service`. Use `security add-generic-password -U -s
+   com.unjuno.gpu-control.runner -a runner-bearer -w` and repeat with
+   `-a sites-service`; `security` prompts for each value, so do not put a token
+   on the command line or in a file. Deploy the exact saved Site version after
+   changing its runtime secret; admission stays closed during the rotation.
+2. Run `python3 runner/macos_launch_agent.py --install` from the
+   `sites/gpu-control-sites` checkout. Check the installed plist has mode
+   `0600` and contains no credential values.
+3. Stop the existing Runner through its current process supervisor and verify
+   it exited and removed any workload container. The LaunchAgent `--start`
+   command refuses to start while it detects an unmanaged Runner process.
+4. Run `python3 runner/macos_launch_agent.py --start`, then `--status`. Verify
+   the Site reports the exact source and image ready before reopening admission.
+   If already loaded, `--start` reports that state and does not force a restart.
+5. For maintenance, close admission and wait for terminal runs before running
+   `python3 runner/macos_launch_agent.py --stop`, then verify the process and
+   workload container are gone. Preserve Keychain entries during uninstall;
+   revoke credentials separately after a replacement is proven and no Runner
+   depends on them.
+
+The source SHA recorded in the saved Site Version 13 is not present in the
+current Sites checkout. Do not deploy that version or replace the current
+Runner until its source provenance has been reconciled.
+
 ## Open operational acceptance
 
 1. Establish a persistent, protected Runner secret source and supported

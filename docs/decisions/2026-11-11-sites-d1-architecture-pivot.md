@@ -123,6 +123,15 @@ The first migration slice should not move every provider or destroy rollback dat
 - [ ] The Vercel project and its domains still exist. The connected Vercel deletion flow requires the account owner to review and confirm project deletion; retain the project until final Site acceptance and any needed rollback evidence are resolved.
 - [x] Added three local Runner recovery regressions: recovery removes only a container whose run, lease, plan, image, and source labels match; mismatched labels and unconfirmed cleanup fail closed. The focused recovery/security set passed 7 tests, and the root recovery subset passed 3 tests. This is code-level evidence, not a forced restart against the live Site Runner.
 
+### Site source provenance and macOS Runner management — 2026-11-12
+
+- [x] Confirmed production still serves Site Version 11; Version 13 is saved but undeployed. The Site source credential response identifies its source provider as `cloudflare_artifact` on branch `main`.
+- [x] Verified that Version 13's recorded source SHA `52416ec02fcf3b755e1763edc617cd0a67f4ab91` is absent from both local Git object databases. The GitHub API also reports no such commit in `Unjuno/gpu-control`; that alone does not establish the state of the separate Cloudflare artifact repository.
+- [ ] Reconcile Version 13 against the authoritative Cloudflare artifact branch and verify that its packaged files came from the named commit before deployment. No Site deployment or runtime-secret mutation was made while provenance remained uncertain.
+- [x] Added a macOS Keychain launcher and secret-free LaunchAgent manager. The plist now points at the correct Site checkout, is atomically written with mode `0600`, refuses an unmanaged duplicate Runner, does not force-restart a loaded service, and verifies stop completion.
+- [x] Runner tests passed 21/21; Worker tests 24/24; build, artifact validation, `git diff --check`, plist lint, and a Codex Security diff review passed. The review found no reportable vulnerabilities; it did not exercise the live Keychain or launchd service.
+- [ ] Install the LaunchAgent only after source and Site secret rotation are reconciled; perform the coordinated cancellation/restart/recovery acceptance with admission closed, then restore only free CPU admission.
+
 ### Runner protocol compatibility candidate — 2026-11-12
 
 - [x] Added append-only D1 migration `0003_runner_cancellation_protocol.sql`. Existing heartbeat rows default to protocol 0; only protocol 1 is considered ready and eligible to claim work. The Worker rejects heartbeat payloads with missing, unknown, or extra fields.
@@ -131,7 +140,7 @@ The first migration slice should not move every provider or destroy rollback dat
 - [x] Saved Sites Version 13 from source commit `52416ec02fcf3b755e1763edc617cd0a67f4ab91` with packaged artifact SHA-256 `b43b22033dea244f5680dd1d70ea836a2528254eb2a4facc7247f279f80c952c`. It is saved only; production remains on Version 11 until a coordinated Runner update/restart is ready.
 - [ ] Perform the coordinated Runner update and Version 13 deployment, then verify readiness, a zero-cost inference, cancellation, cleanup, and recovery against the live Site.
 
-**Next implementation sequence:** (1) add a bounded pretrained CPU model-inference workload to the registered Site path and retrieve its real output through ChatGPT; (2) review the exact code/image and cover D1 transitions, cancellation, and R2 integrity; (3) prove restart recovery, result reconciliation, and cleanup; (4) prove owner isolation and access revocation; (5) classify/export any Neon auth/run records that must be retained; (6) retire unused Vercel/Neon resources and credentials after Sites acceptance and retention checks. The existing checksum smoke does not establish inference or GPU execution. Keep paid admission parked until independent authorization and cost/security/recovery gates pass.
+**Next implementation sequence:** (1) reconcile Site Version source provenance with its Cloudflare artifact branch; (2) rotate the Runner bearer into Sites and login Keychain, then replace the ephemeral Runner with the tested LaunchAgent while admission is closed; (3) verify cancellation, forced restart, lease recovery, result reconciliation, and container cleanup live; (4) rehearse D1/R2 export, restore, retention, and orphan cleanup; (5) test owner isolation and access revocation; (6) classify/export retained Neon records, then retire the Neon and Vercel account resources when no rollback or retention need remains; (7) validate real GPU provider execution behind fresh security, price, quota, cleanup, and authorization gates. Keep paid admission parked until those gates pass.
 
 ### A. Freeze and map existing behavior
 
