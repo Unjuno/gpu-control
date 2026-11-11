@@ -2,17 +2,22 @@
 
 ## Hosted Sites MCP CPU vertical — 2026-11-12
 
-The current candidate branch has a private Sites MCP Worker with D1 and a
-registered isolated CPU Runner. From ChatGPT, one fixed `cpu-smoke-v1` run
-completed, its persisted result was retrieved, cleanup was confirmed, and a
-duplicate submit returned the same completed run without creating another
-execution. The run cost was `$0.00`; it used no GPU. This is a checksum smoke,
-not real model inference, GPU acceptance, recovery acceptance, or cross-owner
-isolation acceptance. A separate TinyStories 15M CPU inference candidate has
-passed local isolated Docker execution but is not deployed or registered yet.
-Free CPU admission is enabled with a 30-second ceiling
-and one in-flight slot; paid execution remains parked. Full evidence and open
-gates are tracked in
+The owner-private Sites MCP Worker uses D1 and a separately isolated CPU
+Runner. In addition to the earlier checksum smoke, ChatGPT prepared, submitted,
+polled, and retrieved one provenance-valid TinyStories 15M inference
+(`tiny-stories-inference-v1`). Run `d17dcc650783466088bacb734826bcdb` used the
+actual pushed source commit `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`,
+seed `61112`, and a 30-second maximum. It generated 24 tokens in 430 ms,
+returned `gpu_used=false`, passed model/result identity checks, persisted its
+result in D1, and reported `cleanup_state=confirmed` at `$0.00`. Two earlier
+outputs used a non-resolving source SHA and are excluded from provenance
+acceptance; the correction is recorded in the linked acceptance report.
+
+This establishes one end-to-end inference, not general model quality, live
+restart/cancellation recovery, cross-owner isolation, R2 artifact retrieval,
+or GPU capability. Free CPU admission remains bounded to one in-flight run
+and 30 seconds. Paid execution remains parked. Full evidence and open gates are tracked in
 [`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
 
 The rest of this document records standalone CLI and provider-adapter status on

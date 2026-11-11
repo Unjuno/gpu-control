@@ -233,7 +233,7 @@ async function capabilities(env) {
   return {
     schema_version: 2,
     status: "ok",
-    human_summary: available ? "登録済みCPU smokeを実行できます。" :
+    human_summary: available ? "登録済みTinyStories CPU推論を実行できます。" :
       blocker === "WORKLOAD_ADMISSION_DISABLED" ? "CPU runnerは接続済みですが、workload admissionは無効です。" :
         "CPU runnerまたは固定workload登録を確認中です。",
     machine_state: { available, runner_ready: runnerReady, admission_enabled: admissionEnabled, provider: "local_cpu", workload: WORKLOAD, free: true, max_runtime_seconds: 30, max_inflight: 1 },
@@ -267,7 +267,7 @@ async function callTool(name, args, request, env) {
     const persisted = await env.DB.prepare("SELECT id, fingerprint, image_digest, state, expires_at FROM plans WHERE owner_id = ? AND idempotency_key = ?")
       .bind(owner, args.idempotency_key).first();
     if (!persisted || persisted.fingerprint !== fingerprint || persisted.image_digest !== env.CPU_WORKLOAD_IMAGE_DIGEST) throw new Error("IDEMPOTENCY_KEY_CONFLICT");
-    return { schema_version: 2, status: "ok", human_summary: "登録済みCPU smoke planを準備しました。", run_id: persisted.id, plan_fingerprint: persisted.fingerprint, state: persisted.state, expires_at: persisted.expires_at, provider: "local_cpu", cost_usd: "0.00", approval_required: false };
+    return { schema_version: 2, status: "ok", human_summary: "登録済みTinyStories CPU推論planを準備しました。", run_id: persisted.id, plan_fingerprint: persisted.fingerprint, state: persisted.state, expires_at: persisted.expires_at, provider: "local_cpu", cost_usd: "0.00", approval_required: false };
   }
   if (name === "experiment_submit") {
     if (!validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");

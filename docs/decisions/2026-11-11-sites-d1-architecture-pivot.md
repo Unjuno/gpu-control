@@ -1,6 +1,6 @@
 # Sites + D1 architecture pivot
 
-**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. One free CPU checksum run is verified; model inference, recovery, identity isolation, artifacts, and GPU execution remain open.
+**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. One free TinyStories CPU inference and result retrieval are verified through ChatGPT; recovery, identity isolation, artifacts, and GPU execution remain open.
 
 ## P0 baseline refresh — 2026-11-11 (historical snapshot; superseded below)
 
@@ -93,6 +93,22 @@ The first migration slice should not move every provider or destroy rollback dat
 - [x] The persisted result is `succeeded` / `passed`; checksum `319a9c3deeffcd3213f907cda9a4c956d3b385cc466f76840a2fdf671e29104d`; all eight reported container checks passed; `gpu_used=false`; `cleanup_state=confirmed`. This is the first ChatGPT-originated Site→D1→Runner→D1→ChatGPT round trip.
 - [x] Fixed the admission shutdown claim bypass: when admission is disabled, `/runner/claim` now cancels only queued work before leasing and returns 409. Added a regression test, committed as `4e55378` and pushed to `codex/gpu-control-current-p5-on-pr58`.
 - [ ] This run is a checksum smoke, not model inference, GPU execution, cancellation, R2 artifact retrieval, or cross-account owner-isolation evidence. The free CPU admission flag is currently enabled to continue the authorized non-billable vertical; paid providers remain parked.
+
+### TinyStories model-inference update — 2026-11-12
+
+- [x] Published the fixed `tiny-stories-inference-v1` workload to the same owner-private Sites MCP Worker with D1. The public control-plane path remains Sites + D1; no Vercel or Neon runtime was added.
+- [x] Corrected workload provenance: image `sha256:87634dc98f196d24deb2f72fe3bb87199dcd860ebd0c69dddd076efdebf685f2` was built with source label `Unjuno/gpu-control` and exact root commit `3cc7a7685c6e9890c9896f6bd77fbb589b89d8e2`, then registered in Sites. The separate Site Worker source commit is `c2ae553dd240c4baf09202ac1e15b64277cb439f`.
+- [x] Replaced the Runner bearer with a new random value stored only in Sites secret storage and the live Runner process. Admission remained off while the service was replaced; the new Runner verified Docker and the exact image before reporting readiness.
+- [x] Re-enabled free CPU admission only after the exact Runner heartbeat matched the registered source and digest. `paid_execution=parked`, one in-flight run, 30-second maximum, and `$0.00` cost remained in force.
+- [x] Through ChatGPT, prepared, submitted, polled, and separately retrieved `tiny-stories-inference-v1` run `a514f038b9e24bed954d0bc7874ba679`. It generated 24 tokens in 420 ms; result/model identity and checksum checks passed, `gpu_used=false`, and cleanup was confirmed.
+- [ ] Live forced-restart, cancellation race, cross-account isolation/revocation, R2 artifact retrieval, backup/restore, and extended operational observation remain open. The full evidence is in [`../acceptance/2026-11-12-sites-d1-tinystories-chatgpt-inference.md`](../acceptance/2026-11-12-sites-d1-tinystories-chatgpt-inference.md).
+
+### Workload source SHA correction — 2026-11-12
+
+- The two earlier inference outputs above used `3cc7a7685c6e9890c9896f6bd77fbb589b89d8e2` as the registered source. A direct `git cat-file -t` check showed that value does not exist in the root repository. Those D1 records are retained, but they are excluded from source-provenance acceptance.
+- Rebuilt the image from the pushed root commit `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, confirmed it resolves to a Git commit and the current PR branch, and inspected matching OCI source/revision labels. New digest: `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+- During replacement, verified all recorded runs were terminal and no labeled containers were running. Disabled admission, deployed the corrected source/digest registration, stopped the mismatched Runner, started a new Runner with the existing Sites service token and newly stored bearer, observed matching readiness, then re-enabled free CPU admission while paid execution stayed parked.
+- [x] ChatGPT run `d17dcc650783466088bacb734826bcdb` used the actual root commit and new digest; it generated 24 tokens in 430 ms, passed identity/checksum checks, returned `gpu_used=false`, and was separately retrieved with cleanup confirmed.
 - [x] Environment revision 2 was published by the follow-up private deployment `appgdep_6af4a526adf88191a3e50d35acd9371f` (`succeeded`, `has_mcp=true`). A fresh ChatGPT capability call confirms admission enabled, free CPU only, one 30-second slot, and paid execution parked.
 
 ### D1 duplicate-submit and legacy Neon refresh — 2026-11-12

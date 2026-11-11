@@ -39,12 +39,15 @@ secret.
 
 ## Current acceptance boundary
 
-The deployed version has completed one ChatGPT-originated fixed-image CPU
-checksum smoke through Sites, D1, and the Runner, including result retrieval,
-cleanup, and same-run idempotent resubmit. The local TinyStories inference
-candidate is not yet a published ChatGPT capability. Do not report model
-inference, GPU execution, cross-account isolation, live restart recovery, or
-R2 artifact retrieval as accepted until each has its own end-to-end evidence.
+The deployed version has completed a fixed-image checksum smoke and one
+provenance-valid TinyStories 15M CPU inference through ChatGPT, Sites, D1, and
+the Runner. Run `d17dcc650783466088bacb734826bcdb` generated 24 tokens, returned
+`gpu_used=false`, passed identity/checksum validation, and was retrieved through
+`experiment_result`; cleanup was confirmed. Two earlier outputs used a
+non-resolving source SHA and are excluded from acceptance. This proves one
+bounded model inference, not general model quality. Do not report GPU execution,
+cross-account isolation, live restart/cancellation recovery, or R2 artifact
+retrieval as accepted until each has its own evidence.
 
 Admission is limited to one in-flight CPU run and 30 seconds. Keep paid
 providers parked. The exact runtime keys and controlled publication steps are

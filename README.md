@@ -26,7 +26,7 @@ The project is **usable today for offline validation and control-plane developme
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Owner-private Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; Sites reports MCP ready and its plugin is already installed |
 | Registered CPU experiment through ChatGPT | A free, fixed-image CPU smoke completed through ChatGPT → Sites → D1 → Runner → D1; result retrieval, cleanup, and same-run idempotent resubmit were verified |
-| Real model inference through ChatGPT | Not yet verified; a local TinyStories 15M CPU candidate has produced a response, but the published Site still runs `cpu-smoke-v1` |
+| Real model inference through ChatGPT | One free TinyStories 15M CPU run with a Git-resolving source SHA completed; result retrieval and cleanup were confirmed. This proves the vertical, not broad model quality or GPU capability |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
@@ -43,10 +43,12 @@ The project is **usable today for offline validation and control-plane developme
 | Live paid GPU execution | Disabled / parked |
 
 The hosted product path is ChatGPT Sites + D1 with a separate isolated Runner.
-The deployed version has completed a free CPU checksum smoke, bounded to 30
-seconds and one in-flight run. A pinned TinyStories inference candidate is
-under review but is not yet a published ChatGPT capability. Paid providers
-remain parked. The legacy FastAPI/PostgreSQL Gateway is reference-only; see
+The deployed version has completed both a checksum smoke and one
+provenance-valid TinyStories 15M inference through ChatGPT, bounded to 30
+seconds and one in-flight run. The inferred text was persisted in D1 and
+retrieved through the ChatGPT tool. This does not establish general model quality, live recovery,
+cross-owner isolation, or GPU capability. Paid providers remain parked. The
+legacy FastAPI/PostgreSQL Gateway is reference-only; see
 [`gateway/README.md`](gateway/README.md).
 
 See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the supported ChatGPT

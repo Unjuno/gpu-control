@@ -8,9 +8,9 @@ identity, recovery, or provider acceptance gate.
 
 | Gate | State | Evidence and remaining work |
 | --- | --- | --- |
-| ChatGPT Sites MCP | PASS for the private Site and previous CPU smoke | The private Site and generated plugin are published. ChatGPT completed a registered CPU checksum smoke, retrieved its result, confirmed cleanup, and repeated submit without creating another run. The current deployed version still advertises `cpu-smoke-v1`. |
-| D1 control plane | PASS for the existing smoke lifecycle; more acceptance remains | D1 stores owner-scoped plans/runs, idempotency, leases, and Runner heartbeats. The inference candidate uses the same D1 path. Complete backup/export and restore rehearsal, separate-account owner isolation, and failure/recovery acceptance. |
-| Real CPU model inference | IN PROGRESS | A TinyStories 15M checkpoint is pinned by upstream revision and digest. A local isolated image produced deterministic text. The candidate is not committed, registered, or deployed; verify the actual generated result from ChatGPT before marking this gate passed. |
+| ChatGPT Sites MCP | PASS for the private Site and one provenance-valid inference | The private Site and generated plugin are published. ChatGPT prepared, submitted, polled, and retrieved a registered TinyStories result through Sites → D1 → Runner → D1. The Site remains owner-private. |
+| D1 control plane | PASS for the checksum smoke and one provenance-valid inference lifecycle; more acceptance remains | D1 stores owner-scoped plans/runs, idempotency, leases, and Runner heartbeats. The provenance-valid inference result and bounded metadata were retrieved successfully. Complete backup/export and restore rehearsal, separate-account owner isolation, and failure/recovery acceptance. |
+| Real CPU model inference | PASS for one provenance-valid bounded end-to-end run | TinyStories 15M is pinned by upstream revision and SHA-256. ChatGPT run `d17dcc650783466088bacb734826bcdb` used the actual pushed root commit `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288` and image `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`; it generated 24 tokens in 430 ms with seed 61112, passed identity/checksum validation, returned `gpu_used=false`, cost `$0.00`, and confirmed cleanup. Two earlier outputs with a non-resolving source SHA are excluded. This does not establish broad model quality or GPU capability. |
 | Runner security and recovery | PARTIAL | The Runner uses a fixed image, bounded parameters, non-root/no-network/read-only container settings, and identity-labelled cleanup. Local recovery regression tests exist. Live restart, interruption, cancellation race, lease expiry, reconciliation, and secret rotation remain open. |
 | Result artifacts | NOT ACCEPTED | Results are currently bounded inline records. Implement R2 storage and verify size, digest, run binding, owner binding, retrieval, and cleanup. |
 | Owner isolation and revocation | NOT ACCEPTED | Site authentication and per-run ownership checks exist. Test authenticated access from a distinct account and verify access revocation; a forged-header rejection alone is insufficient. |
@@ -22,8 +22,7 @@ identity, recovery, or provider acceptance gate.
 
 The product path is ChatGPT Sites Worker → D1 → separately isolated Runner →
 D1 → ChatGPT. The Worker does not execute model code. The active workload is
-free local CPU; real model inference is still pending the hosted ChatGPT
-acceptance above. D1 is the selected database for this path. Reconsider a
+one registered free local CPU inference path. D1 is the selected database for this path. Reconsider a
 different database only if measured workload or product requirements exceed
 D1's documented limits.
 

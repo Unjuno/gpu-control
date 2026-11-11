@@ -12,14 +12,18 @@ provider settings.
 - ChatGPT can discover and call the private Site's experiment tools.
 - One fixed-image CPU checksum smoke completed through ChatGPT → Sites → D1 →
   Runner → D1 → ChatGPT; result retrieval and container cleanup were confirmed.
+- One TinyStories 15M inference completed through the same ChatGPT → Sites →
+  D1 → Runner → D1 → ChatGPT path. A 24-token result was retrieved, identity
+  and checksum validation passed, and container cleanup was confirmed.
 - Repeating the same submission returns the existing run instead of starting
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
   reports `gpu_used=false`; paid provider execution remains parked.
 
-These checks do not prove model inference, GPU execution, forced-restart
-recovery, cross-owner isolation, or R2 artifact retrieval. Do not use this
-candidate to claim those capabilities.
+These checks prove one bounded CPU inference only. They do not prove general
+model quality, GPU execution, forced-restart/cancellation recovery, cross-owner
+isolation, or R2 artifact retrieval. Do not use this candidate to claim those
+capabilities.
 
 ## Operating boundaries
 
@@ -38,8 +42,9 @@ candidate to claim those capabilities.
 
 ## Open operational acceptance
 
-1. Publish the reviewed exact-commit inference image and verify its generated
-   result through ChatGPT. Local candidate inference alone does not close this.
+1. Complete a live runner restart and secret-rotation rehearsal while keeping
+   admission closed, then verify that readiness returns only after the exact
+   image and source have been checked.
 2. Exercise cancellation, Runner interruption/restart, lease expiry, result
    reconciliation, and cleanup against the live Site and Runner.
 3. Store immutable artifacts in R2 and verify owner-bound retrieval and digest.
