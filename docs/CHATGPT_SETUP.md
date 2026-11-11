@@ -58,8 +58,11 @@ current gates are in [`RELEASE_MATRIX.md`](RELEASE_MATRIX.md) and
 ## Data and resource retirement
 
 D1 is the selected control-plane database. PostgreSQL is not required for this
-Sites product path. Before retiring the old Neon project, classify its legacy
-auth and run records and make a verified export or deliberately document that
-the data is disposable. Retain the old Vercel project only as rollback
-evidence until the Sites path and recovery procedures are accepted. Do not
-delete either source of legacy data or rollback state before that review.
+Sites product path. Vercel is not part of the current serving path and is not a
+rollback dependency for Sites. The old Vercel deployment and Neon database are
+legacy resources to inventory and retire; they must not receive new product
+traffic or configuration. Before deleting Neon, classify its legacy auth and
+run records and make a verified export or document that the data is disposable.
+Retire the Vercel project after confirming no required DNS, GitHub, or user
+workflow still points to it. Keep historical evidence in the repository, not
+by treating a legacy service as an operational fallback.

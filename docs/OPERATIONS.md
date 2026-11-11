@@ -36,9 +36,12 @@ capabilities.
   authentication, cleanup, and recovery gates pass.
 - Do not bring the archived FastAPI/PostgreSQL, Vercel, or Neon stack back into
   the product path. Historical runbook: `archive/OPERATIONS-legacy-postgresql.md`.
+- Vercel is not a rollback dependency for Sites. Retire its legacy project
+  after checking DNS, GitHub hooks/status requirements, and user workflows for
+  remaining references. Do not direct product traffic back to that deployment.
 - Do not delete the existing Neon project until its auth/run records are
-  classified and any retained data has a verified export. Do not delete Vercel
-  rollback resources until Sites acceptance and recovery are complete.
+  classified and any retained data has a verified export or is explicitly
+  recorded as disposable. The live control plane uses D1.
 
 ## Open operational acceptance
 
