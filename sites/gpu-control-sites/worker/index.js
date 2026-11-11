@@ -366,6 +366,12 @@ async function runner(request, env, path) {
     return json({ ok: true });
   }
   if (path === "/runner/claim" && request.method === "POST") {
+    if (env.CPU_WORKLOAD_ADMISSION_ENABLED !== "true") {
+      await env.DB.prepare(`UPDATE runs SET state='cancelled', failure_code='admission_disabled',
+          cleanup_state='confirmed', updated_at=? WHERE state='queued'`)
+        .bind(now).run();
+      return json({ error: "WORKLOAD_ADMISSION_DISABLED" }, 409);
+    }
     const runnerRow = await env.DB.prepare("SELECT last_seen_at FROM runner_heartbeats WHERE runner_id = ?")
       .bind(RUNNER_ID).first();
     if (!runnerRow || now - runnerRow.last_seen_at > 60) return json({ error: "RUNNER_HEARTBEAT_STALE" }, 409);
