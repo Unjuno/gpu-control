@@ -219,6 +219,8 @@ def start_args(run: dict, cfg: dict[str, str]) -> tuple[list[str], str]:
 def wait_result(run: dict, cfg: dict[str, str], container_id: str) -> tuple[str, dict | None]:
     deadline = time.monotonic() + run["runtime_seconds"] + 10
     while time.monotonic() < deadline:
+        if cancellation_requested(cfg, run):
+            return "cancelled", None
         try:
             info = json.loads(docker(["inspect", "--format", "{{json .State}}", container_id], 5))
         except (ValueError, TypeError) as exc:
@@ -276,22 +278,36 @@ def wait_result(run: dict, cfg: dict[str, str], container_id: str) -> tuple[str,
     return "passed", result
 
 
+def cancellation_requested(cfg: dict[str, str], run: dict) -> bool:
+    value = post(cfg, "/runner/cancel-check", {"lease_id": run["lease_id"], "run_id": run["id"]})
+    if not isinstance(value, dict) or type(value.get("cancel_requested")) is not bool:
+        raise RunnerError("CANCEL_CHECK_RESPONSE_INVALID")
+    return value["cancel_requested"]
+
+
 def execute(cfg: dict[str, str], run: dict) -> None:
     args, name = start_args(run, cfg)
     container_id = docker(args, 20).decode("ascii", "strict").strip()
     if not CONTAINER_ID.fullmatch(container_id):
         raise RunnerError("CONTAINER_ID_INVALID")
-    docker(["start", container_id], 15)
     try:
-        status, result = wait_result(run, cfg, container_id)
-    except RunnerError as exc:
-        if exc.code != "EXECUTION_TIMEOUT":
-            raise
-        status, result = "failed", {"failure_code": "execution_timeout"}
+        docker(["start", container_id], 15)
+        try:
+            status, result = wait_result(run, cfg, container_id)
+        except RunnerError as exc:
+            if exc.code != "EXECUTION_TIMEOUT":
+                raise
+            status, result = "failed", {"failure_code": "execution_timeout"}
+            docker(["stop", "--time", "2", container_id], 8, allow_error=True)
+        if status == "cancelled":
+            docker(["stop", "--time", "2", container_id], 8, allow_error=True)
+    except BaseException:
         docker(["stop", "--time", "2", container_id], 8, allow_error=True)
-    docker(["rm", "--force", container_id], 15)
-    if container_ids(run["id"]):
-        raise RunnerError("CLEANUP_UNCONFIRMED")
+        raise
+    finally:
+        docker(["rm", "--force", container_id], 15)
+        if container_ids(run["id"]):
+            raise RunnerError("CLEANUP_UNCONFIRMED")
     receipt = {"absent": True, "container_id": container_id, "container_name": name,
                "image_digest": run["image_digest"], "lease_id": run["lease_id"],
                "observed_at": int(time.time()), "plan_fingerprint": run["fingerprint"],

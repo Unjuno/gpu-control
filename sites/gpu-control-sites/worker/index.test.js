@@ -42,6 +42,222 @@ async function capabilities(env) {
   return envelope;
 }
 
+async function toolCall(env, user, name, args) {
+  return worker.fetch(new Request("https://site.invalid/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", "oai-authenticated-user-id": user },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 99, method: "tools/call", params: { name, arguments: args } }),
+  }), env);
+}
+
+function cancellationEnvironment(initialState) {
+  const run = { id: "c".repeat(32), owner_id: "test-owner", state: initialState,
+    cancel_requested: 0, cleanup_state: "pending", lease_id: "d".repeat(32) };
+  let updates = 0;
+  const env = environment();
+  env.DB.prepare = (sql) => ({
+    bind(...values) {
+      return {
+        async first() {
+          if (sql.includes("SELECT") && sql.includes("FROM runs") && sql.includes("owner_id")) {
+            return values.includes("test-owner") && values.includes(run.id) ? { ...run } : null;
+          }
+          if (sql.includes("UPDATE runs SET state='cancelled'") && run.state === "queued") {
+            updates++;
+            run.state = "cancelled";
+            run.failure_code = "caller_cancelled_before_start";
+            run.cleanup_state = "confirmed";
+            return { id: run.id, state: run.state, cleanup_state: run.cleanup_state };
+          }
+          if (sql.includes("UPDATE runs SET cancel_requested=1") && run.state === "running") {
+            updates++;
+            run.cancel_requested = 1;
+            return { id: run.id, state: run.state, cancel_requested: 1 };
+          }
+          return null;
+        },
+      };
+    },
+  });
+  return { env, run, updates: () => updates };
+}
+
+test("cancels a queued owned run without asking Runner to clean up a container", async () => {
+  const { env, run, updates } = cancellationEnvironment("queued");
+  const response = await toolCall(env, "test-owner", "experiment_cancel", { run_id: run.id });
+  const rpc = await response.json();
+  const result = JSON.parse(rpc.result.content[0].text);
+
+  assert.equal(result.status, "ok");
+  assert.equal(result.machine_state.state, "cancelled");
+  assert.equal(result.machine_state.cleanup_state, "confirmed");
+  assert.equal(updates(), 1);
+});
+
+test("requests cooperative cancellation for an owned running run", async () => {
+  const { env, run, updates } = cancellationEnvironment("running");
+  const response = await toolCall(env, "test-owner", "experiment_cancel", { run_id: run.id });
+  const rpc = await response.json();
+  const result = JSON.parse(rpc.result.content[0].text);
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.machine_state.state, "running");
+  assert.equal(result.machine_state.cancellation_requested, true);
+  assert.equal(updates(), 1);
+});
+
+test("does not let another Site user cancel an owned run", async () => {
+  const { env, run, updates } = cancellationEnvironment("queued");
+  const response = await toolCall(env, "other-owner", "experiment_cancel", { run_id: run.id });
+  const rpc = await response.json();
+
+  assert.equal(rpc.result.isError, true);
+  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "RUN_NOT_FOUND" });
+  assert.equal(updates(), 0);
+});
+
+test("does not advertise cancellation for a terminal run", async () => {
+  const runId = "d".repeat(32);
+  const env = environment();
+  env.DB.prepare = (sql) => ({ bind() { return { async first() {
+    assert.match(sql, /owner_id = \?/);
+    return { id: runId, state: "cancelled", created_at: 10, updated_at: 11, result_json: null,
+      failure_code: "caller_cancelled", cleanup_state: "confirmed", cancel_requested: 0,
+      result_artifact_id: null, result_artifact_sha256: null, result_artifact_size: null,
+      workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control", source_sha: sourceSha,
+      image_digest: imageDigest, parameters_json: JSON.stringify({ prompt: "A", max_new_tokens: 1, seed: 1 }) };
+  } }; } });
+  const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+  const result = JSON.parse((await response.json()).result.content[0].text);
+  assert.deepEqual(result.next_allowed_actions, ["experiment_status"]);
+});
+
+test("accepts a Runner cancellation receipt only after cleanup for a requested run", async () => {
+  const runId = "f".repeat(32);
+  const leaseId = "e".repeat(32);
+  let bucketWrites = 0;
+  let persisted;
+  const env = environment({ admission: "true" });
+  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
+  env.DB.prepare = (sql) => ({ bind() { return { async first() {
+    if (sql.includes("SELECT r.state")) return {
+      state: "running", cancel_requested: 1, lease_id: leaseId,
+      lease_expires_at: Math.floor(Date.now() / 1000) + 30,
+      fingerprint: "a".repeat(64), source_sha: sourceSha, image_digest: imageDigest,
+      parameters_json: JSON.stringify({ prompt: "Once upon a time", max_new_tokens: 8, seed: 61112 }), runtime_seconds: 30,
+    };
+    if (sql.includes("UPDATE runs SET state='cancelled'")) {
+      persisted = { id: runId, state: "cancelled", cleanup_state: "confirmed" };
+      return persisted;
+    }
+    throw new Error("unexpected cancellation result query");
+  } }; } });
+  env.BUCKET = { async put() { bucketWrites++; return {}; } };
+  const now = Math.floor(Date.now() / 1000);
+  const response = await worker.fetch(new Request("https://site.invalid/runner/result", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ status: "cancelled", run_id: runId, lease_id: leaseId, result: null,
+      cleanup_confirmation: { absent: true, container_id: "1".repeat(12), container_name: `gpu-control-${runId}`,
+        image_digest: imageDigest, lease_id: leaseId, observed_at: now, plan_fingerprint: "a".repeat(64),
+        run_id: runId, source_sha: sourceSha } }),
+  }), env);
+
+  const payload = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  assert.deepEqual(payload, { ok: true, run: persisted });
+  assert.equal(bucketWrites, 0);
+});
+
+test("cancellation wins if requested while a validated result artifact is being written", async () => {
+  const value = await inferenceResult();
+  const leaseId = "e".repeat(32);
+  let cancelRequested = 0;
+  let bucketWrites = 0;
+  let bucketDeletes = 0;
+  let cancelledRow;
+  const env = environment({ admission: "true" });
+  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
+  env.DB.prepare = (sql) => ({ bind() { return { async first() {
+    if (sql.includes("SELECT r.state")) return {
+      state: "running", cancel_requested: cancelRequested, lease_id: leaseId,
+      lease_expires_at: Math.floor(Date.now() / 1000) + 30,
+      fingerprint: value.fingerprint, source_sha: sourceSha, image_digest: imageDigest,
+      parameters_json: JSON.stringify({ prompt: value.prompt, max_new_tokens: 8, seed: 61112 }), runtime_seconds: 30,
+    };
+    if (sql.includes("UPDATE runs SET state='cancelled'")) {
+      cancelledRow = { id: value.run_id, state: "cancelled", failure_code: "caller_cancelled", cleanup_state: "confirmed" };
+      return cancelledRow;
+    }
+    if (sql.includes("result_artifact_id=?")) return null;
+    if (sql.includes("SELECT state, cancel_requested, result_artifact_sha256")) {
+      return { state: "running", cancel_requested: cancelRequested, result_artifact_sha256: null };
+    }
+    throw new Error("unexpected cancellation race query");
+  } }; } });
+  env.BUCKET = {
+    async put() { bucketWrites++; cancelRequested = 1; return {}; },
+    async delete() { bucketDeletes++; },
+  };
+
+  const response = await postInferenceResult(value, env);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, run: cancelledRow });
+  assert.equal(bucketWrites, 1);
+  assert.equal(bucketDeletes, 1);
+});
+
+test("Runner cancellation polling is lease-bound and returns the current request bit", async () => {
+  const runId = "a".repeat(32);
+  const leaseId = "b".repeat(32);
+  const env = environment();
+  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
+  env.DB.prepare = (sql) => ({ bind(id) { return { async first() {
+    assert.match(sql, /cancel_requested/);
+    assert.equal(id, runId);
+    return { state: "running", lease_id: leaseId, lease_expires_at: Math.floor(Date.now() / 1000) + 30, cancel_requested: 1 };
+  } }; } });
+  async function poll(lease) {
+    return worker.fetch(new Request("https://site.invalid/runner/cancel-check", {
+      method: "POST", headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ run_id: runId, lease_id: lease }),
+    }), env);
+  }
+
+  const accepted = await poll(leaseId);
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(await accepted.json(), { cancel_requested: true });
+  const stale = await poll("c".repeat(32));
+  assert.equal(stale.status, 409);
+});
+
+test("expired cancellation finalizes as cancelled only after Runner recovery receipt", async () => {
+  const runId = "a".repeat(32);
+  const leaseId = "b".repeat(32);
+  let persisted;
+  const env = environment();
+  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
+  env.DB.prepare = (sql) => ({ bind(...values) { return { async first() {
+    assert.match(sql, /UPDATE runs/);
+    assert.equal(values[2], runId);
+    assert.equal(values[3], leaseId);
+    const cancellationAware = sql.includes("cancel_requested=1");
+    persisted = { id: runId, state: cancellationAware ? "cancelled" : "failed",
+      failure_code: cancellationAware ? "caller_cancelled_runner_lost" : "runner_lost_recovered", cleanup_state: "confirmed" };
+    return persisted;
+  } }; } });
+  const response = await worker.fetch(new Request("https://site.invalid/runner/recover", {
+    method: "POST", headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ absent: true, image_digest: imageDigest, lease_id: leaseId,
+      plan_fingerprint: "c".repeat(64), run_id: runId, source_sha: sourceSha }),
+  }), env);
+
+  assert.equal(response.status, 200);
+  assert.equal(persisted.state, "cancelled");
+  assert.equal(persisted.failure_code, "caller_cancelled_runner_lost");
+  assert.deepEqual((await response.json()).run, persisted);
+});
+
 async function listTools(env) {
   const request = new Request("https://site.invalid/mcp", {
     method: "POST",

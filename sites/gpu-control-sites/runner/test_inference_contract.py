@@ -80,7 +80,7 @@ class InferenceContractTests(unittest.TestCase):
             if args[0] == "logs":
                 return receipt
             raise AssertionError(args)
-        with patch.object(run, "docker", side_effect=fake_docker):
+        with patch.object(run, "docker", side_effect=fake_docker), patch.object(run, "cancellation_requested", return_value=False):
             status, result = run.wait_result(experiment, {}, "f" * 12)
         self.assertEqual(status, "passed")
         self.assertTrue(result["metrics"]["generated_text"].startswith(experiment["parameters"]["prompt"]))
@@ -95,7 +95,7 @@ class InferenceContractTests(unittest.TestCase):
             if args[0] == "logs":
                 return receipt
             raise AssertionError(args)
-        with patch.object(run, "docker", side_effect=fake_docker):
+        with patch.object(run, "docker", side_effect=fake_docker), patch.object(run, "cancellation_requested", return_value=False):
             status, result = run.wait_result(experiment, {}, "f" * 12)
         self.assertEqual(status, "failed")
         self.assertEqual(result, {"failure_code": "workload_output_invalid"})
@@ -115,10 +115,68 @@ class InferenceContractTests(unittest.TestCase):
             if args[0] == "logs":
                 return receipt
             raise AssertionError(args)
-        with patch.object(run, "docker", side_effect=fake_docker):
+        with patch.object(run, "docker", side_effect=fake_docker), patch.object(run, "cancellation_requested", return_value=False):
             status, value = run.wait_result(experiment, {}, "f" * 12)
         self.assertEqual(status, "failed")
         self.assertEqual(value, {"failure_code": "workload_output_invalid"})
+
+    def test_runner_stops_and_cleans_container_when_cancellation_is_requested(self):
+        experiment = configured_run()
+        cfg = {"repository": experiment["repository"], "source_sha": experiment["source_sha"],
+               "image_digest": experiment["image_digest"]}
+        receipt = json.dumps(result_for(experiment), separators=(",", ":")).encode()
+        docker_calls = []
+        posted = []
+
+        def fake_docker(args, timeout=15, allow_error=False):
+            docker_calls.append(args)
+            if args[0] == "create":
+                return b"f" * 12
+            if args[0] == "inspect":
+                return b'{"Running":false,"ExitCode":0}'
+            if args[0] == "logs":
+                return receipt
+            return b""
+
+        def fake_post(_cfg, endpoint, payload=None):
+            posted.append((endpoint, payload))
+            if endpoint == "/runner/cancel-check":
+                return {"cancel_requested": True}
+            return {"ok": True}
+
+        with patch.object(run, "docker", side_effect=fake_docker), patch.object(run, "post", side_effect=fake_post):
+            run.execute(cfg, experiment)
+
+        result_post = next(payload for endpoint, payload in posted if endpoint == "/runner/result")
+        self.assertEqual(result_post["status"], "cancelled")
+        self.assertIsNone(result_post["result"])
+        self.assertTrue(any(call[:2] == ["stop", "--time"] for call in docker_calls))
+        self.assertTrue(any(call[0] == "rm" and "--force" in call for call in docker_calls))
+
+    def test_runner_cleans_container_when_cancellation_check_fails(self):
+        experiment = configured_run()
+        cfg = {"repository": experiment["repository"], "source_sha": experiment["source_sha"],
+               "image_digest": experiment["image_digest"]}
+        docker_calls = []
+
+        def fake_docker(args, timeout=15, allow_error=False):
+            docker_calls.append(args)
+            if args[0] == "create":
+                return b"f" * 12
+            if args[0] == "inspect":
+                return b'{"Running":true,"ExitCode":0}'
+            if args[:2] == ["ps", "-aq"]:
+                return b""
+            return b""
+
+        with patch.object(run, "docker", side_effect=fake_docker), \
+                patch.object(run, "cancellation_requested", side_effect=run.RunnerError("SITE_REQUEST_FAILED")), \
+                self.assertRaises(run.RunnerError):
+            run.execute(cfg, experiment)
+
+        self.assertTrue(any(call[:2] == ["stop", "--time"] for call in docker_calls))
+        self.assertTrue(any(call[0] == "rm" and "--force" in call for call in docker_calls))
+        self.assertTrue(any(call[:2] == ["ps", "-aq"] for call in docker_calls))
 
 
 if __name__ == "__main__":

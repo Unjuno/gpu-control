@@ -228,6 +228,15 @@ async function runnerAuthorized(request, env) {
   return difference === 0;
 }
 
+async function finalizeRequestedCancellation(env, body, cleanup, now) {
+  return env.DB.prepare(`UPDATE runs SET state='cancelled', result_json=NULL, cleanup_receipt_json=?,
+      failure_code='caller_cancelled', cleanup_state='confirmed', updated_at=?, lease_id=NULL,
+      lease_expires_at=NULL, cancel_requested=0
+    WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at>=? AND cancel_requested=1
+    RETURNING id, state, failure_code, cleanup_state`)
+    .bind(JSON.stringify(cleanup), now, body.run_id, body.lease_id, now).first();
+}
+
 async function capabilities(env) {
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
   const runner = await env.DB.prepare("SELECT last_seen_at, image_digest, source_sha FROM runner_heartbeats WHERE runner_id = ?")
@@ -312,7 +321,7 @@ async function callTool(name, args, request, env) {
     return { schema_version: 2, status: "ok", human_summary: submitSummary(run.state), run_id: run.id, machine_state: { state: run.state, created_at: run.created_at } };
   }
   if (name === "experiment_status" || name === "experiment_result") {
-    const row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state,
+    const row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state, r.cancel_requested,
         r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size,
         p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json
       FROM runs r JOIN plans p ON p.id = r.plan_id WHERE r.id = ? AND r.owner_id = ?`)
@@ -327,12 +336,48 @@ async function callTool(name, args, request, env) {
     const machine = { run_id: row.id, state: row.state, created_at: row.created_at, updated_at: row.updated_at,
       workload: row.workload, repository: row.repository, source_sha: row.source_sha,
       image_digest: row.image_digest, parameters: JSON.parse(row.parameters_json), result, failure_code: row.failure_code,
-      cleanup_state: row.cleanup_state,
+      cleanup_state: row.cleanup_state, cancellation_requested: row.cancel_requested === 1,
       result_artifact: row.result_artifact_id ? { artifact_id: row.result_artifact_id,
         sha256: row.result_artifact_sha256, size_bytes: row.result_artifact_size } : null };
-    return { schema_version: 2, status: "ok", human_summary: name === "experiment_status" ? "Run status retrieved." : "Run result retrieved.", machine_state: machine, next_allowed_actions: row.state === "succeeded" ? [] : ["experiment_status", "experiment_cancel"], blocking_reason: null };
+    const active = ["queued", "running"].includes(row.state);
+    const nextAllowed = active
+      ? (row.cancel_requested === 1 ? ["experiment_status"] : ["experiment_status", "experiment_cancel"])
+      : (row.state === "succeeded" ? [] : ["experiment_status"]);
+    return { schema_version: 2, status: "ok", human_summary: name === "experiment_status" ? "Run status retrieved." : "Run result retrieved.", machine_state: machine, next_allowed_actions: nextAllowed, blocking_reason: null };
   }
-  if (name === "experiment_cancel") return { schema_version: 2, status: "blocked", human_summary: "Cancellation is not implemented for this Sites slice.", machine_state: { run_id: args.run_id }, next_allowed_actions: ["experiment_status"], blocking_reason: "CANCELLATION_NOT_IMPLEMENTED" };
+  if (name === "experiment_cancel") {
+    const selectRun = () => env.DB.prepare("SELECT id, state, cancel_requested, cleanup_state FROM runs WHERE id = ? AND owner_id = ?")
+      .bind(args.run_id, owner).first();
+    let row = await selectRun();
+    if (!row) throw new Error("RUN_NOT_FOUND");
+    const now = Math.floor(Date.now() / 1000);
+    if (row.state === "queued") {
+      const cancelled = await env.DB.prepare(`UPDATE runs SET state='cancelled', failure_code='caller_cancelled_before_start',
+          cleanup_state='confirmed', updated_at=? WHERE id=? AND owner_id=? AND state='queued' RETURNING id, state, cleanup_state`)
+        .bind(now, args.run_id, owner).first();
+      if (cancelled) return { schema_version: 2, status: "ok", human_summary: "Queued experiment cancelled before Runner start.",
+        machine_state: { run_id: cancelled.id, state: cancelled.state, cleanup_state: cancelled.cleanup_state, cancellation_requested: false },
+        next_allowed_actions: ["experiment_status"], blocking_reason: null };
+      row = await selectRun();
+      if (!row) throw new Error("RUN_NOT_FOUND");
+    }
+    if (row.state === "running" && row.cancel_requested !== 1) {
+      const requested = await env.DB.prepare(`UPDATE runs SET cancel_requested=1, updated_at=?
+          WHERE id=? AND owner_id=? AND state='running' AND cancel_requested=0 RETURNING id, state, cancel_requested`)
+        .bind(now, args.run_id, owner).first();
+      if (requested) row = requested;
+      else row = await selectRun();
+      if (!row) throw new Error("RUN_NOT_FOUND");
+    }
+    if (row.state === "running" && row.cancel_requested === 1) {
+      return { schema_version: 2, status: "pending", human_summary: "Cancellation requested; Runner will stop and clean up the workload.",
+        machine_state: { run_id: row.id, state: row.state, cancellation_requested: true, cleanup_state: row.cleanup_state },
+        next_allowed_actions: ["experiment_status"], blocking_reason: null };
+    }
+    return { schema_version: 2, status: "ok", human_summary: "Run is already terminal; no cancellation was needed.",
+      machine_state: { run_id: row.id, state: row.state, cancellation_requested: false, cleanup_state: row.cleanup_state },
+      next_allowed_actions: ["experiment_status"], blocking_reason: null };
+  }
   if (name === "experiment_artifact") {
     if (!env.BUCKET) return { schema_version: 2, status: "blocked", human_summary: "Artifact storage is not configured.", machine_state: { run_id: args.run_id }, next_allowed_actions: ["experiment_status"], blocking_reason: "ARTIFACT_STORAGE_NOT_CONFIGURED" };
     const row = await env.DB.prepare(`SELECT r.id, r.state, r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size,
@@ -429,6 +474,16 @@ async function runner(request, env, path) {
       .bind(RUNNER_ID, now, body.image_digest, body.source_sha).run();
     return json({ ok: true });
   }
+  if (path === "/runner/cancel-check" && request.method === "POST") {
+    const body = await readJson(request, 1024);
+    if (!body || Object.keys(body).sort().join(",") !== "lease_id,run_id" ||
+        typeof body.run_id !== "string" || !/^[0-9a-f]{32}$/.test(body.run_id) ||
+        typeof body.lease_id !== "string" || !/^[0-9a-f]{32}$/.test(body.lease_id)) return json({ error: "INVALID_CANCEL_CHECK" }, 400);
+    const row = await env.DB.prepare(`SELECT state, lease_id, lease_expires_at, cancel_requested FROM runs WHERE id=?`)
+      .bind(body.run_id).first();
+    if (!row || row.state !== "running" || row.lease_id !== body.lease_id || row.lease_expires_at < now) return json({ error: "STALE_OR_UNMATCHED_LEASE" }, 409);
+    return json({ cancel_requested: row.cancel_requested === 1 });
+  }
   if (path === "/runner/claim" && request.method === "POST") {
     if (env.CPU_WORKLOAD_ADMISSION_ENABLED !== "true") {
       await env.DB.prepare(`UPDATE runs SET state='cancelled', failure_code='admission_disabled',
@@ -466,8 +521,10 @@ async function runner(request, env, path) {
         typeof body.plan_fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(body.plan_fingerprint) ||
         typeof body.source_sha !== "string" || !/^[0-9a-f]{40}$/.test(body.source_sha) ||
         body.image_digest !== env.CPU_WORKLOAD_IMAGE_DIGEST) return json({ error: "INVALID_RECOVERY_RECEIPT" }, 400);
-    const updated = await env.DB.prepare(`UPDATE runs SET state='failed', failure_code='runner_lost_recovered',
-        cleanup_state='confirmed', cleanup_receipt_json=?, updated_at=?, lease_id=NULL, lease_expires_at=NULL
+    const updated = await env.DB.prepare(`UPDATE runs SET
+        state=CASE WHEN cancel_requested=1 THEN 'cancelled' ELSE 'failed' END,
+        failure_code=CASE WHEN cancel_requested=1 THEN 'caller_cancelled_runner_lost' ELSE 'runner_lost_recovered' END,
+        cancel_requested=0, cleanup_state='confirmed', cleanup_receipt_json=?, updated_at=?, lease_id=NULL, lease_expires_at=NULL
       WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at < ?
         AND EXISTS (SELECT 1 FROM plans p WHERE p.id=runs.plan_id AND p.fingerprint=?
           AND p.source_sha=? AND p.image_digest=?) RETURNING id, state, failure_code, cleanup_state`)
@@ -480,7 +537,7 @@ async function runner(request, env, path) {
     const body = await readJson(request, MAX_RESULT_BYTES);
     if (!body || Object.keys(body).sort().join(",") !== "cleanup_confirmation,lease_id,result,run_id,status" ||
         typeof body.run_id !== "string" || !/^[0-9a-f]{32}$/.test(body.run_id) || typeof body.lease_id !== "string" || !/^[0-9a-f]{32}$/.test(body.lease_id)) return json({ error: "INVALID_RUN_RECEIPT" }, 400);
-    const workloadRun = await env.DB.prepare(`SELECT r.state, r.lease_id, r.lease_expires_at,
+    const workloadRun = await env.DB.prepare(`SELECT r.state, r.lease_id, r.lease_expires_at, r.cancel_requested,
         p.fingerprint, p.source_sha, p.image_digest, p.parameters_json, p.runtime_seconds
       FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id=?`)
       .bind(body.run_id).first();
@@ -496,14 +553,29 @@ async function runner(request, env, path) {
         cleanup.source_sha !== workloadRun.source_sha || cleanup.image_digest !== workloadRun.image_digest ||
         workloadRun.image_digest !== env.CPU_WORKLOAD_IMAGE_DIGEST ||
         !Number.isSafeInteger(cleanup.observed_at) || cleanup.observed_at > now + 30 || now - cleanup.observed_at > 60) return json({ error: "INVALID_RESULT" }, 400);
+    if (workloadRun.cancel_requested === 1) {
+      if (!["cancelled", "failed", "passed"].includes(body.status) ||
+          (body.status === "cancelled" && body.result !== null)) return json({ error: "INVALID_CANCELLATION_RESULT" }, 400);
+      const cancelled = await finalizeRequestedCancellation(env, body, cleanup, now);
+      if (!cancelled) return json({ error: "STALE_OR_EXPIRED_LEASE" }, 409);
+      return json({ ok: true, run: cancelled });
+    }
+    if (body.status === "cancelled") return json({ error: "CANCELLATION_NOT_REQUESTED" }, 409);
     if (body.status === "failed") {
       if (!value || typeof value !== "object" || Object.keys(value).join(",") !== "failure_code" ||
           !["container_exit_nonzero", "workload_output_invalid", "execution_timeout"].includes(value.failure_code)) return json({ error: "INVALID_FAILURE_RESULT" }, 400);
       const updated = await env.DB.prepare(`UPDATE runs SET state='failed', result_json=NULL,
           cleanup_receipt_json=?, failure_code=?, cleanup_state='confirmed', updated_at=?, lease_id=NULL, lease_expires_at=NULL
-        WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at>=? RETURNING id, state, failure_code, cleanup_state`)
+        WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at>=? AND cancel_requested=0 RETURNING id, state, failure_code, cleanup_state`)
         .bind(JSON.stringify(cleanup), value.failure_code, now, body.run_id, body.lease_id, now).first();
-      if (!updated) return json({ error: "STALE_OR_EXPIRED_LEASE" }, 409);
+      if (!updated) {
+        const current = await env.DB.prepare("SELECT state, cancel_requested FROM runs WHERE id = ?").bind(body.run_id).first();
+        if (current?.state === "running" && current.cancel_requested === 1) {
+          const cancelled = await finalizeRequestedCancellation(env, body, cleanup, now);
+          if (cancelled) return json({ ok: true, run: cancelled });
+        }
+        return json({ error: "STALE_OR_EXPIRED_LEASE" }, 409);
+      }
       return json({ ok: true, run: updated });
     }
     const parameters = JSON.parse(workloadRun.parameters_json);
@@ -548,7 +620,7 @@ async function runner(request, env, path) {
     try {
       updated = await env.DB.prepare(`UPDATE runs SET state=?, result_json=?, cleanup_receipt_json=?, failure_code=?, cleanup_state='confirmed', updated_at=?, lease_id=NULL, lease_expires_at=NULL,
           result_artifact_id=?, result_artifact_sha256=?, result_artifact_size=?
-      WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at>=? RETURNING id, state`)
+      WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at>=? AND cancel_requested=0 RETURNING id, state`)
         .bind(state, result, JSON.stringify(cleanup), null, now, artifactId, artifactSha256, artifactBytes.byteLength, body.run_id, body.lease_id, now).first();
     } catch {
       try {
@@ -558,9 +630,16 @@ async function runner(request, env, path) {
       return json({ error: "RESULT_PERSIST_FAILED" }, 503);
     }
     if (!updated) {
-      const current = await env.DB.prepare("SELECT state, result_artifact_sha256 FROM runs WHERE id = ?").bind(body.run_id).first();
+      const current = await env.DB.prepare("SELECT state, cancel_requested, result_artifact_sha256 FROM runs WHERE id = ?").bind(body.run_id).first();
       if (current?.state === "succeeded" && current.result_artifact_sha256 === artifactSha256) {
         return json({ ok: true, run: { id: body.run_id, state: "succeeded" } });
+      }
+      if (current?.state === "running" && current.cancel_requested === 1) {
+        if (current.result_artifact_sha256 !== artifactSha256) {
+          try { await env.BUCKET.delete(artifactKey); } catch { /* unreferenced artifact remains inaccessible */ }
+        }
+        const cancelled = await finalizeRequestedCancellation(env, body, cleanup, now);
+        if (cancelled) return json({ ok: true, run: cancelled });
       }
       if (current && current.result_artifact_sha256 !== artifactSha256) {
         try { await env.BUCKET.delete(artifactKey); } catch { /* inaccessible orphan; never expose without the D1 owner-bound row */ }
