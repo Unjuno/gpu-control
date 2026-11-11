@@ -143,7 +143,7 @@ def test_oidc_accepts_both_verified_github_subject_formats(signing, policy):
 
 
 @pytest.mark.parametrize("override", [
-    {"iss": "https://other.example"}, {"aud": "https://gpu-control.vercel.app/mcp"},
+    {"iss": "https://other.example"}, {"aud": "https://legacy-gateway.example/mcp"},
     {"sub": "repo:evil/repo:ref:refs/heads/main"}, {"actor_id": "55"},
     {"repository_id": "55"}, {"repository_owner_id": "55"},
     {"event_name": "pull_request"}, {"workflow_ref": "Unjuno/gpu-control/.github/workflows/ci.yml@refs/heads/main"},
@@ -234,7 +234,7 @@ def test_cancel_remains_available_while_paid_submit_is_parked(http_system, event
 def test_ci_rejects_browser_and_missing_auth(http_system, event):
     c, p = http_system.client, http_system.path
     assert c.post(p, json=envelope(event)).status_code == 401
-    assert c.post(p, json=envelope(event), headers=dict(http_system.headers, Origin="https://gpu-control.vercel.app")).status_code == 403
+    assert c.post(p, json=envelope(event), headers=dict(http_system.headers, Origin="https://legacy-gateway.example")).status_code == 403
     assert c.post(p, content="{}", headers=http_system.headers).status_code == 415
     assert not http_system.calls
 

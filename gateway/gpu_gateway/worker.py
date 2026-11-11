@@ -53,7 +53,7 @@ def _unset_json_value(column):
 
 
 class Worker:
-    """Short recoverable ticks, executed OUTSIDE the Vercel request lifecycle.
+    """Short recoverable ticks, executed outside the HTTP request lifecycle.
 
     A stale submitting job is reconciled, never blindly retried. Unknown submissions
     keep their admission slot until an operator/provider supplies reliable evidence.

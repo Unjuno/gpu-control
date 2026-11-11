@@ -25,7 +25,9 @@ The project is **usable today for offline validation and control-plane developme
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Owner-private Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; Sites reports MCP ready and its plugin is already installed |
-| Registered CPU experiment through ChatGPT | D1 migration is applied and the matching isolated CPU runner is heartbeating; admission remains disabled, so a live ChatGPT-originated run is still unverified |
+| Registered CPU experiment through ChatGPT | A free, fixed-image CPU smoke completed through ChatGPT → Sites → D1 → Runner → D1; result retrieval, cleanup, and same-run idempotent resubmit were verified |
+| Real model inference through ChatGPT | Not yet verified; a local TinyStories 15M CPU candidate has produced a response, but the published Site still runs `cpu-smoke-v1` |
+| GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
 | Synthetic provider/controller self-test | Ready |
@@ -40,7 +42,18 @@ The project is **usable today for offline validation and control-plane developme
 | Paid RunPod workflow | Not enabled; adapter authorization, concrete Gateway wiring, and authenticated result path remain incomplete |
 | Live paid GPU execution | Disabled / parked |
 
-See [docs/STATUS.md](docs/STATUS.md) for the capability-by-capability status and exact activation blockers.
+The hosted product path is ChatGPT Sites + D1 with a separate isolated Runner.
+The deployed version has completed a free CPU checksum smoke, bounded to 30
+seconds and one in-flight run. A pinned TinyStories inference candidate is
+under review but is not yet a published ChatGPT capability. Paid providers
+remain parked. The legacy FastAPI/PostgreSQL Gateway is reference-only; see
+[`gateway/README.md`](gateway/README.md).
+
+See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the supported ChatGPT
+path, [docs/RELEASE_MATRIX.md](docs/RELEASE_MATRIX.md) for current acceptance
+gates, and [docs/STATUS.md](docs/STATUS.md) for capability-by-capability
+blockers. Historical Vercel/Postgres setup and release records are archived;
+they are not current deployment instructions.
 
 ## What you can do now
 

@@ -1,8 +1,8 @@
 # Sites + D1 architecture pivot
 
-**Status:** Accepted architecture direction from the owner's 2026-11-11 instruction; feasibility, implementation, and hosted acceptance remain open.
+**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. One free CPU checksum run is verified; model inference, recovery, identity isolation, artifacts, and GPU execution remain open.
 
-## P0 baseline refresh — 2026-11-11
+## P0 baseline refresh — 2026-11-11 (historical snapshot; superseded below)
 
 - Local source is `codex/gpu-control-current-p5-on-pr58` at `4658552a9bc8f65a6f2623a8642ff39d8aaa081c`; the worktree began clean. PR #60 is still OPEN/DRAFT and mergeable. Its latest GitHub combined commit status surfaced a successful Vercel check only; do not treat that as Sites, ChatGPT, D1, runtime, or end-to-end acceptance. PR #60's own body reports its earlier local full-suite results and explicitly says no deployed ChatGPT tool flow or real GPU/paid provider call was exercised.
 - `policies/repository-state.yaml` is `mode: parked`; paid workflow, live paid compute, and RunPod live calls remain disabled. This architecture change does not relax those gates.
@@ -10,7 +10,7 @@
 - The current Python Gateway hosted path requires PostgreSQL and a persistent filesystem, while the Vercel deployment manifest describes a 30-second FastAPI Function. P1 local Docker and PostgreSQL tests in existing records do not establish a compatible Sites Worker or D1 deployment.
 - Existing production/provider state and old source records remain separate from the new Site. The first implementation boundary is a private Sites MCP Worker + D1/R2 smoke, followed by the P1 CPU execution route; the old stack stays parked until replacement evidence exists.
 
-**P0 exit status:** source/policy/PR/Sites-baseline refreshed; `Sites+D1` is a deliberate architecture change. A private, unpublished Sites Worker target and local D1 schema now exist. Sites deployment permission, D1 live binding/migration, Worker runtime behavior, and the actual ChatGPT Site connection remain unverified. Continue to P1 only through the Sites target and preserve all paid/security gates.
+**P0 exit status at that snapshot:** the target had not yet been deployed. The later implementation checkpoints below supersede the hosted status. Preserve all paid/security gates.
 
 ## Provider cleanup inventory — initial audit snapshot, 2026-11-12
 
@@ -22,11 +22,11 @@ These observations are read-only connector inventory, not proof of live applicat
 
 ## Decision summary
 
-Use a ChatGPT Sites-hosted MCP Worker for the user-facing gateway, Cloudflare D1 for durable control-plane state, and R2 for result artifacts. Keep compute in a separately isolated execution service/provider. Vercel and Neon are legacy implementation choices, not target requirements: add no new Vercel/Neon product features, and remove their code/configuration from the supported product path as the Sites migration proceeds.
+Use a ChatGPT Sites-hosted MCP Worker for the user-facing gateway, Cloudflare D1 for durable control-plane state, and R2 for result artifacts. Keep compute in a separately isolated execution service/provider. Vercel and Neon are not target requirements: add no new Vercel/Neon features, and keep their code/configuration out of the supported product path.
 
-PostgreSQL is not an inherent requirement of experiment execution, and the target Sites product does not need it. It is required only by the legacy hosted Python implementation: hosted configuration rejects non-PostgreSQL URLs, and the API, execution worker, and recovery supervisor share the SQLAlchemy store. D1 is the chosen control-plane database for this low-volume Sites product; this requires an explicit runtime and persistence-layer migration, not a drop-in SQL URL replacement. Reconsider another database only if measured concurrency, query, or data requirements exceed D1's limits.
+PostgreSQL is not an inherent requirement of experiment execution, and the target Sites product does not need it. It is required only by the archived FastAPI implementation and its PostgreSQL-specific tests. The Sites Worker already uses its D1 binding for plans, runs, idempotency, leases, and Runner heartbeats. D1 is the selected control-plane database; its SQLite-compatible binding requires D1-specific prepared statements and atomic batches, not a PostgreSQL URL. Reconsider another database only if measured concurrency, query, or data requirements exceed D1's limits.
 
-Preserve historical acceptance evidence during the migration, but do not treat it as a reason to keep Vercel in the active product path. Remove Vercel-specific build/deployment/runtime integration from the supported path as soon as each equivalent Sites path is ready. Keep existing provider resources only as temporary rollback/export sources until Sites+D1 acceptance and required-data export are verified; then remove Vercel/Neon settings, secrets, and resources as directed here. This user instruction is the cleanup authorization, so do not ask for the same approval again. Never delete unexported user data or destroy the only rollback copy.
+Preserve historical acceptance evidence, but keep Vercel and Neon out of the active product path. Vercel runtime config and autodetection have been removed; the old Vercel/PostgreSQL operations procedure has been moved to `docs/archive/`. Retain provider resources only as rollback/export sources until Sites acceptance and required-data export are verified; then retire the resources and unused credentials. Never delete unexported user data or destroy the only rollback copy.
 
 ## Why Vercel is not the product requirement
 
@@ -102,8 +102,12 @@ The first migration slice should not move every provider or destroy rollback dat
 - [x] Version 6 (`appgver_8dfd2b8758288191af282215ccf69463`) deployed successfully as `appgdep_6af4a9e52d448191a64f810cf73f6275`. Repeating the ChatGPT submit now reports “この実験は完了しています。” with the same succeeded run ID; `experiment_list` still contains exactly one run.
 - [x] Read-only Neon inventory refresh: project `delicate-smoke-00521013`, production branch `br-raspy-cell-b3l93n46` is still primary/default and unprotected; logical size is 31,670,272 bytes. Its only read-write endpoint is idle and suspended, and the project has no Neon snapshots. The database still contains Neon Auth and legacy OAuth/run tables. No secret rows were read and no Neon data was changed.
 - [ ] Do not delete Neon until those legacy records are classified and any required data has a verified export or D1/archive copy. There is no active compute now, so the project can remain suspended while the Sites replacement is completed.
+- [x] Reorganized operator docs: `gateway/README.md` identifies Sites + D1 as the supported path; the detailed legacy PostgreSQL runbook is under `docs/archive/`, and `docs/OPERATIONS.md` now describes current Sites boundaries and open acceptance. Removed Vercel-specific runtime configuration and autodetection from the active path.
+- [x] Refreshed Vercel project `prj_fMufIBiFDlXtWcuJ0bWpAekEMIAp`: `live=false`, latest deployment `BLOCKED`, three Vercel domains remain. The default `gpu-control.vercel.app` health and MCP GETs return 503; the preview URL redirects unauthenticated requests to Vercel SSO. No Vercel application runtime is currently reachable anonymously.
+- [ ] The Vercel project and its domains still exist. The connected Vercel deletion flow requires the account owner to review and confirm project deletion; retain the project until final Site acceptance and any needed rollback evidence are resolved.
+- [x] Added three local Runner recovery regressions: recovery removes only a container whose run, lease, plan, image, and source labels match; mismatched labels and unconfirmed cleanup fail closed. The focused recovery/security set passed 7 tests, and the root recovery subset passed 3 tests. This is code-level evidence, not a forced restart against the live Site Runner.
 
-**Next implementation sequence:** (1) extend the registered Site path from checksum smoke to an actual bounded CPU model-inference workload, preserving fixed image/source identity and zero cost; (2) complete an exact-source security review, D1 transition/race coverage, cancellation, and R2 artifact integrity; (3) add durable result retry/reconciliation and prove interruption recovery and cleanup; (4) prove owner isolation across chats and accounts; (5) export/classify Neon auth/run records and verify a retained copy; (6) remove residual Vercel/Neon code, configuration, secrets, and project resources after Sites acceptance and data-retention gates pass. The first ChatGPT-originated CPU round trip and idempotent resubmit check are complete, but they do not establish model inference or GPU execution. Keep paid admission and live provider calls parked until their independent authorization and safety gates pass.
+**Next implementation sequence:** (1) add a bounded pretrained CPU model-inference workload to the registered Site path and retrieve its real output through ChatGPT; (2) review the exact code/image and cover D1 transitions, cancellation, and R2 integrity; (3) prove restart recovery, result reconciliation, and cleanup; (4) prove owner isolation and access revocation; (5) classify/export any Neon auth/run records that must be retained; (6) retire unused Vercel/Neon resources and credentials after Sites acceptance and retention checks. The existing checksum smoke does not establish inference or GPU execution. Keep paid admission parked until independent authorization and cost/security/recovery gates pass.
 
 ### A. Freeze and map existing behavior
 
@@ -115,11 +119,11 @@ The first migration slice should not move every provider or destroy rollback dat
 
 ### B. Prove the Sites MCP and D1 vertical
 
-- [ ] Build a private Site MCP Worker with one read-only capability query and one non-billable registered smoke workload.
-- [ ] Create versioned D1 migrations and implement owner-scoped run/plan storage using prepared statements and atomic batches.
+- [x] Build and privately publish the Site MCP Worker; ChatGPT can discover its canonical tools and execute the registered non-billable CPU checksum smoke.
+- [x] Create the D1 migration and implement owner-scoped plan/run storage with prepared statements and bounded atomic batches; the end-to-end run and duplicate-submit response are verified.
 - [ ] Implement D1 backup/export and restore rehearsal before storing any durable OAuth or run data.
 
-**Gate:** ChatGPT discovers the intended schema from the Site plugin; two separate chats can retrieve the same owner's run; another owner cannot list, inspect, or retrieve it; deployment and restore provenance are recorded.
+**Gate:** same-owner cross-chat retrieval, cross-owner denial, and a documented D1 export/restore rehearsal remain open.
 
 ### C. Replace asynchronous execution and recovery
 
@@ -140,7 +144,7 @@ The first migration slice should not move every provider or destroy rollback dat
 
 ### E. Remove Vercel/Neon from the product path and retire residual resources
 
-- [ ] Remove Vercel-specific runtime config and environment assumptions from the supported release path; do not add new Vercel feature work.
+- [x] Remove Vercel-specific runtime config and environment assumptions from the supported release path; do not add new Vercel feature work.
 - [ ] Export and verify any required existing run/OAuth state before data migration; otherwise document a deliberate fresh single-owner start.
 - [ ] Revoke and rotate credentials that are no longer used.
 - [ ] Delete old Vercel/Neon resources only after the D1-backed Site passes the full ChatGPT acceptance and any required data has a verified export.

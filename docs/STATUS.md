@@ -1,5 +1,23 @@
 # Project status
 
+## Hosted Sites MCP CPU vertical — 2026-11-12
+
+The current candidate branch has a private Sites MCP Worker with D1 and a
+registered isolated CPU Runner. From ChatGPT, one fixed `cpu-smoke-v1` run
+completed, its persisted result was retrieved, cleanup was confirmed, and a
+duplicate submit returned the same completed run without creating another
+execution. The run cost was `$0.00`; it used no GPU. This is a checksum smoke,
+not real model inference, GPU acceptance, recovery acceptance, or cross-owner
+isolation acceptance. A separate TinyStories 15M CPU inference candidate has
+passed local isolated Docker execution but is not deployed or registered yet.
+Free CPU admission is enabled with a 30-second ceiling
+and one in-flight slot; paid execution remains parked. Full evidence and open
+gates are tracked in
+[`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
+
+The rest of this document records standalone CLI and provider-adapter status on
+`main`; it does not supersede the hosted Sites acceptance snapshot above.
+
 This document describes what `gpu-control` on `main` can do today. It deliberately distinguishes implemented offline/control-plane contracts from live paid GPU execution.
 
 ## Readiness summary

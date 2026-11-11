@@ -41,6 +41,159 @@ async function capabilities(env) {
   return envelope;
 }
 
+async function listTools(env) {
+  const request = new Request("https://site.invalid/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 8, method: "tools/list", params: {} }),
+  });
+  const response = await worker.fetch(request, env);
+  assert.equal(response.status, 200);
+  return (await response.json()).result.tools;
+}
+
+test("advertises only the bounded, registered pretrained CPU inference contract", async () => {
+  const tools = await listTools(environment());
+  const prepare = tools.find((tool) => tool.name === "experiment_prepare");
+  assert.equal(prepare.inputSchema.properties.workload.const, "tiny-stories-inference-v1");
+  assert.deepEqual(prepare.inputSchema.properties.parameters.required, ["max_new_tokens", "prompt", "seed"]);
+  assert.equal(prepare.inputSchema.properties.parameters.properties.max_new_tokens.maximum, 32);
+  assert.equal(prepare.inputSchema.properties.parameters.properties.prompt.maxLength, 128);
+  assert.match(prepare.description, /pretrained TinyStories 15M/);
+});
+
+test("rejects legacy checksum parameters from the inference tool", async () => {
+  const request = new Request("https://site.invalid/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 9, method: "tools/call",
+      params: { name: "experiment_prepare", arguments: {
+        repository: "Unjuno/gpu-control", commit: sourceSha, workload: "cpu-smoke-v1",
+        parameters: { iterations: 1000, seed: 61112 }, runtime_seconds: 30,
+        max_cost_usd: "0.00", idempotency_key: "legacy-smoke-key",
+      } },
+    }),
+  });
+  const response = await worker.fetch(request, environment());
+  const rpc = await response.json();
+  assert.equal(rpc.result.isError, true);
+  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "INVALID_ARGUMENTS" });
+});
+
+test("rejects a malformed UTF-16 prompt before writing a plan", async () => {
+  const request = new Request("https://site.invalid/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 10, method: "tools/call",
+      params: { name: "experiment_prepare", arguments: {
+        repository: "Unjuno/gpu-control", commit: sourceSha, workload: "tiny-stories-inference-v1",
+        parameters: { prompt: "\ud800", max_new_tokens: 8, seed: 1 }, runtime_seconds: 30,
+        max_cost_usd: "0.00", idempotency_key: "invalid-unicode-key",
+      } },
+    }),
+  });
+  const response = await worker.fetch(request, environment());
+  const rpc = await response.json();
+  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "INVALID_ARGUMENTS" });
+});
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function sha256(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function inferenceResult({ modelSha256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a", generatedTokens = 6 } = {}) {
+  const runId = "f".repeat(32);
+  const fingerprint = "a".repeat(64);
+  const prompt = "Once upon a time";
+  const metrics = {
+    elapsed_ms: 800,
+    generated_text: `${prompt}, there was a little girl`,
+    generated_tokens: generatedTokens,
+    max_new_tokens: 8,
+    model_id: "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin",
+    model_sha256: modelSha256,
+    prompt_sha256: await sha256(prompt),
+    seed: 61112,
+    temperature: 0.8,
+  };
+  const identity = { run_id: runId, source_sha: sourceSha, plan_fingerprint: fingerprint, metrics };
+  return {
+    run_id: runId, fingerprint, prompt, metrics,
+    result: {
+      schema_version: 1, run_id: runId, source_sha: sourceSha, plan_fingerprint: fingerprint,
+      check: "tiny-stories-inference-v1", status: "passed", gpu_used: false,
+      checks: ["source_identity_present", "parameter_bounds", "model_digest_verified", "inference_completed",
+        "non_root", "no_secret_environment", "no_docker_socket", "read_only_rootfs", "network_disabled"],
+      metrics, checksum: await sha256(canonical(identity)),
+    },
+  };
+}
+
+function resultEnvironment(expectedImage = imageDigest) {
+  const env = environment({ admission: "true" });
+  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
+  env.DB.prepare = (sql) => ({
+    bind() {
+      return {
+        async first() {
+          if (sql.includes("SELECT r.state")) return {
+            state: "running", lease_id: "e".repeat(32), lease_expires_at: Math.floor(Date.now() / 1000) + 30,
+            fingerprint: "a".repeat(64), source_sha: sourceSha, image_digest: expectedImage,
+            parameters_json: JSON.stringify({ prompt: "Once upon a time", max_new_tokens: 8, seed: 61112 }),
+            runtime_seconds: 30,
+          };
+          if (sql.includes("UPDATE runs SET state=?")) return { id: "f".repeat(32), state: "succeeded" };
+          throw new Error("unexpected result query");
+        },
+      };
+    },
+  });
+  return env;
+}
+
+async function postInferenceResult(value, env) {
+  const now = Math.floor(Date.now() / 1000);
+  return worker.fetch(new Request("https://site.invalid/runner/result", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      status: "passed", run_id: value.run_id, lease_id: "e".repeat(32), result: value.result,
+      cleanup_confirmation: {
+        absent: true, container_id: "1".repeat(12), container_name: `gpu-control-${value.run_id}`,
+        image_digest: imageDigest, lease_id: "e".repeat(32), observed_at: now,
+        plan_fingerprint: value.fingerprint, run_id: value.run_id, source_sha: sourceSha,
+      },
+    }),
+  }), env);
+}
+
+test("persists only a model- and prompt-bound inference result with verified checksum", async () => {
+  const value = await inferenceResult();
+  const response = await postInferenceResult(value, resultEnvironment());
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, run: { id: value.run_id, state: "succeeded" } });
+});
+
+test("rejects inference results with a different model digest or excess generated tokens", async () => {
+  const wrongModel = await inferenceResult({ modelSha256: "0".repeat(64) });
+  const modelResponse = await postInferenceResult(wrongModel, resultEnvironment());
+  assert.equal(modelResponse.status, 400);
+  const tooManyTokens = await inferenceResult({ generatedTokens: 9 });
+  const tokenResponse = await postInferenceResult(tooManyTokens, resultEnvironment());
+  assert.equal(tokenResponse.status, 400);
+});
+
 test("reports a matching live runner separately from disabled admission", async () => {
   const result = await capabilities(environment({ heartbeatAt: Math.floor(Date.now() / 1000) }));
   assert.equal(result.machine_state.runner_ready, true);

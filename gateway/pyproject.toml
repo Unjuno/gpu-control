@@ -16,8 +16,7 @@ dependencies = [
   "gpu-control",
 ]
 # `requirements.txt` additionally installs the monorepo's local `gpu-control`
-# package with `-e ..` for pip-based environments. Vercel resolves the uv
-# source below from the repository root during its Python build.
+# package with `-e ..` for pip-based environments.
 
 [tool.uv.sources]
 gpu-control = { path = "..", editable = true }

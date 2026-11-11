@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Poll the private Sites Worker and run only the registered CPU smoke image."""
+"""Poll the private Sites Worker and run only its registered inference image."""
 from __future__ import annotations
 
 import hashlib
@@ -15,9 +15,12 @@ import urllib.request
 from urllib.parse import urlsplit, urlunsplit
 
 RUNNER_ID = "local-cpu-1"
-WORKLOAD = "cpu-smoke-v1"
-CHECKS = ["source_identity_present", "parameter_bounds", "checksum_verified", "non_root",
-          "no_secret_environment", "no_docker_socket", "read_only_rootfs", "network_disabled"]
+WORKLOAD = "tiny-stories-inference-v1"
+MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin"
+MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a"
+TEMPERATURE = 0.8
+CHECKS = ["source_identity_present", "parameter_bounds", "model_digest_verified", "inference_completed",
+          "non_root", "no_secret_environment", "no_docker_socket", "read_only_rootfs", "network_disabled"]
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
@@ -179,9 +182,16 @@ def start_args(run: dict, cfg: dict[str, str]) -> tuple[list[str], str]:
             not re.fullmatch(r"[0-9a-f]{32}", run.get("lease_id", ""))):
         raise RunnerError("CLAIM_IDENTITY_MISMATCH")
     parameters = run.get("parameters")
-    if (not isinstance(parameters, dict) or set(parameters) != {"iterations", "seed"} or
-            type(parameters["iterations"]) is not int or not 1 <= parameters["iterations"] <= 20000000 or
-            type(parameters["seed"]) is not int or not 0 <= parameters["seed"] <= 1000000 or
+    if not isinstance(parameters, dict) or set(parameters) != {"max_new_tokens", "prompt", "seed"}:
+        raise RunnerError("CLAIM_PARAMETERS_INVALID")
+    try:
+        prompt_bytes = parameters["prompt"].encode("utf-8", "strict") if isinstance(parameters["prompt"], str) else b""
+    except UnicodeEncodeError as exc:
+        raise RunnerError("CLAIM_PARAMETERS_INVALID") from exc
+    if (not prompt_bytes or len(prompt_bytes) > 128 or
+            any(ord(char) < 0x20 or ord(char) == 0x7f for char in parameters["prompt"]) or
+            type(parameters["max_new_tokens"]) is not int or not 1 <= parameters["max_new_tokens"] <= 32 or
+            type(parameters["seed"]) is not int or not 1 <= parameters["seed"] <= 1000000 or
             type(run.get("runtime_seconds")) is not int or not 1 <= run["runtime_seconds"] <= 30):
         raise RunnerError("CLAIM_PARAMETERS_INVALID")
     run_id = run["id"]
@@ -235,14 +245,32 @@ def wait_result(run: dict, cfg: dict[str, str], container_id: str) -> tuple[str,
             result.get("checks") != CHECKS):
         return "failed", {"failure_code": "workload_output_invalid"}
     metrics = result.get("metrics")
-    if (not isinstance(metrics, dict) or set(metrics) != {"iterations", "checksum_value"} or
-            type(metrics.get("iterations")) is not int or metrics["iterations"] != run["parameters"]["iterations"] or
-            type(metrics.get("checksum_value")) is not int or metrics["checksum_value"] < 0):
+    if (not isinstance(metrics, dict) or set(metrics) != {
+            "elapsed_ms", "generated_text", "generated_tokens", "max_new_tokens", "model_id", "model_sha256", "prompt_sha256", "seed", "temperature"} or
+            type(metrics.get("elapsed_ms")) is not int or not 1 <= metrics["elapsed_ms"] <= run["runtime_seconds"] * 1000 or
+            not isinstance(metrics.get("generated_text"), str) or
+            metrics.get("temperature") != TEMPERATURE or
+            not metrics["generated_text"].startswith(run["parameters"]["prompt"]) or
+            metrics["generated_text"] == run["parameters"]["prompt"] or
+            type(metrics.get("generated_tokens")) is not int or
+            not 1 <= metrics["generated_tokens"] <= run["parameters"]["max_new_tokens"] or
+            type(metrics.get("max_new_tokens")) is not int or
+            metrics["max_new_tokens"] != run["parameters"]["max_new_tokens"] or
+            type(metrics.get("seed")) is not int or metrics["seed"] != run["parameters"]["seed"] or
+            type(metrics.get("temperature")) is not float or
+            metrics["temperature"] != TEMPERATURE or metrics["model_id"] != MODEL_ID or
+            metrics["model_sha256"] != MODEL_SHA256 or
+            metrics["prompt_sha256"] != hashlib.sha256(run["parameters"]["prompt"].encode("utf-8")).hexdigest()):
+        return "failed", {"failure_code": "workload_output_invalid"}
+    try:
+        if len(metrics["generated_text"].encode("utf-8", "strict")) > 1536:
+            return "failed", {"failure_code": "workload_output_invalid"}
+    except UnicodeEncodeError:
         return "failed", {"failure_code": "workload_output_invalid"}
     identity = {"run_id": run["id"], "source_sha": run["source_sha"],
-                "plan_fingerprint": run["fingerprint"], "iterations": metrics["iterations"],
-                "seed": run["parameters"]["seed"], "checksum_value": metrics["checksum_value"]}
-    checksum = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+                "plan_fingerprint": run["fingerprint"], "metrics": metrics}
+    checksum = hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True,
+                                   separators=(",", ":"), allow_nan=False).encode("utf-8")).hexdigest()
     if result.get("checksum") != checksum:
         return "failed", {"failure_code": "workload_output_invalid"}
     return "passed", result

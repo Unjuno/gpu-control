@@ -1,6 +1,6 @@
 """Optional Modal CPU worker deployment. Deploying activates billable CPU scheduling.
 
-Do not import this file as the Vercel app. Run manually from gateway/ only after
+Do not import this file as the legacy FastAPI app. Run manually from gateway/ only after
 creating the database schema and the operator-owned gpu-control-worker Secret.
 The Secret contains gateway DB/settings. Provider credentials stay off the Web app.
 """

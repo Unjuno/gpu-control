@@ -256,8 +256,6 @@ def test_hosted_worker_settings_do_not_require_api_client_ip_secret():
 def test_hosted_environment_uses_explicit_origin_not_platform_defaults(monkeypatch):
     monkeypatch.delenv("GATEWAY_DATABASE_URL", raising=False)
     monkeypatch.setenv("GATEWAY_PUBLIC_URL", "https://gateway.example")
-    monkeypatch.delenv("VERCEL", raising=False)
-    monkeypatch.delenv("VERCEL_PROJECT_PRODUCTION_URL", raising=False)
     monkeypatch.setenv("GATEWAY_HOSTED", "true")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db.example/db?sslmode=require")
     monkeypatch.setenv("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "1073741824")

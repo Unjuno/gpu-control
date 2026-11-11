@@ -148,7 +148,7 @@ def test_postgres_parallel_admission_and_cross_process_state():
         list(pool.map(lambda _: service.submit(owner, job['id']), range(20)))
     with store.engine.connect() as c:
         assert c.execute(select(control.c.active_count)).scalar_one() == 1
-    # A second engine represents a different process/cold Vercel instance.
+    # A second engine represents a different process without shared memory.
     other = Store(url)
     assert other.read(job['id'])['state'] == 'queued'
     service.cancel(owner, job['id'])

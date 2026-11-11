@@ -2,13 +2,18 @@
 
 Private ChatGPT MCP Site target for `Unjuno/gpu-control`.
 
+The published version still runs the checksum-only CPU smoke. This checkout
+contains a not-yet-published inference candidate; do not treat its code or local
+Docker result as a live ChatGPT capability until its exact committed image is
+registered and a ChatGPT-originated inference result is retrieved.
+
 ## Current slice
 
 - Cloudflare Worker exposes MCP `server/discover`, `tools/list`, and `tools/call` at `/mcp`.
 - D1 (`DB`) stores owner-scoped plans, idempotency keys, run states, leases, and runner heartbeat.
-- Only the fixed `cpu-smoke-v1` workload is represented. Paid providers remain parked and are not advertised as executable.
+- The candidate source defines only the fixed `tiny-stories-inference-v1` workload. It runs the MIT-licensed, pretrained `karpathy/tinyllamas` 15M checkpoint pinned by Hugging Face revision and SHA-256. Paid providers remain parked and are not advertised as executable.
 - The executor interface is a separate, authenticated polling API. The Site Worker never receives a Docker socket or executes user-provided code.
-- `runner/run.py` is a separate Docker-capable polling process. It accepts only the registered image digest, verifies OCI source/revision labels and host architecture, applies the fixed no-network/read-only/non-root resource profile, validates the bounded smoke checksum, and confirms container removal before reporting success.
+- `runner/run.py` is a separate Docker-capable polling process. It accepts only the registered image digest, verifies OCI source/revision labels and host architecture, applies the fixed no-network/read-only/non-root resource profile, validates model/prompt/output identity and the result checksum, and confirms container removal before reporting success.
 - The runner checks expired leases. It removes only containers whose run, plan, source, and image labels match, verifies absence, then asks the Worker to terminalize the interrupted run as failed. Recovery does not auto-retry work.
 - Results are bounded and validated against run, plan, source, workload, parameter, and checksum identity before becoming terminal.
 
@@ -28,7 +33,7 @@ The Worker lease is a fixed 180 seconds, exceeding the runner's bounded Docker s
 
 ## Current verification boundary
 
-The private Site is published and MCP-ready, its D1 migration and runtime configuration are active, and the separate Linux/ARM64 Runner has written a live D1 heartbeat. A local Docker run of the fixed CPU image passed with the runner's isolation flags, checksum validation, and cleanup confirmation. These are not proof of a ChatGPT-originated run: the Site plugin call, persisted run/result retrieval, and owner-isolation acceptance remain unverified. Admission is still disabled, and paid execution stays parked.
+The published Site currently advertises `cpu-smoke-v1`. The candidate inference image has built and produced a real model response under the Runner's Linux/ARM64 isolation profile locally, but it has not been published or registered. Keep the live Site and Runner configuration unchanged until the exact-source security review passes and a controlled Sites deployment is ready. Paid execution stays parked.
 
 The runner requires `GPU_CONTROL_SITE_URL`, `GPU_CONTROL_RUNNER_BEARER_TOKEN`, `GPU_CONTROL_SITES_SERVICE_TOKEN`, and the exact three `CPU_WORKLOAD_*` registration values. Store the Site service token and runner bearer token only in the runner host's secret store and the Sites runtime secret store where applicable. The runner sends both the Sites service authorization header and independent bearer token. It never logs response bodies or credentials. It does not accept code, image names, Docker options, or provider selection from tool callers.
 
