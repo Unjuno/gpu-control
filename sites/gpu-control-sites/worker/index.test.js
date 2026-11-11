@@ -102,3 +102,41 @@ test("disabled admission cancels queued work before the runner can claim it", as
   assert.match(statements[0].sql, /SET state='cancelled'.*WHERE state='queued'/s);
   assert.equal(Number.isSafeInteger(statements[0].values[0]), true);
 });
+
+test("duplicate submit returns the succeeded run without claiming it was newly queued", async () => {
+  const runId = "c".repeat(32);
+  const fingerprint = "d".repeat(64);
+  const env = environment({ heartbeatAt: Math.floor(Date.now() / 1000), admission: "true" });
+  env.DB.prepare = (sql) => ({
+    bind() {
+      return {
+        async first() {
+          if (sql.includes("runner_heartbeats")) return {
+            last_seen_at: Math.floor(Date.now() / 1000), image_digest: imageDigest, source_sha: sourceSha,
+          };
+          if (sql.includes("SELECT id, state, created_at FROM runs")) {
+            return { id: runId, state: "succeeded", created_at: 123 };
+          }
+          throw new Error("unexpected query");
+        },
+      };
+    },
+  });
+  env.DB.batch = async () => { throw new Error("unique plan/run constraint"); };
+  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "experiment_submit", arguments: { run_id: runId, plan_fingerprint: fingerprint } },
+    }),
+  }), env);
+
+  assert.equal(response.status, 200);
+  const rpc = await response.json();
+  const result = JSON.parse(rpc.result.content[0].text);
+  assert.equal(result.run_id, runId);
+  assert.equal(result.machine_state.state, "succeeded");
+  assert.match(result.human_summary, /既に完了/);
+  assert.match(result.human_summary, /追加実行は作成していません/);
+});
