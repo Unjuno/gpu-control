@@ -277,7 +277,6 @@ def wait_result(run: dict, cfg: dict[str, str], container_id: str) -> tuple[str,
 
 
 def execute(cfg: dict[str, str], run: dict) -> None:
-    inspect_image(cfg)
     args, name = start_args(run, cfg)
     container_id = docker(args, 20).decode("ascii", "strict").strip()
     if not CONTAINER_ID.fullmatch(container_id):
@@ -302,6 +301,9 @@ def execute(cfg: dict[str, str], run: dict) -> None:
 
 
 def run_once(cfg: dict[str, str]) -> None:
+    # Do not advertise readiness until the exact registered image and Docker
+    # host have both passed inspection. A stale runner must fail closed.
+    inspect_image(cfg)
     post(cfg, "/runner/heartbeat", {"runner_id": RUNNER_ID, "image_digest": cfg["image_digest"],
                                      "source_sha": cfg["source_sha"]})
     recover(cfg)
