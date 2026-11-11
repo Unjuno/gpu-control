@@ -15,14 +15,19 @@ provider settings.
 - One TinyStories 15M inference completed through the same ChatGPT → Sites →
   D1 → Runner → D1 → ChatGPT path. A 24-token result was retrieved, identity
   and checksum validation passed, and container cleanup was confirmed.
+- A third inference completed after enabling the Site's R2 binding and append-only
+  D1 artifact metadata migration. ChatGPT read its complete 988-byte result
+  artifact; the Worker verified owner/run identity and SHA-256 before returning
+  the chunk. The result used 12 tokens, took 249 ms, and had a `$0.00` ceiling.
 - Repeating the same submission returns the existing run instead of starting
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
   reports `gpu_used=false`; paid provider execution remains parked.
 
-These checks prove one bounded CPU inference only. They do not prove general
-model quality, GPU execution, forced-restart/cancellation recovery, cross-owner
-isolation, or R2 artifact retrieval. Do not use this candidate to claim those
+These checks prove three bounded CPU inferences and one bounded R2 result
+artifact retrieval. They do not prove general model quality, GPU execution,
+forced-restart/cancellation recovery, cross-owner isolation, long-term artifact
+retention, or backup/restore. Do not use this candidate to claim those
 capabilities.
 
 ## Operating boundaries
@@ -50,7 +55,8 @@ capabilities.
    image and source have been checked.
 2. Exercise cancellation, Runner interruption/restart, lease expiry, result
    reconciliation, and cleanup against the live Site and Runner.
-3. Store immutable artifacts in R2 and verify owner-bound retrieval and digest.
+3. Define R2 artifact retention and orphan cleanup; exercise larger artifacts and
+   repeated retrieval in addition to the one accepted result object.
 4. Test owner isolation across separate accounts and verify Site access revocation.
 5. Add and rehearse a supported Runner start/stop, secret rotation, backup,
    restore, and incident procedure before increasing admission or enabling paid

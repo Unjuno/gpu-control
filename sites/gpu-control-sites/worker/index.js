@@ -138,6 +138,19 @@ async function sha256(text) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function sha256Bytes(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function base64(bytes) {
+  let binary = "";
+  for (let start = 0; start < bytes.length; start += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
+  }
+  return btoa(binary);
+}
+
 function validPlan(input, env) {
   return input && typeof input === "object" && !Array.isArray(input) &&
     Object.keys(input).sort().join(",") === "commit,idempotency_key,max_cost_usd,parameters,repository,runtime_seconds,workload" &&
@@ -300,6 +313,7 @@ async function callTool(name, args, request, env) {
   }
   if (name === "experiment_status" || name === "experiment_result") {
     const row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state,
+        r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size,
         p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json
       FROM runs r JOIN plans p ON p.id = r.plan_id WHERE r.id = ? AND r.owner_id = ?`)
       .bind(args.run_id, owner).first();
@@ -313,11 +327,41 @@ async function callTool(name, args, request, env) {
     const machine = { run_id: row.id, state: row.state, created_at: row.created_at, updated_at: row.updated_at,
       workload: row.workload, repository: row.repository, source_sha: row.source_sha,
       image_digest: row.image_digest, parameters: JSON.parse(row.parameters_json), result, failure_code: row.failure_code,
-      cleanup_state: row.cleanup_state };
+      cleanup_state: row.cleanup_state,
+      result_artifact: row.result_artifact_id ? { artifact_id: row.result_artifact_id,
+        sha256: row.result_artifact_sha256, size_bytes: row.result_artifact_size } : null };
     return { schema_version: 2, status: "ok", human_summary: name === "experiment_status" ? "Run status retrieved." : "Run result retrieved.", machine_state: machine, next_allowed_actions: row.state === "succeeded" ? [] : ["experiment_status", "experiment_cancel"], blocking_reason: null };
   }
   if (name === "experiment_cancel") return { schema_version: 2, status: "blocked", human_summary: "Cancellation is not implemented for this Sites slice.", machine_state: { run_id: args.run_id }, next_allowed_actions: ["experiment_status"], blocking_reason: "CANCELLATION_NOT_IMPLEMENTED" };
-  if (name === "experiment_artifact") return { schema_version: 2, status: "blocked", human_summary: "Artifact storage is not configured for this Sites slice.", machine_state: { run_id: args.run_id }, next_allowed_actions: ["experiment_status"], blocking_reason: "ARTIFACT_STORAGE_NOT_CONFIGURED" };
+  if (name === "experiment_artifact") {
+    if (!env.BUCKET) return { schema_version: 2, status: "blocked", human_summary: "Artifact storage is not configured.", machine_state: { run_id: args.run_id }, next_allowed_actions: ["experiment_status"], blocking_reason: "ARTIFACT_STORAGE_NOT_CONFIGURED" };
+    const row = await env.DB.prepare(`SELECT r.id, r.state, r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size,
+        p.fingerprint, p.source_sha
+      FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id = ? AND r.owner_id = ?`).bind(args.run_id, owner).first();
+    if (!row) throw new Error("RUN_NOT_FOUND");
+    if (row.state !== "succeeded" || row.result_artifact_id !== args.artifact_id ||
+        typeof row.result_artifact_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(row.result_artifact_sha256) ||
+        !Number.isSafeInteger(row.result_artifact_size) || row.result_artifact_size < 1 || row.result_artifact_size > MAX_RESULT_BYTES) {
+      return { schema_version: 2, status: "blocked", human_summary: "Artifact is not ready for this run.", machine_state: { run_id: args.run_id, state: row.state }, next_allowed_actions: ["experiment_status"], blocking_reason: "ARTIFACT_NOT_READY" };
+    }
+    const object = await env.BUCKET.get(`runs/${args.run_id}/${row.result_artifact_sha256}/${row.result_artifact_id}`);
+    if (!object || object.size !== row.result_artifact_size || object.customMetadata?.run_id !== args.run_id ||
+        object.customMetadata?.sha256 !== row.result_artifact_sha256 ||
+        object.customMetadata?.plan_fingerprint !== row.fingerprint || object.customMetadata?.source_sha !== row.source_sha) {
+      throw new Error("ARTIFACT_METADATA_MISMATCH");
+    }
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    if (bytes.length !== row.result_artifact_size || await sha256Bytes(bytes) !== row.result_artifact_sha256) {
+      throw new Error("ARTIFACT_CHECKSUM_MISMATCH");
+    }
+    if (args.offset > bytes.length) throw new Error("ARTIFACT_OFFSET_OUT_OF_RANGE");
+    const end = Math.min(bytes.length, args.offset + args.max_bytes);
+    return { schema_version: 2, status: "ok", human_summary: "Artifact chunk retrieved and verified.",
+      machine_state: { run_id: args.run_id, artifact_id: row.result_artifact_id, sha256: row.result_artifact_sha256,
+        size_bytes: bytes.length, offset: args.offset, next_offset: end, eof: end === bytes.length,
+        encoding: "base64", data: base64(bytes.subarray(args.offset, end)) },
+      next_allowed_actions: [], blocking_reason: null };
+  }
   if (name === "experiment_list") {
     const { results } = await env.DB.prepare(`SELECT r.id AS run_id, r.state, r.created_at, r.updated_at,
         p.workload, p.repository, p.source_sha FROM runs r JOIN plans p ON p.id = r.plan_id
@@ -486,12 +530,43 @@ async function runner(request, env, path) {
       plan_fingerprint: workloadRun.fingerprint, metrics: value.metrics };
     if (await sha256(canonical(identity)) !== value.checksum) return json({ error: "RESULT_CHECKSUM_MISMATCH" }, 400);
     const result = JSON.stringify(value);
-    if (new TextEncoder().encode(result).byteLength > MAX_RESULT_BYTES) return json({ error: "RESULT_TOO_LARGE" }, 400);
+    const artifactBytes = new TextEncoder().encode(result);
+    if (artifactBytes.byteLength > MAX_RESULT_BYTES) return json({ error: "RESULT_TOO_LARGE" }, 400);
+    if (!env.BUCKET) return json({ error: "ARTIFACT_STORAGE_NOT_CONFIGURED" }, 503);
+    const artifactId = "result.json";
+    const artifactSha256 = await sha256Bytes(artifactBytes);
+    const artifactKey = `runs/${body.run_id}/${artifactSha256}/${artifactId}`;
+    try {
+      await env.BUCKET.put(artifactKey, artifactBytes, { httpMetadata: { contentType: "application/json" },
+        customMetadata: { run_id: body.run_id, sha256: artifactSha256,
+          plan_fingerprint: workloadRun.fingerprint, source_sha: workloadRun.source_sha } });
+    } catch {
+      return json({ error: "ARTIFACT_STORE_FAILED" }, 503);
+    }
     const state = "succeeded";
-    const updated = await env.DB.prepare(`UPDATE runs SET state=?, result_json=?, cleanup_receipt_json=?, failure_code=?, cleanup_state='confirmed', updated_at=?, lease_id=NULL, lease_expires_at=NULL
+    let updated;
+    try {
+      updated = await env.DB.prepare(`UPDATE runs SET state=?, result_json=?, cleanup_receipt_json=?, failure_code=?, cleanup_state='confirmed', updated_at=?, lease_id=NULL, lease_expires_at=NULL,
+          result_artifact_id=?, result_artifact_sha256=?, result_artifact_size=?
       WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at>=? RETURNING id, state`)
-      .bind(state, result, JSON.stringify(cleanup), null, now, body.run_id, body.lease_id, now).first();
-    if (!updated) return json({ error: "STALE_OR_EXPIRED_LEASE" }, 409);
+        .bind(state, result, JSON.stringify(cleanup), null, now, artifactId, artifactSha256, artifactBytes.byteLength, body.run_id, body.lease_id, now).first();
+    } catch {
+      try {
+        const current = await env.DB.prepare("SELECT result_artifact_sha256 FROM runs WHERE id = ?").bind(body.run_id).first();
+        if (current?.result_artifact_sha256 !== artifactSha256) await env.BUCKET.delete(artifactKey);
+      } catch { /* keep the object if the D1 reference cannot be checked safely */ }
+      return json({ error: "RESULT_PERSIST_FAILED" }, 503);
+    }
+    if (!updated) {
+      const current = await env.DB.prepare("SELECT state, result_artifact_sha256 FROM runs WHERE id = ?").bind(body.run_id).first();
+      if (current?.state === "succeeded" && current.result_artifact_sha256 === artifactSha256) {
+        return json({ ok: true, run: { id: body.run_id, state: "succeeded" } });
+      }
+      if (current && current.result_artifact_sha256 !== artifactSha256) {
+        try { await env.BUCKET.delete(artifactKey); } catch { /* inaccessible orphan; never expose without the D1 owner-bound row */ }
+      }
+      return json({ error: "STALE_OR_EXPIRED_LEASE" }, 409);
+    }
     return json({ ok: true, run: updated });
   }
   return json({ error: "NOT_FOUND" }, 404);

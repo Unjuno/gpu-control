@@ -3,11 +3,12 @@
 Private ChatGPT MCP Site target for `Unjuno/gpu-control`.
 
 The owner-private Site now publishes the fixed TinyStories CPU inference
-workload. ChatGPT has completed two provenance-valid end-to-end inferences,
-retrieved its persisted result, and confirmed container cleanup. Two earlier
-outputs with a non-resolving source SHA are excluded from acceptance. This is a narrow acceptance
-slice; recovery, cross-owner isolation, R2 artifacts, GPU execution, and paid
-execution remain open or parked.
+workload. ChatGPT has completed three provenance-valid end-to-end inferences,
+retrieved their persisted results, and confirmed container cleanup. One 988-byte
+R2 result artifact was also retrieved and verified through ChatGPT. Two earlier
+outputs with a non-resolving source SHA are excluded from acceptance. This is a
+narrow acceptance slice; recovery, cross-owner isolation, artifact retention and
+orphan cleanup, GPU execution, and paid execution remain open or parked.
 
 ## Current slice
 
@@ -38,6 +39,15 @@ The Worker lease is a fixed 180 seconds, exceeding the runner's bounded Docker s
 On 2026-11-12, ChatGPT run `d17dcc650783466088bacb734826bcdb` used source `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`, prompt `Once upon a time`, seed `61112`, and a maximum of 24 tokens. It generated the TinyStories result in 430 ms, passed registered identity/checksum checks, reported `gpu_used=false`, persisted the result in D1, and confirmed cleanup. Paid execution stays parked.
 
 A second run, `6175c7a710e4424bb30f595d019d3eb7`, used the same registered source and image with seed `61113` and a 16-token limit. It completed in 313 ms, passed the same identity/checksum checks, returned checksum `3d67d5c215c128d7bf8a556e532cdfd867542e2056c9977d66b3275989fdcdd5`, reported `gpu_used=false`, was retrieved through the ChatGPT result tool, and confirmed cleanup. Its cost ceiling was `$0.00`. A request using the Sites source repository's own commit instead of the separately registered workload source was safely rejected before execution.
+
+After adding the Sites R2 `BUCKET` binding and D1 artifact-reference migration,
+run `f6503635680e4e4f9bbd6f371bb6d92a` completed with seed `61114` and a
+12-token limit in 249 ms. ChatGPT retrieved the 988-byte `result.json` artifact
+as a complete chunk. The Worker verified its owner/run binding and SHA-256
+(`f742e6def8597958fbb3b62b37202ab2890b30c028422313a02933a35cdbb898`) before
+returning the bytes. The result passed source, model, parameter and checksum
+checks, reported `gpu_used=false`, and confirmed cleanup at a `$0.00` ceiling.
+Artifact retention and cleanup remain open.
 
 The runner requires `GPU_CONTROL_SITE_URL`, `GPU_CONTROL_RUNNER_BEARER_TOKEN`, `GPU_CONTROL_SITES_SERVICE_TOKEN`, and the exact three `CPU_WORKLOAD_*` registration values. Store the Site service token and runner bearer token only in the runner host's secret store and the Sites runtime secret store where applicable. The runner sends both the Sites service authorization header and independent bearer token. It never logs response bodies or credentials. It does not accept code, image names, Docker options, or provider selection from tool callers.
 
