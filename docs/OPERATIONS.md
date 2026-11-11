@@ -15,17 +15,18 @@ provider settings.
 - One TinyStories 15M inference completed through the same ChatGPT → Sites →
   D1 → Runner → D1 → ChatGPT path. A 24-token result was retrieved, identity
   and checksum validation passed, and container cleanup was confirmed.
-- A third inference completed after enabling the Site's R2 binding and append-only
-  D1 artifact metadata migration. ChatGPT read its complete 988-byte result
-  artifact; the Worker verified owner/run identity and SHA-256 before returning
-  the chunk. The result used 12 tokens, took 249 ms, and had a `$0.00` ceiling.
+- Two more inferences completed after enabling the Site's R2 binding and
+  append-only D1 artifact metadata migration. ChatGPT read complete 988-byte and
+  991-byte result artifacts; the Worker verified owner/run identity and SHA-256
+  before returning each chunk. They used 12 tokens each, took 249 ms and 268 ms,
+  and had `$0.00` ceilings.
 - Repeating the same submission returns the existing run instead of starting
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
   reports `gpu_used=false`; paid provider execution remains parked.
 
-These checks prove three bounded CPU inferences and one bounded R2 result
-artifact retrieval. They do not prove general model quality, GPU execution,
+These checks prove four bounded CPU inferences and two bounded R2 result
+artifact retrievals. They do not prove general model quality, GPU execution,
 forced-restart/cancellation recovery, cross-owner isolation, long-term artifact
 retention, or backup/restore. Do not use this candidate to claim those
 capabilities.
@@ -52,11 +53,13 @@ capabilities.
 
 1. Complete a live runner restart and secret-rotation rehearsal while keeping
    admission closed, then verify that readiness returns only after the exact
-   image and source have been checked.
+   image and source have been checked. Admission was closed and restored, but
+   restart was not performed: the Runner reads credentials from stdin after
+   launch and the restart credentials are unavailable outside its process.
 2. Exercise cancellation, Runner interruption/restart, lease expiry, result
    reconciliation, and cleanup against the live Site and Runner.
 3. Define R2 artifact retention and orphan cleanup; exercise larger artifacts and
-   repeated retrieval in addition to the one accepted result object.
+   repeated retrieval beyond the two accepted result objects.
 4. Test owner isolation across separate accounts and verify Site access revocation.
 5. Add and rehearse a supported Runner start/stop, secret rotation, backup,
    restore, and incident procedure before increasing admission or enabling paid

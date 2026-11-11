@@ -25,8 +25,8 @@ The project is **usable today for offline validation and control-plane developme
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Owner-private Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; Sites reports MCP ready and its plugin is already installed |
-| Registered CPU experiment through ChatGPT | Three free, fixed-image TinyStories inferences completed through ChatGPT → Sites → D1 → Runner → D1; result retrieval and cleanup were verified, including one complete R2 artifact read |
-| Real model inference through ChatGPT | One free TinyStories 15M CPU run with a Git-resolving source SHA completed; result retrieval and cleanup were confirmed. This proves the vertical, not broad model quality or GPU capability |
+| Registered CPU experiment through ChatGPT | Four free, fixed-image TinyStories inferences completed through ChatGPT → Sites → D1 → Runner → D1; result retrieval and cleanup were verified, including two complete R2 artifact reads |
+| Real model inference through ChatGPT | Four free TinyStories 15M CPU runs with a Git-resolving source SHA completed; result retrieval and cleanup were confirmed. This proves the vertical, not broad model quality or GPU capability |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |

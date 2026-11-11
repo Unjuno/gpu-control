@@ -39,6 +39,27 @@ and byte-size columns to `runs`.
   before reading R2, validate R2 metadata and recompute SHA-256 before returning
   bounded chunks.
 
+## Post-deploy untrusted-artifact guidance and inference — 2026-11-12
+
+- Site source commit `1b6916cb53e001af352808f6fd80db4dcff43999` adds an explicit
+  MCP tool description that artifact contents are untrusted data and must not
+  be treated as instructions. The tool-discovery test asserts this guidance.
+- Private Site deployment `appgdep_6af4d87aee20819197c9ff12ed9e81fa` succeeded
+  with MCP ready and runtime environment revision 9. The deployment retained
+  the private Site audience.
+- Run `e37fc314dfe141ec97092ef6371a089f` used the registered source/image,
+  seed 61115, and a 12-token maximum. It generated 12 tokens in 268 ms,
+  reported `gpu_used=false`, cost `$0.00`, and `cleanup_state=confirmed`.
+- ChatGPT retrieved the full 991-byte `result.json` artifact. The Site artifact
+  tool returned `status=ok`, `eof=true`, and digest
+  `a951cbce1ca01ff507117dee819d74121f58b53db6ab6e79ab424620f2ca1c9c`; it
+  reported the chunk verified.
+- Admission was temporarily disabled and restored to `true` in successive
+  environment revisions 8 and 9 while no run was active. Runner readiness
+  remained true. No process restart occurred: the currently launched Runner
+  received its credentials through stdin, and those credentials are not
+  available in the shell for a restart rehearsal.
+
 ## Remaining
 
 - Establish an explicit artifact retention and orphan cleanup policy.
