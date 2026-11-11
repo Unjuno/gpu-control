@@ -123,6 +123,14 @@ The first migration slice should not move every provider or destroy rollback dat
 - [ ] The Vercel project and its domains still exist. The connected Vercel deletion flow requires the account owner to review and confirm project deletion; retain the project until final Site acceptance and any needed rollback evidence are resolved.
 - [x] Added three local Runner recovery regressions: recovery removes only a container whose run, lease, plan, image, and source labels match; mismatched labels and unconfirmed cleanup fail closed. The focused recovery/security set passed 7 tests, and the root recovery subset passed 3 tests. This is code-level evidence, not a forced restart against the live Site Runner.
 
+### Runner protocol compatibility candidate — 2026-11-12
+
+- [x] Added append-only D1 migration `0003_runner_cancellation_protocol.sql`. Existing heartbeat rows default to protocol 0; only protocol 1 is considered ready and eligible to claim work. The Worker rejects heartbeat payloads with missing, unknown, or extra fields.
+- [x] Updated the CPU Runner to declare protocol 1 before recovery/claim. Regression checks prove legacy readiness, heartbeat refresh, and claim attempts fail closed.
+- [x] Worker tests passed 24/24; Runner tests passed 12/12; build, packaged artifact validation, and `git diff --check` passed. A Codex Security diff review of the six implementation files completed with zero findings; the review did not exercise live D1 or restart behavior.
+- [x] Saved Sites Version 13 from source commit `52416ec02fcf3b755e1763edc617cd0a67f4ab91` with packaged artifact SHA-256 `b43b22033dea244f5680dd1d70ea836a2528254eb2a4facc7247f279f80c952c`. It is saved only; production remains on Version 11 until a coordinated Runner update/restart is ready.
+- [ ] Perform the coordinated Runner update and Version 13 deployment, then verify readiness, a zero-cost inference, cancellation, cleanup, and recovery against the live Site.
+
 **Next implementation sequence:** (1) add a bounded pretrained CPU model-inference workload to the registered Site path and retrieve its real output through ChatGPT; (2) review the exact code/image and cover D1 transitions, cancellation, and R2 integrity; (3) prove restart recovery, result reconciliation, and cleanup; (4) prove owner isolation and access revocation; (5) classify/export any Neon auth/run records that must be retained; (6) retire unused Vercel/Neon resources and credentials after Sites acceptance and retention checks. The existing checksum smoke does not establish inference or GPU execution. Keep paid admission parked until independent authorization and cost/security/recovery gates pass.
 
 ### A. Freeze and map existing behavior

@@ -6,11 +6,12 @@ import worker from "./index.js";
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
 
-function environment({ heartbeatAt, admission = "false", heartbeatDigest = imageDigest, heartbeatSha = sourceSha } = {}) {
+function environment({ heartbeatAt, admission = "false", heartbeatDigest = imageDigest, heartbeatSha = sourceSha, cancellationProtocol = 1 } = {}) {
   const heartbeat = heartbeatAt === undefined ? null : {
     last_seen_at: heartbeatAt,
     image_digest: heartbeatDigest,
     source_sha: heartbeatSha,
+    cancellation_protocol: cancellationProtocol,
   };
   return {
     CPU_WORKLOAD_ADMISSION_ENABLED: admission,
@@ -439,6 +440,16 @@ test("does not accept a heartbeat for another registered image", async () => {
   assert.equal(result.blocking_reason, "RUNNER_OR_WORKLOAD_NOT_READY");
 });
 
+test("does not treat a legacy Runner without cancellation support as ready", async () => {
+  const result = await capabilities(environment({
+    heartbeatAt: Math.floor(Date.now() / 1000),
+    cancellationProtocol: 0,
+  }));
+  assert.equal(result.machine_state.runner_ready, false);
+  assert.equal(result.machine_state.available, false);
+  assert.equal(result.blocking_reason, "RUNNER_OR_WORKLOAD_NOT_READY");
+});
+
 test("reports availability only when runner, registration, and admission are ready", async () => {
   const result = await capabilities(environment({
     heartbeatAt: Math.floor(Date.now() / 1000),
@@ -476,6 +487,33 @@ test("disabled admission cancels queued work before the runner can claim it", as
   assert.equal(Number.isSafeInteger(statements[0].values[0]), true);
 });
 
+test("rejects legacy heartbeat before it can restore Runner readiness", async () => {
+  let persisted = false;
+  const env = environment();
+  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
+  env.DB.prepare = () => ({ bind() { return { async run() { persisted = true; } }; } });
+  const response = await worker.fetch(new Request("https://site.invalid/runner/heartbeat", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ runner_id: "local-cpu-1", image_digest: imageDigest, source_sha: sourceSha }),
+  }), env);
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "INVALID_RUNNER_HEARTBEAT" });
+  assert.equal(persisted, false);
+});
+
+test("does not let a legacy heartbeat claim new work", async () => {
+  const env = environment({ heartbeatAt: Math.floor(Date.now() / 1000), admission: "true", cancellationProtocol: 0 });
+  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
+  const response = await worker.fetch(new Request("https://site.invalid/runner/claim", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
+    body: "{}",
+  }), env);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "RUNNER_PROTOCOL_OUTDATED" });
+});
+
 test("duplicate submit returns the succeeded run without claiming it was newly queued", async () => {
   const runId = "c".repeat(32);
   const fingerprint = "d".repeat(64);
@@ -486,6 +524,7 @@ test("duplicate submit returns the succeeded run without claiming it was newly q
         async first() {
           if (sql.includes("runner_heartbeats")) return {
             last_seen_at: Math.floor(Date.now() / 1000), image_digest: imageDigest, source_sha: sourceSha,
+            cancellation_protocol: 1,
           };
           if (sql.includes("SELECT id, state, created_at FROM runs")) {
             return { id: runId, state: "succeeded", created_at: 123 };
@@ -522,6 +561,7 @@ test("submit uses the persisted state when D1 batch resolves without creating a 
         async first() {
           if (sql.includes("runner_heartbeats")) return {
             last_seen_at: Math.floor(Date.now() / 1000), image_digest: imageDigest, source_sha: sourceSha,
+            cancellation_protocol: 1,
           };
           if (sql.includes("SELECT id, state, created_at FROM runs")) {
             return { id: runId, state: "succeeded", created_at: 123 };

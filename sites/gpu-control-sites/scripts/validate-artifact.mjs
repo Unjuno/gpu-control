@@ -21,4 +21,8 @@ assert.ok(migrations.includes("0002_cancellation.sql"));
 const cancellationMigration = readFileSync(join(root, ".openai/drizzle/0002_cancellation.sql"), "utf8");
 assert.match(cancellationMigration, /cancel_requested INTEGER NOT NULL DEFAULT 0/);
 assert.match(cancellationMigration, /CHECK \(cancel_requested IN \(0, 1\)\)/);
+assert.ok(migrations.includes("0003_runner_cancellation_protocol.sql"));
+const runnerProtocolMigration = readFileSync(join(root, ".openai/drizzle/0003_runner_cancellation_protocol.sql"), "utf8");
+assert.match(runnerProtocolMigration, /cancellation_protocol INTEGER NOT NULL DEFAULT 0/);
+assert.match(runnerProtocolMigration, /CHECK \(cancellation_protocol IN \(0, 1\)\)/);
 console.log("Site Worker artifact is complete.");

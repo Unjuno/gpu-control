@@ -16,6 +16,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 RUNNER_ID = "local-cpu-1"
 WORKLOAD = "tiny-stories-inference-v1"
+CANCELLATION_PROTOCOL = 1
 MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin"
 MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a"
 TEMPERATURE = 0.8
@@ -320,7 +321,8 @@ def run_once(cfg: dict[str, str]) -> None:
     # Do not advertise readiness until the exact registered image and Docker
     # host have both passed inspection. A stale runner must fail closed.
     inspect_image(cfg)
-    post(cfg, "/runner/heartbeat", {"runner_id": RUNNER_ID, "image_digest": cfg["image_digest"],
+    post(cfg, "/runner/heartbeat", {"cancellation_protocol": CANCELLATION_PROTOCOL,
+                                     "runner_id": RUNNER_ID, "image_digest": cfg["image_digest"],
                                      "source_sha": cfg["source_sha"]})
     recover(cfg)
     response = post(cfg, "/runner/claim")

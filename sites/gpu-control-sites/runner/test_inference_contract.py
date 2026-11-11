@@ -44,6 +44,27 @@ def result_for(experiment, model_sha=run.MODEL_SHA256):
 
 
 class InferenceContractTests(unittest.TestCase):
+    def test_runner_advertises_cancellation_protocol_before_claiming_work(self):
+        cfg = {"repository": "Unjuno/gpu-control", "source_sha": "d" * 40,
+               "image_digest": "sha256:" + "e" * 64}
+        posted = []
+
+        def fake_post(_cfg, endpoint, payload=None):
+            posted.append((endpoint, payload))
+            if endpoint == "/runner/recoveries":
+                return {"recoveries": []}
+            if endpoint == "/runner/claim":
+                return {"run": None}
+            return {"ok": True}
+
+        with patch.object(run, "inspect_image"), patch.object(run, "post", side_effect=fake_post):
+            run.run_once(cfg)
+
+        heartbeat = next(payload for endpoint, payload in posted if endpoint == "/runner/heartbeat")
+        self.assertEqual(heartbeat["cancellation_protocol"], 1)
+        self.assertLess(posted.index(("/runner/heartbeat", heartbeat)),
+                        next(i for i, (endpoint, _) in enumerate(posted) if endpoint == "/runner/claim"))
+
     def test_runner_keeps_fixed_isolation_and_forwards_only_bounded_parameters(self):
         experiment = configured_run()
         args, name = run.start_args(experiment, {

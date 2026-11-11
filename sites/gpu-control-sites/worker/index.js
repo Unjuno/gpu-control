@@ -239,7 +239,7 @@ async function finalizeRequestedCancellation(env, body, cleanup, now) {
 
 async function capabilities(env) {
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
-  const runner = await env.DB.prepare("SELECT last_seen_at, image_digest, source_sha FROM runner_heartbeats WHERE runner_id = ?")
+  const runner = await env.DB.prepare("SELECT last_seen_at, image_digest, source_sha, cancellation_protocol FROM runner_heartbeats WHERE runner_id = ?")
     .bind(RUNNER_ID).first();
   const now = Math.floor(Date.now() / 1000);
   const registrationReady = !!env.CPU_WORKLOAD_REPOSITORY && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.CPU_WORKLOAD_REPOSITORY) &&
@@ -247,7 +247,8 @@ async function capabilities(env) {
     /^[0-9a-f]{40}$/.test(env.CPU_WORKLOAD_SOURCE_SHA || "");
   const runnerReady = registrationReady && !!runner && Number.isSafeInteger(runner.last_seen_at) &&
     now - runner.last_seen_at >= 0 && now - runner.last_seen_at <= 60 &&
-    runner.image_digest === env.CPU_WORKLOAD_IMAGE_DIGEST && runner.source_sha === env.CPU_WORKLOAD_SOURCE_SHA;
+    runner.image_digest === env.CPU_WORKLOAD_IMAGE_DIGEST && runner.source_sha === env.CPU_WORKLOAD_SOURCE_SHA &&
+    runner.cancellation_protocol === 1;
   const admissionEnabled = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true";
   const available = runnerReady && admissionEnabled;
   const blocker = !registrationReady || !runnerReady ? "RUNNER_OR_WORKLOAD_NOT_READY" :
@@ -467,11 +468,18 @@ async function runner(request, env, path) {
   const now = Math.floor(Date.now() / 1000);
   if (path === "/runner/heartbeat" && request.method === "POST") {
     const body = await readJson(request, 1024);
-    if (body.runner_id !== RUNNER_ID || body.image_digest !== env.CPU_WORKLOAD_IMAGE_DIGEST || body.source_sha !== env.CPU_WORKLOAD_SOURCE_SHA) return json({ error: "RUNNER_IDENTITY_MISMATCH" }, 403);
-    await env.DB.prepare(`INSERT INTO runner_heartbeats (runner_id, last_seen_at, image_digest, source_sha)
-      VALUES (?, ?, ?, ?) ON CONFLICT(runner_id) DO UPDATE SET last_seen_at=excluded.last_seen_at,
-      image_digest=excluded.image_digest, source_sha=excluded.source_sha`)
-      .bind(RUNNER_ID, now, body.image_digest, body.source_sha).run();
+    if (!body || Object.keys(body).sort().join(",") !== "cancellation_protocol,image_digest,runner_id,source_sha") {
+      return json({ error: "INVALID_RUNNER_HEARTBEAT" }, 400);
+    }
+    if (body.runner_id !== RUNNER_ID || body.image_digest !== env.CPU_WORKLOAD_IMAGE_DIGEST ||
+        body.source_sha !== env.CPU_WORKLOAD_SOURCE_SHA || body.cancellation_protocol !== 1) {
+      return json({ error: "RUNNER_IDENTITY_OR_PROTOCOL_MISMATCH" }, 403);
+    }
+    await env.DB.prepare(`INSERT INTO runner_heartbeats (runner_id, last_seen_at, image_digest, source_sha, cancellation_protocol)
+      VALUES (?, ?, ?, ?, ?) ON CONFLICT(runner_id) DO UPDATE SET last_seen_at=excluded.last_seen_at,
+      image_digest=excluded.image_digest, source_sha=excluded.source_sha,
+      cancellation_protocol=excluded.cancellation_protocol`)
+      .bind(RUNNER_ID, now, body.image_digest, body.source_sha, body.cancellation_protocol).run();
     return json({ ok: true });
   }
   if (path === "/runner/cancel-check" && request.method === "POST") {
@@ -491,9 +499,10 @@ async function runner(request, env, path) {
         .bind(now).run();
       return json({ error: "WORKLOAD_ADMISSION_DISABLED" }, 409);
     }
-    const runnerRow = await env.DB.prepare("SELECT last_seen_at FROM runner_heartbeats WHERE runner_id = ?")
+    const runnerRow = await env.DB.prepare("SELECT last_seen_at, cancellation_protocol FROM runner_heartbeats WHERE runner_id = ?")
       .bind(RUNNER_ID).first();
     if (!runnerRow || now - runnerRow.last_seen_at > 60) return json({ error: "RUNNER_HEARTBEAT_STALE" }, 409);
+    if (runnerRow.cancellation_protocol !== 1) return json({ error: "RUNNER_PROTOCOL_OUTDATED" }, 409);
     const leaseId = crypto.randomUUID().replaceAll("-", "");
     const claimed = await env.DB.prepare(`UPDATE runs SET state='running', lease_id=?, lease_expires_at=?, attempt=attempt+1, updated_at=?
       WHERE id=(SELECT r.id FROM runs r WHERE r.state='queued' AND r.attempt < 3 ORDER BY r.created_at LIMIT 1)
