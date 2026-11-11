@@ -6,7 +6,9 @@ The supported ChatGPT control plane is the owner-private Sites MCP Worker at
 `https://gpu-control-sites.unjuno.chatgpt.site`. Sites supplies the hosted
 Worker, ChatGPT sign-in boundary, MCP publication, and D1 binding. D1 stores
 plans, run state, leases, and Runner heartbeats. Large immutable result files
-belong in R2 when that acceptance slice is implemented.
+are stored in R2; the Worker returns bounded chunks after owner/run and digest
+verification. Three complete result artifacts have been retrieved through
+ChatGPT.
 
 The Worker does not run Docker or model inference. A separate authenticated
 Runner polls the Site and executes only the exact registered workload image.

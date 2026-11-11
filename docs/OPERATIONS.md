@@ -20,11 +20,11 @@ or provider settings.
   991-byte result artifacts; the Worker verified owner/run identity and SHA-256
   before returning each chunk. They used 12 tokens each, took 249 ms and 268 ms,
   and had `$0.00` ceilings.
-- Four additional provenance-valid inferences have completed, including one
+- Three additional provenance-valid inferences have completed, including one
   post-deploy run. ChatGPT retrieved three complete R2 artifacts and verified
   their recorded SHA-256 values; every accepted run confirmed container cleanup
   and a `$0.00` ceiling. The complete run inventory is in `docs/RELEASE_MATRIX.md`.
-- A sixth provenance-valid run (`5447466fe7f9413980d2b47a2b079289`) was
+- A seventh provenance-valid run (`5447466fe7f9413980d2b47a2b079289`) was
   retrieved through ChatGPT. It generated four tokens in 150 ms, passed identity
   and sandbox checks, and confirmed cleanup at `$0.00`.
 - Repeating the same submission returns the existing run instead of starting
