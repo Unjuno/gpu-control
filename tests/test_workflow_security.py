@@ -42,7 +42,9 @@ def test_required_ci_checks_are_unique_and_report_for_pull_requests_and_merge_gr
         path = WORKFLOWS / name
         return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
-    workflow_names = ("ci.yml", "gateway-ci.yml", "gateway-bridge-ci.yml", "project-checks-ci.yml")
+    # The retired Gateway/Vercel/PostgreSQL workflows live under docs/archive and
+    # are intentionally not part of the supported Sites + D1 product path.
+    workflow_names = ("ci.yml", "project-checks-ci.yml")
     workflows = {name: load(name) for name in workflow_names}
     contexts = []
 
@@ -51,25 +53,28 @@ def test_required_ci_checks_are_unique_and_report_for_pull_requests_and_merge_gr
         assert "pull_request" in triggers, name
         assert triggers["merge_group"]["types"] == ["checks_requested"], name
         assert triggers["push"]["branches"] == ["main"], name
-        if name != "ci.yml":
+        if name == "project-checks-ci.yml":
             assert "paths" not in (triggers["pull_request"] or {}), name
 
     ci_jobs = workflows["ci.yml"]["jobs"]
     contexts.append(ci_jobs["reference-workload"]["name"])
     contexts.extend(f"Python {version}" for version in
                     ci_jobs["test"]["strategy"]["matrix"]["python-version"])
-    contexts.extend(workflows[name]["jobs"][job]["name"] for name, job in (
-        ("gateway-ci.yml", "gateway"),
-        ("gateway-bridge-ci.yml", "bridge"),
-        ("project-checks-ci.yml", "test"),
-    ))
+    contexts.append(ci_jobs["sites-worker"]["name"])
+    contexts.append(workflows["project-checks-ci.yml"]["jobs"]["test"]["name"])
     assert len(contexts) == len(set(contexts)), contexts
 
 
-def test_gateway_checks_run_when_the_shared_core_package_changes() -> None:
-    for name in ("gateway-ci.yml", "gateway-bridge-ci.yml"):
-        workflow = yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"),
-                             Loader=yaml.BaseLoader)
-        paths = workflow["on"]["push"]["paths"]
-        assert "src/gpu_control/**" in paths, name
-        assert "pyproject.toml" in paths, name
+def test_sites_d1_contract_runs_for_every_pull_request_and_merge_group() -> None:
+    workflow = yaml.load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"),
+                         Loader=yaml.BaseLoader)
+    triggers = workflow["on"]
+    assert "pull_request" in triggers
+    assert triggers["merge_group"]["types"] == ["checks_requested"]
+    assert triggers["push"]["branches"] == ["main"]
+    assert "paths" not in triggers["pull_request"]
+
+    sites_steps = workflow["jobs"]["sites-worker"]["steps"]
+    commands = [step.get("run", "") for step in sites_steps]
+    assert any("npm run validate" in command for command in commands)
+    assert any("npm test" in command for command in commands)
