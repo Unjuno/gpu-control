@@ -45,6 +45,11 @@ No database row contents, secrets, credentials, or tokens were read.
 - The remaining session/config/control rows were not inspected or copied. They
   may contain security-sensitive state. There is no verified export and no
   verified D1 copy for those rows.
+- A fresh read-only catalog review listed all 18 non-system tables and checked
+  each table's schema only. The schemas confirm that some legacy tables can
+  hold OAuth tokens, session values, auth signing keys, and provider identity
+  data. No row values were selected. This review does not change the earlier
+  aggregate counts or establish that the remaining rows are disposable.
 - Neon project deletion has not been attempted. Deletion requires explicit
   owner confirmation because it permanently removes the legacy database and
   its remaining session/config/control state.
