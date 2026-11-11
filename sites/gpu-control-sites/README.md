@@ -3,9 +3,9 @@
 Private ChatGPT MCP Site target for `Unjuno/gpu-control`.
 
 The owner-private Site now publishes the fixed TinyStories CPU inference
-workload. ChatGPT has completed four provenance-valid end-to-end inferences,
-retrieved their persisted results, and confirmed container cleanup. Two R2
-result artifacts (988 and 991 bytes) were also retrieved and verified through
+workload. ChatGPT has completed five provenance-valid end-to-end inferences,
+retrieved their persisted results, and confirmed container cleanup. Three R2
+result artifacts (988, 991 and 979 bytes) were also retrieved and verified through
 ChatGPT. Two earlier outputs with a non-resolving source SHA are excluded from
 acceptance. This is a
 narrow acceptance slice; recovery, cross-owner isolation, artifact retention and
@@ -49,6 +49,17 @@ as a complete chunk. The Worker verified its owner/run binding and SHA-256
 returning the bytes. The result passed source, model, parameter and checksum
 checks, reported `gpu_used=false`, and confirmed cleanup at a `$0.00` ceiling.
 Artifact retention and cleanup remain open.
+
+A subsequent deployed run, `e37fc314dfe141ec97092ef6371a089f`, completed with
+seed `61115` and a 12-token limit in 268 ms. ChatGPT retrieved the full R2
+artifact and confirmed cleanup; the run passed the same provenance checks at a
+`$0.00` ceiling.
+
+On 2026-11-12, run `5148ce027ba143d8ae75cc1df34a1ad5` used seed `61116` and an
+8-token limit. It completed in 249 ms, passed registered identity and sandbox
+checks, reported `gpu_used=false`, and confirmed cleanup at a `$0.00` ceiling.
+ChatGPT retrieved the complete 979-byte R2 artifact; its SHA-256 matched the
+artifact manifest.
 
 The runner requires `GPU_CONTROL_SITE_URL`, `GPU_CONTROL_RUNNER_BEARER_TOKEN`, `GPU_CONTROL_SITES_SERVICE_TOKEN`, and the exact three `CPU_WORKLOAD_*` registration values. Store the Site service token and runner bearer token only in the runner host's secret store and the Sites runtime secret store where applicable. The runner sends both the Sites service authorization header and independent bearer token. It never logs response bodies or credentials. It does not accept code, image names, Docker options, or provider selection from tool callers.
 
