@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 
 import jwt
@@ -28,7 +29,8 @@ IDENTIFIER = "b" * 32
 
 @pytest.fixture
 def policy():
-    return Policy.load()
+    # Exercise the legacy implementation with an explicit test-only opt-in.
+    return replace(Policy.load(), enabled=True)
 
 
 @pytest.fixture
@@ -302,14 +304,11 @@ def test_tiny_rejects_scope_expansion(kwargs):
         load_tiny().train(**kwargs)
 
 
-def test_workflow_no_provider_secrets_or_shell_interpolation():
-    text = (BASE.parent / ".github/workflows/gateway-comments.yml").read_text()
-    assert "secrets." not in text
-    assert "${{ github.event.comment.body }}" not in text
-    assert "pull_request_target" not in text
-    assert "--network none" in text and "--read-only" in text
-    assert "id-token: write" in text
-    assert "persist-credentials: false" in text
+def test_legacy_comment_bridge_is_disabled_and_not_scheduled():
+    production = Policy.load()
+    assert production.enabled is False
+    assert production.gateway_origin == "https://legacy-disabled.invalid"
+    assert not (BASE.parent / ".github/workflows/gateway-comments.yml").exists()
 
 
 def load_cli():
@@ -325,7 +324,7 @@ def test_cli_validates_event_file_without_shell_execution(monkeypatch, tmp_path,
     path.write_text(json.dumps(event))
     for key, value in dict(env, GITHUB_EVENT_PATH=str(path), GITHUB_OUTPUT=str(output), GITHUB_RUN_ID="12345").items():
         monkeypatch.setenv(key, value)
-    assert load_cli().main(["validate"]) == 0
+    assert load_cli().main(["validate"], policy=policy) == 0
     assert output.read_text() == "kind=local\n"
 
 
@@ -350,7 +349,7 @@ def test_cli_refuses_identity_token_request_to_other_hosts(policy):
                                      "ACTIONS_ID_TOKEN_REQUEST_TOKEN":"secret"})
 
 
-def test_cli_does_not_resubmit_automatically_on_network_failure(monkeypatch, tmp_path, env, event):
+def test_cli_does_not_resubmit_automatically_on_network_failure(monkeypatch, tmp_path, env, event, policy):
     cli = load_cli()
     path, report = tmp_path / "event.json", tmp_path / "report.json"
     path.write_text(json.dumps(event))
@@ -362,7 +361,7 @@ def test_cli_does_not_resubmit_automatically_on_network_failure(monkeypatch, tmp
         calls.append(1)
         raise BridgeError("network_request_failed", 503)
     monkeypatch.setattr(cli, "http_json", failure)
-    assert cli.main(["invoke", "--report", str(report)]) == 1
+    assert cli.main(["invoke", "--report", str(report)], policy=policy) == 1
     assert len(calls) == 1
     assert "test-token" not in report.read_text()
     assert json.loads(report.read_text())["code"] == "network_request_failed"

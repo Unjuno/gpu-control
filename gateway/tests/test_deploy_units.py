@@ -254,7 +254,8 @@ def test_authentication_and_capacity_settings_are_environment_isolated():
     assert "API-only deployment example" in api_deployment
     assert "gpu_control_api:" in api_deployment and "sslmode=verify-full" in api_deployment
     assert "sslrootcert=/absolute/path/to/trusted-provider-ca.pem" in api_deployment
-    assert "Vercel runtime CA paths have not" in api_deployment
+    assert "deployment runtime is" in api_deployment
+    assert "unverified; do not deploy" in api_deployment
     assert not {"GATEWAY_DATABASE_URL", "GATEWAY_COOKIE_KEY", "GATEWAY_OIDC_CLIENT_SECRET"} & capacity.keys()
     assert set(capacity) == {"GATEWAY_ARTIFACT_DIR", "GATEWAY_ARTIFACT_MIN_FREE_BYTES"}
     for name in ("gpu-control-worker.service", "gpu-control-supervisor.service"):

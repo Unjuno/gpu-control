@@ -24,8 +24,8 @@ The project is **usable today for offline validation and control-plane developme
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
-| Remote MCP Gateway and built-in OAuth discovery | This candidate has a READY, SSO-protected Vercel Preview; runtime readiness and ChatGPT OAuth are not accepted or verified |
-| Registered CPU experiment through ChatGPT | Implemented and locally exercised on this branch; not deployed or ChatGPT-verified |
+| ChatGPT MCP endpoint | Owner-private Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; Sites reports MCP ready and its plugin is already installed |
+| Registered CPU experiment through ChatGPT | D1 migration is applied and the matching isolated CPU runner is heartbeating; admission remains disabled, so a live ChatGPT-originated run is still unverified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
 | Synthetic provider/controller self-test | Ready |

@@ -1,4 +1,10 @@
-# GPU Control Experiment Gateway
+# Legacy Python Experiment Gateway — Reference Only
+
+This FastAPI/PostgreSQL implementation is retained as a behavioral and test
+reference while the supported ChatGPT path moves to the private Sites MCP Worker
+and D1. Do not deploy it to Vercel or Neon; neither service is part of the target
+architecture. The Site implementation and its remaining acceptance gates are
+documented in `../docs/decisions/2026-11-11-sites-d1-architecture-pivot.md`.
 
 Additive gateway for ChatGPT-driven experiments. The first real execution path is
 an operator-registered, digest-pinned local CPU smoke container. This is a
@@ -26,7 +32,7 @@ those changes do not connect the gateway to the RunPod bridge.
 - Provider registry shared by API and worker; a tested third-provider extension.
 - Optional bridge interface to the **existing approved RunPod execution pipeline**.
   There is no guessed workflow ID, automatic workflow dispatch or new raw RunPod path.
-- Vercel configuration, dedicated-worker Dockerfile, optional Modal CPU worker.
+- Dedicated-worker Dockerfile and optional Modal CPU worker (legacy reference).
 
 ## What this does not claim
 
@@ -94,7 +100,12 @@ are isolated from the root project. Vercel's runtime dependencies are pinned by
 requirements files pin direct runtime/test dependencies but do not lock the full
 transitive graph. Python 3.12 is the deployment baseline.
 
-## Vercel setup
+## Retired Vercel deployment record — do not use
+
+The Vercel deployment manifest has been removed and the connected project is
+being retired. The steps below are retained only as historical context; do not
+follow them or configure a new Vercel/Neon deployment. The supported target is
+the private Sites Worker with D1/R2 described in the decision record above.
 
 1. Import this repository and set **Root Directory = `gateway`** and framework
    **FastAPI**. `app.py` exports the ASGI app. `vercel.json` bounds HTTP requests
@@ -167,7 +178,11 @@ recovery supervisor can optionally load `deploy/worker-secrets.env.example` via 
 root-owned `worker-secrets.env`; keep it absent while integrations are parked and
 never put those credentials in API or common configuration.
 
-### OAuth and ChatGPT connection
+## Legacy OAuth compatibility reference
+
+This describes the retired FastAPI Gateway's OAuth contract. It is not the
+authentication setup for the Sites MCP app; Sites supplies its own caller
+identity and service-access boundary.
 
 Use an external authorization server that issues JWT access tokens with:
 

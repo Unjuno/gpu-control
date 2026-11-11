@@ -115,8 +115,9 @@ def test_configuration_required_does_not_claim_oidc_is_mandatory():
         database_url="sqlite:///./invalid-hosted-config.db",
         public_url="https://gateway.example",
         hosted=True,
-        client_ip_mode="vercel",
-        vercel_runtime=True,
+        client_ip_mode="trusted_proxy",
+        trusted_proxy_cidrs=("10.0.0.0/8",),
+        client_ip_hash_key="unique-environment-secret-value-32bytes",
     )
     client = TestClient(create_app(settings))
 

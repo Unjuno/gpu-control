@@ -52,27 +52,6 @@ def test_trusted_proxy_rejects_missing_malformed_or_oversized_forwarded_chain(va
     assert error.value.code == "login_source_unavailable"
 
 
-def test_vercel_mode_requires_platform_runtime_and_platform_client_ip_header():
-    settings = Settings(client_ip_mode="vercel", vercel_runtime=True)
-    assert resolve_login_source(request(
-        "10.0.0.2", {"x-vercel-forwarded-for": "198.51.100.21"}), settings) == \
-        resolve_login_source(request("198.51.100.21"), Settings())
-    with pytest.raises(GatewayError):
-        resolve_login_source(request(
-            "10.0.0.2", {"x-vercel-forwarded-for": "198.51.100.21, 203.0.113.7"}), settings)
-    # Repeated identical values can occur after a proxy chain; conflicting
-    # values must fail closed instead of letting header order choose a bucket.
-    assert resolve_login_source(request(
-        "10.0.0.2", {"x-vercel-forwarded-for": "198.51.100.21, 198.51.100.21"}), settings) == \
-        resolve_login_source(request("198.51.100.21"), Settings())
-    with pytest.raises(GatewayError):
-        resolve_login_source(request(
-            "10.0.0.2", {"x-vercel-forwarded-for": "198.51.100.21, 203.0.113.7"}), settings)
-    with pytest.raises(GatewayError):
-        resolve_login_source(request("10.0.0.2", {"x-vercel-forwarded-for": "198.51.100.21"}),
-                             Settings(client_ip_mode="vercel", vercel_runtime=False))
-
-
 def test_proxy_configuration_rejects_open_trust_networks():
     with pytest.raises(ValueError, match="entire address family"):
         Settings(client_ip_mode="trusted_proxy", trusted_proxy_cidrs=("0.0.0.0/0",)).validate()

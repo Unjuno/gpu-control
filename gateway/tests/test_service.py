@@ -224,11 +224,10 @@ def test_current_all_in_quote_required(system):
 
 def test_hosted_sqlite_and_unsecured_origin_rejected():
     with pytest.raises(ValueError, match="HTTPS"):
-        Settings(hosted=True, client_ip_mode="vercel", vercel_runtime=True,
+        Settings(hosted=True,
                  client_ip_hash_key="unique-environment-secret-value-32bytes").validate()
     with pytest.raises(ValueError, match="PostgreSQL"):
         Settings(hosted=True, public_url="https://gateway.example",
-                 client_ip_mode="vercel", vercel_runtime=True,
                  client_ip_hash_key="unique-environment-secret-value-32bytes").validate()
     with pytest.raises(ValueError):
         Settings(public_url="http://example.com").validate()
@@ -238,10 +237,10 @@ def test_hosted_gateway_requires_unique_client_ip_hash_key():
     with pytest.raises(ValueError, match="GATEWAY_CLIENT_IP_HASH_KEY"):
         Settings(hosted=True, public_url="https://gateway.example",
                  database_url="postgresql+psycopg://user:pass@db.example/gateway",
-                 client_ip_mode="vercel", vercel_runtime=True).validate_api_security()
+                 client_ip_mode="trusted_proxy", trusted_proxy_cidrs=("10.0.0.0/8",)).validate_api_security()
     Settings(hosted=True, public_url="https://gateway.example",
              database_url="postgresql+psycopg://user:pass@db.example/gateway",
-             client_ip_mode="vercel", vercel_runtime=True,
+             client_ip_mode="trusted_proxy", trusted_proxy_cidrs=("10.0.0.0/8",),
              client_ip_hash_key="unique-environment-secret-value-32bytes").validate_api_security()
 
 
@@ -254,19 +253,20 @@ def test_hosted_worker_settings_do_not_require_api_client_ip_secret():
         settings.validate_api_security()
 
 
-def test_vercel_neon_standard_env_fallback(monkeypatch):
+def test_hosted_environment_uses_explicit_origin_not_platform_defaults(monkeypatch):
     monkeypatch.delenv("GATEWAY_DATABASE_URL", raising=False)
-    monkeypatch.delenv("GATEWAY_PUBLIC_URL", raising=False)
-    monkeypatch.setenv("VERCEL", "1")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@example.neon.tech/db?sslmode=require")
-    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "gpu-control-gateway.vercel.app")
+    monkeypatch.setenv("GATEWAY_PUBLIC_URL", "https://gateway.example")
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_PROJECT_PRODUCTION_URL", raising=False)
+    monkeypatch.setenv("GATEWAY_HOSTED", "true")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db.example/db?sslmode=require")
     monkeypatch.setenv("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "1073741824")
     monkeypatch.setenv("GATEWAY_CLIENT_IP_HASH_KEY", "unique-environment-secret-value-32bytes")
 
     settings = Settings.from_env()
 
-    assert settings.database_url == "postgresql+psycopg://user:pass@example.neon.tech/db?sslmode=require"
-    assert settings.public_url == "https://gpu-control-gateway.vercel.app"
+    assert settings.database_url == "postgresql+psycopg://user:pass@db.example/db?sslmode=require"
+    assert settings.public_url == "https://gateway.example"
     assert settings.hosted is True
     assert settings.artifact_min_free_bytes == 1073741824
 

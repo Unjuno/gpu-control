@@ -95,14 +95,14 @@ def write_report(path, report):
             f.write("## GPU command result\n\n```json\n" + text.replace("`", "\\u0060") + "\n```\n")
 
 
-def main(argv=None):
+def main(argv=None, *, policy=None):
     p = argparse.ArgumentParser()
     p.add_argument("mode", choices=["validate", "invoke", "local-report", "publish"])
     p.add_argument("--report", default="bridge-result.json")
     p.add_argument("--metrics")
     p.add_argument("--image-id")
     args = p.parse_args(argv)
-    policy = Policy.load()
+    policy = policy or Policy.load()
     event, comment_id, command = event_context(policy, os.environ)
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     if not re.fullmatch(r"[1-9][0-9]{0,19}", run_id):

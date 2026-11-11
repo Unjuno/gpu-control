@@ -54,7 +54,7 @@ def install_ci_routes(app, *, policy=None, verifier=None, comments=None):
     policy = policy or Policy.load()
     auth = app.state.auth
     service = app.state.service
-    deployed_sha = os.environ.get("VERCEL_GIT_COMMIT_SHA", "")
+    deployed_sha = os.environ.get("GATEWAY_DEPLOYED_SHA", "")
     verifier = verifier or GitHubOIDC(policy, deployed_sha)
     comments = comments or GitHubComments(policy)
 

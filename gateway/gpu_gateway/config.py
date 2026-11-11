@@ -136,7 +136,6 @@ class Settings:
     hosted: bool = False
     client_ip_mode: str = "direct"
     trusted_proxy_cidrs: tuple[str, ...] = ()
-    vercel_runtime: bool = False
     client_ip_hash_key: str = field(
         default="local-development-only-do-not-use", repr=False, compare=False)
     provider_evidence_public_keys_json: str = "{}"
@@ -268,8 +267,8 @@ class Settings:
         return keys
 
     def validate(self) -> None:
-        if self.client_ip_mode not in {"direct", "trusted_proxy", "vercel"}:
-            raise ValueError("GATEWAY_CLIENT_IP_MODE must be direct, trusted_proxy, or vercel")
+        if self.client_ip_mode not in {"direct", "trusted_proxy"}:
+            raise ValueError("GATEWAY_CLIENT_IP_MODE must be direct or trusted_proxy")
         try:
             trusted_networks = tuple(ipaddress.ip_network(value, strict=False)
                                      for value in self.trusted_proxy_cidrs)
@@ -281,8 +280,6 @@ class Settings:
             raise ValueError("trusted_proxy mode requires explicit trusted proxy CIDRs")
         if self.client_ip_mode != "trusted_proxy" and trusted_networks:
             raise ValueError("trusted proxy CIDRs are only valid in trusted_proxy mode")
-        if self.client_ip_mode == "vercel" and not self.vercel_runtime:
-            raise ValueError("vercel client IP mode requires the Vercel runtime")
         parsed = urlsplit(self.public_url)
         if parsed.path not in ("", "/") or parsed.query or parsed.fragment or parsed.username:
             raise ValueError("public URL must be an origin without credentials, path, query or fragment")
@@ -374,8 +371,7 @@ class Settings:
 
         public_url = e.get("GATEWAY_PUBLIC_URL")
         if not public_url:
-            production_host = e.get("VERCEL_PROJECT_PRODUCTION_URL")
-            public_url = f"https://{production_host}" if production_host else "http://127.0.0.1:8000"
+            public_url = "http://127.0.0.1:8000"
 
         evidence_private = e.get("GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64", "")
         try:
@@ -406,13 +402,11 @@ class Settings:
             max_job_cost_usd=Decimal(e.get("GATEWAY_MAX_JOB_COST_USD", "1")),
             artifact_dir=e.get("GATEWAY_ARTIFACT_DIR", ""),
             artifact_min_free_bytes=int(e.get("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "0")),
-            hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
-            client_ip_mode=e.get("GATEWAY_CLIENT_IP_MODE") or (
-                "vercel" if e.get("VERCEL") == "1" else "direct"),
+            hosted=e.get("GATEWAY_HOSTED") == "true",
+            client_ip_mode=e.get("GATEWAY_CLIENT_IP_MODE") or "direct",
             trusted_proxy_cidrs=tuple(
                 item.strip() for item in e.get("GATEWAY_TRUSTED_PROXY_CIDRS", "").split(",")
                 if item.strip()),
-            vercel_runtime=e.get("VERCEL") == "1",
             client_ip_hash_key=e.get(
                 "GATEWAY_CLIENT_IP_HASH_KEY", "local-development-only-do-not-use"),
             provider_evidence_public_keys_json=e.get("GATEWAY_PROVIDER_EVIDENCE_PUBLIC_KEYS_JSON", "{}"),
