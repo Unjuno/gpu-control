@@ -3,9 +3,9 @@
 The supported ChatGPT control plane is the owner-private Sites MCP Worker at
 `https://gpu-control-sites.unjuno.chatgpt.site`. Its product records are stored
 in the Sites-provisioned D1 database. The current free CPU Runner is a separate
-Linux process and executes only the exact registered workload image. The Site
-Worker does not execute containers or accept caller-selected code, images, or
-provider settings.
+host process and executes only the exact registered Linux workload image. The
+Site Worker does not execute containers or accept caller-selected code, images,
+or provider settings.
 
 ## Verified now
 
@@ -20,16 +20,27 @@ provider settings.
   991-byte result artifacts; the Worker verified owner/run identity and SHA-256
   before returning each chunk. They used 12 tokens each, took 249 ms and 268 ms,
   and had `$0.00` ceilings.
+- Three additional provenance-valid inferences have completed, including one
+  post-deploy run. ChatGPT retrieved three complete R2 artifacts and verified
+  their recorded SHA-256 values; every accepted run confirmed container cleanup
+  and a `$0.00` ceiling. The complete run inventory is in `docs/RELEASE_MATRIX.md`.
 - Repeating the same submission returns the existing run instead of starting
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
   reports `gpu_used=false`; paid provider execution remains parked.
 
-These checks prove four bounded CPU inferences and two bounded R2 result
-artifact retrievals. They do not prove general model quality, GPU execution,
-forced-restart/cancellation recovery, cross-owner isolation, long-term artifact
-retention, or backup/restore. Do not use this candidate to claim those
-capabilities.
+These checks prove five provenance-valid bounded CPU inferences and three
+bounded R2 artifact retrievals. They do not prove general model quality, GPU
+execution, live forced-restart/cancellation recovery, cross-owner isolation,
+long-term artifact retention, or backup/restore. Do not use this candidate to
+claim those capabilities.
+
+The currently deployed Site is Version 11 from source commit
+`1b6916cb53e001af352808f6fd80db4dcff43999`. Cancellation support is saved as
+Site Version 12 from source commit `ff000ad8f66c21c3e11e38aa29a840ec59d53d29`,
+but is not deployed. Its local contract suite passes 21 Worker tests and 11
+Runner tests; build and artifact validation also pass. This local evidence does
+not establish live cancellation behavior.
 
 ## Operating boundaries
 
@@ -51,11 +62,13 @@ capabilities.
 
 ## Open operational acceptance
 
-1. Complete a live runner restart and secret-rotation rehearsal while keeping
-   admission closed, then verify that readiness returns only after the exact
-   image and source have been checked. Admission was closed and restored, but
-   restart was not performed: the Runner reads credentials from stdin after
-   launch and the restart credentials are unavailable outside its process.
+1. Establish a persistent, protected Runner secret source and supported
+   start/stop procedure, then rehearse credential rotation and restart with
+   admission closed. The current process was started through an ephemeral
+   launcher; its credentials are not available to a new process. Do not restart
+   it until a replacement secret source is configured and the active process
+   state has been checked. Verify that readiness returns only after the exact
+   image and source have been checked.
 2. Exercise cancellation, Runner interruption/restart, lease expiry, result
    reconciliation, and cleanup against the live Site and Runner.
 3. Define R2 artifact retention and orphan cleanup; exercise larger artifacts and
