@@ -23,6 +23,11 @@ No database row contents, secrets, credentials, or tokens were read.
   attached to the project metadata.
 - No Vercel application is serving the current product path. The project and
   domains have not been deleted.
+- PR #60's latest GitHub Actions run passes all six repository-required checks,
+  while the Vercel integration still posts an optional `Vercel` status of
+  `FAILURE` (`Deployment was blocked`). The required-check policy does not
+  include Vercel, so this status does not block the Sites release path. It does
+  confirm that the Vercel-to-GitHub project integration remains connected.
 - Vercel's connected deletion flow returned `requires_user_action` and made no
   change. The owner can review the project deletion here:
   [Review gpu-control project deletion in Vercel](https://vercel.com/d?to=%2Funjunos-projects%2Fgpu-control%2Fsettings%2Fgeneral%23delete-project&title=Review+in+Vercel).
