@@ -20,16 +20,19 @@ or provider settings.
   991-byte result artifacts; the Worker verified owner/run identity and SHA-256
   before returning each chunk. They used 12 tokens each, took 249 ms and 268 ms,
   and had `$0.00` ceilings.
-- Three additional provenance-valid inferences have completed, including one
+- Four additional provenance-valid inferences have completed, including one
   post-deploy run. ChatGPT retrieved three complete R2 artifacts and verified
   their recorded SHA-256 values; every accepted run confirmed container cleanup
   and a `$0.00` ceiling. The complete run inventory is in `docs/RELEASE_MATRIX.md`.
+- A sixth provenance-valid run (`5447466fe7f9413980d2b47a2b079289`) was
+  retrieved through ChatGPT. It generated four tokens in 150 ms, passed identity
+  and sandbox checks, and confirmed cleanup at `$0.00`.
 - Repeating the same submission returns the existing run instead of starting
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
   reports `gpu_used=false`; paid provider execution remains parked.
 
-These checks prove five provenance-valid bounded CPU inferences and three
+These checks prove seven provenance-valid bounded CPU inferences and three
 bounded R2 artifact retrievals. They do not prove general model quality, GPU
 execution, live forced-restart/cancellation recovery, cross-owner isolation,
 long-term artifact retention, or backup/restore. Do not use this candidate to
@@ -37,10 +40,11 @@ claim those capabilities.
 
 The currently deployed Site is Version 11 from source commit
 `1b6916cb53e001af352808f6fd80db4dcff43999`. Cancellation support is saved as
-Site Version 12 from source commit `ff000ad8f66c21c3e11e38aa29a840ec59d53d29`,
-but is not deployed. Its local contract suite passes 21 Worker tests and 11
-Runner tests; build and artifact validation also pass. This local evidence does
-not establish live cancellation behavior.
+Site Version 13 from source commit `52416ec02fcf3b755e1763edc617cd0a67f4ab91`,
+but is not deployed. It adds a D1 protocol-version check so legacy Runners fail
+closed. The local suite passes 24 Worker tests and 12 Runner tests; build and
+artifact validation also pass. This local evidence does not establish live
+cancellation behavior.
 
 ## Operating boundaries
 

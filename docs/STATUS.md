@@ -3,21 +3,23 @@
 ## Hosted Sites MCP CPU vertical — 2026-11-12
 
 The owner-private Sites MCP Worker uses D1 and a separately isolated CPU
-Runner. In addition to the earlier checksum smoke, ChatGPT prepared, submitted,
-polled, and retrieved one provenance-valid TinyStories 15M inference
-(`tiny-stories-inference-v1`). Run `d17dcc650783466088bacb734826bcdb` used the
-actual pushed source commit `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image
-`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`,
-seed `61112`, and a 30-second maximum. It generated 24 tokens in 430 ms,
-returned `gpu_used=false`, passed model/result identity checks, persisted its
-result in D1, and reported `cleanup_state=confirmed` at `$0.00`. Two earlier
-outputs used a non-resolving source SHA and are excluded from provenance
-acceptance; the correction is recorded in the linked acceptance report.
+Runner. Seven provenance-valid TinyStories 15M inferences have completed through
+ChatGPT, Sites, D1, and the Runner. The latest recheck, run
+`5447466fe7f9413980d2b47a2b079289`, used the registered source commit
+`3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288` and image
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+With prompt `A tiny red fox`, seed `61117`, and a four-token limit, it generated
+four tokens in 150 ms, passed identity/sandbox checks, returned
+`gpu_used=false`, and confirmed cleanup at `$0.00`. Run
+`6b4cabf7b6aa4aea826c4c8e672705b3` generated 32 tokens in 631 ms, passed the
+same provenance/sandbox checks, and confirmed cleanup. Three result artifacts
+have also been retrieved and SHA-256 verified through ChatGPT.
 
-This establishes one end-to-end inference, not general model quality, live
-restart/cancellation recovery, cross-owner isolation, R2 artifact retrieval,
-or GPU capability. Free CPU admission remains bounded to one in-flight run
-and 30 seconds. Paid execution remains parked. Full evidence and open gates are tracked in
+This does not establish general model quality, live restart/cancellation
+recovery, cross-owner isolation, or GPU capability. Free CPU admission remains
+bounded to one in-flight run and 30 seconds. Paid execution remains parked. The
+latest source candidate is saved as Sites Version 13 but not deployed; live
+protocol migration and Runner restart remain open. Full evidence and open gates are tracked in
 [`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
 
 The rest of this document records standalone CLI and provider-adapter status on

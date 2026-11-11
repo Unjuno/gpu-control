@@ -39,15 +39,17 @@ secret.
 
 ## Current acceptance boundary
 
-The deployed version has completed a fixed-image checksum smoke and one
-provenance-valid TinyStories 15M CPU inference through ChatGPT, Sites, D1, and
-the Runner. Run `d17dcc650783466088bacb734826bcdb` generated 24 tokens, returned
-`gpu_used=false`, passed identity/checksum validation, and was retrieved through
-`experiment_result`; cleanup was confirmed. Two earlier outputs used a
-non-resolving source SHA and are excluded from acceptance. This proves one
-bounded model inference, not general model quality. Do not report GPU execution,
-cross-account isolation, live restart/cancellation recovery, or R2 artifact
-retrieval as accepted until each has its own evidence.
+The deployed version has completed a fixed-image checksum smoke and seven
+provenance-valid TinyStories 15M CPU inferences through ChatGPT, Sites, D1, and
+the Runner. The latest recheck, `5447466fe7f9413980d2b47a2b079289`, generated
+four tokens in 150 ms, returned `gpu_used=false`, passed identity and sandbox
+validation, and was retrieved through `experiment_result`; cleanup was
+confirmed at `$0.00`. Three result artifacts have also been retrieved and
+SHA-256 verified through ChatGPT. Two earlier outputs used a non-resolving
+source SHA and are excluded from acceptance. These runs prove bounded inference
+and artifact handling, not general model quality. Do not report GPU execution,
+cross-account isolation, or live restart/cancellation recovery as accepted until
+each has its own evidence.
 
 Admission is limited to one in-flight CPU run and 30 seconds. Keep paid
 providers parked. The exact runtime keys and controlled publication steps are

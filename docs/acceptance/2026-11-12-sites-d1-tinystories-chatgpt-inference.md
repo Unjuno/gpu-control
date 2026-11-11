@@ -75,11 +75,21 @@ and image digest are the authoritative values.
   was exercised. The controlled Runner credential/image replacement is not a
   recovery rehearsal.
 - Cross-account owner isolation and access revocation remain unverified.
-- Results remain bounded inline D1 records; R2 upload/retrieval is not
-  implemented or accepted.
+- R2 upload and bounded artifact retrieval have been accepted for three
+  artifacts; retention policy, orphan cleanup, larger artifacts, and recovery
+  across a Runner restart remain open.
 - GPU and paid execution remain parked. No provider was called and no billable
   compute was used.
 - The dormant Neon project still contains legacy authentication/run data and
   must not be deleted until an export and retention decision are verified.
 - Vercel is not part of this deployed path. Historical Vercel/Neon resources
   have not yet been retired.
+
+## Live rechecks — 2026-11-12
+
+The production Sites deployment is still Version 11 (`appgdep_6af4d87aee20819197c9ff12ed9e81fa`, `succeeded`, MCP enabled). Saved Versions 12 and 13 remain undeployed. Capabilities reported the Runner ready, free CPU admission enabled, one in-flight slot, a 30-second maximum, and paid execution parked.
+
+- Run `6b4cabf7b6aa4aea826c4c8e672705b3` was re-read through the ChatGPT status and result tools. It used the registered source commit and image above, generated 32 tokens in 631 ms, passed identity/sandbox checks, returned `gpu_used=false`, and confirmed cleanup. Its prompt text mentioning cancellation does not mean a cancellation event was exercised.
+- Run `5447466fe7f9413980d2b47a2b079289` was prepared, submitted, polled, and retrieved through the ChatGPT tools. It used prompt `A tiny red fox`, seed `61117`, and a four-token limit; it generated four tokens in 150 ms, passed source/model/parameter and container-isolation checks, returned `gpu_used=false`, and confirmed cleanup at a `$0.00` ceiling. Result artifact metadata reports 961 bytes and SHA-256 `3eca2a067a2230b5de6272850eaeac6cc8bf91684293e125a6029c93f0cc456e`; this run's full R2 artifact bytes were not separately fetched.
+
+These rechecks prove more bounded CPU inference on the current Version 11 path. They do not validate Version 13's D1 migration, a live Runner restart, cancellation, cross-owner isolation, or paid/GPU execution.

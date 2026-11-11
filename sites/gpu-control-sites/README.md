@@ -3,7 +3,7 @@
 Private ChatGPT MCP Site target for `Unjuno/gpu-control`.
 
 The owner-private Site now publishes the fixed TinyStories CPU inference
-workload. ChatGPT has completed five provenance-valid end-to-end inferences,
+workload. ChatGPT has completed seven provenance-valid end-to-end inferences,
 retrieved their persisted results, and confirmed container cleanup. Three R2
 result artifacts (988, 991 and 979 bytes) were also retrieved and verified through
 ChatGPT. Two earlier outputs with a non-resolving source SHA are excluded from
