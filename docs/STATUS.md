@@ -1,17 +1,21 @@
 # Project status
 
-## Live refresh — 2026-11-13
+## Live refresh — 2026-11-13 17:05 UTC
 
 - PR #68 is open as Draft at head
-  `347106177bdb7d24e1462c49791f01618189df42`, stacked on
+  `e816eae970f9fe04443c1e56708a4f3a3a8ae9d5`, stacked on
   `codex/gpu-control-p1-dcr-v9-review`. All six required exact-head GitHub
-  checks passed on this commit. It still has no independent approval and is
-  not merge-ready.
-- The latest patch labels historical run origin in the ChatGPT list/status
-  responses. The focused Codex Security diff scan
+  checks passed. It still has no independent approval and remains Draft.
+- Current PR changes include historical execution-origin labels, bounded Modal
+  exit-2 preflight diagnostics, a D1 cancellation/finalization guard, and
+  regression coverage for the real workload's missing-identity guard.
+  Local verification passed: Sites Worker 25/25, Modal bootstrap 5/5, build,
+  Site artifact validation, and `git diff --check`.
+- The focused Codex Security diff scan
   `ce9035fb-329e-4b5d-a51b-d5a00c895286` reviewed the Worker, its tests, and
   the acceptance record; it reported zero findings. It is not the P0
-  repository-wide audit.
+  repository-wide audit and does not cover the latest PR changes. A new diff
+  scan attempt did not start and returned no scan ID.
 - The `gpu-control-sites` Site remains public at Version 28, source commit
   `237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 32. The
   current PR patch has not been deployed to Sites, and live `experiment_list`
@@ -21,8 +25,13 @@
   `admission_enabled=false`, `available=false`, and
   `CPU_WORKLOAD_ADMISSION_DISABLED`. Recent live run history still includes
   five Modal failures and older successes attributed to the retired local
-  Runner. No current Modal inference success is established. No deployment,
-  D1 write, or provider execution was performed in this refresh.
+  Runner. The latest run `e9330c5bb5454f42bb3dabe058091dc0` remains failed
+  with `MODAL_WORKLOAD_EXIT_2`, cleanup confirmed, and no artifact. The live
+  fingerprint is `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`;
+  the current PR Modal candidate computes
+  `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560`.
+  The candidate is not deployed; no deployment, D1 write, or provider run was
+  performed in this refresh.
 - The Sites runtime environment inventory has no `RUNNER_BEARER_TOKEN` or
   `RUNNER_SERVICE_TOKEN` key; Sites masks secret values, so this records key
   names only. The current checkout has no tracked macOS Keychain launcher or
@@ -83,7 +92,7 @@
   `CPU_WORKLOAD_ADMISSION_DISABLED`. Live Sites still expects fingerprint
   `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`; the
   current Modal candidate computes
-  `c88df3ef00889df55690df701d99f2701424dd52abc33a1c32e1b812724f22f2`.
+  `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560`.
   The candidate has not been deployed and the Sites environment has not been
   updated to the candidate fingerprint.
 - Latest run `e9330c5bb5454f42bb3dabe058091dc0` is still failed with
@@ -115,7 +124,7 @@
 - Current ChatGPT capabilities remain `provider_ready=true`,
   `admission_enabled=false`, and `available=false`. Live Site registration
   advertises Modal fingerprint `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`;
-  PR #68's bootstrap source computes `c88df3ef00889df55690df701d99f2701424dd52abc33a1c32e1b812724f22f2`.
+  PR #68's bootstrap source computes `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560`.
   The Modal deployment and Site environment have not been updated to the new
   fingerprint, and no new Sandbox was started.
 - Latest run `e9330c5bb5454f42bb3dabe058091dc0` remains failed with

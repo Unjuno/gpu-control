@@ -94,8 +94,9 @@ ChatGPT
 
 ### 0. Repository and account inventory
 
-- Reconcile this checkout, `main`, open PRs, current Site Version 24, D1/R2 bindings,
-  deployment state, Modal workspace limits, and Runpod active-resource state.
+- Reconcile this checkout, `main`, open PRs, current Site Version 28, D1/R2
+  bindings, deployment state, Modal workspace limits, and Runpod active-resource
+  state. Refresh the live snapshots before each deploy or provider operation.
 - Resolve the ChatGPT distribution route for non-owner users and test with a
   genuinely separate ChatGPT identity; a public Site URL or the owner's plugin
   call is not sufficient evidence.
@@ -105,15 +106,18 @@ ChatGPT
 - Completion: a source-of-truth status page distinguishes live state, offline
   implementation, and historical evidence.
 
-### 1. Retire the local Runner
+### 1. Retire the local Runner — source retirement complete
 
-- Remove the Keychain launcher, LaunchAgent manager, and local polling process
-  from the supported path. Remove current setup instructions that tell an
-  operator to unlock macOS or provide a Keychain password.
-- Keep old run/artifact records and D1/R2 data. Close the unused Runner API and
-  remove its Site bearer secret only as part of a reviewed Site version cutover.
-- Completion: no tracked active instructions or deployed endpoints depend on
-  Keychain, local polling, `RUNNER_BEARER_TOKEN`, or the Sites service token.
+- The tracked compute Runner, Keychain launcher, LaunchAgent manager, and local
+  polling process have been removed. The Worker keeps legacy `/runner/*` routes
+  closed; the Sites environment inventory recorded no `RUNNER_BEARER_TOKEN` or
+  `RUNNER_SERVICE_TOKEN` key names. The host has no matching managed process.
+- Historical run, heartbeat, and artifact records remain preserved in D1/R2.
+  `project_control/runner.py` is a separate GitHub Project bridge, not the
+  retired compute Runner.
+- Active runtime and setup paths no longer require Keychain or a macOS unlock.
+  Historical documentation records are retained as history, not instructions
+  to restore the old path.
 
 ### 2. Modal CPU vertical slice
 
@@ -161,14 +165,18 @@ ChatGPT
 
 ## Current blockers
 
-1. Sites Version 28 publishes the fixed Modal CPU adapter, aligned `$0.01`
-   prepare schema, and bounded 15-second timeout. Current ChatGPT health checks
-   pass, but no current Modal inference has succeeded. Admission remains
-   disabled. A new exact-run authorization and a fresh Modal usage-limit check
-   are required before another one-run canary.
-2. The local Runner is retired. Modal duplicate-submit, ambiguous-response,
-   timeout, cancellation-race, D1/R2 failure, restart, and reconciliation
-   scenarios remain incompletely verified.
+1. Sites Version 28 and the live Modal app remain on the old fingerprint
+   `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`.
+   PR #68's diagnostic candidate computes
+   `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560` and is
+   not deployed. Current health checks pass, but admission is disabled and the
+   latest Modal run failed with exit code 2 despite confirmed cleanup. Deploy,
+   align the Site fingerprint, recheck current spend limits, and obtain a new
+   exact-run authorization before another one-run canary.
+2. The local Runner is retired. Mock coverage now includes duplicate submit,
+   ambiguous response, timeout, cancellation/result race, and D1/R2 write
+   failures. Live forced restart, lease-expiry reconciliation, cross-account
+   access, D1/R2 restore, and retention/orphan cleanup remain unaccepted.
 3. RunPod live use remains parked. The canonical API and pricing path now use
    REST v2, with current public OpenAPI and catalog contracts reviewed offline.
    Live account, result, cleanup, concurrency, security, and spend acceptance
@@ -182,6 +190,32 @@ ChatGPT
    permission profile. The installed `/opt/homebrew/bin/codex` is version
    `0.146.1` and exposes `--sandbox read-only`; do not bypass the missing managed
    profile by selecting a broader sandbox.
+
+## Continuation refresh — 2026-11-13 17:05 UTC
+
+- Current checkout is clean at PR #68 head
+  `e816eae970f9fe04443c1e56708a4f3a3a8ae9d5`. All six required exact-head GitHub
+  checks passed; PR #68 remains Draft without independent approval.
+- The cancellation/result race guard is covered by a Worker regression test.
+  The Modal bootstrap regression also executes the fixed inference file with
+  missing identity and observes `PREFLIGHT_RETURN_LINE_43`, normalized to API
+  exit code 2. Local Worker tests passed 25/25, bootstrap tests 5/5, build and
+  artifact validation passed.
+- The latest authenticated ChatGPT capabilities read reports all eight Modal
+  health checks true, `admission_enabled=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. The latest run
+  `e9330c5bb5454f42bb3dabe058091dc0` remains failed with cleanup confirmed and
+  no artifact. No production deploy, D1 write, or provider run occurred in this
+  refresh.
+- Live Site registration still expects fingerprint
+  `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`; the
+  current PR candidate computes
+  `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560`.
+  The diagnostic is not deployed and current inference is not accepted.
+- The source tree no longer contains the macOS Keychain compute Runner. The
+  whole-repository P0 audit, independent review, cross-account Site test,
+  backup/restore and orphan-retention acceptance, real Modal inference, and
+  RunPod/GPU path remain incomplete.
 
 ## Continuation refresh — 2026-11-12
 

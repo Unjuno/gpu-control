@@ -48,10 +48,13 @@ queries; provider admission remains disabled. The current Site Worker source
 allows only the configured owner and has a fixed Modal CPU adapter. A local
 regression suite covers its owner boundary and provider-token parsing. The
 latest production capability read reported Modal ready but unavailable for
-execution because admission is disabled; no current ChatGPT CPU run has been
-accepted. Sites Version 28 refreshed the ChatGPT prepare schema to the Worker's
-`$0.01` Sandbox-only ceiling. A new, exact one-run authorization and verified
-cleanup are still required.
+execution because admission is disabled. Historical ChatGPT CPU successes used
+the retired local Runner; no successful inference is accepted for the current
+Modal deployment. Sites Version 28 refreshed the ChatGPT prepare schema to the
+Worker's `$0.01` Sandbox-only ceiling. The latest Modal run failed with exit
+code 2 and confirmed cleanup. PR #68 contains a diagnostic candidate, but it
+has not been deployed; deployment and another exact-run authorization are
+required before another Modal Sandbox.
 Access from another ChatGPT
 account/process is not yet proven. Anonymous HTTP probes were blocked at the
 edge (HTTP 403), so they do not independently verify the Worker's public

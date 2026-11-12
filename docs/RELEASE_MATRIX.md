@@ -1,5 +1,8 @@
 # Current release matrix — ChatGPT Sites + D1
 
+Live status last refreshed 2026-11-13 17:05 UTC. The production Site and the
+unmerged PR candidate are reported separately below.
+
 This matrix describes the supported product path. Historical Vercel,
 PostgreSQL, and legacy Gateway evidence is preserved in
 [`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-gateway.md).
@@ -8,26 +11,26 @@ identity, recovery, or provider acceptance gate.
 
 | Gate | State | Evidence and remaining work |
 | --- | --- | --- |
-| ChatGPT Sites MCP | Version 28 deployed; cross-account ChatGPT acceptance open | Public access, Site source `237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 32, MCP-ready. Live capabilities report `provider_ready=true`, `available=false`, `admission_enabled=false`; Modal health is ready while admission remains deliberately closed. The refreshed ChatGPT tool schema accepts the Worker's `$0.01` Sandbox-only ceiling. Anonymous HTTP probes returned edge HTTP 403, which does not verify Worker authentication. No second-account/plugin-install test has passed. |
+| ChatGPT Sites MCP | Version 28 deployed; cross-account ChatGPT acceptance open | Sites reports Version 28 at `https://gpu-control-sites.unjuno.chatgpt.site`, source `237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 32. A fresh ChatGPT capabilities call passed all eight Modal health checks, while reporting `available=false`, `admission_enabled=false`, and `CPU_WORKLOAD_ADMISSION_DISABLED`. Anonymous HTTP probes returned edge HTTP 403; no separate-account/plugin-install test has passed. |
 | D1/R2 control plane | PASS for prior bounded lifecycles; preservation and recovery gates remain | D1/R2 hold owner-bound run and artifact records from earlier accepted runs. Preserve these records during migration. Backup/restore, current provider lifecycle/reconciliation, and separate-account owner isolation remain open. |
-| Real CPU model inference | Historical local Runner inference accepted; current Modal inference not accepted | Run `eacc26ff2ad54cf69a1ee7665325b197` completed the registered TinyStories workload through the retired local Runner under Sites Version 16. Its R2 artifact was retrieved and digest-verified; this is not Modal evidence. The latest authorized one-token Modal run `e9330c5bb5454f42bb3dabe058091dc0` failed with exit code 2 after 247 ms; cleanup was confirmed and no artifact was produced. The expected bounded preflight line marker was absent, so the failing check remains unknown. No successful Modal inference is recorded. |
+| Real CPU model inference | Historical local Runner inference accepted; current Modal inference not accepted | Older ChatGPT-originated inference and R2 artifact retrieval used the retired local Runner; they are historical CPU evidence, not current Modal acceptance. The latest Modal run `e9330c5bb5454f42bb3dabe058091dc0` failed with `MODAL_WORKLOAD_EXIT_2`; the current ChatGPT status call confirms cleanup and no result/artifact. |
 | Local Runner / Keychain | RETIRED | LaunchAgent, local runtime, Worker routes, and obsolete Site secret are removed. D1/R2 history is preserved. |
-| Modal CPU execution | Diagnostic deployed; current-deployment inference unaccepted | Modal app `gpu-control-sites` is deployed to `unjuno/main`; all health checks pass, while admission is false at Sites environment revision 32. Sites Version 28 carries the 15-second bounded request timeout and refreshed `$0.01` prepare schema. The latest authorized run `e9330c5bb5454f42bb3dabe058091dc0` failed with exit code 2 after 247 ms; cleanup was confirmed, with no logs or artifact. The expected preflight marker was not captured. Sandbox estimate was `$0.0013` with a `$0.01` Sandbox-only ceiling; control-function charges are separate. Diagnose marker/exit handling, then obtain new exact-run authorization before another Sandbox. |
+| Modal CPU execution | Diagnostic candidate in PR #68; not deployed; inference unaccepted | Production still advertises fingerprint `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`; the PR candidate computes `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560`. The bounded line-to-exit diagnostic was locally exercised against the fixed inference file, but was not deployed to Modal. Admission remains closed. Sandbox estimate is `$0.0013` with a `$0.01` Sandbox-only ceiling; separate Modal control-function charges are excluded. A new deployment/fingerprint configuration and exact-run authorization are required before live inference. |
 | Result artifacts | PARTIAL; eight bounded R2 results accepted | A production R2 binding stores the verified result JSON. D1 records its artifact ID, digest and byte size; the ChatGPT artifact tool checks owner/run binding, metadata and content digest before returning bounded base64 chunks. Eight complete run artifacts were retrieved and SHA-256 verified. R2 retention and orphan cleanup policy, larger artifacts and a broader lifecycle remain open. |
 | Owner isolation and revocation | NOT ACCEPTED | Local Worker unit checks cover owner-bound prepare, submit, list, status, result, cancel, and artifact queries using a D1-shaped fake. An unauthenticated direct request with a forged owner header received HTTP 401. These checks do not prove cross-owner separation between authenticated Site users. Test a genuinely separate Site account and verify access revocation. Evidence: [`Sites owner-scope checks`](acceptance/2026-11-12-sites-owner-scope-unit-tests.md). |
 | GPU provider execution | NOT ACCEPTED | RunPod REST v2 exists in the offline core library, but no RunPod provider route is exposed through the Sites MCP Worker. No real GPU run has been accepted through ChatGPT. Keep GPU admission disabled until the Sites route, provider identity, result authentication, recovery, and cleanup are verified. |
 | RunPod API contract | v2 reviewed offline; provider execution unverified | Canonical transport and pricing now use REST v2, including cursor-complete account inventory and exact Network Volume datacenter stock. REST v1 and its GraphQL pricing path are legacy offline-only. Live RunPod calls remain disabled until separate account, security, result, recovery, and cleanup acceptance. |
 | Paid execution | PARKED | No paid path is enabled. Preserve independent authorization, exact price/quota checks, approval expiry/revocation, cancellation, cleanup, and security gates. |
+| Repository P0 security audit | OPEN | An earlier focused diff scan did not cover the current head or the whole repository. The latest diff-scan attempt did not start and returned no scan ID. Whole-repository Deep Scan still requires the managed read-only filesystem profile unavailable in the current session. |
 | Vercel and Neon retirement | PARTIAL; Vercel project deleted, Neon soft-deleted | Neither is a target dependency. Vercel project `gpu-control` has been deleted and is absent from the Vercel project list. Its pre-deletion optional failure remains only on older PR commits; latest head `6f31aa5` has all six Actions checks successful and no external statuses. Neon project `delicate-smoke-00521013` is removed from the active project list and remains recoverable until `2026-11-19T05:19:58Z`, after which permanent purge is expected. No Neon row contents were read or exported. Evidence: [`2026-11-12-resource-retirement-inventory.md`](acceptance/2026-11-12-resource-retirement-inventory.md). |
 
 ## Current implementation boundary
 
 The current product path is the public ChatGPT Sites Worker → authenticated
 owner-scoped MCP → D1/R2 → ChatGPT. The former Runner has been retired. The
-Modal preflight diagnostic is now deployed, but current-deployment inference is
-unaccepted. The previous
-success belongs to the retired local Runner. Two Modal failures predate v4 and
-the latest Modal attempt failed with exit code 2 and confirmed cleanup.
+Modal diagnostic is a PR candidate and has not been deployed. Current
+production still uses the prior fingerprint, and its latest Modal attempt
+failed with exit code 2 and confirmed cleanup.
 Admission is closed. The target path
 uses Modal as the first fixed compute provider and
 Runpod later for GPU execution; both remain separate from the Sites control
