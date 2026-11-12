@@ -615,7 +615,12 @@ async function handleMcp(request, env) {
     return json({ jsonrpc: "2.0", id, result: { supportedVersions: MCP_VERSIONS, capabilities: { tools: {} } } });
   }
   if (message.method === "tools/list") {
-    return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: { readOnlyHint: ["experiment_capabilities", "experiment_status", "experiment_result", "experiment_artifact", "experiment_list"].includes(name), destructiveHint: name === "experiment_cancel", idempotentHint: name !== "experiment_prepare", openWorldHint: !["experiment_capabilities", "experiment_status", "experiment_result", "experiment_artifact", "experiment_list"].includes(name) } })) } });
+    return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: {
+      readOnlyHint: ["experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
+      destructiveHint: ["experiment_submit", "experiment_cancel"].includes(name),
+      idempotentHint: !["experiment_status", "experiment_result"].includes(name),
+      openWorldHint: false,
+    } })) } });
   }
   if (message.method === "tools/call") {
     try {

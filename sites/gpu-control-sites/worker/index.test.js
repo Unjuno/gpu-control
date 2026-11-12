@@ -83,6 +83,39 @@ test("public MCP data tools reject anonymous callers before touching D1", async 
   assert.equal(databaseReads, 0);
 });
 
+test("MCP tool annotations distinguish read, execution, and lifecycle operations", async () => {
+  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  }), environment());
+  const rpc = await response.json();
+  assert.equal(response.status, 200);
+  const tools = Object.fromEntries(rpc.result.tools.map((item) => [item.name, item.annotations]));
+
+  for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list"]) {
+    assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);
+    assert.equal(tools[name].destructiveHint, false, `${name} should not be destructive`);
+    assert.equal(tools[name].idempotentHint, true, `${name} should be idempotent`);
+    assert.equal(tools[name].openWorldHint, false, `${name} uses only bounded resources`);
+  }
+  assert.deepEqual(tools.experiment_prepare, {
+    readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+  });
+  assert.deepEqual(tools.experiment_submit, {
+    readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
+  });
+  for (const name of ["experiment_status", "experiment_result"]) {
+    assert.equal(tools[name].readOnlyHint, false, `${name} synchronizes provider state into D1/R2`);
+    assert.equal(tools[name].destructiveHint, false, `${name} does not cancel or allocate by intent`);
+    assert.equal(tools[name].idempotentHint, false, `${name} may advance a live run`);
+    assert.equal(tools[name].openWorldHint, false, `${name} uses only the configured provider`);
+  }
+  assert.deepEqual(tools.experiment_cancel, {
+    readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
+  });
+});
+
 test("authenticated users outside the configured owner allowlist cannot touch D1", async () => {
   const env = environment();
   let databaseReads = 0;
