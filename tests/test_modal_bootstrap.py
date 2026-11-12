@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,23 @@ class SandboxBootstrapTests(unittest.TestCase):
         workload = (MODAL_DIR.parent / "workloads" / "tiny_stories_inference" / "inference.py").read_text()
         lines = workload.splitlines()
         self.assertTrue(all(lines[line - 1].strip() == "return 2" for line in expected))
+
+    def test_real_inference_missing_identity_emits_bounded_guard_diagnostic(self) -> None:
+        inference = MODAL_DIR.parent / "workloads" / "tiny_stories_inference" / "inference.py"
+        command = sandbox_entrypoint(str(inference), drop_privileges=False)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        )
+        self.assertEqual(result.returncode, 64 + 43)
+        self.assertIn("GPU_CONTROL_PREFLIGHT_RETURN_LINE=43", result.stderr)
+        self.assertEqual(
+            modal_bootstrap.normalize_exit_code(result.returncode),
+            (2, "PREFLIGHT_RETURN_LINE_43"),
+        )
 
     def test_production_command_keeps_privilege_drop_and_isolated_python(self) -> None:
         command = sandbox_entrypoint()
