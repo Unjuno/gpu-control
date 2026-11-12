@@ -72,3 +72,20 @@ cross-account isolation, Runpod GPU, and paid execution remain separate gates.
 - The post-fix ChatGPT CPU run, artifact verification, and cleanup acceptance
   remain open. The current PR branch is not merged to `main`; recovery,
   separate-account authorization, Runpod GPU, and paid execution remain open.
+
+## Deployment credential scope check — 2026-11-12 10:00 UTC
+
+- The user authorized a one-hour deployment token and deployment limited to the
+  Modal `main` Environment. The Modal CLI token flow offered a one-hour API
+  token for the `unjuno` Workspace, with no Environment restriction. This did
+  not match the approved credential scope, so no `modal deploy` command was
+  run.
+- The temporary Workspace API token was revoked in Modal. Reloading the token
+  page showed `API tokens (0)`. The CLI-created local `~/.modal.toml` contained
+  only that `unjuno` profile and was removed. No Modal deployment, Sandbox, or
+  Site admission change occurred.
+- No Modal app source changed since the source currently believed deployed
+  (`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`); the pushed follow-up contains
+  documentation and test coverage. Current health and deployment state remain
+  as recorded above; a main-scoped deployment credential and the separate
+  post-fix ChatGPT inference acceptance remain unresolved.
