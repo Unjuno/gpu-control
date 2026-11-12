@@ -22,13 +22,14 @@ Read-only calls to the installed `GPU Control — ChatGPT実験管理` MCP retur
 
 ## Modal dashboard
 
-- Workspace banner: `$1 of $30/mo` free credits; adding a payment method is
+- Workspace banner: `$0.98` credits; adding a payment method is
   needed to unlock the remainder. This is a credit balance notice, not a hard
   spend-stop guarantee.
 - App overview at the time of inspection: deployment shown as 22 minutes old,
   `$0.02` usage this cycle, 0 live containers, 0 live Sandboxes. The function
   deployment timeline identifies the current deployment as v4 at
-  2026-11-12 18:06:03 JST.
+  2026-11-12 18:06:03 JST. The history row leaves its commit field blank; v3
+  shows `740fa98`, so the dashboard alone does not bind v4 to a source commit.
 - The `control_api` function showed recent `/v1/health` calls returning HTTP
   200. The app overview does not expose a source commit in the inspected view,
   so the live deployment cannot be tied to the latest Git commit from this
