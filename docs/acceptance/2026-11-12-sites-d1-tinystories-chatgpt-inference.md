@@ -161,3 +161,19 @@ A new ChatGPT-originated inference completed after deployment:
 This remains CPU-only acceptance. Forced restart, interruption/cancellation,
 lease expiry/reconciliation, Keychain ACL and rotation, cross-owner isolation,
 backup/restore, retention/orphan cleanup, GPU, and paid execution remain open.
+
+## Live cancellation acceptance — 2026-11-12
+
+Run `0a61c2b307f14dfbb94d9791ff7d7139` used the registered CPU workload,
+source `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`,
+and a 32-token maximum with a `$0.00` cost ceiling. The run was observed in
+`running` state when cancellation was requested. The status tool subsequently
+reported `state=cancelled`, `failure_code=caller_cancelled`,
+`cancellation_requested=false`, and `cleanup_state=confirmed`. A separate
+capabilities read confirmed the Runner was ready and one-slot CPU admission was
+available again. No result artifact was expected for a cancelled run.
+
+This verifies caller-requested cancellation and cleanup on the live free CPU
+route. It does not verify forced Runner termination, lease-expiry recovery,
+restart reconciliation, cross-owner cancellation denial, or GPU/paid execution.

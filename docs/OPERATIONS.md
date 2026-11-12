@@ -40,11 +40,18 @@ or provider settings.
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
   reports `gpu_used=false`; paid provider execution remains parked.
+- A live cancellation probe (`0a61c2b307f14dfbb94d9791ff7d7139`) was submitted
+  and cancelled while running. D1 reported `cancelled` with
+  `failure_code=caller_cancelled`, `cleanup_state=confirmed`, and no pending
+  cancellation. A follow-up capabilities read showed the Runner ready and the
+  free CPU admission slot available again. This proves the explicit cancellation
+  path for one bounded run; it does not prove forced-process-death recovery.
 
-These checks prove repeated provenance-valid bounded CPU inferences and five
-complete R2 artifact retrievals through ChatGPT. They do not prove general
-model quality, GPU execution, live forced-restart/cancellation recovery,
-cross-owner isolation, long-term artifact retention, or backup/restore.
+These checks prove repeated provenance-valid bounded CPU inferences, five
+complete R2 artifact retrievals, and one live cancellation/cleanup path through
+ChatGPT. They do not prove general model quality, GPU execution, forced Runner
+restart or process-death recovery, cross-owner isolation, long-term artifact
+retention, or backup/restore.
 
 The currently deployed Site is Version 15, deployment
 `appgdep_6af5169fa69c8191b4dca5bb77272c84`, from Sites source commit
