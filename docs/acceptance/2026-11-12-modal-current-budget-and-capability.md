@@ -194,3 +194,32 @@ signed-in Modal dashboard.
 - Recheck the Modal Workspace usage limit, prepare a new plan, and bind any
   submission to fresh explicit authorization for that plan's run ID and
   fingerprint.
+
+## Authorized one-token diagnostic execution — 2026-11-12 13:46 UTC
+
+- Before submission, the signed-in Modal dashboard showed a `$1` Workspace
+  usage limit, `$0.05` credits used, and `$0` charges. The plan fingerprint was
+  `c3bcd8133d6ca7f39f055e564e8f68095790029c49f55451543d1757037ccc2f`; its
+  Sandbox-only estimate was `$0.0013` with a `$0.01` ceiling. Modal control
+  function costs are separate.
+- The explicitly authorized run
+  `e9330c5bb5454f42bb3dabe058091dc0` used the fixed TinyStories 15M workload,
+  prompt `Once`, one output token, seed `61112`, 30 seconds, 1 CPU, 512 MiB,
+  no GPU, and blocked network. It failed with `MODAL_WORKLOAD_EXIT_2`.
+- Modal Sandbox `sb-01M77ZZRFC1090CXA2W3MHDH7V` failed after 247 ms. The
+  dashboard showed no Sandbox logs. ChatGPT `experiment_status` was reread:
+  state `failed`, cleanup `confirmed`, result and artifact absent. The bounded
+  preflight line marker was not returned, so the exact failing guard remains
+  unknown. A local simulation of the deployed entrypoint and marker regex
+  correctly captured a synthetic preflight return; this does not explain the
+  missing live marker.
+- After execution, Modal Usage still showed `$0.05` credits used and `$0`
+  charges. These totals include prior deployment/control activity and cannot be
+  attributed to this Sandbox alone. The temporary admission was closed again;
+  environment revision 32 has `CPU_WORKLOAD_ADMISSION_ENABLED=false`. A fresh
+  ChatGPT capability read reports all eight health checks true,
+  `provider_ready=true`, `available=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`.
+- This one-run authorization is consumed. Do not retry without a new exact-run
+  authorization and a diagnostic change that can distinguish the failure.
+  RunPod/GPU and paid execution remain parked.

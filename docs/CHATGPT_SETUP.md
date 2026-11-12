@@ -51,9 +51,12 @@ R2 artifacts. They establish that earlier CPU route only. They do not establish
 current Modal inference, general model quality, or GPU execution. The latest
 live capability read reports `provider_ready=true`, `admission_enabled=false`,
 and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. Sites
-Version 28 exposes the aligned `experiment_prepare.max_cost_usd=0.01` schema. A fresh
-ChatGPT inference and artifact verification against the current Modal deployment
-are still required.
+Version 28 exposes the aligned `experiment_prepare.max_cost_usd=0.01` schema. The
+latest authorized one-token Modal run failed with exit code 2 after 247 ms;
+cleanup was confirmed but no result or artifact was produced. The diagnostic
+line marker was absent, and its cause is unknown. Admission is closed at Sites
+environment revision 32. A successful ChatGPT inference and artifact
+verification against the current Modal deployment are still required.
 
 The former local Runner path is removed and provider admission remains closed.
 Keep paid providers parked. The exact runtime keys and controlled publication steps are

@@ -17,8 +17,8 @@ provide model compute. Compute remains an explicitly configured provider.
 
 - The public Site `gpu-control-sites` is active at
   `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 28,
-  Site source commit `237c0bed24277cf7c808f8c0e9946c71d517288c`, and
-  environment revision 28.
+  Site source commit `237c0bed24277cf7c808f8c0e9946c71d517288c`, and current
+  environment revision 32.
 - Its current Sites access mode is `public` (access revision 2). A Site-hosted
   plugin exists and is connected for the owner; this does not
   establish that another user's ChatGPT process can install or call it.
@@ -26,8 +26,12 @@ provide model compute. Compute remains an explicitly configured provider.
   checks and reported `available=false` and `admission_enabled=false` for
   `modal_cpu`. The current tool schema accepts the `$0.01` Sandbox-only
   ceiling. No successful Modal inference after the dashboard v4 deployment is
-  recorded. The latest one-token diagnostic plan expired without submission;
-  no Sandbox was started. Admission stays closed. Paid execution remains parked.
+  recorded. The one authorized diagnostic run
+  `e9330c5bb5454f42bb3dabe058091dc0` failed with exit code 2 after 247 ms;
+  cleanup was confirmed and no artifact was produced. Its expected preflight
+  line marker was absent, so the cause is still unknown. Admission is closed at
+  environment revision 32. Paid execution remains parked, and another Sandbox
+  requires new exact-run authorization.
 - D1 and R2 remain the Site's storage bindings. Preserve their current records,
   migrations, artifacts, and historical evidence during provider changes.
 - The macOS LaunchAgent and its local runtime were removed, and the two local

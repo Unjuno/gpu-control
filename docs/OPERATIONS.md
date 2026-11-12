@@ -1,26 +1,24 @@
 # Current operations: ChatGPT Sites + D1
 
-## Latest operational state — 2026-11-12 13:24 UTC
+## Latest operational state — 2026-11-12 13:46 UTC
 
 Production Sites is Version 28, source commit
-`237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 28, with D1/R2.
-A live ChatGPT capability read at 13:24 UTC passed all eight Modal health checks;
-admission remains disabled. The exposed ChatGPT prepare schema now accepts the
-Worker's `$0.01` Sandbox-only ceiling.
-The latest ChatGPT-originated Modal run
-`b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was
-confirmed and no artifact was produced. The bounded preflight diagnostic at
-commit `d1dd4fe` is deployed to Modal `unjuno/main`; the dashboard showed zero
-live Sandboxes. Its behavior has not been exercised by a new inference, and no
-Sandbox was started during deploy. The temporary one-hour deploy token was
-revoked and the token list showed zero entries. RunPod has no Sites MCP
-execution route. Keep Modal admission disabled and GPU/paid execution parked
-until their separate authorizations and acceptance gates pass. The 15-second
-bounded Modal request timeout is deployed in Sites Version 28 after an observed
-6.3-second cold start. The one-token, 30-second CPU diagnostic plan expired
-without submission; its Sandbox estimate was `$0.0013`, ceiling `$0.01`, and
-Modal control-function costs are separate. Prepare a fresh plan and obtain
-exact-run authorization before opening admission and starting a Sandbox.
+`237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 32, with D1/R2.
+The live ChatGPT capability read passed all eight Modal health checks; admission
+is disabled. Sites Version 28 accepts the `$0.01` Sandbox-only ceiling and uses
+a 15-second bounded Modal request timeout. The one authorized CPU diagnostic
+run `e9330c5bb5454f42bb3dabe058091dc0` failed with
+`MODAL_WORKLOAD_EXIT_2`; Modal Sandbox
+`sb-01M77ZZRFC1090CXA2W3MHDH7V` exited after 247 ms. Its dashboard had no
+Sandbox logs, Sites confirmed cleanup, and no inference result or artifact was
+produced. The expected bounded preflight line marker was absent, so the exact
+failed check remains unknown. Modal Usage remained `$0.05` credits used and
+`$0` charges after the run; those totals include prior control/deploy activity
+and cannot be attributed to this Sandbox. The `$1` Workspace limit was checked
+before execution. Admission was restored to false at environment revision 32;
+capabilities report the provider ready but unavailable. Do not retry without a
+new exact-run authorization and a useful diagnostic change. RunPod has no Sites
+MCP execution route; GPU and paid execution remain parked.
 
 The following paragraph is an earlier operational snapshot, superseded by the
 latest state above.

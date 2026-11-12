@@ -2,10 +2,10 @@
 
 ## Hosted Sites and provider status — refreshed 2026-11-12
 
-Latest verified capability — 2026-11-12 13:24 UTC: the public ChatGPT Sites MCP Worker is
+Latest verified capability — 2026-11-12 13:46 UTC: the public ChatGPT Sites MCP Worker is
 deployed as Version 28 from Site source commit
 `237c0bed24277cf7c808f8c0e9946c71d517288c`, with production environment
-revision 28 and D1/R2. The live ChatGPT capability read reported
+revision 32 and D1/R2. The live ChatGPT capability read reported
 `provider_ready=true`, all provider identity/health checks true,
 `admission_enabled=false`, and `available=false` for `modal_cpu`. Paid
 execution remains parked. The owner's ChatGPT connection has called the Site;
@@ -13,11 +13,16 @@ cross-account plugin access remains unverified.
 
 The refreshed ChatGPT tool signature accepts
 `experiment_prepare.max_cost_usd=0.01`, matching the usage-billed Sandbox
-ceiling. The 15-second bounded Modal request timeout is deployed. The prepared
-one-token diagnostic plan expired without submission; admission remains
-closed. Prepare a fresh plan and obtain exact-run authorization before execution.
+ceiling. The 15-second bounded Modal request timeout is deployed. The one
+authorized one-token run `e9330c5bb5454f42bb3dabe058091dc0` failed with
+`MODAL_WORKLOAD_EXIT_2` after 247 ms; Modal Sandbox
+`sb-01M77ZZRFC1090CXA2W3MHDH7V` had no logs. Sites confirmed cleanup, but no
+result or artifact was produced and the expected preflight line marker was
+absent. Environment revision 32 has admission false; capabilities are ready but
+unavailable. Another attempt needs a new exact-run authorization after a useful
+diagnostic change.
 
-The latest 16-token ChatGPT-initiated Modal Sandbox run
+An earlier 16-token ChatGPT-initiated Modal Sandbox run
 `b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was
 confirmed and no artifact was produced. A fresh read-only history check also
 found an earlier failed run `0f2a3ddaa7da40648600bae21ccd9ed1` at 11:25 UTC
@@ -26,11 +31,10 @@ provenance is unknown. Modal Usage last showed a `$1` Workspace limit,
 `$0.04` credits used, and `$0` charges at 12:35 UTC. The bounded preflight
 diagnostic from `d1dd4fe` was deployed to Modal `unjuno/main` at 12:49 UTC;
 the CLI returned success and the dashboard showed the app deployed just now
-with zero live containers and zero live Sandboxes. The diagnostic has not been
-exercised by a new inference. Modal displayed `$0.04` usage this cycle; the
-`$1` limit was not rechecked during this deploy. A one-hour Workspace deploy
-token was deleted immediately after deployment; reloading the API-token page
-showed zero tokens. No Sandbox was started. Admission remains disabled.
+with zero live containers and zero live Sandboxes. The later authorized
+diagnostic attempt and current admission state are recorded in the current
+operational snapshot above. The one-hour Workspace deploy token was deleted
+immediately after deployment; reloading the API-token page showed zero tokens.
 
 The Modal dashboard's deployment timeline showed v4 at 2026-11-12 18:06 JST,
 but its history row did not identify a source commit. The successful ChatGPT

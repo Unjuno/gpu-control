@@ -6,14 +6,14 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
 - Deployed Site version: 28, source commit
-  `237c0bed24277cf7c808f8c0e9946c71d517288c`; current environment revision 28.
+  `237c0bed24277cf7c808f8c0e9946c71d517288c`; current environment revision 32.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- Current ChatGPT capability evidence (2026-11-12 13:24 UTC):
+- Current ChatGPT capability evidence (2026-11-12 13:46 UTC):
   `provider_ready=true`, every provider health check passed,
   `admission_enabled=false`, and `available=false` for
   `modal_cpu`. The latest bounded ChatGPT-initiated run failed with workload
-  exit code 2; cleanup was confirmed. The v27 Worker labels the provider as
+  exit code 2; cleanup was confirmed. The v28 Worker labels the provider as
   billable and estimates Sandbox CPU/memory only. The estimate excludes
   separately billed Modal control functions and is not a total-cost guarantee.
 - MCP access is restricted to the owner IDs listed in the secret runtime
@@ -33,12 +33,14 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   The fix that drops Sandbox privileges to UID/GID 10001 and binds that
   effective command into the image fingerprint is deployed. The four-token run
   `eacc26ff2ad54cf69a1ee7665325b197` was executed by the retired local Runner.
-  The latest 16-token Modal run `b3380814d0854d93a5d978799d670013` failed with
-  `MODAL_WORKLOAD_EXIT_2`; Modal dashboard showed Sandbox
-  `sb-01M77TZXQ0D04PVJ52QG6Y8F0E` failed with code 2 and no logs, while Site
-  recorded cleanup confirmed. Do not retry under the consumed one-run
-  authorization. RunPod remains absent from the Sites Worker route and GPU/paid
-  execution remains parked.
+  The latest one-token Modal run `e9330c5bb5454f42bb3dabe058091dc0` failed
+  with `MODAL_WORKLOAD_EXIT_2`; Modal dashboard showed Sandbox
+  `sb-01M77ZZRFC1090CXA2W3MHDH7V` failed with code 2 after 247 ms and no logs.
+  Sites recorded cleanup confirmed and no artifact was produced. The bounded
+  preflight line marker was absent, leaving the failed check unknown. The
+  one-run authorization is consumed; do not retry without new authorization
+  and a useful diagnostic change. RunPod remains absent from the Sites Worker
+  route and GPU/paid execution remains parked.
 - A fresh read-only history check found another failed status,
   `0f2a3ddaa7da40648600bae21ccd9ed1`, created earlier at 11:25 UTC with
   `MODAL_WORKLOAD_EXIT_2`, confirmed cleanup, and no artifact. Its deployment
@@ -46,10 +48,9 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   failed event.
 - Diagnostic follow-up commit `d1dd4fe2bbaf220e24fe1c1f97f958491a3d5674`
   adds a non-sensitive inference preflight line marker and strict Worker
-  persistence; it is deployed to Modal `unjuno/main`. The temporary Workspace
-  deploy token was revoked and the API-token page showed zero tokens. No new
-  Sandbox was started. A separate current authorization is required before
-  any inference attempt.
+  persistence; it is deployed to Modal `unjuno/main`. The marker was absent in
+  the latest run. The temporary Workspace deploy token was revoked and the
+  API-token page showed zero tokens.
 - The deployed ChatGPT tool schema accepts
   `experiment_prepare.max_cost_usd=0.01`, matching this Worker's usage-billed
   Sandbox CPU/memory ceiling.
@@ -61,8 +62,9 @@ Every data-bearing or execution MCP tool must require the Sites-injected user
 ID and enforce D1 ownership. This ChatGPT connection has called the capability
 and experiment-list tools; access from another ChatGPT account/process is not
 yet verified. Anonymous HTTP probes were blocked at the edge and do not verify
-Worker-level authentication. Execution is currently disabled after the single
-bounded Modal attempt. The `$0.01` ceiling applies to Sandbox CPU/memory only.
+Worker-level authentication. Execution is currently disabled after the one
+explicitly authorized bounded Modal attempt. The `$0.01` ceiling applies to
+Sandbox CPU/memory only.
 Control-function charges are separate and remain governed by the account-level
 Workspace usage limit.
 
