@@ -239,13 +239,14 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = async () => Response.json({ state: "failed", exit_code: 2,
+      diagnostic_code: "PREFLIGHT_RETURN_LINE_68",
       stderr: "private-provider-diagnostic-must-not-leak", sandbox_id: "sb-failed",
       cleanup_state: "confirmed" });
     const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
     const rpc = await response.json();
     const result = JSON.parse(rpc.result.content[0].text);
     assert.equal(result.machine_state.state, "failed");
-    assert.equal(result.machine_state.failure_code, "MODAL_WORKLOAD_EXIT_2");
+    assert.equal(result.machine_state.failure_code, "MODAL_WORKLOAD_EXIT_2_PREFLIGHT_RETURN_LINE_68");
     assert.equal(result.machine_state.cleanup_state, "confirmed");
     assert.doesNotMatch(JSON.stringify(result), /private-provider-diagnostic-must-not-leak/);
   } finally {

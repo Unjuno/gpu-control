@@ -36,7 +36,10 @@ SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 SANDBOX_ENTRYPOINT = (
     "python", "-I", "-c",
     "import os,sys; os.setgroups([]); os.setgid(10001); os.setuid(10001); "
-    "os.execv(sys.executable,[sys.executable,'-I','/work/inference.py'])",
+    "trace=lambda frame,event,arg: ((sys.stderr.write('GPU_CONTROL_PREFLIGHT_RETURN_LINE='+str(frame.f_lineno)+'\\n') "
+    "if event=='return' and frame.f_code.co_filename=='/work/inference.py' and frame.f_code.co_name=='main' "
+    "and type(arg) is int and arg==2 else None) or trace) if frame.f_code.co_filename=='/work/inference.py' else None; "
+    "sys.settrace(trace); __import__('runpy').run_path('/work/inference.py',run_name='__main__')",
 )
 
 REMOTE_SITE_ROOT = Path("/root/gpu-control-sites")
@@ -197,6 +200,7 @@ def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         result.get("status") != "passed"
     ):
         result = None
+    diagnostic_match = re.search(r"^GPU_CONTROL_PREFLIGHT_RETURN_LINE=([1-9][0-9]{0,3})$", stderr, re.MULTILINE) if exit_code == 2 else None
     sandbox_id = sandbox.object_id
     try:
         sandbox.terminate(wait=True)
@@ -215,6 +219,7 @@ def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "image_fingerprint": WORKLOAD_IMAGE_FINGERPRINT,
         "result": result,
         "stderr": stderr,
+        "diagnostic_code": f"PREFLIGHT_RETURN_LINE_{diagnostic_match.group(1)}" if diagnostic_match else None,
         "logs_truncated": stdout_truncated or stderr_truncated,
     }
 

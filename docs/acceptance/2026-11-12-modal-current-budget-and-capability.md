@@ -97,3 +97,18 @@ signed-in Modal dashboard.
   `admission_enabled=false`. This one-run authorization is consumed; another
   live Sandbox requires a new current authorization after a useful diagnostic
   fix is ready. RunPod/GPU and paid training remain parked.
+
+## Bounded failure diagnostic prepared — 2026-11-12 12:28 UTC
+
+- The Modal entrypoint now traces only the fixed inference `main()` return path
+  and writes a non-sensitive source-line marker when that function returns
+  preflight code 2. The Modal control API accepts only this exact bounded
+  marker; the Sites Worker records it in `failure_code` without exposing
+  provider stderr.
+- A local synthetic preflight returned code 2 and emitted the expected source
+  line marker. The Site Worker suite passed 21 tests, and build/artifact
+  validation passed. No provider was called.
+- This diagnostic has not been deployed. The live Site remains on Version 27
+  with admission disabled, and the previous one-run authorization is consumed.
+  Deploying this diagnostic and performing one bounded inference require a
+  new explicit authorization. No new Modal token or Sandbox was created.
