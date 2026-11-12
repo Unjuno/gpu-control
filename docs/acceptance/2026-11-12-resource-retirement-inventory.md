@@ -215,9 +215,12 @@ Sites and Runner state by this refresh:
 
 - Vercel's project API still reports `gpu-control` as `live=false`, framework
   `fastapi`, and latest deployment `BLOCKED`; SSO protection is enabled and
-  project metadata still lists three Vercel aliases. The combined GitHub status
-  for candidate `7067136433af06b6fc69655e6830a03643a5ec4b` contains only the
-  failed `Vercel` status. The Vercel deletion-link operation returned
+  project metadata still lists three Vercel aliases. On PR #60 head
+  `fdb486f398d01810f8a0beb61af0c8e01bf2dbbe`, all six repository checks
+  (Python 3.11/3.12/3.13, trusted reference container, Project bridge tests,
+  and Sites Worker/D1 contract) completed successfully. The separate combined
+  commit status contains only the failed `Vercel` status. The Vercel
+  deletion-link operation returned
   `requires_user_action` and `mutationExecuted=false`; no Vercel resource was
   changed. Branch rulesets are empty, while the legacy branch-protection API
   returned 403, so required-check policy could not be independently refreshed
