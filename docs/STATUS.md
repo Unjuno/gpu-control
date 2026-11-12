@@ -1,5 +1,42 @@
 # Project status
 
+## Live branch refresh — 2026-11-13
+
+- PR #68 remains open as a Draft, based on `codex/gpu-control-p1-dcr-v9-review`;
+  head `67f60a2b39fd08840173e07fe6a049a1b3a66bec` adds a fixed Modal bootstrap
+  marker for `SystemExit(2)`. Its PR-triggered CI (`43246512972`) passed the
+  Python 3.11–3.13 matrix, trusted reference container, and Sites Worker/D1
+  contract jobs; Project bridge tests (`43246512950`) also passed. No PR reviews
+  are recorded yet.
+- A Codex Security diff review of the four tracked code changes reported no
+  findings. The new Python bootstrap test was manually inspected but was
+  untracked and omitted from that scan's inventory. This is not the repository-
+  wide P0 audit; that audit still requires a managed read-only filesystem
+  profile, which this active session does not provide.
+- Current ChatGPT capabilities remain `provider_ready=true`,
+  `admission_enabled=false`, and `available=false`. Live Site registration
+  advertises Modal fingerprint `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`;
+  PR #68's bootstrap source computes `c88df3ef00889df55690df701d99f2701424dd52abc33a1c32e1b812724f22f2`.
+  The Modal deployment and Site environment have not been updated to the new
+  fingerprint, and no new Sandbox was started.
+- Latest run `e9330c5bb5454f42bb3dabe058091dc0` remains failed with
+  `MODAL_WORKLOAD_EXIT_2`, confirmed cleanup, and no result artifact. The new
+  bootstrap marker has not yet been deployed or validated end to end.
+- Modal's current Workspace cap is `$1`, with `$0.05` credits used and `$0`
+  charges; API token inventory is empty. These facts do not authorize a run.
+- The current checkout contains no tracked Keychain Runner implementation or
+  active Sites Worker route for RunPod. A local process query found no matching
+  Runner process. RunPod/GPU and paid execution remain parked.
+- GitHub's connected integration returned 403 for main branch-protection
+  details, and the repository rulesets endpoint returned an empty list. Main
+  protection therefore remains unverified from this session; do not treat
+  policy text or past snapshots as live proof.
+
+The full delivery objective remains open: complete the repository-wide P0
+audit, obtain independent PR review, deploy and verify the fixed Modal
+diagnostic, secure the exact-plan CPU run, complete recovery and cross-account
+acceptance, then separately implement and validate the RunPod GPU path.
+
 ## Hosted Sites and provider status — refreshed 2026-11-12
 
 Latest verified capability — 2026-11-12 13:46 UTC: the public ChatGPT Sites MCP Worker is
