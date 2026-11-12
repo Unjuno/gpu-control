@@ -94,8 +94,8 @@ test("Modal response bodies are byte-bounded and cancelled as soon as the limit 
   const env = environment({ admission: "true" });
   env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";
   env.MODAL_API_URL = "https://modal.invalid";
-  env.MODAL_PROXY_TOKEN_ID = "t".repeat(16);
-  env.MODAL_PROXY_TOKEN_SECRET = "s".repeat(32);
+  env.MODAL_PROXY_TOKEN_ID = "wk-" + "t".repeat(16);
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-" + "s".repeat(16);
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
   env.BUCKET = { put: async () => {} };
   const originalFetch = globalThis.fetch;
@@ -127,8 +127,8 @@ test("Modal response bodies are byte-bounded and cancelled as soon as the limit 
 test("health can be verified while Modal admission remains disabled", async () => {
   const env = environment();
   env.MODAL_API_URL = "https://modal.invalid";
-  env.MODAL_PROXY_TOKEN_ID = "t".repeat(16);
-  env.MODAL_PROXY_TOKEN_SECRET = "s".repeat(32);
+  env.MODAL_PROXY_TOKEN_ID = "wk-" + "t".repeat(16);
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-" + "s".repeat(16);
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
   env.BUCKET = { put: async () => {} };
   const originalFetch = globalThis.fetch;

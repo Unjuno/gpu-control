@@ -225,8 +225,8 @@ async function readJson(request, limit = MAX_BODY_BYTES) {
 function modalConfigured(env) {
   return typeof env.MODAL_API_URL === "string" && /^https:\/\/[a-z0-9.-]+(?:\/[^?#]*)?$/i.test(env.MODAL_API_URL) &&
     !env.MODAL_API_URL.includes("@") && !env.MODAL_API_URL.includes("#") && !env.MODAL_API_URL.includes("?") &&
-    typeof env.MODAL_PROXY_TOKEN_ID === "string" && env.MODAL_PROXY_TOKEN_ID.length >= 16 &&
-    typeof env.MODAL_PROXY_TOKEN_SECRET === "string" && env.MODAL_PROXY_TOKEN_SECRET.length >= 32 &&
+    typeof env.MODAL_PROXY_TOKEN_ID === "string" && /^wk-[A-Za-z0-9_-]{8,}$/.test(env.MODAL_PROXY_TOKEN_ID) &&
+    typeof env.MODAL_PROXY_TOKEN_SECRET === "string" && /^ws-[A-Za-z0-9_-]{8,}$/.test(env.MODAL_PROXY_TOKEN_SECRET) &&
     typeof env.MODAL_WORKLOAD_IMAGE_FINGERPRINT === "string" && /^[0-9a-f]{64}$/.test(env.MODAL_WORKLOAD_IMAGE_FINGERPRINT) &&
     !!env.DB && !!env.BUCKET && typeof env.BUCKET.put === "function";
 }
@@ -326,7 +326,7 @@ async function capabilities(env) {
     status: "ok",
     human_summary: available ? "Modalの固定CPU実行経路が利用可能です。" : "Modal実行経路は未設定または停止中です。登録済み実験の実行はできません。",
     machine_state: { available, provider_ready: !!provider, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: true, max_runtime_seconds: 30, max_inflight: 1, image_fingerprint: provider?.image_fingerprint || null },
-    blocking_reason: available ? null : (modalConfigured(env) ? "CPU_WORKLOAD_ADMISSION_DISABLED" : "MODAL_PROVIDER_NOT_CONFIGURED"),
+    blocking_reason: available ? null : (!modalConfigured(env) ? "MODAL_PROVIDER_NOT_CONFIGURED" : (!provider ? "MODAL_PROVIDER_HEALTHCHECK_FAILED" : "CPU_WORKLOAD_ADMISSION_DISABLED")),
     providers: [{ id: "modal_cpu", enabled: available, free: true, paid: false }],
     workloads: [{ id: WORKLOAD, enabled: available, requires_gpu: false, image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST || null }],
     paid_execution: "parked",
