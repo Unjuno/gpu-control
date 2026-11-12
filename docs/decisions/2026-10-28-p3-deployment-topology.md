@@ -1,7 +1,15 @@
-# P3 deployment topology decision
+# P3 deployment topology decision — superseded historical record
 
 Date: 2026-10-28
-Status: **Topology selected; provider, public domain, budget, and deployment remain unapproved and unselected.**
+Status: **Superseded on 2026-11-11. Historical topology only; do not provision from this record.**
+
+> This records the legacy FastAPI Gateway deployment choice. It is not the
+> current product architecture or an instruction to provision or retain
+> Vercel, Neon, or PostgreSQL. The supported product path is ChatGPT Sites +
+> D1 + R2 with a separately isolated Runner. See
+> [`2026-11-11-sites-d1-architecture-pivot.md`](2026-11-11-sites-d1-architecture-pivot.md).
+> Keep the remainder only as historical rationale for the old Gateway; its
+> topology, cost estimates, and acceptance gates do not govern current work.
 
 ## Decision
 

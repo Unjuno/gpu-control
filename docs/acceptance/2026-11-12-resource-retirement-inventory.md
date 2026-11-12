@@ -210,3 +210,27 @@ Sites and Runner state by this refresh:
   retrieval completed after that log time. Treat these as historical transient
   failures, not proof of an ongoing outage; monitor again during the repeated
   recovery-window acceptance.
+
+## Fresh provider retirement check — 2026-11-12 04:18 UTC
+
+- Vercel's project API still reports `gpu-control` as `live=false`, framework
+  `fastapi`, and latest deployment `BLOCKED`; SSO protection is enabled and
+  project metadata still lists three Vercel aliases. The combined GitHub status
+  for candidate `7067136433af06b6fc69655e6830a03643a5ec4b` contains only the
+  failed `Vercel` status. The Vercel deletion-link operation returned
+  `requires_user_action` and `mutationExecuted=false`; no Vercel resource was
+  changed. Branch rulesets are empty, while the legacy branch-protection API
+  returned 403, so required-check policy could not be independently refreshed
+  through this connection.
+- Neon project `delicate-smoke-00521013` has one primary/default `production`
+  branch (`br-raspy-cell-b3l93n46`), logical size 31,670,272 bytes. Its sole
+  read-write compute is `idle` and reports `suspended_at=2026-11-12T00:34:17Z`;
+  the branch itself is `ready`. No SQL or row contents were read. Existing
+  inventory counts still show one OAuth session, three singleton control/auth
+  records, and one Neon Auth configuration row; their contents and required
+  retention status remain unknown. No export, D1 copy, or deletion was made.
+- The user's current architecture direction is Sites + D1/R2, with no Vercel
+  or Neon product dependency. Removing these cloud resources is a separate
+  retirement action: Vercel requires owner confirmation in its dashboard, and
+  Neon deletion requires an explicit choice to discard its residual data or
+  export it first. The Neon project remains idle pending that choice.
