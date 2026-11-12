@@ -3,19 +3,17 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
-import json
 
 import pytest
 
 from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.providers.runpod_current_pricing import (
-    RUNPOD_GRAPHQL_URL,
-    RUNPOD_PRICING_CONTRACT_COMMIT,
-    RunPodPricingGraphQLClient,
+    RUNPOD_PRICING_CONTRACT_REVISION,
+    RunPodPricingCatalogClient,
     build_current_pricing_evidence,
 )
 from gpu_control.providers.runpod_network_volume import RunPodNetworkVolumeEvidence
-from gpu_control.providers.runpod_v2 import RunPodV2Error
+from gpu_control.providers.runpod_v2 import RUNPOD_V2_BASE_URL, RunPodV2Error
 from gpu_control.validation import WorkloadRequest
 
 
@@ -47,48 +45,33 @@ def volume(data_center_id: str = DC) -> RunPodNetworkVolumeEvidence:
     )
 
 
-def gpu_types() -> list[dict[str, object]]:
-    return [
-        {
-            "id": GPU_ID,
-            "displayName": "RTX 4090",
-            "memoryInGb": 24,
-            "secureCloud": True,
-            "communityCloud": True,
-            "securePrice": 0.44,
-            "communityPrice": 0.34,
-        }
-    ]
-
-
-def data_centers(stock: str = "High") -> list[dict[str, object]]:
-    return [
-        {
-            "id": DC,
-            "name": "Kansas",
-            "location": "US",
-            "gpuAvailability": [
-                {"gpuTypeId": GPU_ID, "displayName": "RTX 4090", "stockStatus": stock}
-            ],
-        }
-    ]
+def catalog(stock: str = "HIGH") -> dict[str, object]:
+    return {
+        "gpus": [
+            {
+                "id": GPU_ID,
+                "name": "RTX 4090",
+                "memory": 24,
+                "secure": True,
+                "community": True,
+                "price": {"secure": 0.44, "community": 0.34},
+                "maxCount": {"secure": 8, "community": 4},
+                "availability": stock,
+                "dataCenters": [{"id": DC, "name": "US Kansas 2", "availability": stock}],
+            }
+        ]
+    }
 
 
 def evidence():  # type: ignore[no-untyped-def]
     return build_current_pricing_evidence(
-        gpu_types(),
-        data_centers(),
-        request(),
-        policy(),
-        volume(),
-        gpu_type_id=GPU_ID,
-        verified_at_utc=NOW,
-        validity_seconds=120,
+        catalog(), request(), policy(), volume(),
+        gpu_type_id=GPU_ID, verified_at_utc=NOW, validity_seconds=120,
     )
 
 
 def approved_plan(value):  # type: ignore[no-untyped-def]
-    legacy = value.to_catalog_evidence()
+    catalog_evidence = value.to_catalog_evidence()
     plan = ApprovedExecutionPlan(
         provider="runpod",
         provider_resource_id=value.gpu_type_id,
@@ -109,7 +92,7 @@ def approved_plan(value):  # type: ignore[no-untyped-def]
         authorization_reference="human-auth:test",
     )
     plan.validate_shape()
-    legacy.validate_against_plan(plan)
+    catalog_evidence.validate_against_plan(plan)
     return plan
 
 
@@ -120,43 +103,51 @@ def test_current_pricing_binds_secure_price_and_exact_volume_datacenter_stock() 
     assert value.memory_gb == 24
     assert value.hourly_price_usd == Decimal("0.44")
     assert value.stock_status == "HIGH"
-    assert value.contract_commit == RUNPOD_PRICING_CONTRACT_COMMIT
-    assert value.verification_reference.startswith("runpod-current-pricing:sha256:")
+    assert value.contract_revision == RUNPOD_PRICING_CONTRACT_REVISION
+    assert value.verification_reference.startswith("runpod-v2-catalog-pricing:sha256:")
 
-    plan = approved_plan(value)
-    value.validate_against_plan(plan, network_volume=volume(), now_utc=NOW)
+    value.validate_against_plan(approved_plan(value), network_volume=volume(), now_utc=NOW)
 
 
 def test_current_pricing_rejects_low_stock_wrong_dc_and_tampering() -> None:
     with pytest.raises(RunPodV2Error, match="does not have HIGH stock"):
         build_current_pricing_evidence(
-            gpu_types(), data_centers("Low"), request(), policy(), volume(),
-            gpu_type_id=GPU_ID, verified_at_utc=NOW,
+            catalog("LOW"), request(), policy(), volume(), gpu_type_id=GPU_ID, verified_at_utc=NOW,
         )
 
     value = evidence()
     plan = approved_plan(value)
-    wrong_volume = volume("US-WA-1")
     with pytest.raises(RunPodV2Error, match="datacenter does not match"):
-        value.validate_against_plan(plan, network_volume=wrong_volume, now_utc=NOW)
-
+        value.validate_against_plan(plan, network_volume=volume("US-WA-1"), now_utc=NOW)
     with pytest.raises(RunPodV2Error, match="verification_reference"):
         replace(value, hourly_price_usd=Decimal("0.45")).validate_shape()
 
 
+def test_current_pricing_rejects_missing_exact_datacenter_and_capacity() -> None:
+    missing_dc = catalog()
+    missing_dc["gpus"][0]["dataCenters"] = []  # type: ignore[index]
+    with pytest.raises(RunPodV2Error, match="exact Network Volume datacenter"):
+        build_current_pricing_evidence(missing_dc, request(), policy(), volume(), gpu_type_id=GPU_ID, verified_at_utc=NOW)
+
+    no_capacity = catalog()
+    no_capacity["gpus"][0]["maxCount"]["secure"] = 0  # type: ignore[index]
+    with pytest.raises(RunPodV2Error, match="no one-GPU Secure Cloud capacity"):
+        build_current_pricing_evidence(no_capacity, request(), policy(), volume(), gpu_type_id=GPU_ID, verified_at_utc=NOW)
+
+
 def test_current_pricing_rejects_expired_evidence() -> None:
     value = evidence()
-    plan = approved_plan(value)
     with pytest.raises(RunPodV2Error, match="expired"):
         value.validate_against_plan(
-            plan,
-            network_volume=volume(),
+            approved_plan(value), network_volume=volume(),
             now_utc=datetime(2026, 9, 1, 9, 2, tzinfo=timezone.utc),
         )
 
 
 class Response:
     def __init__(self, payload: object) -> None:
+        import json
+
         self.status = 200
         self._payload = json.dumps(payload).encode("utf-8")
 
@@ -170,34 +161,29 @@ class Response:
         return self._payload if size < 0 else self._payload[:size]
 
 
-def test_pricing_client_uses_fixed_graphql_origin_bearer_header_and_exact_queries() -> None:
+def test_pricing_client_uses_fixed_v2_catalog_and_bearer_header() -> None:
     seen = []
 
     def opener(http_request, timeout):  # type: ignore[no-untyped-def]
         seen.append((http_request, timeout))
-        body = json.loads(http_request.data.decode("utf-8"))
-        query = body["query"]
-        if "gpuTypes" in query:
-            return Response({"data": {"gpuTypes": gpu_types()}})
-        if "dataCenters" in query:
-            return Response({"data": {"dataCenters": data_centers()}})
-        raise AssertionError(query)
+        return Response(catalog())
 
-    client = RunPodPricingGraphQLClient("secret-token", opener=opener)
-    assert client.gpu_types() == gpu_types()
-    assert client.data_centers() == data_centers()
-    assert len(seen) == 2
-    for http_request, timeout in seen:
-        assert http_request.full_url == RUNPOD_GRAPHQL_URL
-        assert http_request.method == "POST"
-        assert http_request.get_header("Authorization") == "Bearer secret-token"
-        assert timeout == 10.0
-        assert b"secret-token" not in http_request.data
+    client = RunPodPricingCatalogClient("secret-token", opener=opener)
+    assert client.catalog() == catalog()
+    assert len(seen) == 1
+    http_request, timeout = seen[0]
+    assert http_request.full_url == (
+        f"{RUNPOD_V2_BASE_URL}/catalog/gpus?include=AVAILABILITY&product=POD&count=1&cloud=SECURE"
+    )
+    assert http_request.method == "GET"
+    assert http_request.data is None
+    assert http_request.get_header("Authorization") == "Bearer secret-token"
+    assert timeout == 10.0
 
 
-def test_pricing_client_fails_closed_on_graphql_errors() -> None:
+def test_pricing_client_fails_closed_on_malformed_v2_catalog() -> None:
     def opener(http_request, timeout):  # type: ignore[no-untyped-def]
-        return Response({"data": {"gpuTypes": []}, "errors": [{"message": "denied"}]})
+        return Response({"items": []})
 
-    with pytest.raises(RunPodV2Error, match="contained errors"):
-        RunPodPricingGraphQLClient("secret-token", opener=opener).gpu_types()
+    with pytest.raises(RunPodV2Error, match="missing gpus"):
+        RunPodPricingCatalogClient("secret-token", opener=opener).catalog()

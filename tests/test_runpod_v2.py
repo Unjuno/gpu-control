@@ -22,6 +22,7 @@ from gpu_control.providers.runpod_v2 import (
     translate_pod_status,
     validate_created_pod,
 )
+from gpu_control.providers.runpod_network_volume import RunPodNetworkVolumeEvidence
 
 
 DIGEST = "sha256:" + "a" * 64
@@ -219,6 +220,38 @@ def test_authenticated_created_pod_name_must_match_precreate_identity() -> None:
     without_name = {key: value for key, value in pod.items() if key != "name"}
     with pytest.raises(RunPodV2Error, match="pre-create execution identity"):
         validate_created_pod(plan, image, without_name, completion=completion)
+
+
+def test_created_pod_must_confirm_exact_network_volume_mount() -> None:
+    plan = make_plan()
+    image = make_image(plan)
+    volume = RunPodNetworkVolumeEvidence(
+        network_volume_id="volume-123",
+        data_center_id="US-KS-2",
+        verification_reference="runpod-volume:test",
+    )
+    pod = {
+        "id": "pod-123",
+        "image": image.image_reference,
+        "gpu": {"id": plan.provider_resource_id, "count": 1},
+        "cloud": "SECURE",
+        "dataCenterId": "US-KS-2",
+        "mounts": {"network": [{"volumeId": "volume-123", "path": "/outputs"}]},
+        "cost": 0.44,
+        "status": "PROVISIONING",
+    }
+
+    assert validate_created_pod(plan, image, pod, expected_network_volume=volume) == "pod-123"
+    invalid = [
+        dict(pod, mounts={"network": [{"volumeId": "other", "path": "/outputs"}]}),
+        dict(pod, mounts={"network": [{"volumeId": "volume-123", "path": "/wrong"}]}),
+        dict(pod, dataCenterId="US-IL-1"),
+        dict(pod, cloud="COMMUNITY"),
+        {key: value for key, value in pod.items() if key != "mounts"},
+    ]
+    for response in invalid:
+        with pytest.raises(RunPodV2Error, match="mounts|network volume|SECURE cloud"):
+            validate_created_pod(plan, image, response, expected_network_volume=volume)
 
 
 def test_runpod_status_translation_is_fail_closed() -> None:

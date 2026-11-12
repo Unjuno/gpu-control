@@ -1,0 +1,28 @@
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("../dist/", import.meta.url));
+const manifest = JSON.parse(readFileSync(join(root, ".openai/hosting.json"), "utf8"));
+assert.equal(manifest.project_id, "appgprj_6af482670c2081919ffe27a6faa0f746");
+assert.equal(manifest.d1, "DB");
+assert.equal(manifest.r2, "BUCKET");
+assert.ok(manifest.capabilities.includes("mcp"));
+assert.ok(statSync(join(root, "server/index.js")).size > 0);
+const migrations = readdirSync(join(root, ".openai/drizzle"));
+assert.ok(migrations.some((name) => name.endsWith(".sql")));
+assert.ok(migrations.includes("0000_control_plane.sql"));
+assert.ok(migrations.includes("0001_result_artifacts.sql"));
+const artifactMigration = readFileSync(join(root, ".openai/drizzle/0001_result_artifacts.sql"), "utf8");
+assert.match(artifactMigration, /result_artifact_sha256/);
+assert.match(artifactMigration, /result_artifact_size/);
+assert.ok(migrations.includes("0002_cancellation.sql"));
+const cancellationMigration = readFileSync(join(root, ".openai/drizzle/0002_cancellation.sql"), "utf8");
+assert.match(cancellationMigration, /cancel_requested INTEGER NOT NULL DEFAULT 0/);
+assert.match(cancellationMigration, /CHECK \(cancel_requested IN \(0, 1\)\)/);
+assert.ok(migrations.includes("0003_runner_cancellation_protocol.sql"));
+const runnerProtocolMigration = readFileSync(join(root, ".openai/drizzle/0003_runner_cancellation_protocol.sql"), "utf8");
+assert.match(runnerProtocolMigration, /cancellation_protocol INTEGER NOT NULL DEFAULT 0/);
+assert.match(runnerProtocolMigration, /CHECK \(cancellation_protocol IN \(0, 1\)\)/);
+console.log("Site Worker artifact is complete.");

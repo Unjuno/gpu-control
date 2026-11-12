@@ -1,41 +1,44 @@
-# Release acceptance matrix
+# Current release matrix — ChatGPT Sites + D1
 
-This matrix reports evidence on the current working branch. It does not infer
-readiness from mocks, source inspection, or a green test suite alone.
+This matrix describes the supported product path. Historical Vercel,
+PostgreSQL, and legacy Gateway evidence is preserved in
+[`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-gateway.md).
+Passing a local test or publishing a Site does not close a separate runtime,
+identity, recovery, or provider acceptance gate.
 
-| Axis | Status | Current evidence | Remaining acceptance |
-| --- | --- | --- | --- |
-| `MCP_CONNECTIVITY` | UNCERTAIN | Rechecked 2026-10-28: public Vercel `/healthz` and OAuth discovery return 200, `/readyz` returns 404, and unauthenticated `/mcp` returns 401. Live authorization metadata advertises PKCE S256, refresh tokens and `offline_access`; Vercel reports the latest READY production deployment is still pre-vertical `main` SHA `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`, with SSO enabled except on custom domains. A local PostgreSQL 16 v1-to-v6 rehearsal preserved synthetic run and OAuth state; local code now adds unverified v6-to-v7 OAuth grant migration/revocation. No ChatGPT OAuth or tool scan has completed. | Independently review the migration, validate paired production backup/restore, then deploy the reviewed CPU vertical with persistent worker/database/artifact storage and complete real OAuth and tool discovery/calls in the intended ChatGPT account. |
-| `CHATGPT_TOOL_USABILITY` | UNCERTAIN | Canonical experiment tools implement prepare/submit/status/result/artifact/cancel/list contracts and have service-level tests. | Complete a real CPU run through ChatGPT without CLI/Issue interaction, including a second conversation; record it in [`docs/CHATGPT_ACCEPTANCE.md`](CHATGPT_ACCEPTANCE.md). |
-| `CPU_EXECUTION` | PASS (local lane only) | Digest-pinned CPU container ran on OrbStack Linux/arm64 with bounded runtime, isolation settings, result binding, and cleanup. See `docs/acceptance/2026-10-28-recovery-supervisor.md` and `docs/IMPLEMENTATION_PROGRESS.md`. | Repeat on the selected persistent deployment host and workload; current evidence is local and not seven-day operational acceptance. |
-| `FREE_GPU_EXECUTION` | BLOCKED | No GPU backend has been live-verified with device, quota, additional-cost, cancellation, and cleanup evidence. | Verify an eligible provider/account and run a bounded real GPU smoke with cost and cleanup proof; preserve `FREE_FIRST` gates. |
-| `PAID_GPU_EXECUTION` | BLOCKED | Paid mode remains parked; no current exact human authorization or live provider execution. | Complete P5 controls and obtain separate explicit authorization for a bounded canary before any spend. |
-| `RECOVERY` | PASS (local CPU lane only) | Real Docker recovery reconciled the same run after execution-worker exit before handle persistence. PostgreSQL restart and supervisor restart during `cleanup_pending` are covered. The latter process-exit boundary uses a fake backend. Timeout-cancellation intent is retained through a cleanup failure. A local PostgreSQL 16 paired backup tool now stages DB and artifact archives together, checksums and validates them, publishes atomically, and was exercised through separate-target restoration and owner-scoped artifact byte readback; injected archive failure published no partial generation. See `docs/acceptance/2026-10-28-atomic-backup-generation.md`. | Exercise the selected deployed host and provider; verify the full crash matrix and no duplicate resources there. Production backup retention, target-host recovery and measured RPO/RTO remain open. |
-| `CANCELLATION` | PASS (local CPU lane only) | Existing CPU container was cancelled and removed by the recovery supervisor while execution-worker ticks were stopped. | Repeat against the deployment host and, for GPU, its real provider resource. |
-| `RESULT_RETRIEVAL` | UNCERTAIN | A real digest-pinned local CPU smoke run emits a validated JSON report; worker recovery persists it to owner-scoped storage and retrieves its exact bytes. PostgreSQL outage recovery preserves the run; artifact chunk API/storage tests and local shared-volume checks pass. A separate synthetic paired PostgreSQL 16 dump/artifact archive restore retrieved the restored bytes through the owner-scoped application path and rejected an unrelated owner. No deployed API or real ChatGPT conversation was used. | Verify an actual run and exact plan/source binding from a second ChatGPT conversation, including returned artifact digest and bytes; test a deployed persistent volume and set a quota/alert policy. See `docs/acceptance/2026-10-28-artifact-storage.md` and `docs/acceptance/2026-10-28-paired-artifact-restore.md`. |
-| `SECURITY` | UNCERTAIN | Input contracts, owner scoping, local CPU admission, Docker hardening, bounded OIDC/GitHub/RunPod HTTP responses, redirect rejection, and targeted adversarial/recovery tests exist. RunPod adapters recheck permit, price freshness, and occupancy immediately before create; injected-clock tests prove stale evidence prevents create. No live identity-provider or RunPod API was exercised. | Complete independent provider-independent review, deployed OAuth/owner-boundary acceptance, target-host permissions review, live provider compatibility checks, and operational security checks. This is scoped evidence, not a claim of complete safety. |
+| Gate | State | Evidence and remaining work |
+| --- | --- | --- |
+| ChatGPT Sites MCP | Version 23 deployed; cross-account ChatGPT acceptance open | Public access, source `1352662626d44dee08fd513f4c8886b6f75cb090`, environment revision 22, MCP-ready. Current capabilities report `provider_ready=true`, `available=false`, `admission_enabled=false`; Modal health is ready while admission remains deliberately closed. Anonymous HTTP probes returned edge HTTP 403, which does not verify Worker authentication. No second-account/plugin-install test has passed. |
+| D1/R2 control plane | PASS for prior bounded lifecycles; preservation and recovery gates remain | D1/R2 hold owner-bound run and artifact records from earlier accepted runs. Preserve these records during migration. Backup/restore, current provider lifecycle/reconciliation, and separate-account owner isolation remain open. |
+| Real CPU model inference | Previously accepted through the now-retired local Runner; current Modal path unverified | TinyStories 15M was pinned by upstream revision and SHA-256, and earlier ChatGPT runs retrieved and verified their R2 artifacts with cleanup confirmed. The current Modal path is deployed but has not yet passed a post-fix ChatGPT inference. The evidence does not establish broad model quality or GPU capability. |
+| Local Runner / Keychain | RETIRED | LaunchAgent, local runtime, Worker routes, and obsolete Site secret are removed. D1/R2 history is preserved. |
+| Modal CPU execution | DEPLOYED; post-fix runtime unverified | The fixed authenticated Modal CPU control app is deployed. A bounded ChatGPT run failed before the latest entrypoint fix (`MODAL_WORKLOAD_FAILED`, Modal `code 2`); cleanup was confirmed. Commit `1c8c30d` removed a launcher that required root even though the image is pinned to UID/GID 10001. A post-fix CPU run is still required. Current admission is false. |
+| Result artifacts | PARTIAL; eight bounded R2 results accepted | A production R2 binding stores the verified result JSON. D1 records its artifact ID, digest and byte size; the ChatGPT artifact tool checks owner/run binding, metadata and content digest before returning bounded base64 chunks. Eight complete run artifacts were retrieved and SHA-256 verified. R2 retention and orphan cleanup policy, larger artifacts and a broader lifecycle remain open. |
+| Owner isolation and revocation | NOT ACCEPTED | Local Worker unit checks cover owner-bound prepare, submit, list, status, result, cancel, and artifact queries using a D1-shaped fake. An unauthenticated direct request with a forged owner header received HTTP 401. These checks do not prove cross-owner separation between authenticated Site users. Test a genuinely separate Site account and verify access revocation. Evidence: [`Sites owner-scope checks`](acceptance/2026-11-12-sites-owner-scope-unit-tests.md). |
+| GPU provider execution | NOT ACCEPTED | No real GPU run has been accepted through ChatGPT. Preserve provider adapters as compute integrations, but keep GPU admission disabled until provider identity, result authentication, recovery, and cleanup are verified. |
+| RunPod API contract | v2 reviewed offline; provider execution unverified | Canonical transport and pricing now use REST v2, including cursor-complete account inventory and exact Network Volume datacenter stock. REST v1 and its GraphQL pricing path are legacy offline-only. Live RunPod calls remain disabled until separate account, security, result, recovery, and cleanup acceptance. |
+| Paid execution | PARKED | No paid path is enabled. Preserve independent authorization, exact price/quota checks, approval expiry/revocation, cancellation, cleanup, and security gates. |
+| Vercel and Neon retirement | PARTIAL; Vercel project deleted, Neon soft-deleted | Neither is a target dependency. Vercel project `gpu-control` has been deleted and is absent from the Vercel project list. Its pre-deletion optional failure remains only on older PR commits; latest head `6f31aa5` has all six Actions checks successful and no external statuses. Neon project `delicate-smoke-00521013` is removed from the active project list and remains recoverable until `2026-11-19T05:19:58Z`, after which permanent purge is expected. No Neon row contents were read or exported. Evidence: [`2026-11-12-resource-retirement-inventory.md`](acceptance/2026-11-12-resource-retirement-inventory.md). |
 
-## Operational gates
+## Current implementation boundary
 
-- P2 recovery work remains in progress: durable owner-scoped artifact storage
-  and local CPU report retrieval are implemented and locally exercised;
-  provider-independent recovery review, deployed storage/quota controls, and
-  ChatGPT retrieval acceptance remain incomplete. Unsupported artifacts must
-  not be represented as retrievable.
-- P3 remains pending: systemd units are templates only; there is no selected
-  deployed Gateway/worker host, real ChatGPT connection, seven-day observation,
-  or timed production restore drill. The local synthetic paired restore in
-  `docs/acceptance/2026-10-28-paired-artifact-restore.md` does not establish
-  production backup controls, owner/OAuth parity, or worker reconciliation.
-  The atomic backup generation drill in
-  `docs/acceptance/2026-10-28-atomic-backup-generation.md` is also local-only;
-  encrypted off-host retention, second-operator restore, and timed production
-  recovery are still required.
-  The existing Neon production branch has no schema-version table and has not
-  been migrated; only zero aggregate run/active-slot counts were queried. Review
-  the migration and production backup/restore plan before any database change.
-- Paid and GPU paths stay parked until their separate evidence and authorization
-  gates are satisfied. Local CPU evidence does not satisfy either gate.
+The current product path is the public ChatGPT Sites Worker → authenticated
+owner-scoped MCP → D1/R2 → ChatGPT. The former Runner has been retired. Modal
+health is ready, but admission is closed and post-fix compute has not been
+accepted. The target path uses Modal as the first fixed compute provider and
+Runpod later for GPU execution; both remain separate from the Sites control
+plane and gated independently. D1 is the current database, and R2 stores bounded
+artifacts.
 
-Update this table only when new evidence is produced. Link acceptance artifacts
-and state the scope of each PASS.
+No Vercel deployment status is a required check or evidence for this release
+path. Historical Actions/Vercel/PostgreSQL results are not erased; they remain
+available in the archived matrix and dated acceptance records.
+
+## Evidence sources
+
+- [Current operations](OPERATIONS.md)
+- [ChatGPT Sites setup](CHATGPT_SETUP.md)
+- [Sites + D1 architecture decision](decisions/2026-11-11-sites-d1-architecture-pivot.md)
+- [Project status](STATUS.md)
+- [Sites, Modal, and Runpod delivery plan](SITES_MODAL_RUNPOD_DELIVERY.md)
+- [Sites source and Runner contract](../sites/gpu-control-sites/README.md)

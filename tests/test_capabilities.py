@@ -8,6 +8,7 @@ from gpu_control.capabilities import (
     CapabilityEvidence,
     CostBreakdown,
     CostClassification,
+    QuotaEvidence,
     OverageBehavior,
 )
 from gpu_control.workloads import AcceleratorKind, NetworkRequirement, ResultTransport, WorkloadRequirements
@@ -79,6 +80,24 @@ def make_evidence(**overrides):  # type: ignore[no-untyped-def]
     return CapabilityEvidence(**values)
 
 
+def test_capability_evidence_strict_json_round_trip():
+    evidence = make_evidence(quota_evidence=QuotaEvidence(
+        remaining_usage_usd=Decimal("2.00"),
+        remaining_credits_usd=Decimal("1.00"),
+        covered_components=("accelerator_usd", "cpu_usd", "memory_usd",
+                            "storage_usd", "egress_usd", "other_usd"),
+        evidence_reference="quota:fixture",
+        observed_at_utc="2026-10-28T00:00:00Z",
+        valid_until_utc="2026-10-28T00:30:00Z",
+    ))
+    restored = CapabilityEvidence.from_dict(evidence.to_dict())
+    assert restored == evidence
+
+    malformed = evidence.to_dict() | {"unrecognized": True}
+    with pytest.raises(ValueError, match="fields are invalid"):
+        CapabilityEvidence.from_dict(malformed)
+
+
 def test_availability_and_cost_classification_are_independent() -> None:
     evidence = make_evidence(
         availability=Availability.AVAILABLE,
@@ -115,6 +134,45 @@ def test_cost_breakdown_sums_exact_decimal_components() -> None:
     assert costs.known_total_usd == Decimal("0.16")
     assert costs.all_components_known is True
     assert costs.all_known_zero is False
+
+
+def test_quota_evidence_is_explicit_fresh_and_component_scoped() -> None:
+    quota = QuotaEvidence(
+        remaining_usage_usd=Decimal("10"), remaining_credits_usd=Decimal("1.25"),
+        covered_components=("accelerator_usd", "cpu_usd", "memory_usd"),
+        evidence_reference="workspace-billing-snapshot:abc123",
+        observed_at_utc="2026-10-28T00:00:00Z",
+        valid_until_utc="2026-10-28T01:00:00Z",
+    )
+    assert quota.is_current("2026-10-28T00:30:00Z") is True
+    assert quota.is_current("2026-10-28T01:00:00Z") is False
+    assert quota.to_dict()["remaining_credits_usd"] == "1.25"
+
+
+def test_capability_fingerprint_binds_quota_balance_and_expiry() -> None:
+    base_quota = QuotaEvidence(
+        remaining_usage_usd=Decimal("10"), remaining_credits_usd=Decimal("1.25"),
+        covered_components=("accelerator_usd", "cpu_usd", "memory_usd"),
+        evidence_reference="workspace-billing-snapshot:abc123",
+        observed_at_utc="2026-10-28T00:00:00Z",
+        valid_until_utc="2026-10-28T01:00:00Z",
+    )
+    less_credit = replace(base_quota, remaining_credits_usd=Decimal("1.24"))
+    candidate = make_evidence(quota_evidence=base_quota)
+
+    assert replace(candidate, quota_evidence=less_credit).fingerprint() != candidate.fingerprint()
+
+
+@pytest.mark.parametrize("components", [(), ("storage_usd", "storage_usd"), ("not_a_cost",)])
+def test_quota_evidence_rejects_invalid_component_coverage(components) -> None:
+    with pytest.raises(ValueError):
+        QuotaEvidence(
+            remaining_usage_usd=Decimal("1"), remaining_credits_usd=Decimal("1"),
+            covered_components=components,
+            evidence_reference="workspace-billing-snapshot:abc123",
+            observed_at_utc="2026-10-28T00:00:00Z",
+            valid_until_utc="2026-10-28T01:00:00Z",
+        )
 
 
 @pytest.mark.parametrize("value", [Decimal("-0.01"), Decimal("NaN"), 0.1])

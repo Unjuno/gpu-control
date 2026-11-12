@@ -1,9 +1,11 @@
 name: Project bridge tests
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
-    paths: ['gateway/project_control/**', '.github/workflows/project-checks*.yml']
+    paths: ['project_control/**', '.github/workflows/project-checks*.yml']
 permissions:
   contents: read
 jobs:
@@ -19,9 +21,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Ownership, source identity, isolation and parser tests
-        run: python -m unittest discover -s gateway/project_control/tests -v
+        run: python -m unittest discover -s project_control/tests -v
       - name: Real Docker check with repository-owned test input
         run: |
           set -euo pipefail
           trap 'docker rm -f project-contract-ci >/dev/null 2>&1 || true' EXIT
-          python gateway/project_control/tests/docker_smoke.py
+          python project_control/tests/docker_smoke.py

@@ -5,15 +5,18 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import json
 import re
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, TYPE_CHECKING
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.request import Request
 
 from ..completion import CompletionChallenge, CompletionEvidenceError
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
 from ..http_security import open_no_redirect, read_bounded
 from ..lifecycle import JobState
+
+if TYPE_CHECKING:
+    from .runpod_network_volume import RunPodNetworkVolumeEvidence
 
 
 RUNPOD_V2_BASE_URL = "https://api.runpod.io/v2"
@@ -23,6 +26,8 @@ _IMAGE_REFERENCE_RE = re.compile(
 )
 _ALLOWED_CLOUDS = {"SECURE", "COMMUNITY"}
 _MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
+_MAX_ACCOUNT_PODS = 256
+_MAX_LIST_POD_PAGES = 32
 
 
 class RunPodV2Error(RuntimeError):
@@ -173,6 +178,7 @@ def validate_created_pod(
     pod: Mapping[str, Any],
     *,
     completion: RunPodCompletionLaunch | None = None,
+    expected_network_volume: RunPodNetworkVolumeEvidence | None = None,
 ) -> str:
     """Validate RunPod's create response before it becomes lifecycle identity."""
 
@@ -186,6 +192,23 @@ def validate_created_pod(
         raise RunPodV2Error("RunPod create response is missing pod id")
     if pod.get("image") != image.image_reference:
         raise RunPodV2Error("RunPod create response image does not match published image")
+    if expected_network_volume is not None:
+        expected_network_volume.validate_shape()
+        if pod.get("cloud") != "SECURE":
+            raise RunPodV2Error("RunPod Network Volume result transport requires SECURE cloud")
+        if pod.get("dataCenterId") != expected_network_volume.data_center_id:
+            raise RunPodV2Error("RunPod Pod datacenter does not match the trusted network volume")
+        mounts = _require_mapping(pod.get("mounts"), "RunPod Pod mounts")
+        if "persistent" in mounts or "global" in mounts:
+            raise RunPodV2Error("RunPod Pod has conflicting storage mounts for the network volume")
+        network_mounts = mounts.get("network")
+        if not isinstance(network_mounts, list) or len(network_mounts) != 1:
+            raise RunPodV2Error("RunPod Pod network volume mount is missing or ambiguous")
+        network_mount = _require_mapping(network_mounts[0], "RunPod Pod network volume mount")
+        if network_mount.get("volumeId") != expected_network_volume.network_volume_id:
+            raise RunPodV2Error("RunPod Pod network volume id does not match trusted evidence")
+        if network_mount.get("path") != expected_network_volume.mount_path:
+            raise RunPodV2Error("RunPod Pod network volume mount path does not match trusted evidence")
     gpu = _require_mapping(pod.get("gpu"), "RunPod create response gpu")
     if gpu.get("id") != plan.provider_resource_id or gpu.get("count") != plan.gpu_count:
         raise RunPodV2Error("RunPod create response GPU identity does not match approved plan")
@@ -307,17 +330,66 @@ class RunPodV2HttpClient:
         return payload
 
     def list_pods(self) -> dict[str, Any]:
-        """Return the official v2 full-account Pod list envelope.
+        """Return the complete bounded v2 account Pod list.
 
-        The pinned v2 contract exposes no list query filters. Callers that need
-        reconciliation must validate and filter the returned ``pods`` array locally.
+        RunPod v2 uses cursor pagination. Occupancy and reconciliation must never
+        mistake a partial page for an empty account, so malformed pages and
+        inventories beyond the local 256-Pod evidence bound fail closed.
         """
 
-        payload = self._request("GET", "/pods", expected_status=200)
-        assert payload is not None
-        if not isinstance(payload.get("pods"), list):
-            raise RunPodV2Error("RunPod List Pods response is missing pods")
-        return payload
+        pods: list[Any] = []
+        seen_ids: set[str] = set()
+        seen_cursors: set[str] = set()
+        cursor: str | None = None
+        page_count = 0
+        while True:
+            page_count += 1
+            if page_count > _MAX_LIST_POD_PAGES:
+                raise RunPodV2Error("RunPod List Pods pagination exceeds bounded page count")
+            remaining = _MAX_ACCOUNT_PODS - len(pods)
+            if remaining < 1:
+                raise RunPodV2Error("RunPod account Pod inventory exceeds bounded Pod count")
+            query: dict[str, str | int] = {"limit": remaining}
+            if cursor is not None:
+                query["cursor"] = cursor
+            path = f"/pods?{urlencode(query)}"
+            page = self._request("GET", path, expected_status=200)
+            assert page is not None
+            raw_pods = page.get("pods")
+            if not isinstance(raw_pods, list):
+                raise RunPodV2Error("RunPod List Pods response is missing pods")
+            if len(raw_pods) > remaining:
+                raise RunPodV2Error("RunPod List Pods page exceeds requested bound")
+            for pod in raw_pods:
+                if not isinstance(pod, Mapping):
+                    raise RunPodV2Error("RunPod List Pods entry must be a JSON object")
+                pod_id = pod.get("id")
+                if not isinstance(pod_id, str) or not pod_id.strip() or pod_id != pod_id.strip():
+                    raise RunPodV2Error("RunPod List Pods id is invalid")
+                if pod_id in seen_ids:
+                    raise RunPodV2Error("RunPod List Pods response contains duplicate Pod ids")
+                seen_ids.add(pod_id)
+            pods.extend(raw_pods)
+
+            pagination = page.get("pagination")
+            if not isinstance(pagination, Mapping):
+                raise RunPodV2Error("RunPod List Pods response is missing pagination metadata")
+            has_next = pagination.get("hasNextPage")
+            next_cursor = pagination.get("nextCursor")
+            if type(has_next) is not bool:
+                raise RunPodV2Error("RunPod List Pods pagination hasNextPage must be a boolean")
+            if not has_next:
+                if next_cursor is not None:
+                    raise RunPodV2Error("RunPod List Pods has a cursor despite having no next page")
+                return {"pods": pods}
+            if len(pods) >= _MAX_ACCOUNT_PODS:
+                raise RunPodV2Error("RunPod account Pod inventory exceeds bounded Pod count")
+            if not isinstance(next_cursor, str) or not next_cursor or next_cursor != next_cursor.strip():
+                raise RunPodV2Error("RunPod List Pods nextCursor is invalid")
+            if next_cursor in seen_cursors:
+                raise RunPodV2Error("RunPod List Pods pagination cursor repeated")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
 
     def create_pod(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         result = self._request("POST", "/pods", expected_status=201, body=payload)

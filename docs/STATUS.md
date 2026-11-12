@@ -1,5 +1,54 @@
 # Project status
 
+## Hosted Sites and provider status — refreshed 2026-11-12
+
+The public ChatGPT Sites MCP Worker is deployed as Version 23 from source
+`1352662626d44dee08fd513f4c8886b6f75cb090`, with environment revision 22 and
+D1/R2. Current ChatGPT capabilities report `provider_ready=true`,
+`admission_enabled=false`, and `available=false` for `modal_cpu`; paid
+execution remains parked. The owner's ChatGPT connection has called the Site
+tools. Cross-account plugin access remains unverified.
+
+The Modal control app was redeployed from repository commit
+`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`. The most recent bounded ChatGPT
+CPU run before that fix failed with `MODAL_WORKLOAD_FAILED` / Sandbox `code 2`;
+Sites confirmed cleanup and Modal showed no live Sandbox. The Sandbox's
+165-ms exit and absent logs were consistent with the then-current launcher
+requiring root while the fixed image already ran as UID/GID 10001. The
+redundant root-dependent launcher was removed. A post-fix ChatGPT inference has
+not yet been run, so the fix is deployed but runtime acceptance remains open.
+Modal's account page showed `$0.01` usage this cycle. The temporary deploy token
+was deleted; Modal lists zero API tokens. RunPod remains unconnected and paid
+GPU execution remains parked.
+
+The personal-host CPU Runner and its Keychain authentication path are retired.
+Do not restore them. Older TinyStories successes remain historical evidence;
+they do not establish current Modal execution success.
+
+Before retirement, a ChatGPT-originated TinyStories 15M inference completed on
+Sites Version 15 after a Runner process-loss recovery test.
+Run `aa45b7d899de4c9aaff2ee73fa985cc6` used the registered workload source commit
+`3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288` and image
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+With prompt `A little bird found a bright blue feather.`, seed `719243`, and an
+8-token limit, it generated 8 tokens in 291 ms, passed identity/sandbox checks,
+returned `gpu_used=false`, and confirmed cleanup at `$0.00`. Its complete
+999-byte R2 artifact was retrieved through ChatGPT; its locally computed
+SHA-256 matches D1 metadata. A separate active-run process-loss probe expired
+after 180 seconds and recovered as `runner_lost_recovered` with cleanup
+confirmed, no retry, and no leftover container. A follow-up inference proved
+the free CPU slot was available again.
+
+This does not establish general model quality, repeated crash-window coverage,
+cross-owner isolation, or GPU capability. Free CPU admission is currently
+unavailable. The Modal integration is deployed but post-fix execution and
+recovery acceptance remain open; real Runpod GPU acceptance remains open. Full evidence and gates are tracked in
+[`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
+The current staged plan is [`SITES_MODAL_RUNPOD_DELIVERY.md`](SITES_MODAL_RUNPOD_DELIVERY.md).
+
+The rest of this document records standalone CLI and provider-adapter status on
+`main`; it does not supersede the hosted Sites acceptance snapshot above.
+
 This document describes what `gpu-control` on `main` can do today. It deliberately distinguishes implemented offline/control-plane contracts from live paid GPU execution.
 
 ## Readiness summary
@@ -15,10 +64,10 @@ This document describes what `gpu-control` on `main` can do today. It deliberate
 | Decision/context security policy | Ready at policy/CI level | Action constitution, source-to-sink trust policy, failure catalog, and adversarial fixtures are present. |
 | Approved execution plan contracts | Ready offline | Immutable/fingerprinted plans, pricing evidence, durable lifecycle state, cleanup state, and bounded result manifests are implemented. |
 | Structured exact human authorization | Ready for RunPod adapter boundary | Runtime validator and expiring `LiveExecutionPermit` exist; RunPod adapter construction/submission requires the exact unexpired permit. End-to-end paid workflow wiring remains absent. |
-| Current RunPod REST v1 transport layer | Ready offline | Fixed `rest.runpod.io/v1` client, current create field names, List Pods array normalization, `desiredStatus`, `costPerHr`, machine cloud evidence, Network Volume identity, GET, and DELETE 204 are mock-tested. |
-| Current RunPod pricing/availability evidence | Ready offline | Fixed GraphQL origin and Bearer auth, `securePrice`, VRAM, exact Network Volume datacenter, HIGH stock, 300-second maximum TTL, and content-digest binding are mock-tested. |
-| RunPod REST v1 provider adapter | Ready offline for selected canary | Canonical adapter requires current pricing evidence, exact Network Volume DC, unexpired live permit, and v1-backed occupancy/reconciliation before create. |
-| RunPod ambiguous create/cleanup reconciliation | Ready offline on current v1 transport | Bounded occupancy/reconciliation logic consumes the v1-normalized account inventory and remains fail-closed. Live verification is still pending. |
+| Current RunPod REST v2 transport layer | Ready offline | Fixed `api.runpod.io/v2` client, cursor-paginated List Pods with bounded complete inventory, v2 create/get/delete, trusted Network Volume attachment, and response identity checks are mock-tested. |
+| Current RunPod pricing/availability evidence | Ready offline | Fixed REST v2 GPU catalog, secure price/capacity, VRAM, exact Network Volume datacenter, HIGH stock, 300-second maximum TTL, and content-digest binding are mock-tested. |
+| RunPod REST v2 provider adapter | Ready offline for selected canary | Canonical v2 adapter requires current pricing evidence, exact Network Volume DC, unexpired live permit, and v2-backed occupancy/reconciliation before create. |
+| RunPod ambiguous create/cleanup reconciliation | Ready offline on REST v2 transport | Bounded occupancy/reconciliation consumes every cursor page and remains fail-closed. Provider behavior and cleanup remain unverified live. REST v1 is retained for offline compatibility only and is forbidden for live calls. |
 | Authenticated Orbitune completion v3 | Ready offline | Root signer binds exact result bytes and the observed process exit code into HMAC-SHA256 evidence; legacy v2 remains only during migration. |
 | RunPod Network Volume/S3 result transport | Ready offline | Fixed RunPod S3 origin, trusted `/outputs` mount, exact two-object bounded collection, and v3 authentication are mock-tested. Live verification and real credentials/volume are pending. |
 | Orbitune paid-canary result acceptance | Ready offline | Workload-specific acceptance accepts authenticated log-v2 or durable volume-v3 evidence and remains separate from provider cleanup/finalization. |
@@ -42,7 +91,7 @@ The repository currently records this canary workload:
 - exact-main full pytest run: `33313993621` — passed
 - exact-main RunPod canary smoke run: `33313993623` — passed
 
-The source CI, root/non-root signer isolation, v3 signed exit-code envelope, current REST v1 adapter contract, current price/DC-stock contract, and central offline volume-transport tests are green. That does **not** mean the control plane is authorized to spend money today.
+The source CI, root/non-root signer isolation, v3 signed exit-code envelope, current REST v2 adapter contract, current v2 price/DC-stock contract, and central offline volume-transport tests are green. That does **not** mean the control plane is authorized to spend money today.
 
 ## Durable result transport
 
@@ -61,12 +110,12 @@ This transport is implemented and mock-tested, but not yet live-verified. Networ
 
 The selected RunPod path is now complete at offline/mock level from price selection through result collection:
 
-- current GPU price and VRAM come from a fixed-origin Bearer-authenticated GraphQL query;
+- current GPU price and VRAM come from the fixed-origin REST v2 GPU catalog;
 - exact per-datacenter stock is checked for the Network Volume datacenter;
 - current price/DC evidence is short-lived and content-digest bound;
 - the approved plan carries the exact price/reference/time window;
-- `RunPodV1Adapter` rechecks that evidence and the Network Volume DC immediately before submission;
-- current REST v1 creates the Pod and v1 List Pods backs account occupancy/reconciliation;
+- `RunPodV2CurrentAdapter` rechecks that evidence and the Network Volume DC immediately before submission;
+- current REST v2 creates the Pod and cursor-paginated v2 List Pods backs account occupancy/reconciliation;
 - durable Network Volume/S3 result collection authenticates completion v3 after exit;
 - cleanup remains explicit and reconciliation-backed.
 
@@ -86,7 +135,14 @@ No live provider call is enabled by these implementations. The remaining provide
 - live verification of ambiguous-create, result collection, and cleanup reconciliation;
 - protected paid-workflow wiring that constructs the exact current `LiveExecutionPermit` from trusted runtime evidence.
 
-The public repository currently reports `main` as unprotected. Do not treat repository access, a successful dry-run, or available budget as authorization to spend money.
+The 2026-10-31 GitHub API audit confirms `main` is protected with the seven
+required Actions checks, one approval including approval after the last push,
+strict/up-to-date checks, conversation resolution, linear history, and admin
+enforcement. This satisfies the branch-protection prerequisite only; P1 PR #52
+still awaits its independent approval. The same audit found no Environment
+protection rules or deployment-branch policy on `Production` or `Preview`, and
+no dedicated `paid-runpod` Environment. Do not treat repository access, a
+successful dry-run, or available budget as authorization to spend money.
 
 ## What "ready" means here
 

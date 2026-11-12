@@ -21,6 +21,9 @@ REQUIRED_CHECKS = (
     "Python 3.12",
     "Python 3.13",
     "Trusted reference container",
+    "Gateway offline tests",
+    "Gateway comment bridge tests",
+    "Project bridge tests",
 )
 
 
@@ -48,6 +51,12 @@ def repository_security(**changes: object) -> RepositorySecurityEvidence:
         "pull_request_required": True,
         "required_status_checks_enforced": True,
         "required_status_checks": REQUIRED_CHECKS,
+        "required_approving_review_count": 1,
+        "approval_after_last_push_required": True,
+        "strict_status_checks_required": True,
+        "conversation_resolution_required": True,
+        "linear_history_required": True,
+        "administrators_enforced": True,
         "force_pushes_blocked": True,
         "deletions_blocked": True,
         "verification_reference": "github:Unjuno/gpu-control:main:protection:sha256:" + "a" * 64,
@@ -129,6 +138,11 @@ def test_rerun_by_different_triggering_actor_is_rejected_even_if_original_actor_
         ("branch_protected", "branch protection"),
         ("pull_request_required", "pull request"),
         ("required_status_checks_enforced", "required status checks"),
+        ("approval_after_last_push_required", "approval after last push"),
+        ("strict_status_checks_required", "strict status checks"),
+        ("conversation_resolution_required", "conversation resolution"),
+        ("linear_history_required", "linear history"),
+        ("administrators_enforced", "administrator enforcement"),
         ("force_pushes_blocked", "force-push"),
         ("deletions_blocked", "deletion"),
     ],
@@ -142,6 +156,19 @@ def test_repository_control_weakening_blocks_live_authorization(field: str, mess
 def test_missing_required_ci_check_blocks_live_authorization() -> None:
     evidence = repository_security(required_status_checks=REQUIRED_CHECKS[:-1])
     with pytest.raises(PaidAuthorizationError, match="missing required status checks"):
+        authorize_paid_execution(context(), enabled_policy(), repository_security=evidence)
+
+
+def test_insufficient_approving_reviews_blocks_live_authorization() -> None:
+    evidence = repository_security(required_approving_review_count=0)
+    with pytest.raises(PaidAuthorizationError, match="approving reviews"):
+        authorize_paid_execution(context(), enabled_policy(), repository_security=evidence)
+
+
+@pytest.mark.parametrize("schema_version", [1, True, 3])
+def test_old_or_malformed_repository_security_evidence_version_is_rejected(schema_version: object) -> None:
+    evidence = repository_security(schema_version=schema_version)
+    with pytest.raises(PaidAuthorizationError, match="repository security evidence"):
         authorize_paid_execution(context(), enabled_policy(), repository_security=evidence)
 
 

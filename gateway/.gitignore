@@ -1,8 +1,0 @@
-.env
-.env.*
-!.env.example
-*.db
-__pycache__/
-.pytest_cache/
-.venv/
-.vercel/

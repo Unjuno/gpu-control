@@ -1,120 +1,68 @@
-# ChatGPT custom MCP connection and acceptance
+# ChatGPT Sites setup
 
-This document describes the live connection gate for the Gateway. Repository and
-container tests do not count as a ChatGPT connection test.
+## Supported architecture
 
-## Account and workspace gate
+The supported ChatGPT control plane is the public Sites MCP Worker at
+`https://gpu-control-sites.unjuno.chatgpt.site`. Sites supplies the hosted
+Worker, ChatGPT sign-in boundary, MCP publication, and D1 binding. D1 stores
+plans, run state, and leases. Large immutable result files
+are stored in R2; the Worker returns bounded chunks after owner/run and digest
+verification. Eight complete result artifacts have been retrieved through
+ChatGPT.
 
-The current [OpenAI Help Center instructions](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
-say full MCP support, including write actions, is available on ChatGPT Business,
-Enterprise and Edu on the web. Pro can connect custom MCP servers for read/fetch
-only. This Gateway exposes run and cancel operations, so a read-only Pro connection
-cannot satisfy product acceptance. The account plan and workspace permissions for
-this project have not been verified from the repository; an authorized workspace
-admin or owner must confirm access to create and test a custom MCP server.
+The Worker does not run Docker or model inference. The personal-host Runner
+has been retired. A fixed Modal CPU adapter is deployed and its health endpoint
+is ready, but admission is disabled and post-fix model inference has not been
+accepted through ChatGPT. RunPod GPU execution remains a separately gated
+future path; paid execution is parked.
 
-The current role rules are stricter than plan availability alone: in Business,
-only workspace admins/owners can create and publish a custom MCP app. In
-Enterprise/Edu, admins/owners can create and test; an admin may grant selected
-members permission to create/test through RBAC, while only admins/owners can
-publish the app. Record the actual tester's role, the workspace's `Create
-plugins with MCPs` permission, write-action permission, and the publisher role
-in the acceptance evidence. A plan name by itself does not prove these gates
-are satisfied.
+The legacy FastAPI/PostgreSQL Gateway and its Vercel deployment are archived
+references, not supported deployment choices. Do not configure new Vercel or
+Neon resources for this product. Historical setup evidence is preserved in
+[`archive/CHATGPT_SETUP-legacy-vercel-gateway.md`](archive/CHATGPT_SETUP-legacy-vercel-gateway.md)
+and [`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-gateway.md).
 
-For a permitted workspace, the current UI flow is **Plugins → + → Add custom MCP
-server**, then enter a public HTTPS MCP endpoint (or select an already configured
-Secure MCP Tunnel), choose authentication, acknowledge the risk prompt, create the
-plugin and inspect discovered tools. Install it before starting a conversation;
-use `@` to select the plugin. Tool-list changes are not automatically applied to a
-published connection: an admin must refresh/review the tool snapshot. See OpenAI's
-[custom MCP server guide](https://developers.openai.com/api/docs/guides/custom-mcp-server)
-and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+## Connect and use the Site MCP
 
-## Required deployment state
+1. Open the public Site from the ChatGPT account where its generated plugin is
+   connected.
+2. Install or connect the Site's generated `gpu-control` plugin when ChatGPT
+   offers the plugin card.
+3. In a ChatGPT conversation, select or mention `gpu-control` and call
+   `experiment_capabilities` before preparing a run.
+4. Prepare only the advertised fixed workload, review its exact source and
+   zero-cost limit, then submit. Poll `experiment_status` and retrieve the
+   terminal value with `experiment_result`.
 
-### Observed Vercel deployment (2026-10-28)
+The Site and plugin are separate access controls. The Site is public, while
+stateful tools must use ChatGPT's authenticated Sites identity and server-side
+owner checks on every data or execution operation. A successful call in the
+owner's current ChatGPT connection does not prove another ChatGPT account or
+process can install or use the plugin. Cross-account acceptance remains open.
 
-The `gpu-control.vercel.app` alias currently reaches a configured Gateway
-deployment. Read-only checks observed `/healthz` returning `configured=true` and
-`auth_configured=true` in built-in OAuth mode; protected-resource and
-authorization-server discovery advertise `https://gpu-control.vercel.app/mcp`,
-PKCE S256, refresh tokens, and `offline_access`. An unauthenticated MCP request
-returns 401, as expected before authorization.
+## Current acceptance boundary
 
-This is not the reviewed CPU vertical deployment. Vercel reports the production
-deployment is built from `main` SHA
-`24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`; that revision has no `/readyz`
-route, and a direct request returned 404. The unique deployment URL redirects
-to Vercel SSO. The Vercel integration denied access to environment-variable
-metadata (403), so database, OAuth bootstrap and other environment settings
-were not inspected. No credentials were read, and no ChatGPT OAuth flow or tool
-scan was performed.
+Historical TinyStories 15M CPU inferences through ChatGPT, Sites, D1, and the
+now-retired local Runner produced provenance-checked results and retrievable
+R2 artifacts. They establish that earlier CPU route only. They do not establish
+current Modal inference, general model quality, or GPU execution. The latest
+live capability read reports `provider_ready=true`, `admission_enabled=false`,
+and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. A fresh
+post-fix ChatGPT inference and artifact verification are still required.
 
-Before connecting ChatGPT, provide all of the following:
+The former local Runner path is removed and provider admission remains closed.
+Keep paid providers parked. The exact runtime keys and controlled publication steps are
+in [`sites/gpu-control-sites/README.md`](../sites/gpu-control-sites/README.md);
+current gates are in [`RELEASE_MATRIX.md`](RELEASE_MATRIX.md) and
+[`STATUS.md`](STATUS.md).
 
-- A stable, reachable HTTPS URL whose `/mcp` route points to this Gateway.
-- A persistent PostgreSQL database migrated with `python -m gpu_gateway.worker --init-db`.
-- An independent worker that can reach the database and the dedicated local Docker
-  host. The API deployment must not receive Docker socket access. The existing
-  `docker-compose.yml` is demo-provider-only; `Dockerfile.worker` has no Docker CLI
-  or daemon connection. For local CPU execution, provision a dedicated trusted
-  worker host, install a compatible Docker CLI, grant only that worker access to
-  its daemon, verify `docker info` and the registered immutable image digest, and
-  keep that daemon separate from public API and untrusted workloads. Docker socket
-  access gives the worker effective host-root authority.
-- A separate recovery supervisor must also run against the same database. It
-  claims expired leases for already-active runs and can take over a submitting
-  intent when the execution-worker heartbeat goes stale, so it can reconcile
-  cancellation and pending cleanup without competing for new submissions.
-  `/readyz` remains false until both worker heartbeats are fresh.
-- Dedicated Linux worker/supervisor service definitions and an environment example
-  are available under `gateway/deploy/`. They are templates only: adapt paths/socket group,
-  install secrets with restrictive ownership, and verify service-level DB/Docker
-  access on the target host before treating this as deployed.
-- Both systemd templates declare the persistent `gpu-control` state directory
-  with mode 0700. Artifact bytes live below `/var/lib/gpu-control/artifacts`, so
-  this path remains writable under `ProtectSystem=strict`; verify ownership and
-  the mounted filesystem on the chosen host.
-- A configured authentication path. With external OIDC, configure issuer, JWKS,
-  audience/resource, allowed subject, scopes and the MCP client's registration
-  method. With built-in single-owner OAuth, run
-  `python -m gpu_gateway.worker --bootstrap-auth --bootstrap-auth-ttl 900` after
-  schema initialization in the trusted environment, deliver its one-time setup URL
-  privately, then verify discovery, client registration, PKCE, token refresh and
-  revocation against the live client. Do not retain the setup URL in shell history,
-  CI output or deployment logs; it is a credential until consumed or expired.
-- An OAuth authorization server that can keep ChatGPT connected. OpenAI's current
-  guidance calls out refresh-token issuance; for OIDC, `offline_access` should be
-  requested and advertised. See the refresh-token section in the Help Center guide.
-- An operator-reviewed local CPU workload registry and an explicitly enabled,
-  time-bounded local CPU admission policy. The shipped policy defaults disabled.
+## Data and resource retirement
 
-The Vercel alias and OAuth discovery are reachable, but the deployed revision
-predates the local CPU vertical. A persistent worker, recovery supervisor,
-PostgreSQL/artifact backup acceptance, and ChatGPT tool scan/execution have not
-been verified. Do not infer them from `/healthz` or discovery. Do not enter a
-local URL or a provider secret into ChatGPT to work around those missing
-prerequisites. The local CPU lane additionally needs a reviewed, expiring
-operator policy and a dedicated worker/daemon; the demo Compose stack is not
-evidence that lane is deployable.
-
-## Live acceptance sequence
-
-1. Verify `/healthz` and `/readyz`. Readiness must report the current migration,
-   fresh worker heartbeat, database access and valid workload registry.
-2. Add the server to the authorized ChatGPT workspace and complete its OAuth flow.
-3. Confirm ChatGPT discovers the expected read, run and cancel tools. Check the
-   server's discovered schema against this repository's MCP tool contract.
-4. In one conversation, request the registered local CPU smoke. Verify the exact
-   run ID, source SHA, image digest, `simulation=false`, `gpu_used=false`, result,
-   and cleanup evidence through ChatGPT tool outputs.
-5. In a second conversation, list/find the run and retrieve its result. Verify
-   owner isolation, idempotent submit, a distinct new-run request, and cancellation.
-6. Record redacted request/response evidence, endpoint version, tool snapshot,
-   OAuth behavior and the exact worker/database revisions in
-   `docs/CHATGPT_ACCEPTANCE.md`. Never include tokens, cookies or database URLs.
-
-The chat connector's confirmation prompts do not replace Gateway authorization,
-local admission policy, or any later human spending approval. ChatGPT's write-action
-confirmation is a client control; server-side checks remain authoritative.
+D1 is the selected control-plane database; PostgreSQL is not required for this
+Sites product path. The Vercel `gpu-control` project has been deleted. The
+legacy Neon project is soft-deleted and remains recoverable until
+`2026-11-19T05:19:58Z`; verify that the recovery window expires and the project
+is absent afterward. Neither service is a serving or rollback dependency.
+Current retirement evidence is in
+[`acceptance/2026-11-12-resource-retirement-inventory.md`](acceptance/2026-11-12-resource-retirement-inventory.md).
+Keep historical evidence in the repository without recreating either runtime.

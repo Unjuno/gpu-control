@@ -5,49 +5,17 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
-from typing import Any, Callable, Mapping
-from urllib.error import HTTPError, URLError
-from urllib.request import Request
+from typing import Any, Mapping
 
 from ..execution import ApprovedExecutionPlan
-from ..http_security import open_no_redirect, read_bounded
 from ..validation import WorkloadRequest
 from .runpod_network_volume import RunPodNetworkVolumeEvidence
 from .runpod_pricing import RunPodCatalogPricingEvidence
-from .runpod_v2 import RunPodV2Error
+from .runpod_v2 import RunPodV2Error, RunPodV2HttpClient
 
 
-RUNPOD_GRAPHQL_URL = "https://api.runpod.io/graphql"
-RUNPOD_PRICING_CONTRACT_COMMIT = "51ca7f02ab5cb57c09ad917172af36c29a58790c"
+RUNPOD_PRICING_CONTRACT_REVISION = "runpod-v2-catalog-openapi-2026-10-26"
 _MAX_EVIDENCE_TTL_SECONDS = 300
-_MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
-_GPU_TYPES_QUERY = """
-query GpuControlGpuTypes {
-  gpuTypes {
-    id
-    displayName
-    memoryInGb
-    secureCloud
-    communityCloud
-    securePrice
-    communityPrice
-  }
-}
-""".strip()
-_DATA_CENTERS_QUERY = """
-query GpuControlDataCenters {
-  dataCenters {
-    id
-    name
-    location
-    gpuAvailability {
-      gpuTypeId
-      displayName
-      stockStatus
-    }
-  }
-}
-""".strip()
 
 
 def _utc(value: datetime, field: str) -> datetime:
@@ -105,10 +73,10 @@ def _evidence_digest(
     stock_status: str,
     verified_at_utc: str,
     valid_until_utc: str,
-    contract_commit: str,
+    contract_revision: str,
 ) -> str:
     normalized = {
-        "contract_commit": contract_commit,
+        "contract_revision": contract_revision,
         "data_center_id": data_center_id,
         "gpu_profile": gpu_profile,
         "gpu_type_id": gpu_type_id,
@@ -136,7 +104,7 @@ class RunPodCurrentPricingEvidence:
     verification_reference: str
     verified_at_utc: str
     valid_until_utc: str
-    contract_commit: str = RUNPOD_PRICING_CONTRACT_COMMIT
+    contract_revision: str = RUNPOD_PRICING_CONTRACT_REVISION
     schema_version: int = 1
 
     def validate_shape(self) -> None:
@@ -154,15 +122,15 @@ class RunPodCurrentPricingEvidence:
             raise RunPodV2Error("current RunPod pricing hourly_price_usd must be a finite positive Decimal")
         if self.stock_status != "HIGH":
             raise RunPodV2Error("current RunPod pricing requires HIGH stock in the exact datacenter")
-        if self.contract_commit != RUNPOD_PRICING_CONTRACT_COMMIT:
-            raise RunPodV2Error("current RunPod pricing contract commit is not the pinned reviewed contract")
+        if self.contract_revision != RUNPOD_PRICING_CONTRACT_REVISION:
+            raise RunPodV2Error("current RunPod pricing contract revision is not the pinned reviewed contract")
         checked = _parse_utc(self.verified_at_utc, "verified_at_utc")
         valid_until = _parse_utc(self.valid_until_utc, "valid_until_utc")
         if valid_until <= checked:
             raise RunPodV2Error("current RunPod pricing validity window is invalid")
         if valid_until - checked > timedelta(seconds=_MAX_EVIDENCE_TTL_SECONDS):
             raise RunPodV2Error("current RunPod pricing evidence TTL exceeds 300 seconds")
-        expected = "runpod-current-pricing:sha256:" + _evidence_digest(
+        expected = "runpod-v2-catalog-pricing:sha256:" + _evidence_digest(
             gpu_profile=self.gpu_profile,
             gpu_type_id=self.gpu_type_id,
             data_center_id=self.data_center_id,
@@ -171,7 +139,7 @@ class RunPodCurrentPricingEvidence:
             stock_status=self.stock_status,
             verified_at_utc=self.verified_at_utc,
             valid_until_utc=self.valid_until_utc,
-            contract_commit=self.contract_commit,
+            contract_revision=self.contract_revision,
         )
         if self.verification_reference != expected:
             raise RunPodV2Error("current RunPod pricing verification_reference does not match evidence contents")
@@ -223,67 +191,18 @@ class RunPodCurrentPricingEvidence:
             raise RunPodV2Error("current RunPod pricing datacenter does not match trusted network volume")
 
 
-class RunPodPricingGraphQLClient:
-    """Fixed-origin, bearer-authenticated client for the current GPU/DC pricing queries."""
+class RunPodPricingCatalogClient:
+    """Read current Pod GPU price and availability from the fixed REST v2 catalog."""
 
-    def __init__(self, api_key: str, *, timeout: float = 10.0, opener: Callable[..., Any] | None = None) -> None:
-        if not isinstance(api_key, str) or not api_key.strip():
-            raise RunPodV2Error("RunPod API key is required for current pricing")
-        if api_key != api_key.strip() or any(character.isspace() for character in api_key):
-            raise RunPodV2Error("RunPod API key must not contain whitespace")
-        if timeout <= 0:
-            raise RunPodV2Error("RunPod pricing HTTP timeout must be positive")
-        if opener is not None and not callable(opener):
-            raise RunPodV2Error("RunPod pricing HTTP opener must be callable")
-        self._api_key = api_key
-        self._timeout = timeout
-        self._opener = opener or open_no_redirect
+    def __init__(self, api_key: str, *, timeout: float = 10.0, opener: Any = None) -> None:
+        self._client = RunPodV2HttpClient(api_key, timeout=timeout, opener=opener)
 
-    def _query(self, query: str) -> Mapping[str, Any]:
-        body = json.dumps({"query": query}, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-        request = Request(
-            RUNPOD_GRAPHQL_URL,
-            data=body,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "gpu-control",
-            },
-            method="POST",
-        )
-        try:
-            with self._opener(request, timeout=self._timeout) as response:
-                status = getattr(response, "status", None)
-                raw = read_bounded(response, max_bytes=_MAX_API_RESPONSE_BYTES)
-        except HTTPError as exc:
-            raise RunPodV2Error(f"RunPod pricing API returned HTTP {exc.code}") from exc
-        except URLError as exc:
-            raise RunPodV2Error("RunPod pricing API could not be reached") from exc
-        except ValueError as exc:
-            raise RunPodV2Error(f"RunPod pricing response was rejected: {exc}") from exc
-        if status != 200:
-            raise RunPodV2Error(f"RunPod pricing API returned unexpected HTTP status {status}")
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RunPodV2Error("RunPod pricing API returned invalid JSON") from exc
-        root = _mapping(payload, "RunPod pricing response")
-        errors = root.get("errors")
-        if errors is not None and errors != []:
-            raise RunPodV2Error("RunPod pricing GraphQL response contained errors")
-        return _mapping(root.get("data"), "RunPod pricing response data")
-
-    def gpu_types(self) -> list[Any]:
-        return _list(self._query(_GPU_TYPES_QUERY).get("gpuTypes"), "RunPod gpuTypes")
-
-    def data_centers(self) -> list[Any]:
-        return _list(self._query(_DATA_CENTERS_QUERY).get("dataCenters"), "RunPod dataCenters")
+    def catalog(self, *, cloud: str = "SECURE", count: int = 1) -> dict[str, Any]:
+        return self._client.list_gpu_types(cloud=cloud, count=count)
 
 
 def build_current_pricing_evidence(
-    gpu_types: list[Any],
-    data_centers: list[Any],
+    catalog: Mapping[str, Any],
     request: WorkloadRequest,
     effective_policy: Mapping[str, Any],
     network_volume: RunPodNetworkVolumeEvidence,
@@ -292,7 +211,7 @@ def build_current_pricing_evidence(
     verified_at_utc: datetime,
     validity_seconds: int = 120,
 ) -> RunPodCurrentPricingEvidence:
-    """Bind exact GPU price and exact Network Volume datacenter stock into evidence."""
+    """Bind v2 catalog price and exact Network Volume datacenter stock into evidence."""
 
     network_volume.validate_shape()
     checked = _utc(verified_at_utc, "verified_at_utc")
@@ -311,26 +230,29 @@ def build_current_pricing_evidence(
     if not isinstance(gpu_type_id, str) or not gpu_type_id.strip() or gpu_type_id != gpu_type_id.strip():
         raise RunPodV2Error("gpu_type_id is invalid")
 
-    gpu_matches = [item for item in gpu_types if isinstance(item, Mapping) and item.get("id") == gpu_type_id]
+    gpus = _list(catalog.get("gpus"), "RunPod v2 GPU catalog gpus")
+    gpu_matches = [item for item in gpus if isinstance(item, Mapping) and item.get("id") == gpu_type_id]
     if len(gpu_matches) != 1:
         raise RunPodV2Error("current RunPod GPU response must contain exactly one requested GPU type")
     gpu = gpu_matches[0]
-    memory = gpu.get("memoryInGb")
+    memory = gpu.get("memory")
     if isinstance(memory, bool) or not isinstance(memory, int) or memory < min_vram_gb:
         raise RunPodV2Error("current RunPod GPU memory does not satisfy selected profile")
-    if gpu.get("secureCloud") is not True:
+    if gpu.get("secure") is not True:
         raise RunPodV2Error("current RunPod GPU is not offered in Secure Cloud")
-    price = _positive_decimal(gpu.get("securePrice"), "current RunPod securePrice")
+    prices = _mapping(gpu.get("price"), "RunPod v2 GPU price")
+    price = _positive_decimal(prices.get("secure"), "current RunPod secure price")
+    capacity = _mapping(gpu.get("maxCount"), "RunPod v2 GPU maxCount")
+    max_count = capacity.get("secure")
+    if isinstance(max_count, bool) or not isinstance(max_count, int) or max_count < 1:
+        raise RunPodV2Error("current RunPod GPU has no one-GPU Secure Cloud capacity")
 
+    data_centers = _list(gpu.get("dataCenters"), "RunPod v2 GPU dataCenters")
     dc_matches = [item for item in data_centers if isinstance(item, Mapping) and item.get("id") == network_volume.data_center_id]
     if len(dc_matches) != 1:
         raise RunPodV2Error("current RunPod datacenter response must contain the exact Network Volume datacenter once")
-    availability = _list(dc_matches[0].get("gpuAvailability"), "RunPod datacenter gpuAvailability")
-    stock_matches = [item for item in availability if isinstance(item, Mapping) and item.get("gpuTypeId") == gpu_type_id]
-    if len(stock_matches) != 1:
-        raise RunPodV2Error("current RunPod datacenter must contain exactly one availability row for requested GPU")
-    raw_stock = stock_matches[0].get("stockStatus")
-    if not isinstance(raw_stock, str) or raw_stock.strip().lower() != "high":
+    raw_stock = dc_matches[0].get("availability")
+    if not isinstance(raw_stock, str) or raw_stock.strip().upper() != "HIGH":
         raise RunPodV2Error("current RunPod exact datacenter does not have HIGH stock")
 
     verified = _format_utc(checked)
@@ -344,7 +266,7 @@ def build_current_pricing_evidence(
         stock_status="HIGH",
         verified_at_utc=verified,
         valid_until_utc=valid_until,
-        contract_commit=RUNPOD_PRICING_CONTRACT_COMMIT,
+        contract_revision=RUNPOD_PRICING_CONTRACT_REVISION,
     )
     evidence = RunPodCurrentPricingEvidence(
         gpu_profile=request.gpu_profile,
@@ -353,7 +275,7 @@ def build_current_pricing_evidence(
         memory_gb=memory,
         hourly_price_usd=price,
         stock_status="HIGH",
-        verification_reference=f"runpod-current-pricing:sha256:{digest}",
+        verification_reference=f"runpod-v2-catalog-pricing:sha256:{digest}",
         verified_at_utc=verified,
         valid_until_utc=valid_until,
     )
