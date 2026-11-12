@@ -41,7 +41,7 @@ provide model compute. Compute remains an explicitly configured provider.
 
 ```text
 ChatGPT
-  -> private ChatGPT Site MCP Worker
+  -> public ChatGPT Site MCP Worker (authenticated owner-scoped operations)
        -> D1: owner-bound plans, executions, idempotency, lifecycle
        -> R2: bounded result artifacts
        -> Modal: fixed registered function, authenticated, async submit/collect
