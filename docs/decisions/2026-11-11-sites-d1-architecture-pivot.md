@@ -1,6 +1,6 @@
 # Sites + D1 architecture pivot
 
-**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. One free TinyStories CPU inference and result retrieval are verified through ChatGPT; recovery, identity isolation, artifacts, and GPU execution remain open.
+**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. A historical free TinyStories inference and artifact retrieval were verified through the now-retired local Runner. Current Modal health is ready, but no successful inference against the current Modal deployment is accepted. Recovery, identity isolation, complete artifact operations, and GPU execution remain open.
 
 ## P0 baseline refresh — 2026-11-11 (historical snapshot; superseded below)
 
@@ -144,6 +144,11 @@ The first migration slice should not move every provider or destroy rollback dat
 **Next implementation sequence (refreshed 2026-11-12):** (1) close the outstanding Runner credential-rotation and post-result crash-window checks; (2) rehearse D1 export and restore against an isolated target, then define R2 retention/orphan cleanup; (3) verify owner isolation and revocation using a genuinely separate authenticated Site user; (4) retire external Vercel project/integration and Neon only after residual Neon rows have an explicit data disposition; (5) validate real GPU provider execution through Sites while preserving independent price, quota, cleanup, and authorization gates. Keep paid admission parked until those gates pass. The legacy FastAPI/PostgreSQL source, lockfile, dependencies, and test suite have now been removed from the working tree; the independent Project bridge and reusable tiny-LM workload remain outside `gateway/`.
 
 ### User-confirmed platform direction — 2026-11-12
+
+This dated direction preceded the later retirement of the local Runner. The
+active target now uses ChatGPT Sites as the control plane with Modal/RunPod as
+compute providers; the Runner and its Keychain authentication are retired.
+Current status is maintained in `docs/STATUS.md` and `docs/CHATGPT_SETUP.md`.
 
 - ChatGPT Sites is the product interface and control-plane hosting target. Do not add or retain Vercel product features, deployment checks, or runtime assumptions. Remove the external Vercel project and integration after verifying that GitHub required checks, DNS, secrets, and rollback procedures do not depend on it. Historical build and incident evidence may remain in `docs/archive/`.
 - Cloudflare D1 is the selected control-plane database. PostgreSQL is **not required** for the Sites product. D1 already persists the live plans, runs, idempotency, leases, and Runner heartbeats. R2 holds result bytes. The separate Runner executes only the fixed registered workload and does not require a PostgreSQL service.
