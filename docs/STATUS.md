@@ -2,12 +2,23 @@
 
 ## Hosted Sites and provider status — refreshed 2026-11-12
 
-The public ChatGPT Sites MCP Worker is deployed as Version 24 from source
-`c919b0047b203fb0c22b6dd7755934834e899f8f`, with environment revision 22 and
-D1/R2. Current ChatGPT capabilities report `provider_ready=true`,
-`admission_enabled=false`, and `available=false` for `modal_cpu`; paid
-execution remains parked. The owner's ChatGPT connection has called the Site
-tools. Cross-account plugin access remains unverified.
+Latest refresh — 2026-11-12 12:35 UTC: the public ChatGPT Sites MCP Worker is
+deployed as Version 27 from Site source commit
+`64d2646815be198b0173877b821264cf3efc10a6`, with production environment
+revision 27 and D1/R2. Current ChatGPT capabilities report
+`provider_ready=true`, all provider identity/health checks true,
+`admission_enabled=false`, and `available=false` for `modal_cpu`. Paid
+execution remains parked. The owner's ChatGPT connection has called the Site;
+cross-account plugin access remains unverified.
+
+The latest 16-token ChatGPT-initiated Modal Sandbox run
+`b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was
+confirmed and no artifact was produced. Modal Usage last showed a `$1`
+Workspace limit, `$0.04` credits used, and `$0` charges. Commit `d1dd4fe`
+pushed to `codex/sites-modal-runner` adds a bounded preflight line diagnostic,
+but it has not been deployed. The previous one-run authorization is consumed;
+keep admission disabled until a fresh authorization, diagnostic deployment,
+and one bounded run are completed.
 
 The Modal dashboard's deployment timeline showed v4 at 2026-11-12 18:06 JST,
 but its history row did not identify a source commit. The successful ChatGPT

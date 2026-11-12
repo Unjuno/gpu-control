@@ -265,3 +265,35 @@ ChatGPT
   recovery, cross-account, and backup/restore acceptance; build and review a
   separately gated RunPod route through Sites; then satisfy live GPU, cleanup,
   and spend evidence. The goal remains incomplete.
+
+## Latest source and runtime follow-up — 2026-11-12 12:35 UTC
+
+- Repository branch `codex/sites-modal-runner` is clean and pushed through
+  `d1dd4fe2bbaf220e24fe1c1f97f958491a3d5674`. Its preceding commit
+  `d2969a4` corrected Modal Sandbox cost disclosure and added the D1 cost-ceiling
+  migration; `d1dd4fe` adds a bounded preflight line diagnostic that never
+  returns provider stderr to ChatGPT. Worker tests passed 21/21; Site build,
+  artifact validation, and synthetic diagnostic trace passed. The focused
+  security diff review reported no findings; its scan warned that the worktree
+  changed during review, so the final trace-scope narrowing was also manually
+  inspected.
+- Production is still Sites Version 27, source
+  `64d2646815be198b0173877b821264cf3efc10a6`, environment revision 27.
+  Capability reports Modal ready, admission disabled, and unavailable. The
+  latest live run `b3380814d0854d93a5d978799d670013` failed with exit code 2;
+  cleanup was confirmed, no artifact was produced, and the exact failed check
+  remains unknown. The new diagnostic commit is not deployed.
+- The previous one-run authorization was consumed by that failed attempt.
+  Repository policy requires current explicit authorization per run. A request
+  is pending for one 30-second CPU-only diagnostic run, with admission closed
+  immediately afterward and the temporary deploy token revoked. Until approved,
+  do not issue a token, deploy the diagnostic, change admission, or start a
+  Sandbox.
+- GitHub's connected status and workflow-run reads returned no checks for
+  `d1dd4fe`; the local `gh` Actions query was blocked by GitHub API rate limit.
+  Do not treat this push as having passed remote CI.
+- RunPod REST v2 remains offline library functionality only; the Sites Worker
+  exposes no RunPod route. RunPod GPU and paid execution remain parked behind
+  the activation prerequisites in `policies/repository-state.yaml`. Separate
+  account isolation, recovery, paired D1/R2 restore, and the approved public
+  plugin distribution route also remain unaccepted.

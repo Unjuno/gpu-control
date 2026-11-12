@@ -38,6 +38,11 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   recorded cleanup confirmed. Do not retry under the consumed one-run
   authorization. RunPod remains absent from the Sites Worker route and GPU/paid
   execution remains parked.
+- Diagnostic follow-up commit `d1dd4fe2bbaf220e24fe1c1f97f958491a3d5674`
+  adds a non-sensitive inference preflight line marker and strict Worker
+  persistence. It is pushed to GitHub but not deployed; the current production
+  Site remains Version 27. A fresh one-run authorization is required before
+  any diagnostic Sandbox execution.
 - Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
 Every data-bearing or execution MCP tool must require the Sites-injected user

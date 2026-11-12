@@ -1,5 +1,20 @@
 # Current operations: ChatGPT Sites + D1
 
+## Latest operational state — 2026-11-12 12:35 UTC
+
+Production Sites is Version 27, source commit
+`64d2646815be198b0173877b821264cf3efc10a6`, environment revision 27, with D1/R2.
+ChatGPT capabilities report Modal provider health ready and admission disabled.
+The latest ChatGPT-originated Modal run
+`b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was
+confirmed and no artifact was produced. The diagnostic fix at commit `d1dd4fe`
+is pushed but not deployed. RunPod has no Sites MCP execution route. Keep
+Modal admission disabled and GPU/paid execution parked until their separate
+authorizations and acceptance gates pass.
+
+The following paragraph is an earlier operational snapshot, superseded by the
+latest state above.
+
 The supported ChatGPT control plane is the public Sites MCP Worker at
 `https://gpu-control-sites.unjuno.chatgpt.site`. Its product records are stored
 in the Sites-provisioned D1 database and result objects in R2. The live Site is
