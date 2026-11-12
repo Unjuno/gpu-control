@@ -7,7 +7,7 @@ The supported ChatGPT control plane is the owner-private Sites MCP Worker at
 Worker, ChatGPT sign-in boundary, MCP publication, and D1 binding. D1 stores
 plans, run state, leases, and Runner heartbeats. Large immutable result files
 are stored in R2; the Worker returns bounded chunks after owner/run and digest
-verification. Three complete result artifacts have been retrieved through
+verification. Eight complete result artifacts have been retrieved through
 ChatGPT.
 
 The Worker does not run Docker or model inference. A separate authenticated

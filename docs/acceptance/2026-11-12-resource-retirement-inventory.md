@@ -84,8 +84,9 @@ No database row contents, secrets, credentials, or tokens were read.
 D1 is the active product database. Keep the Neon compute suspended and the
 legacy rows untouched until the owner chooses between a deliberate fresh start
 (discard all remaining legacy data) and an approved export/retention plan. The
-old FastAPI/PostgreSQL Gateway remains historical reference code and is not a
-deployment or rollback dependency for the Sites path.
+old FastAPI/PostgreSQL Gateway source has since been removed from the working
+tree. Its dated acceptance records remain historical; it is not a deployment
+or rollback dependency for the Sites path.
 
 ## Post-Version-15 refresh — 2026-11-12
 
