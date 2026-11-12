@@ -1,5 +1,41 @@
 # Project status
 
+## Live refresh — 2026-11-13
+
+- PR #68 is open as Draft at head
+  `347106177bdb7d24e1462c49791f01618189df42`, stacked on
+  `codex/gpu-control-p1-dcr-v9-review`. All six required exact-head GitHub
+  checks passed on this commit. It still has no independent approval and is
+  not merge-ready.
+- The latest patch labels historical run origin in the ChatGPT list/status
+  responses. The focused Codex Security diff scan
+  `ce9035fb-329e-4b5d-a51b-d5a00c895286` reviewed the Worker, its tests, and
+  the acceptance record; it reported zero findings. It is not the P0
+  repository-wide audit.
+- The `gpu-control-sites` Site remains public at Version 28, source commit
+  `237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 32. The
+  current PR patch has not been deployed to Sites, and live `experiment_list`
+  responses still omit `execution_origin`. Production remains on the prior
+  response contract.
+- A fresh ChatGPT capability read reports Modal provider health ready, but
+  `admission_enabled=false`, `available=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. Recent live run history still includes
+  five Modal failures and older successes attributed to the retired local
+  Runner. No current Modal inference success is established. No deployment,
+  D1 write, or provider execution was performed in this refresh.
+- The Sites runtime environment inventory has no `RUNNER_BEARER_TOKEN` or
+  `RUNNER_SERVICE_TOKEN` key; Sites masks secret values, so this records key
+  names only. The current checkout has no tracked macOS Keychain launcher or
+  LaunchAgent manager, and the host has no matching GPU Control launchd job or
+  Runner process. Historical D1 `runner_heartbeats` and run records are kept as
+  data evidence. `project_control/runner.py` is a separate GitHub Project
+  bridge component, not the retired personal-host compute Runner.
+- The P0 Deep Security Scan remains unstarted because this active session does
+  not provide the required managed read-only filesystem profile. Cross-account
+  Sites identity isolation, D1/R2 restore and retention, and current Modal
+  execution acceptance remain open. RunPod/GPU and paid execution remain
+  parked under `policies/repository-state.yaml`.
+
 ## Main branch protection refresh — 2026-11-12 15:56 UTC
 
 - GitHub owner settings show a classic protection rule for `main`. It requires
