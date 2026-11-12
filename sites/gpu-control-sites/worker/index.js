@@ -333,6 +333,15 @@ async function capabilities(env) {
   };
 }
 
+function modalWorkloadFailureCode(providerResult) {
+  if (providerResult?.state === "not_found") return "MODAL_WORKLOAD_NOT_FOUND";
+  const exitCode = providerResult?.exit_code;
+  if (Number.isInteger(exitCode) && exitCode >= 0 && exitCode <= 255) {
+    return exitCode === 0 ? "MODAL_RESULT_MISSING" : `MODAL_WORKLOAD_EXIT_${exitCode}`;
+  }
+  return "MODAL_WORKLOAD_FAILED";
+}
+
 async function synchronizeModalRun(env, runId, ownerId, { submit = false, cancel = false } = {}) {
   const row = await env.DB.prepare(`SELECT r.id, r.state, r.cancel_requested, p.workload, p.repository, p.source_sha,
       p.image_digest, p.fingerprint, p.parameters_json, p.runtime_seconds
@@ -370,8 +379,9 @@ async function synchronizeModalRun(env, runId, ownerId, { submit = false, cancel
   if (providerResult.state === "running") return;
   if (providerResult.state !== "succeeded" || !providerResult.result || providerResult.result.status !== "passed") {
     if (["failed", "not_found"].includes(providerResult.state)) {
-      await env.DB.prepare(`UPDATE runs SET state='failed', failure_code='MODAL_WORKLOAD_FAILED', cleanup_state='confirmed', updated_at=?
-        WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
+      await env.DB.prepare(`UPDATE runs SET state='failed', failure_code=?, cleanup_state='confirmed', updated_at=?
+        WHERE id=? AND owner_id=? AND state IN ('queued','running')`)
+        .bind(modalWorkloadFailureCode(providerResult), now, runId, ownerId).run();
     }
     return;
   }

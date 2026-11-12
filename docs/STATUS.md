@@ -2,24 +2,29 @@
 
 ## Hosted Sites and provider status — refreshed 2026-11-12
 
-The public ChatGPT Sites MCP Worker is deployed as Version 23 from source
-`1352662626d44dee08fd513f4c8886b6f75cb090`, with environment revision 22 and
+The public ChatGPT Sites MCP Worker is deployed as Version 24 from source
+`c919b0047b203fb0c22b6dd7755934834e899f8f`, with environment revision 22 and
 D1/R2. Current ChatGPT capabilities report `provider_ready=true`,
 `admission_enabled=false`, and `available=false` for `modal_cpu`; paid
 execution remains parked. The owner's ChatGPT connection has called the Site
 tools. Cross-account plugin access remains unverified.
 
 The Modal control app was redeployed from repository commit
-`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`. The most recent bounded ChatGPT
-CPU run before that fix failed with `MODAL_WORKLOAD_FAILED` / Sandbox `code 2`;
-Sites confirmed cleanup and Modal showed no live Sandbox. The Sandbox's
-165-ms exit and absent logs were consistent with the then-current launcher
-requiring root while the fixed image already ran as UID/GID 10001. The
-redundant root-dependent launcher was removed. A post-fix ChatGPT inference has
-not yet been run, so the fix is deployed but runtime acceptance remains open.
-Modal's account page showed `$0.01` usage this cycle. The temporary deploy token
-was deleted; Modal lists zero API tokens. RunPod remains unconnected and paid
-GPU execution remains parked.
+`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`. Post-fix ChatGPT run
+`eacc26ff2ad54cf69a1ee7665325b197` completed a registered TinyStories
+inference in 142 ms, passed identity and isolation checks, returned
+`gpu_used=false`, and confirmed cleanup. ChatGPT retrieved the complete
+962-byte R2 artifact and the Site verified SHA-256
+`39ff3134a0b69d34ea8e4d220a4445583c803eb6382c88593a291486cffb5030`.
+Two newer runs (`96d7efef9542463d9fc51f47ffbfd5d7` and
+`599473dcc1ed4034a42d849bcb42e261`) failed as `MODAL_WORKLOAD_FAILED`, also
+with cleanup confirmed; the then-deployed Worker discarded their Modal exit
+codes. Version 24 now stores a bounded exit-code failure code without exposing
+provider stderr, but this diagnostic has not yet been observed on a live run.
+Current capabilities report provider health ready, admission disabled, and
+unavailable. Modal's account page showed `$0.01` usage this cycle. The temporary
+deploy token was deleted; Modal lists zero API tokens. RunPod remains
+unconnected and paid GPU execution remains parked.
 
 The personal-host CPU Runner and its Keychain authentication path are retired.
 Do not restore them. Older TinyStories successes remain historical evidence;
@@ -40,11 +45,12 @@ confirmed, no retry, and no leftover container. A follow-up inference proved
 the free CPU slot was available again.
 
 This does not establish general model quality, repeated crash-window coverage,
-cross-owner isolation, or GPU capability. Free CPU admission is currently
-unavailable. The Modal integration is deployed but post-fix execution and
-recovery acceptance remain open; real Runpod GPU acceptance remains open. Full evidence and gates are tracked in
+cross-owner isolation, or GPU capability. One post-fix Modal run passed, but
+two later workload failures remain undiagnosed, so CPU admission stays closed.
+Modal recovery and real RunPod GPU acceptance remain open. Full evidence and gates are tracked in
 [`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
 The current staged plan is [`SITES_MODAL_RUNPOD_DELIVERY.md`](SITES_MODAL_RUNPOD_DELIVERY.md).
+Run evidence: [`Modal post-fix inference and later failures`](acceptance/2026-11-12-modal-post-fix-inference-and-later-failures.md).
 
 The rest of this document records standalone CLI and provider-adapter status on
 `main`; it does not supersede the hosted Sites acceptance snapshot above.

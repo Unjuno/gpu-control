@@ -89,3 +89,16 @@ cross-account isolation, Runpod GPU, and paid execution remain separate gates.
   documentation and test coverage. Current health and deployment state remain
   as recorded above; a main-scoped deployment credential and the separate
   post-fix ChatGPT inference acceptance remain unresolved.
+
+## Deployment credential eligibility recheck — 2026-11-12
+
+- The user authorized reissuing a short-lived credential limited to the Modal
+  `main` Environment and deploying. The signed-in Workspace `Service users`
+  page states that Starter cannot create service users and requires a Team
+  upgrade. No upgrade or Workspace-wide token was authorized, so no credential
+  was created and no deploy was attempted. The API-token list remains empty.
+- The current uncommitted source delta changes the Sites Worker diagnostics and
+  documentation; it does not change `sites/gpu-control-sites/modal/app.py` or
+  the Modal workload. There is no Modal code change in this delta to deploy.
+- Modal deployment remains gated on an eligible main-scoped credential. No
+  Sandbox, admission, payment, or provider settings were changed.

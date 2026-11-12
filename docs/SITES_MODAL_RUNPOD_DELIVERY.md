@@ -16,15 +16,17 @@ provide model compute. Compute remains an explicitly configured provider.
 ## Live baseline — refreshed 2026-11-12
 
 - The public Site `gpu-control-sites` is active at
-  `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 23,
-  source commit `1352662626d44dee08fd513f4c8886b6f75cb090`, and environment
+  `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 24,
+  source commit `c919b0047b203fb0c22b6dd7755934834e899f8f`, and environment
   revision 22.
 - Its current Sites access mode is `public` (access revision 2). A Site-hosted
   plugin exists and is connected for the owner; this does not
   establish that another user's ChatGPT process can install or call it.
 - Current ChatGPT capabilities report `provider_ready=true`, `available=false`,
-  and `admission_enabled=false` for `modal_cpu`. Modal health is ready, but
-  compute admission is closed. Paid execution remains parked.
+  and `admission_enabled=false` for `modal_cpu`. One post-fix inference and
+  artifact retrieval succeeded; two later runs failed with cleanup confirmed,
+  but their Modal exit codes were discarded by the Worker. Admission stays
+  closed until those failures are diagnosable. Paid execution remains parked.
 - D1 and R2 remain the Site's storage bindings. Preserve their current records,
   migrations, artifacts, and historical evidence during provider changes.
 - The macOS LaunchAgent and its local runtime were removed, and the two local
@@ -156,17 +158,19 @@ ChatGPT
 ## Current blockers
 
 1. The fixed Modal CPU adapter and authenticated dispatch are deployed. Current
-   Sites health reports Modal ready. The last bounded ChatGPT CPU run failed
-   with `MODAL_WORKLOAD_FAILED`; Modal recorded Sandbox `code 2` after 165 ms,
-   and cleanup was confirmed. Commit `1c8c30d` removed a launcher that required
-   root while the pinned image already runs as UID/GID 10001. The fix is
-   deployed, but post-fix inference is not yet verified. Admission is disabled
-   pending a separate one-run authorization.
+   Sites health reports Modal ready. ChatGPT run
+   `eacc26ff2ad54cf69a1ee7665325b197` passed post-fix with verified R2 artifact
+   and cleanup. Two later runs failed as `MODAL_WORKLOAD_FAILED`, also with
+   cleanup confirmed. The Site does not retain the Modal exit code, so the cause
+   is unknown. Admission is disabled until failure diagnostics and recovery
+   behavior are adequate for another bounded run.
 2. The local Runner is retired. Modal recovery and operational failure
-   coverage remain incomplete; no post-fix CPU run has been accepted.
-3. Runpod live use remains parked. Current API v2 is documented as public beta;
-   the checked-in v1/v2 contract notes must be reconciled against the current
-   authenticated OpenAPI schema before live use.
+   coverage remain incomplete; one post-fix run passed, but later failures
+   remain unexplained.
+3. Runpod live use remains parked. The canonical API and pricing path now use
+   REST v2, with current public OpenAPI and catalog contracts reviewed offline.
+   Live account, result, cleanup, concurrency, security, and spend acceptance
+   remains required.
 4. The Modal account UI showed `$0.01` usage this cycle and a free-credit
    banner. Recheck its current state before another run. Runpod balance is not
    a spend target.
@@ -193,8 +197,8 @@ ChatGPT
   Sandbox start, or Runpod action was performed in this refresh.
 - Remaining objective evidence: publish the corrected Site Worker only after
   resolving the repository activation-policy conflict; verify provider health
-  and owner authorization from the ChatGPT tool path; execute and retrieve a
-  bounded free CPU experiment with cleanup; complete operational recovery
+  and owner authorization from the ChatGPT tool path; diagnose the two recent
+  failed Modal runs and add bounded failure diagnostics; complete operational recovery
   evidence; then independently satisfy and authorize Runpod GPU and paid-canary
   gates. The overall goal remains incomplete.
 
@@ -215,3 +219,22 @@ ChatGPT
   `$0.01` usage this cycle. The overall goal remains open until authorized
   post-fix inference, recovery evidence, cross-account acceptance, Runpod GPU,
   and paid-execution gates are verified.
+
+## Sites failure-diagnostic refresh — 2026-11-12
+
+- Read-only ChatGPT tool calls verified one post-fix Modal CPU success,
+  `eacc26ff2ad54cf69a1ee7665325b197`: four generated tokens, 142 ms,
+  `gpu_used=false`, all identity/isolation checks passed, and cleanup confirmed.
+  ChatGPT retrieved the full 962-byte R2 artifact and the Site verified SHA-256
+  `39ff3134a0b69d34ea8e4d220a4445583c803eb6382c88593a291486cffb5030`.
+- Two subsequent runs failed with cleanup confirmed. The former Worker
+  discarded the provider exit code, and the Modal log view for the later
+  Sandbox had no entries. The cause remains unverified.
+- Added bounded Worker failure codes for Modal exit status without exposing
+  provider stderr. Site tests: 19 passed; build and artifact validation passed.
+  Published Site Version 24 from source commit
+  `c919b0047b203fb0c22b6dd7755934834e899f8f`; D1/R2 environment revision 22
+  and public audience were preserved. Post-publish ChatGPT capabilities still
+  report provider ready, admission false, and unavailable. No new Sandbox was
+  started; live behavior of the new diagnostic remains to be verified during a
+  separately authorized run.

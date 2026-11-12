@@ -158,6 +158,58 @@ test("health can be verified while Modal admission remains disabled", async () =
   }
 });
 
+test("stores a bounded Modal exit-code diagnostic without exposing provider stderr", async () => {
+  const runId = "f".repeat(32);
+  const current = { id: runId, state: "running", created_at: 10, updated_at: 11,
+    result_json: null, failure_code: null, cleanup_state: "pending", cancel_requested: 0,
+    result_artifact_id: null, result_artifact_sha256: null, result_artifact_size: null,
+    lease_id: null, workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control",
+    source_sha: "b".repeat(40), image_digest: `sha256:${"a".repeat(64)}`,
+    parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
+    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "diagnostic-test" };
+  const env = environment();
+  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
+  env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "d".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
+    async first() {
+      if (sql.includes("FROM runs r JOIN plans p")) return { ...current };
+      throw new Error(`unexpected D1 first query: ${sql}`);
+    },
+    async run() {
+      if (sql.startsWith("UPDATE runs SET lease_id=")) {
+        current.lease_id = values[0];
+        return { success: true };
+      }
+      if (sql.includes("SET state='failed', failure_code=?")) {
+        [current.failure_code, current.updated_at] = values;
+        current.state = "failed";
+        current.cleanup_state = "confirmed";
+        return { success: true };
+      }
+      throw new Error(`unexpected D1 write query: ${sql}`);
+    },
+  }; } });
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => Response.json({ state: "failed", exit_code: 2,
+      stderr: "private-provider-diagnostic-must-not-leak", sandbox_id: "sb-failed",
+      cleanup_state: "confirmed" });
+    const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const rpc = await response.json();
+    const result = JSON.parse(rpc.result.content[0].text);
+    assert.equal(result.machine_state.state, "failed");
+    assert.equal(result.machine_state.failure_code, "MODAL_WORKLOAD_EXIT_2");
+    assert.equal(result.machine_state.cleanup_state, "confirmed");
+    assert.doesNotMatch(JSON.stringify(result), /private-provider-diagnostic-must-not-leak/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("retries Modal result persistence after an R2 or D1 write failure", async () => {
   const runId = "e".repeat(32);
   const fingerprint = "f".repeat(64);
