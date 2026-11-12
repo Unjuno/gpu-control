@@ -278,6 +278,52 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
   }
 });
 
+test("ambiguous Modal submission stays reserved when status cannot find the Sandbox", async () => {
+  const runId = "9".repeat(32);
+  const current = { id: runId, state: "running", cancel_requested: 0, workload: "tiny-stories-inference-v1",
+    repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
+    fingerprint: "c".repeat(64), parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
+    runtime_seconds: 10, idempotency_key: "ambiguous-submission", created_at: 10, updated_at: 11,
+    result_json: null, failure_code: null, cleanup_state: "pending", result_artifact_id: null,
+    result_artifact_sha256: null, result_artifact_size: null, lease_id: null };
+  const env = environment();
+  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
+  env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "d".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  env.DB.prepare = (sql) => ({ bind() { return {
+    async first() {
+      if (sql.includes("FROM runs r JOIN plans p")) return { ...current };
+      throw new Error(`unexpected D1 first query: ${sql}`);
+    },
+  }; } });
+
+  const originalFetch = globalThis.fetch;
+  let statusChecks = 0;
+  let submitCalls = 0;
+  try {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith(`/v1/runs/${runId}/submit`)) submitCalls++;
+      if (String(url).endsWith(`/v1/runs/${runId}/status`)) statusChecks++;
+      return Response.json({ detail: "Sandbox not found" }, { status: 404 });
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+      const rpc = await response.json();
+      const result = JSON.parse(rpc.result.content[0].text);
+      assert.equal(rpc.result.isError, false);
+      assert.equal(result.machine_state.state, "running");
+      assert.equal(result.machine_state.cleanup_state, "pending");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(statusChecks, 2, "each status check reconciles the same reserved run");
+  assert.equal(submitCalls, 0, "an ambiguous accepted submit must never be blindly retried");
+  assert.equal(current.state, "running", "unknown provider state must retain the occupied slot");
+});
+
 test("retries Modal result persistence after an R2 or D1 write failure", async () => {
   const runId = "e".repeat(32);
   const fingerprint = "f".repeat(64);

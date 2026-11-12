@@ -234,3 +234,14 @@ signed-in Modal dashboard.
 - No provider call or Sandbox was made during these checks. The P0 scan remains
   unstarted because the current Codex thread does not have the managed read-only
   filesystem permission profile required by its scanner.
+
+## Ambiguous-submit recovery regression — 2026-11-12 14:06 UTC
+
+- Added a Sites Worker regression for a run persisted as `running` after a
+  possibly accepted Modal submit. When the subsequent provider status lookup
+  returns 404, repeated `experiment_status` calls retain the occupied run and
+  do not issue a second `/submit` request.
+- `npm test` in `sites/gpu-control-sites`: 23 passed. This is an offline mock
+  of the Worker's fail-closed reconciliation rule; it does not prove Modal API
+  consistency, a live lost-response recovery, or independent background
+  reconciliation. No provider call was made.
