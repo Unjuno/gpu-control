@@ -201,6 +201,30 @@ test("health can be verified while Modal admission remains disabled", async () =
   }
 });
 
+test("Modal health requests survive cold starts longer than the former five-second timeout", async () => {
+  const env = environment();
+  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
+  env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
+  env.BUCKET = { put: async () => {} };
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 6300));
+      return Response.json({ ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
+        source_sha: sourceSha, registered_image_digest: imageDigest,
+        image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT, max_runtime_seconds: 30 });
+    };
+    const result = await capabilities(env);
+    assert.equal(result.machine_state.provider_ready, true);
+    assert.equal(result.machine_state.provider_health_checks.ready, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("stores a bounded Modal exit-code diagnostic without exposing provider stderr", async () => {
   const runId = "f".repeat(32);
   const current = { id: runId, state: "running", created_at: 10, updated_at: 11,

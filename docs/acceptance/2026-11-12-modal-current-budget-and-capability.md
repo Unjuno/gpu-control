@@ -145,3 +145,27 @@ signed-in Modal dashboard.
   diagnostic behavior remains unverified live. Sites Version 27 and
   `CPU_WORKLOAD_ADMISSION_ENABLED=false` remain unchanged. A new live Sandbox
   requires its own current authorization.
+
+## Current continuation recheck — 2026-11-12 13:07 UTC
+
+- Current Sites metadata reports Version 27, source commit
+  `64d2646815be198b0173877b821264cf3efc10a6`, environment revision 28, and
+  public access. The latest recorded ChatGPT capability call passed every
+  Modal health check but correctly kept admission false. No current inference
+  has been accepted.
+- Modal's API-token page was reloaded and showed zero API tokens. The temporary
+  Workspace deploy token is revoked. No Sandbox was started during this
+  continuation.
+- The installed ChatGPT `experiment_prepare` signature advertises
+  `max_cost_usd` as the constant `0.00`; current Worker `tools/list` source
+  advertises `0.01`, and the Worker rejects `0.00`. This tool-schema mismatch
+  prevents preparation through the currently exposed ChatGPT tool and must be
+  resolved before the next authorized inference.
+- A recorded Modal cold start took about 6.3 seconds before the health handler
+  returned. The Worker previously aborted every provider request after 5
+  seconds. The local source now uses a bounded 15-second request timeout. The
+  regression suite passed all 22 Worker tests, including a simulated 6.3-second
+  cold start; Site build and artifact validation passed. This source change is
+  not yet pushed or deployed as a new Sites version.
+- A separate one-run CPU authorization is still required before any Sandbox
+  starts. RunPod/GPU and paid training remain parked.

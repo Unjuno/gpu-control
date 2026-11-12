@@ -11,9 +11,10 @@ verification. Eight complete result artifacts have been retrieved through
 ChatGPT.
 
 The Worker does not run Docker or model inference. The personal-host Runner
-has been retired. A fixed Modal CPU adapter is deployed and its health endpoint
-is ready, but admission is disabled and no successful inference against the
-current Modal deployment has been accepted through ChatGPT. RunPod GPU execution remains a separately gated
+has been retired. The fixed Modal CPU adapter is deployed; the latest recorded
+ChatGPT capability read passed all provider checks, while admission remained
+disabled. No successful inference against the current Modal deployment has
+been accepted through ChatGPT. RunPod GPU execution remains a separately gated
 future path; paid execution is parked.
 
 The legacy FastAPI/PostgreSQL Gateway and its Vercel deployment are archived
@@ -30,9 +31,11 @@ and [`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-g
    offers the plugin card.
 3. In a ChatGPT conversation, select or mention `gpu-control` and call
    `experiment_capabilities` before preparing a run.
-4. Prepare only the advertised fixed workload, review its exact source and
-   zero-cost limit, then submit. Poll `experiment_status` and retrieve the
-   terminal value with `experiment_result`.
+4. Prepare only the advertised fixed workload and review its exact source,
+   usage estimate, and `$0.01` Sandbox-only ceiling. Modal control-function
+   calls are billed separately. Credits are not a zero-cost guarantee. Submit
+   only with explicit authorization for the exact prepared plan. Poll
+   `experiment_status` and retrieve the terminal value with `experiment_result`.
 
 The Site and plugin are separate access controls. The Site is public, while
 stateful tools must use ChatGPT's authenticated Sites identity and server-side
@@ -47,7 +50,10 @@ now-retired local Runner produced provenance-checked results and retrievable
 R2 artifacts. They establish that earlier CPU route only. They do not establish
 current Modal inference, general model quality, or GPU execution. The latest
 live capability read reports `provider_ready=true`, `admission_enabled=false`,
-and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. A fresh
+and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. The
+currently exposed ChatGPT `experiment_prepare` schema constrains
+`max_cost_usd` to `0.00`, while the Worker requires `0.01`; resolve and verify
+that published tool-schema mismatch before preparing a new run. A fresh
 ChatGPT inference and artifact verification against the current Modal deployment
 are still required.
 

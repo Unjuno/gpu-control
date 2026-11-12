@@ -6,11 +6,12 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
 - Deployed Site version: 27, source commit
-  `64d2646815be198b0173877b821264cf3efc10a6`; current environment revision 27.
+  `64d2646815be198b0173877b821264cf3efc10a6`; current environment revision 28.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- Current ChatGPT capability evidence (2026-11-12 12:19 UTC):
-  `provider_ready=true`, `admission_enabled=false`, and `available=false` for
+- Current recorded ChatGPT capability evidence (2026-11-12 12:57 UTC):
+  `provider_ready=true`, every provider health check passed,
+  `admission_enabled=false`, and `available=false` for
   `modal_cpu`. The latest bounded ChatGPT-initiated run failed with workload
   exit code 2; cleanup was confirmed. The v27 Worker labels the provider as
   billable and estimates Sandbox CPU/memory only. The estimate excludes
@@ -45,9 +46,16 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   failed event.
 - Diagnostic follow-up commit `d1dd4fe2bbaf220e24fe1c1f97f958491a3d5674`
   adds a non-sensitive inference preflight line marker and strict Worker
-  persistence. It is pushed to GitHub but not deployed; the current production
-  Site remains Version 27. A fresh one-run authorization is required before
-  any diagnostic Sandbox execution.
+  persistence; it is deployed to Modal `unjuno/main`. The temporary Workspace
+  deploy token was revoked and the API-token page showed zero tokens. No new
+  Sandbox was started. A separate current authorization is required before
+  any inference attempt.
+- The current installed ChatGPT tool schema constrains
+  `experiment_prepare.max_cost_usd` to `0.00`, while this Worker requires
+  `0.01` for usage-billed CPU/memory. Refresh and verify the published tool
+  schema before preparing an inference.
+- The Worker source now uses a 15-second bounded Modal request timeout to
+  accommodate a measured 6.3-second cold start; this change is not yet deployed.
 - Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
 Every data-bearing or execution MCP tool must require the Sites-injected user

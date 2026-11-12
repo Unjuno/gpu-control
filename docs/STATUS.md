@@ -2,14 +2,21 @@
 
 ## Hosted Sites and provider status — refreshed 2026-11-12
 
-Latest refresh — 2026-11-12 12:49 UTC: the public ChatGPT Sites MCP Worker is
+Latest verified capability — 2026-11-12 12:57 UTC: the public ChatGPT Sites MCP Worker is
 deployed as Version 27 from Site source commit
 `64d2646815be198b0173877b821264cf3efc10a6`, with production environment
-revision 27 and D1/R2. Current ChatGPT capabilities report
+revision 28 and D1/R2. The recorded ChatGPT capability read reported
 `provider_ready=true`, all provider identity/health checks true,
 `admission_enabled=false`, and `available=false` for `modal_cpu`. Paid
 execution remains parked. The owner's ChatGPT connection has called the Site;
 cross-account plugin access remains unverified.
+
+The exposed ChatGPT tool signature constrains
+`experiment_prepare.max_cost_usd` to `0.00`, while the Worker correctly
+requires the usage-billed Sandbox ceiling `0.01`. Resolve this mismatch before
+plan preparation. A local Worker change raises its bounded Modal request
+timeout from 5 to 15 seconds to accommodate the observed 6.3-second control
+function cold start; this source change is not yet deployed.
 
 The latest 16-token ChatGPT-initiated Modal Sandbox run
 `b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was

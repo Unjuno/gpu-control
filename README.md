@@ -19,13 +19,13 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published and a fixed Modal CPU adapter is implemented and deployed, but the current Site deployment has not yet passed provider readiness from the ChatGPT tool path. Paid execution remains parked.
+The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published and a fixed Modal CPU adapter is deployed. The latest recorded ChatGPT capability read passed every Modal readiness check, while admission remained disabled; no successful inference against this deployment has been accepted. Paid execution remains parked.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Fixed Modal adapter and authenticated health path are implemented; the latest capabilities call still reported the provider unavailable, and a follow-up Site deployment/ChatGPT run is pending |
+| Registered CPU experiment through ChatGPT | Modal health passed, but admission is disabled and current inference is unverified; the exposed ChatGPT prepare schema says `$0.00` while the Worker requires `$0.01`, so the schema must be refreshed before a plan can be prepared |
 | Real model inference through ChatGPT | Historical TinyStories 15M CPU runs passed source, result, and cleanup checks. They do not prove current readiness, broad model quality, or GPU capability |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
@@ -46,9 +46,12 @@ The current hosted product path is the public ChatGPT Sites Worker with D1/R2.
 Stateful MCP tools require the authenticated Sites identity and owner-scoped
 queries; provider admission remains disabled. The current Site Worker source
 allows only the configured owner and has a fixed Modal CPU adapter. A local
-regression suite covers its owner boundary and provider-token parsing, but the
-latest production capabilities call still reported Modal unavailable; no
-current ChatGPT CPU run has been accepted. Access from another ChatGPT
+regression suite covers its owner boundary and provider-token parsing. The
+latest recorded production capability read reported Modal ready but unavailable
+for execution because admission is disabled; no current ChatGPT CPU run has
+been accepted. The exposed ChatGPT prepare schema conflicts with the Worker
+cost contract (`$0.00` versus `$0.01`) and must be refreshed before preparation.
+Access from another ChatGPT
 account/process is not yet proven. Anonymous HTTP probes were blocked at the
 edge (HTTP 403), so they do not independently verify the Worker's public
 authentication behavior. The old local Runner and its Keychain credentials are

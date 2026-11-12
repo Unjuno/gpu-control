@@ -5,7 +5,9 @@ const META_PREFIX = "io.modelcontextprotocol/";
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_RESULT_BYTES = 8 * 1024;
 const WORKLOAD = "tiny-stories-inference-v1";
-const MODAL_TIMEOUT_MS = 5000;
+// Modal control functions cold-started for ~6.3s in production; retain a
+// bounded timeout with room for that startup plus normal request latency.
+const MODAL_TIMEOUT_MS = 15000;
 const MODAL_MAX_RUNTIME_SECONDS = 30;
 const MODAL_MAX_RESULT_BYTES = 8 * 1024;
 const MODAL_SANDBOX_CPU_USD_PER_CORE_SECOND = 0.00003942;
