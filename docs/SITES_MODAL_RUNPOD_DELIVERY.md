@@ -13,27 +13,25 @@ part of the target runtime.
 The Site is the ChatGPT-facing interface and policy boundary. It does not itself
 provide model compute. Compute remains an explicitly configured provider.
 
-## Live baseline observed on 2026-11-12
+## Live baseline — refreshed 2026-11-12
 
 - The public Site `gpu-control-sites` is active at
-  `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 18,
-  source commit `f9930e444c16ede956e0812f547f920199f37c0d`, Worker code commit
-  `1acaa91edb89a5824ce180ea7166d79d4162316a`, and environment revision 17.
+  `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 23,
+  source commit `1352662626d44dee08fd513f4c8886b6f75cb090`, and environment
+  revision 22.
 - Its current Sites access mode is `public` (access revision 2). A Site-hosted
   plugin exists and is connected for the owner; this does not
   establish that another user's ChatGPT process can install or call it.
-- The ChatGPT capability tool reports `available=false`,
-  `provider_ready=false`, and `admission_enabled=false` for `modal_cpu`. It
-  reports paid execution as parked. No current compute path is advertised as
-  ready.
+- Current ChatGPT capabilities report `provider_ready=true`, `available=false`,
+  and `admission_enabled=false` for `modal_cpu`. Modal health is ready, but
+  compute admission is closed. Paid execution remains parked.
 - D1 and R2 remain the Site's storage bindings. Preserve their current records,
   migrations, artifacts, and historical evidence during provider changes.
 - The macOS LaunchAgent and its local runtime were removed, and the two local
   Keychain items used by that Runner were deleted. Do not re-provision or use
   that authentication path.
-- The Modal account was previously observed as Starter with a `$1` usage cap and
-  `$0` credits/charges shown in its account UI. Treat that account-specific
-  snapshot as unrefreshed until checked again; do not assume a `$30` balance.
+- The Modal account is Starter. Its live UI showed `$1` of `$30/mo` in free
+  credits and `$0.01` usage this cycle. The credits are not a hard billing stop.
 - Runpod's console showed `$15` balance. That is not authorization to spend and
   does not satisfy repository activation prerequisites.
 - Vercel and Neon are retired from the target runtime. Their historical
@@ -90,7 +88,7 @@ ChatGPT
 
 ### 0. Repository and account inventory
 
-- Reconcile this checkout, `main`, open PRs, Site Version 18, D1/R2 bindings,
+- Reconcile this checkout, `main`, open PRs, current Site Version 23, D1/R2 bindings,
   deployment state, Modal workspace limits, and Runpod active-resource state.
 - Resolve the ChatGPT distribution route for non-owner users and test with a
   genuinely separate ChatGPT identity; a public Site URL or the owner's plugin
@@ -157,20 +155,21 @@ ChatGPT
 
 ## Current blockers
 
-1. The fixed Modal CPU adapter and authenticated dispatch are implemented and
-   deployed as a Modal Web Function. Site Worker code now validates the Modal
-   `wk-`/`ws-` proxy-token formats, but that correction is pushed to GitHub and
-   has not yet been published as a new Site version. The most recent live
-   ChatGPT capabilities call therefore remains evidence of the previous
-   Worker version and reported Modal unavailable.
-2. The local Runner is retired, and there is no currently accepted CPU run
-   through ChatGPT. Admission remains disabled; no Modal Sandbox has been
-   started.
+1. The fixed Modal CPU adapter and authenticated dispatch are deployed. Current
+   Sites health reports Modal ready. The last bounded ChatGPT CPU run failed
+   with `MODAL_WORKLOAD_FAILED`; Modal recorded Sandbox `code 2` after 165 ms,
+   and cleanup was confirmed. Commit `1c8c30d` removed a launcher that required
+   root while the pinned image already runs as UID/GID 10001. The fix is
+   deployed, but post-fix inference is not yet verified. Admission is disabled
+   pending a separate one-run authorization.
+2. The local Runner is retired. Modal recovery and operational failure
+   coverage remain incomplete; no post-fix CPU run has been accepted.
 3. Runpod live use remains parked. Current API v2 is documented as public beta;
    the checked-in v1/v2 contract notes must be reconciled against the current
    authenticated OpenAPI schema before live use.
-4. The current Modal usage cap/credit state must be refreshed before any live
-   compute call. Runpod balance is not a spend target.
+4. The Modal account UI showed `$0.01` usage this cycle and a free-credit
+   banner. Recheck its current state before another run. Runpod balance is not
+   a spend target.
 5. Public Site hosting does not currently prove public plugin distribution. The
    account's eligible sharing/publication route and a separate-user ChatGPT test
    remain unresolved.
@@ -198,3 +197,21 @@ ChatGPT
   bounded free CPU experiment with cleanup; complete operational recovery
   evidence; then independently satisfy and authorize Runpod GPU and paid-canary
   gates. The overall goal remains incomplete.
+
+## Modal launcher fix refresh — 2026-11-12
+
+- Repository branch `codex/sites-modal-runner` is pushed through
+  `1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`. The fix removes the root-required
+  launcher from `modal/app.py` and lets Modal execute the image's fixed
+  `python -I /work/inference.py` entrypoint as Dockerfile user 10001. Python
+  compilation and `git diff --check` passed; the repository suite passed 559
+  tests with 1 skipped; the Sites Worker suite passed 17/17. Independent code
+  review found no actionable issue in this change.
+- Modal CLI deploy returned exit code 0. The sidebar overview showed the app
+  deployed just now and zero live Sandboxes. The temporary one-hour deploy
+  token was deleted after deploy; the token-list page showed zero API tokens.
+- The Site still reports Modal ready, admission disabled, and no available
+  execution. No post-fix Sandbox was run in this refresh. Modal UI displayed
+  `$0.01` usage this cycle. The overall goal remains open until authorized
+  post-fix inference, recovery evidence, cross-account acceptance, Runpod GPU,
+  and paid-execution gates are verified.

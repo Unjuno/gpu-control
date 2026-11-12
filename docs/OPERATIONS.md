@@ -2,15 +2,34 @@
 
 The supported ChatGPT control plane is the public Sites MCP Worker at
 `https://gpu-control-sites.unjuno.chatgpt.site`. Its product records are stored
-in the Sites-provisioned D1 database and result objects in R2. As of 2026-11-12,
-the live Site is Version 18 from source commit
-`f9930e444c16ede956e0812f547f920199f37c0d` (Worker changes at
-`1acaa91edb89a5824ce180ea7166d79d4162316a`), with environment revision 17. Its
-capability tool reports `available=false`, `provider_ready=false`, and
-`admission_enabled=false` for `modal_cpu`. There is no currently available
-compute provider.
+in the Sites-provisioned D1 database and result objects in R2. The live Site is
+Version 23 from source commit `1352662626d44dee08fd513f4c8886b6f75cb090`, with
+environment revision 22. Current ChatGPT capabilities report
+`provider_ready=true`, `available=false`, and `admission_enabled=false` for
+`modal_cpu`. The authenticated Modal endpoint is healthy; compute admission is
+closed pending one post-fix runtime acceptance.
 Historical CPU success records below remain valid evidence for those earlier
 runs; they do not show present readiness.
+
+## Latest Modal attempt and recovery status — 2026-11-12
+
+Run `599473dcc1ed4034a42d849bcb42e261` was prepared and submitted through
+ChatGPT with a 30-second runtime and `$0.00` Site cost ceiling. It failed as
+`MODAL_WORKLOAD_FAILED`; D1/Sites reported `cleanup_state=confirmed`. Modal
+showed Sandbox exit `code 2` after 165 ms and no stdout/stderr logs, with zero
+live Sandboxes. The source at that time launched a root-required privilege-drop
+script even though the pinned Dockerfile already declared `USER 10001:10001`
+and the workload entrypoint. The redundant launcher was removed in commit
+`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`, tests passed, and Modal reported a
+successful deploy. A post-fix run has not yet occurred; admission remains
+disabled. The temporary one-hour deployment API token was revoked and the
+Modal token list returned zero entries. Modal showed `$0.01` usage this cycle.
+
+This failure did not validate the new launcher path, cancellation, or
+reconciliation after provider failure. Keep the run as failed evidence; do not
+retry it under the same idempotency key. A new bounded smoke must use a new
+authorization and idempotency key after admission is deliberately enabled for
+that test, and admission must be closed again immediately afterward.
 
 The target is a publicly discoverable ChatGPT Site + D1/R2 control plane, Modal
 as the first bounded compute integration, and Runpod as the later separately
@@ -151,8 +170,9 @@ history and historical run evidence.
 
 ## Open operational acceptance
 
-1. Implement and deploy the authenticated Modal CPU path with idempotent submit,
-   bounded status/collection, and no caller-selected code or image.
+1. Verify one authorized post-fix inference through the deployed authenticated
+   Modal CPU path with idempotent submit, bounded status/collection, and no
+   caller-selected code or image. Admission is currently disabled.
 2. Exercise ambiguous submission, timeout, cancellation, provider failure, D1
    and R2 write failure, and recovery without duplicate runs or orphan compute.
 3. Define R2 artifact retention and orphan cleanup; exercise larger artifacts and

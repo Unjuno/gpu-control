@@ -7,18 +7,20 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- The current capability tool reports `available=false`,
-  `provider_ready=false`, and `admission_enabled=false` for `modal_cpu` until
-  the Modal endpoint, Workspace Proxy Token, image fingerprint, and admission
-  flag are configured and health-checked.
+- Current capability evidence (2026-11-12): `provider_ready=true`,
+  `admission_enabled=false`, and `available=false` for `modal_cpu`; admission
+  is intentionally closed after one bounded ChatGPT-originated smoke failed.
 - MCP access is restricted to the owner IDs listed in the secret runtime
   variable `GPU_CONTROL_ALLOWED_USER_IDS`; missing or non-listed identities
   are rejected before D1 or Modal access.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
 - Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
-  in the `main` Environment. Its Proxy Token is not yet stored in Sites, so
-  provider readiness remains blocked and no Modal Sandbox has been started.
-  RunPod is not connected and paid GPU execution remains parked.
+  in the `main` Environment. The Sites health check reports it ready. The
+  latest bounded ChatGPT run failed at the Sandbox entrypoint (`code 2`); the
+  Sandbox was cleaned up. A follow-up code change now relies on the image's
+  pinned non-root entrypoint and has been deployed to Modal, but a post-fix
+  execution has not yet been authorized or verified. RunPod is not connected
+  and paid GPU execution remains parked.
 - Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
 Every data-bearing or execution MCP tool must require the Sites-injected user

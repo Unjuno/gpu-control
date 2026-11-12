@@ -1,17 +1,29 @@
 # Project status
 
-## Hosted Sites and provider status — 2026-11-12
+## Hosted Sites and provider status — refreshed 2026-11-12
 
-The public ChatGPT Sites MCP Worker is deployed as Version 18 from source
-`f9930e444c16ede956e0812f547f920199f37c0d` (Worker code commit
-`1acaa91edb89a5824ce180ea7166d79d4162316a`), with environment revision 17 and
-D1/R2. Its capability response reports `available=false`,
-`provider_ready=false`, `admission_enabled=false`, and paid execution as parked.
-The personal-host CPU Runner and its Keychain authentication path have been
-retired. The owner's current ChatGPT connection called capability and
-experiment-list tools successfully; cross-account plugin access remains
-unverified. The older accepted TinyStories 15M runs remain historical evidence;
-they do not establish a currently usable execution path.
+The public ChatGPT Sites MCP Worker is deployed as Version 23 from source
+`1352662626d44dee08fd513f4c8886b6f75cb090`, with environment revision 22 and
+D1/R2. Current ChatGPT capabilities report `provider_ready=true`,
+`admission_enabled=false`, and `available=false` for `modal_cpu`; paid
+execution remains parked. The owner's ChatGPT connection has called the Site
+tools. Cross-account plugin access remains unverified.
+
+The Modal control app was redeployed from repository commit
+`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`. The most recent bounded ChatGPT
+CPU run before that fix failed with `MODAL_WORKLOAD_FAILED` / Sandbox `code 2`;
+Sites confirmed cleanup and Modal showed no live Sandbox. The Sandbox's
+165-ms exit and absent logs were consistent with the then-current launcher
+requiring root while the fixed image already ran as UID/GID 10001. The
+redundant root-dependent launcher was removed. A post-fix ChatGPT inference has
+not yet been run, so the fix is deployed but runtime acceptance remains open.
+Modal's account page showed `$0.01` usage this cycle. The temporary deploy token
+was deleted; Modal lists zero API tokens. RunPod remains unconnected and paid
+GPU execution remains parked.
+
+The personal-host CPU Runner and its Keychain authentication path are retired.
+Do not restore them. Older TinyStories successes remain historical evidence;
+they do not establish current Modal execution success.
 
 Before retirement, a ChatGPT-originated TinyStories 15M inference completed on
 Sites Version 15 after a Runner process-loss recovery test.
@@ -29,8 +41,8 @@ the free CPU slot was available again.
 
 This does not establish general model quality, repeated crash-window coverage,
 cross-owner isolation, or GPU capability. Free CPU admission is currently
-unavailable. Modal compute integration and real Runpod GPU acceptance remain
-open. Full evidence and gates are tracked in
+unavailable. The Modal integration is deployed but post-fix execution and
+recovery acceptance remain open; real Runpod GPU acceptance remains open. Full evidence and gates are tracked in
 [`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
 The current staged plan is [`SITES_MODAL_RUNPOD_DELIVERY.md`](SITES_MODAL_RUNPOD_DELIVERY.md).
 
