@@ -274,3 +274,35 @@ signed-in Modal dashboard.
 - Local `npm test` evidence remains 23/23, but this exact pushed head has no
   GitHub CI or PR review evidence. The branch is not merged; checks from PR #58
   or its neighbouring PR cannot be applied to this candidate.
+
+## PR #68 and live execution continuation — 2026-11-12 14:43 UTC
+
+- Draft PR #68 is open against the PR #58 head. At the start of this recheck,
+  its exact head was `51bd76707b88fa2f15eab6453a26d01f40fd3391`, matching
+  `origin/codex/sites-modal-runner`; the worktree was clean before this note.
+- Exact-head GitHub workflow runs `43236078547` (CI) and `43236084008`
+  (Project bridge tests) both completed successfully. These are code checks,
+  not provider acceptance or a repository-wide security audit.
+- The exact PR diff Security scan completed with six changed source/config
+  items reviewed and zero reportable findings. One authorization/spend
+  candidate remains deferred: the Worker lacks structured current-human
+  authorization evidence and a Modal account-usage recheck; product-side
+  confirmation and provider hard-stop behavior are not established by this
+  repository. The scan is not the P0 full-repository audit.
+- A fresh ChatGPT Sites `experiment_capabilities` call again reports all eight
+  Modal health checks ready, `admission_enabled=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. The latest run
+  `e9330c5bb5454f42bb3dabe058091dc0` is failed with `MODAL_WORKLOAD_EXIT_2`,
+  cleanup confirmed, and no result or artifact. Its Modal Sandbox log view has
+  no logs. Do not retry: its one-run authorization is consumed and the failed
+  preflight remains unidentified. The earlier authorized run ID
+  `96ad1246cf744ea3b3eac326f673e547` remains absent (`RUN_NOT_FOUND`).
+- The OpenAI custom MCP server guidance says ChatGPT *may* request confirmation
+  for write/modify actions based on app permissions and action context; it does
+  not establish that every submit is confirmed. This cannot substitute for the
+  repository's required trusted authorization binding. Source:
+  <https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt>.
+- A repository-wide Deep Scan was attempted and did not start because the
+  parent session did not provide a managed filesystem permission profile. The
+  same requirement is still unmet; the P0 audit remains open. No source,
+  admission, credential, or provider setting was changed in this recheck.
