@@ -22,9 +22,9 @@ cross-owner isolation, or GPU capability. Free CPU admission remains
 bounded to one in-flight run and 30 seconds. Paid execution remains parked. The
 deployed Sites Version 15 is MCP-ready. Version 13 remains an older saved source
 candidate; Version 15's source commit is recorded separately in the acceptance
-evidence. Planned restart and caller cancellation are accepted; forced
-process-death/lease recovery remains open. Full evidence and open gates are
-tracked in
+evidence. Planned restart, caller cancellation, and one forced process-loss/
+lease-expiry recovery case are accepted. Repeated crash-window coverage remains
+open. Full evidence and open gates are tracked in
 [`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
 
 The rest of this document records standalone CLI and provider-adapter status on
