@@ -391,3 +391,30 @@ signed-in Modal dashboard.
   for this Modal app. It does not resolve the exit-2 cause, prove behavior from
   a different Modal environment, or authorize another run. No provider or app
   state was changed.
+
+## Modal exit-code diagnosis patch — 2026-11-12 16:19 UTC
+
+- The pinned workload exits with code 2 for eight concrete preflight guards at
+  source lines 43, 47, 56, 58, 62, 69, 72, and 76. The bootstrap now encodes
+  only those registered return lines into reserved process exit statuses; the
+  Modal endpoint maps those statuses back to legacy `exit_code=2` while
+  returning a bounded diagnostic such as `PREFLIGHT_RETURN_LINE_76`. The map is
+  included in the workload image fingerprint. Unknown exit codes retain their
+  previous value and produce no decoded line.
+- Added regressions cover actual guarded source lines, mapping boundaries,
+  legacy exit-2 normalization, bootstrap fallback behavior, and Worker result
+  normalization. The new fingerprint calculated from the manifest inputs is
+  `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560`; it is
+  not the currently deployed fingerprint, so the deployed service remains
+  unchanged until separately authorized.
+- Verification: targeted bootstrap tests 4/4; Sites Worker tests 23/23;
+  Python compile, full `uv run --locked pytest` (569 passed, 1 skipped), and
+  `git diff --check` passed.
+- Focused Codex Security diff review `7a64ba0b-8a16-4d72-b213-5246ae84e24c`
+  completed with four reviewed surfaces, zero findings, and complete patch
+  coverage. Report:
+  `/Users/taka/.codex/state/plugins/codex-security/scans/gpu-control-pr58-current-candidate/c2f6ef965bdac545cc113edd3ee2dc7bd2466420_20261112T161410Z_qscsqa_4/report.md`.
+  This is a patch review, not the unavailable managed-read-only full Deep Scan.
+- No Modal deploy, Sandbox execution, admission change, or provider state change
+  was performed. A deployed-image run and end-to-end ChatGPT acceptance remain
+  open and require a new exact one-run authorization after deployment.

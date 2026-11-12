@@ -8,6 +8,7 @@ from pathlib import Path
 
 MODAL_DIR = Path(__file__).resolve().parents[1] / "sites" / "gpu-control-sites" / "modal"
 sys.path.insert(0, str(MODAL_DIR))
+import gpu_control_modal_bootstrap as modal_bootstrap  # noqa: E402
 from gpu_control_modal_bootstrap import sandbox_entrypoint  # noqa: E402
 
 
@@ -20,19 +21,36 @@ class SandboxBootstrapTests(unittest.TestCase):
             return subprocess.run(command, capture_output=True, text=True, check=False)
 
     def test_main_return_two_emits_line_and_system_exit_markers(self) -> None:
-        result = self.run_script(
-            "def main():\n    return 2\n\n"
-            "if __name__ == '__main__':\n    raise SystemExit(main())\n"
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertRegex(result.stderr, r"GPU_CONTROL_PREFLIGHT_RETURN_LINE=[1-9][0-9]*")
-        self.assertIn("GPU_CONTROL_SANDBOX_SYSTEM_EXIT=2", result.stderr)
+        source = "\n" * 74 + "def main():\n    return 2\n\n"
+        source += "if __name__ == '__main__':\n    raise SystemExit(main())\n"
+        result = self.run_script(source)
+        self.assertEqual(result.returncode, 140)
+        self.assertIn("GPU_CONTROL_PREFLIGHT_RETURN_LINE=76", result.stderr)
+        self.assertNotIn("GPU_CONTROL_SANDBOX_SYSTEM_EXIT=2", result.stderr)
+        self.assertEqual(modal_bootstrap.diagnostic_code_for_exit(result.returncode), "PREFLIGHT_RETURN_LINE_76")
 
     def test_system_exit_before_main_still_emits_fallback_marker(self) -> None:
         result = self.run_script("raise SystemExit(2)\n")
         self.assertEqual(result.returncode, 2)
         self.assertNotIn("GPU_CONTROL_PREFLIGHT_RETURN_LINE=", result.stderr)
         self.assertIn("GPU_CONTROL_SANDBOX_SYSTEM_EXIT=2", result.stderr)
+
+    def test_preflight_exit_codes_are_limited_to_registered_guard_lines(self) -> None:
+        expected = {43, 47, 56, 58, 62, 69, 72, 76}
+        self.assertTrue(hasattr(modal_bootstrap, "preflight_exit_code_map"))
+        self.assertTrue(hasattr(modal_bootstrap, "diagnostic_code_for_exit"))
+        self.assertTrue(hasattr(modal_bootstrap, "normalize_exit_code"))
+        mapping = modal_bootstrap.preflight_exit_code_map()
+        self.assertEqual({code - 64 for code in mapping}, expected)
+        self.assertIsNone(modal_bootstrap.diagnostic_code_for_exit(64 + 75))
+        self.assertEqual(
+            modal_bootstrap.normalize_exit_code(64 + 76),
+            (2, "PREFLIGHT_RETURN_LINE_76"),
+        )
+        self.assertEqual(modal_bootstrap.normalize_exit_code(2), (2, None))
+        workload = (MODAL_DIR.parent / "workloads" / "tiny_stories_inference" / "inference.py").read_text()
+        lines = workload.splitlines()
+        self.assertTrue(all(lines[line - 1].strip() == "return 2" for line in expected))
 
     def test_production_command_keeps_privilege_drop_and_isolated_python(self) -> None:
         command = sandbox_entrypoint()

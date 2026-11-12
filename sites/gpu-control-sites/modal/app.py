@@ -16,7 +16,7 @@ from typing import Any
 import modal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from gpu_control_modal_bootstrap import sandbox_entrypoint
+from gpu_control_modal_bootstrap import normalize_exit_code, preflight_exit_code_map, sandbox_entrypoint
 
 APP_NAME = "gpu-control-sites"
 REPOSITORY = "Unjuno/gpu-control"
@@ -80,6 +80,9 @@ def workload_image_fingerprint() -> str:
         "tokenizer_sha256": TOKENIZER_SHA256,
         "entrypoint": ["python", "-I", "/work/inference.py"],
         "sandbox_entrypoint": list(SANDBOX_ENTRYPOINT),
+        "preflight_exit_code_map": {
+            str(code): diagnostic for code, diagnostic in sorted(preflight_exit_code_map().items())
+        },
         "sandbox": {"cpu": 1, "memory_mib": 512, "network": "blocked", "max_runtime_seconds": MAX_RUNTIME_SECONDS},
     }
     return _sha256(_canonical(manifest))
@@ -176,10 +179,11 @@ def _bounded_stream(stream, maximum: int) -> tuple[str, bool]:
 
 
 def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    exit_code = sandbox.poll()
-    if exit_code is None:
+    raw_exit_code = sandbox.poll()
+    if raw_exit_code is None:
         return {"state": "running", "sandbox_id": sandbox.object_id,
                 "cleanup_state": "pending", "image_id": workload_image.object_id}
+    exit_code, diagnostic_code = normalize_exit_code(raw_exit_code)
     stdout, stdout_truncated = _bounded_stream(sandbox.stdout, MAX_STDOUT_BYTES)
     stderr, stderr_truncated = _bounded_stream(sandbox.stderr, MAX_STDERR_BYTES)
     try:
@@ -215,7 +219,7 @@ def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "image_fingerprint": WORKLOAD_IMAGE_FINGERPRINT,
         "result": result,
         "stderr": stderr,
-        "diagnostic_code": (
+        "diagnostic_code": diagnostic_code or (
             f"PREFLIGHT_RETURN_LINE_{diagnostic_match.group(1)}" if diagnostic_match else
             "PREFLIGHT_SYSTEM_EXIT_2" if system_exit_match else None
         ),
