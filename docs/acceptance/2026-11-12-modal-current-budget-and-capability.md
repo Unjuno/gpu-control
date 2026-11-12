@@ -338,3 +338,9 @@ signed-in Modal dashboard.
   `CPU_WORKLOAD_ADMISSION_DISABLED`. The exact one-run authorization remains
   consumed, so the next live attempt requires fresh authorization bound to a
   new run plan and a diagnostic improvement that identifies the failing guard.
+- Read-only Modal UI follow-up for this failure found the control API call
+  `fc-01M77X3HT87A1YYX5A5SM7WDQJ` completed successfully in 127 ms after a
+  6.34-second cold start. Its Logs tab and the linked Sandbox Logs view were
+  empty; the Execution and Call Graph tabs did not expose the function return
+  payload. This confirms only that the control function call completed, not
+  why the workload exited 2. No provider state was changed.
