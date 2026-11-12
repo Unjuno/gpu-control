@@ -79,13 +79,18 @@ class SandboxBootstrapTests(unittest.TestCase):
 
     def test_modal_api_image_uses_hash_locked_framework_dependencies(self) -> None:
         requirements = (MODAL_DIR / "requirements.txt").read_text(encoding="utf-8")
+        requirements_input = (MODAL_DIR / "requirements.in").read_text(encoding="utf-8")
         app_source = (MODAL_DIR / "app.py").read_text(encoding="utf-8")
+        project_root = MODAL_DIR.parents[2]
+        project_config = (project_root / "pyproject.toml").read_text(encoding="utf-8")
         pins = {line.split("\\", 1)[0].strip() for line in requirements.splitlines()
                 if line.startswith(("fastapi==", "starlette=="))}
+        self.assertEqual(requirements_input.strip(), "fastapi==0.162.2")
         self.assertIn("fastapi==0.162.2", pins)
         self.assertIn("starlette==1.10.0", pins)
         self.assertIn(".pip_install_from_requirements(str(SITE_ROOT / \"modal\" / \"requirements.txt\"))", app_source)
         self.assertGreaterEqual(requirements.count("--hash=sha256:"), 11)
+        self.assertIn('"pip-audit==2.10.1"', project_config)
 
 
 if __name__ == "__main__":
