@@ -32,8 +32,22 @@ RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 SHA64_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 
-SITE_ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = SITE_ROOT.parents[1]
+REMOTE_SITE_ROOT = Path("/root/gpu-control-sites")
+
+
+def resolve_site_root(module_file: str | Path, remote_site_root: Path = REMOTE_SITE_ROOT) -> Path:
+    """Find the packaged Site source both during deploy and in Modal imports."""
+    module_path = Path(module_file).resolve()
+    for parent in module_path.parents:
+        if (parent / "workloads" / "tiny_stories_inference" / "Dockerfile").is_file():
+            return parent
+    if (remote_site_root / "workloads" / "tiny_stories_inference" / "Dockerfile").is_file():
+        return remote_site_root
+    raise RuntimeError("packaged gpu-control Site workload source is unavailable")
+
+
+SITE_ROOT = resolve_site_root(__file__)
+REPOSITORY_ROOT = next((parent for parent in SITE_ROOT.parents if (parent / ".git").exists()), None)
 DOCKERFILE = SITE_ROOT / "workloads" / "tiny_stories_inference" / "Dockerfile"
 INFERENCE = SITE_ROOT / "workloads" / "tiny_stories_inference" / "inference.py"
 LLAMA2_C = SITE_ROOT / "workloads" / "third_party" / "llama2.c" / "run.c"
@@ -70,18 +84,23 @@ WORKLOAD_IMAGE_FINGERPRINT = workload_image_fingerprint()
 
 
 def verify_registered_source() -> None:
-    """Reject local edits to workload code versus the already registered source."""
-    expected_paths = {
-        "sites/gpu-control-sites/runner/tiny_stories_inference/inference.py": INFERENCE,
-        "sites/gpu-control-sites/runner/third_party/llama2.c/run.c": LLAMA2_C,
-    }
-    for historical_path, current_path in expected_paths.items():
-        expected = subprocess.run(
-            ["git", "show", f"{WORKLOAD_SOURCE_SHA}:{historical_path}"],
-            cwd=REPOSITORY_ROOT, check=True, capture_output=True,
-        ).stdout
-        if expected != current_path.read_bytes():
-            raise RuntimeError(f"registered workload source mismatch: {current_path.name}")
+    """Reject source drift locally and verify pinned inputs after remote import."""
+    expected_paths = (
+        ("sites/gpu-control-sites/runner/tiny_stories_inference/inference.py", INFERENCE,
+         "ac4f1e6cc248d29112119ae4c689287942f58055fbc9499aa500df21e5fc1351"),
+        ("sites/gpu-control-sites/runner/third_party/llama2.c/run.c", LLAMA2_C,
+         "78951c4623437da86cc5d835ea26af8c750c5132dfeb6e506c4a2db918e61682"),
+    )
+    for historical_path, current_path, expected_sha256 in expected_paths:
+        if REPOSITORY_ROOT is not None:
+            expected = subprocess.run(
+                ["git", "show", f"{WORKLOAD_SOURCE_SHA}:{historical_path}"],
+                cwd=REPOSITORY_ROOT, check=True, capture_output=True,
+            ).stdout
+            if expected != current_path.read_bytes():
+                raise RuntimeError(f"registered workload source mismatch: {current_path.name}")
+        elif _sha256(current_path.read_bytes()) != expected_sha256:
+            raise RuntimeError(f"registered workload source digest mismatch: {current_path.name}")
 
 
 verify_registered_source()
@@ -92,8 +111,10 @@ workload_image = modal.Image.from_dockerfile(
     context_dir=str(SITE_ROOT),
     build_args={"SOURCE_REPOSITORY": REPOSITORY, "SOURCE_SHA": WORKLOAD_SOURCE_SHA},
 )
-api_image = modal.Image.debian_slim(python_version="3.12").pip_install_from_requirements(
-    str(Path(__file__).with_name("requirements.txt"))
+api_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("fastapi==0.128.2")
+    .add_local_dir(str(SITE_ROOT / "workloads"), remote_path=str(REMOTE_SITE_ROOT / "workloads"), copy=True)
 )
 api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
