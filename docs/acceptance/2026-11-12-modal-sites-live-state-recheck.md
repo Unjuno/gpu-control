@@ -11,6 +11,13 @@ Read-only calls to the installed `GPU Control — ChatGPT実験管理` MCP retur
   `CPU_WORKLOAD_ADMISSION_DISABLED`; provider `modal_cpu`; workload
   `tiny-stories-inference-v1`; max runtime 30 seconds; max inflight 1; paid
   execution parked.
+- Sites owner API confirms production version 23 is deployed successfully at
+  `https://gpu-control-sites.unjuno.chatgpt.site`, environment revision 22,
+  access mode `public`, with the current admission env var explicitly `false`.
+  The saved version's source SHA is
+  `1352662626d44dee08fd513f4c8886b6f75cb090`; this SHA is not present in the
+  current checkout and GitHub could not resolve it, so it is not treated as
+  source-provenance evidence for the current PR branch.
 - `experiment_list`: latest failed runs were `96d7efef9542463d9fc51f47ffbfd5d7`
   (created 2026-11-12 08:21 UTC) and
   `599473dcc1ed4034a42d849bcb42e261` (created 2026-11-12 08:52 UTC). Both
