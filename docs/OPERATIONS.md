@@ -1,11 +1,14 @@
 # Current operations: ChatGPT Sites + D1
 
-The supported ChatGPT control plane is the owner-private Sites MCP Worker at
+The supported ChatGPT control plane is the public Sites MCP Worker at
 `https://gpu-control-sites.unjuno.chatgpt.site`. Its product records are stored
 in the Sites-provisioned D1 database and result objects in R2. As of 2026-11-12,
-the live Site is Version 16, but its capability tool reports
-`available=false`, `runner_ready=false`, and `admission_enabled=false` for the
-retired `local_cpu` path. There is no currently available compute provider.
+the live Site is Version 18 from source commit
+`f9930e444c16ede956e0812f547f920199f37c0d` (Worker changes at
+`1acaa91edb89a5824ce180ea7166d79d4162316a`), with environment revision 17. Its
+capability tool reports `available=false`, `provider_ready=false`, and
+`admission_enabled=false` for `modal_cpu`. There is no currently available
+compute provider.
 Historical CPU success records below remain valid evidence for those earlier
 runs; they do not show present readiness.
 
@@ -23,7 +26,8 @@ current staged acceptance plan.
 The following observations were made before the local Runner was retired. They
 are retained as historical evidence and are not current operating instructions.
 
-- ChatGPT can discover and call the private Site's experiment tools.
+- ChatGPT can discover and call the Site's experiment tools in the owner's
+  connected session.
 - One fixed-image CPU checksum smoke completed through ChatGPT → Sites → D1 →
   Runner → D1 → ChatGPT; result retrieval and container cleanup were confirmed.
 - One TinyStories 15M inference completed through the same ChatGPT → Sites →
@@ -111,17 +115,20 @@ identifiers, and run results. Cloudflare documents SQL export through Wrangler
 and its API, but that route needs an approved credential and a protected
 destination before use: [D1 import and export](https://developers.cloudflare.com/d1/best-practices/import-export-data/).
 
-The currently deployed Site was observed as Version 16 and MCP-ready. The local
-Runner and Keychain credentials have since been removed. Do not infer that the
-historical heartbeat, local process, or prior capability state still exists.
+The Site audience is public. This ChatGPT owner connection successfully called
+`experiment_capabilities` and `experiment_list` (29 records: 25 succeeded, 3
+failed, 1 cancelled). This does not prove that another ChatGPT account/process
+can install or use the plugin. Anonymous HTTP requests returned Cloudflare edge
+HTTP 403, so they did not reach the Worker and do not verify its authentication
+behavior. The local Runner and Keychain credentials have been removed.
 
 ## Operating boundaries
 
-- Before changing the Site from owner-only to public, verify anonymous calls
-  cannot access user data or trigger compute. Every stateful MCP tool must
-  require Sites' authenticated user ID and enforce owner-scoped queries;
-  discovery/tool schemas may remain public. Add per-user and global resource
-  bounds before any public compute path is enabled.
+- Keep every stateful MCP tool bound to Sites' authenticated user ID and
+  owner-scoped queries. Anonymous and forged-identity requests must fail before
+  accessing D1 or any provider. Add per-user and global resource bounds before
+  any public compute path is enabled. Cross-account ChatGPT acceptance remains
+  open.
 - Keep provider credentials out of Site source, MCP arguments, logs, and
   workload containers. The replacement provider must use a scoped runtime
   secret store and must never reintroduce a personal-host Runner token.
@@ -134,8 +141,8 @@ historical heartbeat, local process, or prior capability state still exists.
 
 ## Retired macOS Runner
 
-The current Site remains owner-only until the authenticated public-access gates
-are implemented and checked. The former LaunchAgent was unloaded, its local runtime was removed, and the
+The Site audience is public; compute remains unavailable until its gates pass.
+The former LaunchAgent was unloaded, its local runtime was removed, and the
 `runner-bearer` and `sites-service` Keychain entries were deleted. Do not ask
 for a macOS password, restore either Keychain item, reinstall the LaunchAgent,
 or restart the old Runner. The old endpoint and runtime secret must be removed

@@ -2,11 +2,15 @@
 
 ## Hosted Sites and provider status — 2026-11-12
 
-The owner-private ChatGPT Sites MCP Worker is deployed as Version 16, with D1
-and R2. Its current capability response reports `available=false`,
-`runner_ready=false`, `admission_enabled=false`, and paid execution as parked.
+The public ChatGPT Sites MCP Worker is deployed as Version 18 from source
+`f9930e444c16ede956e0812f547f920199f37c0d` (Worker code commit
+`1acaa91edb89a5824ce180ea7166d79d4162316a`), with environment revision 17 and
+D1/R2. Its capability response reports `available=false`,
+`provider_ready=false`, `admission_enabled=false`, and paid execution as parked.
 The personal-host CPU Runner and its Keychain authentication path have been
-retired. The older accepted TinyStories 15M runs remain historical evidence;
+retired. The owner's current ChatGPT connection called capability and
+experiment-list tools successfully; cross-account plugin access remains
+unverified. The older accepted TinyStories 15M runs remain historical evidence;
 they do not establish a currently usable execution path.
 
 Before retirement, a ChatGPT-originated TinyStories 15M inference completed on

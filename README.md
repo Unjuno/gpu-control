@@ -42,13 +42,16 @@ The project is **usable today for offline validation and control-plane developme
 | Paid RunPod workflow | Not enabled; Sites admission wiring and authenticated result transport remain incomplete |
 | Live paid GPU execution | Disabled / parked |
 
-The current hosted product path is the ChatGPT Sites Worker with D1/R2. The Site
-is currently owner-only; the target is public discovery with authenticated,
-owner-scoped use. Before widening access, verify anonymous requests cannot read
-data or trigger compute and add public-use limits. The old local Runner is
-retired. The target compute order is Modal for a small fixed workload, then
-Runpod for separately gated GPU experiments. Vercel and Neon/PostgreSQL are not
-target dependencies. The legacy FastAPI/PostgreSQL Gateway source and runtime
+The current hosted product path is the public ChatGPT Sites Worker with D1/R2.
+Stateful MCP tools require the authenticated Sites identity and owner-scoped
+queries; provider admission remains disabled. This ChatGPT connection has
+successfully called the Site's capability and experiment-list tools, but access
+from another ChatGPT account/process is not yet proven. Anonymous HTTP probes
+were blocked at the edge (HTTP 403), so they do not independently verify the
+Worker's public authentication behavior. The old local Runner is retired. The
+target compute order is Modal for a small fixed workload, then Runpod for
+separately gated GPU experiments. Vercel and Neon/PostgreSQL are not target
+dependencies. The legacy FastAPI/PostgreSQL Gateway source and runtime
 dependencies have been removed from the tracked tree; historical acceptance
 evidence remains under `docs/acceptance/` and in Git history.
 

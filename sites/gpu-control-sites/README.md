@@ -1,24 +1,23 @@
 # GPU Control Sites
 
-Private ChatGPT MCP Site source for `Unjuno/gpu-control`.
+Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 
-## Current live state — 2026-11-12
+## Current hosted state
 
-- Site: `gpu-control-sites`, currently owner-only, deployed Version 16.
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Hosting/control plane: ChatGPT Sites Worker.
+- Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- ChatGPT capability response: `available=false`, `runner_ready=false`,
-  `admission_enabled=false`; the former `local_cpu` path is unavailable.
-- Paid execution: parked. Modal and Runpod are not yet connected to this Site.
-- Vercel, Neon/PostgreSQL, macOS Keychain, and the personal-host Runner are not
-  supported runtime dependencies.
+- The current capability tool reports `available=false`,
+  `provider_ready=false`, and `admission_enabled=false` for `modal_cpu`.
+- The former macOS Runner, its Worker routes, and its bearer secret are retired.
+- Modal and Runpod are not connected; paid execution remains parked.
+- Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
-The requested target is public discovery with authenticated use. Do not change
-the Site audience until anonymous requests are proven unable to access user
-data or invoke compute. Every data-bearing or execution MCP tool must require
-the Sites-injected user ID and enforce D1 ownership. Add per-user and global
-resource bounds before any public compute route is enabled.
+Every data-bearing or execution MCP tool must require the Sites-injected user
+ID and enforce D1 ownership. This ChatGPT connection has called the capability
+and experiment-list tools; access from another ChatGPT account/process is not
+yet verified. Anonymous HTTP probes were blocked at the edge and do not verify
+Worker-level authentication. Provider admission remains disabled.
 
 ## Target execution architecture
 
@@ -28,7 +27,7 @@ separate authorization, pricing, availability, result-integrity, and cleanup
 gates. D1/R2 lifecycle data must be preserved through the transition.
 
 ```text
-ChatGPT -> private Sites MCP Worker -> D1/R2
+ChatGPT -> public Sites MCP Worker (authenticated stateful tools) -> D1/R2
                                     -> authenticated Modal function
                                     -> Runpod only after live gates pass
 ```
@@ -43,8 +42,8 @@ run state or become retrievable artifacts.
 The former macOS LaunchAgent was unloaded, its local runtime was removed, and
 its two Keychain credentials were deleted. Do not restore or use that path, ask
 for a macOS password, or enable `RUNNER_BEARER_TOKEN` for a local poller. The
-legacy `/runner/*` Worker routes and their Site secret are scheduled for removal
-in a reviewed saved-Site cutover. Historical run and artifact records remain
+legacy `/runner/*` Worker routes and the obsolete Site secret are removed from
+the current Site source/runtime. Historical run and artifact records remain
 untouched.
 
 ## Source layout

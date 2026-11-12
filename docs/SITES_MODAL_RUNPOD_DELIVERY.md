@@ -15,14 +15,17 @@ provide model compute. Compute remains an explicitly configured provider.
 
 ## Live baseline observed on 2026-11-12
 
-- The private Site `gpu-control-sites` is active at
-  `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 16.
-- Its current Sites access mode is `custom`, with the owner as the allowed user.
-  A Site-hosted plugin exists and is connected for the owner; this does not
+- The public Site `gpu-control-sites` is active at
+  `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 18,
+  source commit `f9930e444c16ede956e0812f547f920199f37c0d`, Worker code commit
+  `1acaa91edb89a5824ce180ea7166d79d4162316a`, and environment revision 17.
+- Its current Sites access mode is `public` (access revision 2). A Site-hosted
+  plugin exists and is connected for the owner; this does not
   establish that another user's ChatGPT process can install or call it.
 - The ChatGPT capability tool reports `available=false`,
-  `runner_ready=false`, and `admission_enabled=false` for `local_cpu`. It reports
-  paid execution as parked. No current compute path is advertised as ready.
+  `provider_ready=false`, and `admission_enabled=false` for `modal_cpu`. It
+  reports paid execution as parked. No current compute path is advertised as
+  ready.
 - D1 and R2 remain the Site's storage bindings. Preserve their current records,
   migrations, artifacts, and historical evidence during provider changes.
 - The macOS LaunchAgent and its local runtime were removed, and the two local
@@ -70,7 +73,7 @@ ChatGPT
   general public availability requires the supported public plugin review and
   publication route. Choose and verify the supported route before claiming
   another ChatGPT process can use it.
-- The Site may be publicly discoverable, but all tool calls that read or mutate
+- The Site is publicly discoverable, but all tool calls that read or mutate
   user/run state require the Sites-injected authenticated user ID. Anonymous
   callers may discover the public shell and tool schema only; they cannot
   prepare, submit, poll, cancel, or read results. Every D1 query remains scoped
@@ -87,7 +90,7 @@ ChatGPT
 
 ### 0. Repository and account inventory
 
-- Reconcile this checkout, `main`, open PRs, Site Version 16, D1/R2 bindings,
+- Reconcile this checkout, `main`, open PRs, Site Version 18, D1/R2 bindings,
   deployment state, Modal workspace limits, and Runpod active-resource state.
 - Resolve the ChatGPT distribution route for non-owner users and test with a
   genuinely separate ChatGPT identity; a public Site URL or the owner's plugin
