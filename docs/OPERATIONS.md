@@ -97,10 +97,11 @@ identifiers, and run results. Cloudflare documents SQL export through Wrangler
 and its API, but that route needs an approved credential and a protected
 destination before use: [D1 import and export](https://developers.cloudflare.com/d1/best-practices/import-export-data/).
 
-The currently deployed Site is Version 15, deployment
-`appgdep_6af5169fa69c8191b4dca5bb77272c84`, from Sites source commit
-`e3cfaf71c5f084c6a6ab40adbae8e189327197ad`; it reports MCP ready and served the
-new inference above. Version 13 introduced a D1 protocol-version check so
+The currently deployed Site is Version 16, deployment
+`appgdep_6af5482ff16c819197cfe56dc3755193`, from Sites source commit
+`82d9a5dba4af54a60dc5e48cbbe6f16a1ebfa4e3`; it reports MCP ready. The
+Version 16 rollout and post-restart inference are recorded in
+`acceptance/2026-11-12-runner-environment-sanitization.md`. Version 13 introduced a D1 protocol-version check so
 legacy Runners fail closed. The live macOS LaunchAgent is running with login
 Keychain credentials; its `run.py` and Keychain launcher hashes match the
 published source, and plist/runtime files have mode `0600`. Static security
@@ -133,7 +134,7 @@ login Keychain at launch and keeps them in process memory. Its plist contains
 only the fixed Site URL, registered source/image identity, and polling
 settings. The plist is written atomically with mode `0600`; a missing Keychain
 entry fails closed. The installed service and Keychain items are present, and
-the running source hashes match the published Version 15 source.
+the running source hashes match the published Version 16 source.
 
 To provision or operate it after admission is closed and all runs are terminal:
 
@@ -162,8 +163,11 @@ To provision or operate it after admission is closed and all runs are terminal:
    depends on them.
 
 The source SHA recorded in saved Site Version 13 was reconciled with the
-Cloudflare artifact repository at that time. Version 15 is now the live Site
-version. For further edits, reconcile the checkout against the deployed source
+Cloudflare artifact repository at that time. Version 16 is now the live Site
+version. Its Runner environment sanitizer was installed through a coordinated
+stop/install/start with free admission closed; a fresh heartbeat and zero-cost
+post-restart inference passed. Credential rotation and Keychain ACL review
+remain open. For further edits, reconcile the checkout against the deployed source
 before pushing. Preserve the active Runner and its Keychain credentials while
 testing changes; schedule restarts only after a live recovery plan is ready.
 

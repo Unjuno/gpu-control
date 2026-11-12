@@ -1,44 +1,62 @@
-# Runner environment inheritance finding — 2026-11-12
+# Runner environment sanitization — 2026-11-12
 
-## Observation
+## Finding
 
-A read-only inspection of the live macOS LaunchAgent showed the runner process
-inherits `SSH_AUTH_SOCK` from the user's launchd session. The fixed workload
-container receives a deliberately bounded environment, but the host-side Runner
-process had not cleared unrelated inherited variables before loading its
-Keychain credentials. An inherited proxy or Docker endpoint could also alter
-how the Runner reaches Sites or Docker if one were present.
+The live LaunchAgent's launchd record exposed the inherited `SSH_AUTH_SOCK`
+setting. The fixed workload container already receives a bounded environment,
+but the host Runner needed an explicit environment boundary before it loads its
+Keychain credentials.
 
-The active process, plist, and installed launcher were not changed or restarted.
-The current active Site remained Version 15 during this review. The running
-`run.py` and Keychain launcher are mode `0600` and byte-identical to the current
-checkout; the plist is mode `0600` and passes `plutil -lint`. This confirms
-source integrity and file permissions, not that the inherited agent socket was
-unavailable to the Runner.
+`ps eww` continued to display the launch-time environment for a controlled
+Python process after `os.environ.clear()`. A separate check in that same
+process called the native C `getenv("SSH_AUTH_SOCK")` after clearing and
+returned false. Therefore `ps eww` is not used as proof of the current C
+environment in this macOS setup; it may show the original exec-time block.
+No socket value was recorded.
 
-## Candidate mitigation
+## Deployed mitigation
 
-`runner/macos_keychain_launcher.py` now reduces the process environment to an
-explicit allowlist before loading secrets. This drops `SSH_AUTH_SOCK`,
-`SSH_AGENT_PID`, proxy variables, Docker endpoint overrides, Python path hooks,
-and any environment-provided credentials. The allowlist retains only the fixed
-Site and workload settings, `PATH`, and the pinned user home/locale from the
-LaunchAgent plist. Keychain bearer values remain in process memory, never in the
-environment.
+- The correct baseline was opened through the Sites source helper at the exact
+  production Version 15 source commit
+  `e3cfaf71c5f084c6a6ab40adbae8e189327197ad`. The earlier local Site checkout
+  was stale and had unrelated uncommitted files; it was not pushed.
+- `runner/macos_keychain_launcher.py` now clears inherited environment state
+  before loading credentials and retains only the fixed Site/workload
+  configuration, `PATH`, `HOME`, and `LANG`. This removes inherited SSH-agent,
+  proxy, Docker endpoint, Python path, and environment credential settings.
+  Bearer credentials continue to come from Keychain and remain only in memory.
+- `runner/macos_launch_agent.py` explicitly pins `HOME` and `LANG` in its
+  secret-free plist. The sanitized launcher and updated plist were installed
+  while free CPU admission was disabled and all 28 listed runs were terminal.
+- The new source commit is `82d9a5dba4af54a60dc5e48cbbe6f16a1ebfa4e3`.
+  Private Site Version 16 deployment `appgdep_6af546ffca2081918414b1bc0725782f`
+  succeeded with MCP ready. The runtime environment was applied as revision 13
+  with CPU admission closed, then revision 14 reopened free CPU admission.
+- The LaunchAgent stop/install/start sequence succeeded. The installed
+  `run.py` and Keychain launcher are byte-identical to Version 16 source; the
+  plist and both installed Python files are mode `0600`; `plutil -lint` passes.
+  Sites accepted a fresh heartbeat for the registered source and image after
+  restart (`runner_ready=true`) before admission was reopened.
+- A post-cutover ChatGPT-originated run
+  `eacc26ff2ad54cf69a1ee7665325b197` succeeded under a `$0.00` cap. It generated
+  four tokens in 142 ms, passed all nine workload checks, reported
+  `gpu_used=false`, and confirmed container cleanup. The separate result and
+  artifact calls succeeded. The complete 962-byte R2 artifact SHA-256
+  `39ff3134a0b69d34ea8e4d220a4445583c803eb6382c88593a291486cffb5030` matched
+  an independent hash of the returned bytes.
+- Local verification on the exact Version 15 baseline plus this patch: 24
+  Runner tests, 24 Worker/D1 tests, `npm run build`, and `npm run validate`
+  passed. Paid execution remained parked throughout.
 
-Local regression coverage passes: 24 Runner tests, including poisoned
-`SSH_AUTH_SOCK`, proxy, Docker-host, `PYTHONPATH`, and environment-token cases;
-30 Sites Worker/D1 tests also pass. This is candidate code evidence only.
+## Remaining security and operations gates
 
-## Rollout gate
-
-- [ ] Reconcile the local Site source checkout with the source branch behind the
-  deployed Version 15 before publishing. The local source branch is behind its
-  recorded `sites/main` reference and has unrelated uncommitted Site changes;
-  do not push or publish this checkout as-is.
-- [ ] Publish a reviewed source version, close free CPU admission during the
-  Runner replacement, install the sanitized launcher and plist, restart through
-  launchd, verify the live heartbeat and successful zero-cost inference, and
-  confirm the running process has no SSH-agent/proxy/Docker endpoint variables.
-- [ ] Reopen free CPU admission only after the checks above pass. Paid providers
-  remain parked.
+- [ ] Rotate the Runner bearer credential and separately verify the Keychain
+  ACL; this rollout reused the existing Keychain items without reading or
+  changing their values.
+- [ ] Add an explicit in-process environment audit signal if future macOS
+  tooling can validate it without relying on `ps eww`'s launch-time snapshot.
+- [ ] Repeat the post-result/R2 crash-window and process-loss acceptance.
+- [ ] Complete isolated D1/R2 restore, artifact orphan cleanup, and
+  separate-account owner isolation/revocation.
+- [ ] Retire external Vercel and Neon resources after owner action and Neon data
+  disposition. Paid and GPU admission remain parked.
