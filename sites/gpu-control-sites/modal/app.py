@@ -28,27 +28,6 @@ TOKENIZER_SHA256 = "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ec
 MAX_RUNTIME_SECONDS = 30
 MAX_STDOUT_BYTES = 4096
 MAX_STDERR_BYTES = 2048
-SANDBOX_LAUNCHER = """\
-import os
-
-if os.geteuid() != 0:
-    raise SystemExit(126)
-os.setgroups([])
-os.setresgid(10001, 10001, 10001)
-os.setresuid(10001, 10001, 10001)
-if os.getresuid() != (10001, 10001, 10001) or os.getresgid() != (10001, 10001, 10001):
-    raise SystemExit(126)
-safe_env = {key: os.environ[key] for key in (
-    "GPU_CONTROL_RUN_ID",
-    "GPU_CONTROL_SOURCE_SHA",
-    "GPU_CONTROL_PLAN_FINGERPRINT",
-    "GPU_CONTROL_PARAMETERS_JSON",
-    "GPU_CONTROL_RUNTIME_SECONDS",
-    "GPU_CONTROL_MODAL_IMAGE_FINGERPRINT",
-) if key in os.environ}
-safe_env.update({"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "LANG": "C", "TMPDIR": "/tmp"})
-os.execve("/usr/local/bin/python", ["python", "-I", "/work/inference.py"], safe_env)
-"""
 RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 SHA64_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -247,7 +226,6 @@ async def submit(run_id: str, request: Request):
         return _capture(existing, run_id, payload)
     try:
         sandbox = modal.Sandbox.create(
-            "/usr/local/bin/python", "-I", "-c", SANDBOX_LAUNCHER,
             app=app,
             image=workload_image,
             name=_sandbox_name(run_id),
