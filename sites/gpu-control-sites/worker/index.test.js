@@ -390,24 +390,27 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
     repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest, fingerprint,
     parameters_json: JSON.stringify(parameters), runtime_seconds: 10, lease_id: null };
 
-  for (const fault of ["r2", "d1"]) {
+  for (const fault of ["r2", "d1", "cancel-race"]) {
     const env = environment({ admission: "true" });
     env.MODAL_API_URL = "https://modal.invalid";
     env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
     env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
     env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "a".repeat(64);
     let bucketWrites = 0;
+    let bucketDeletes = 0;
     env.BUCKET = { put: async () => {
       if (fault === "r2" && bucketWrites++ === 0) throw new Error("injected R2 write failure");
-      if (fault === "d1") bucketWrites++;
+      if (fault === "d1" || fault === "cancel-race") bucketWrites++;
+      if (fault === "cancel-race") current.cancel_requested = 1;
       return {};
-    } };
+    }, delete: async () => { bucketDeletes++; } };
     let finalizeWrites = 0;
     const current = { ...joined };
     env.DB.prepare = (sql) => ({ bind(...values) {
       return {
         async first() {
           if (sql.includes("FROM runs r JOIN plans p")) return { ...current };
+          if (sql.startsWith("SELECT state, cancel_requested FROM runs")) return { ...current };
           throw new Error(`unexpected D1 first query: ${sql}`);
         },
         async run() {
@@ -417,13 +420,14 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
           }
           if (sql.startsWith("UPDATE runs SET state='succeeded'")) {
             if (fault === "d1" && finalizeWrites++ === 0) throw new Error("injected D1 finalize failure");
+            if (fault === "cancel-race") return { success: true, meta: { changes: 0 } };
             current.state = "succeeded";
             current.result_json = values[0];
             current.result_artifact_id = values[1];
             current.result_artifact_sha256 = values[2];
             current.result_artifact_size = values[3];
             current.cleanup_state = "confirmed";
-            return { success: true };
+            return { success: true, meta: { changes: 1 } };
           }
           throw new Error(`unexpected D1 write query: ${sql}`);
         },
@@ -441,6 +445,17 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
       };
       const firstResponse = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
       const firstRpc = await firstResponse.json();
+      if (fault === "cancel-race") {
+        assert.equal(firstRpc.result.isError, false);
+        const state = JSON.parse(firstRpc.result.content[0].text);
+        assert.equal(state.machine_state.state, "running");
+        assert.equal(state.machine_state.cancellation_requested, true);
+        assert.equal(current.state, "running", "a concurrent cancellation must prevent success finalization");
+        assert.equal(bucketWrites, 1);
+        assert.equal(bucketDeletes, 1, "the uncommitted run artifact must be removed after cancellation wins");
+        assert.equal(providerReads, 1);
+        continue;
+      }
       assert.equal(firstRpc.result.isError, true, `${fault} failure must remain visible`);
       assert.equal(current.state, "running", `${fault} failure must not mark an unpersisted result successful`);
 

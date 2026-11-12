@@ -458,13 +458,23 @@ async function synchronizeModalRun(env, runId, ownerId, { submit = false, cancel
   }
   const digest = await sha256Bytes(resultBytes);
   const artifactId = "result-json-v1";
-  await env.BUCKET.put(`runs/${runId}/${digest}/${artifactId}`, resultBytes, { customMetadata: {
+  const artifactKey = `runs/${runId}/${digest}/${artifactId}`;
+  await env.BUCKET.put(artifactKey, resultBytes, { customMetadata: {
     run_id: runId, sha256: digest, plan_fingerprint: row.fingerprint, source_sha: row.source_sha,
   } });
-  await env.DB.prepare(`UPDATE runs SET state='succeeded', result_json=?, result_artifact_id=?, result_artifact_sha256=?,
+  const finalized = await env.DB.prepare(`UPDATE runs SET state='succeeded', result_json=?, result_artifact_id=?, result_artifact_sha256=?,
       result_artifact_size=?, failure_code=NULL, cleanup_state='confirmed', updated_at=?
-    WHERE id=? AND owner_id=? AND state IN ('queued','running')`)
+    WHERE id=? AND owner_id=? AND state IN ('queued','running') AND cancel_requested=0`)
     .bind(new TextDecoder().decode(resultBytes), artifactId, digest, resultBytes.byteLength, now, runId, ownerId).run();
+  if (finalized.meta?.changes === 0) {
+    // A cancel request may win while the immutable artifact is being written.
+    // Only remove it after re-reading the row and proving success did not win.
+    const latest = await env.DB.prepare("SELECT state, cancel_requested FROM runs WHERE id=? AND owner_id=?")
+      .bind(runId, ownerId).first();
+    if (latest && latest.state !== "succeeded" && (latest.state === "cancelled" || latest.cancel_requested === 1)) {
+      await env.BUCKET.delete(artifactKey);
+    }
+  }
 }
 
 async function callTool(name, args, request, env) {
