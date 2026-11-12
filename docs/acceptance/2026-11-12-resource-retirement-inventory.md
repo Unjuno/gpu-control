@@ -306,3 +306,12 @@ Sites and Runner state by this refresh:
   failure pointing to the now-deleted deployment. This is the status already
   attached to that commit; verify the next commit head to see whether the
   external integration posts another status without the project.
+
+## Post-deletion GitHub checks — 2026-11-12 05:46 UTC
+
+- On the new PR #60 head `6f31aa5a87209b5f00f0a333d0d738e3e3c5e4b1`, all six
+  Actions checks completed successfully: Python 3.11/3.12/3.13, trusted
+  reference container, Project bridge tests, and Sites Worker/D1 contract.
+- GitHub returned no external commit statuses on this head, including no new
+  Vercel status. The failure remains attached only to the older commit that
+  predates project deletion.
