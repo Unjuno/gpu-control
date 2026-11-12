@@ -157,10 +157,15 @@ ChatGPT
 
 ## Current blockers
 
-1. Modal compute adapter and authenticated dispatch are not implemented or
-   deployed.
-2. The local Runner is retired, so the previously accepted CPU path is not
-   currently available.
+1. The fixed Modal CPU adapter and authenticated dispatch are implemented and
+   deployed as a Modal Web Function. Site Worker code now validates the Modal
+   `wk-`/`ws-` proxy-token formats, but that correction is pushed to GitHub and
+   has not yet been published as a new Site version. The most recent live
+   ChatGPT capabilities call therefore remains evidence of the previous
+   Worker version and reported Modal unavailable.
+2. The local Runner is retired, and there is no currently accepted CPU run
+   through ChatGPT. Admission remains disabled; no Modal Sandbox has been
+   started.
 3. Runpod live use remains parked. Current API v2 is documented as public beta;
    the checked-in v1/v2 contract notes must be reconciled against the current
    authenticated OpenAPI schema before live use.
@@ -169,3 +174,27 @@ ChatGPT
 5. Public Site hosting does not currently prove public plugin distribution. The
    account's eligible sharing/publication route and a separate-user ChatGPT test
    remain unresolved.
+
+## Continuation refresh — 2026-11-12
+
+- GitHub branch `codex/sites-modal-runner` is at `ea2cf5894a77dedd9e4a9d4b1f00a90dbf51c364`.
+  The Site Worker accepts Modal Proxy Token ID/secret prefixes and reports
+  provider health failure separately from disabled admission. Its 17-test
+  Worker suite, build, artifact validation, and `git diff --check` passed before
+  the change was committed and pushed.
+- Modal's temporary one-hour deployment API token was revoked through the
+  signed-in sidebar browser; reloading the API-token page showed no API tokens.
+  The persistent Site Proxy Token remains configured in the hosted Site
+  environment. Its capabilities response has not been rechecked against the
+  corrected Worker version.
+- The repository's machine policy still says `mode: parked` and forbids
+  provider-secret references and live paid execution until the listed GitHub,
+  prompt/context, workload, provider-contract, result-transport, and cleanup
+  prerequisites are satisfied. Therefore no Site deployment, admission change,
+  Sandbox start, or Runpod action was performed in this refresh.
+- Remaining objective evidence: publish the corrected Site Worker only after
+  resolving the repository activation-policy conflict; verify provider health
+  and owner authorization from the ChatGPT tool path; execute and retrieve a
+  bounded free CPU experiment with cleanup; complete operational recovery
+  evidence; then independently satisfy and authorize Runpod GPU and paid-canary
+  gates. The overall goal remains incomplete.

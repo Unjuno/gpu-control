@@ -19,13 +19,13 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published, but no compute path is currently available; Modal integration is not yet implemented, and paid GPU execution remains parked.
+The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published and a fixed Modal CPU adapter is implemented and deployed, but the current Site deployment has not yet passed provider readiness from the ChatGPT tool path. Paid execution remains parked.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
-| ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; current capabilities report the retired Runner unavailable |
-| Registered CPU experiment through ChatGPT | Previously accepted through the personal-host Runner. That Runner and its Keychain credentials are retired; no current compute path is available |
+| ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
+| Registered CPU experiment through ChatGPT | Fixed Modal adapter and authenticated health path are implemented; the latest capabilities call still reported the provider unavailable, and a follow-up Site deployment/ChatGPT run is pending |
 | Real model inference through ChatGPT | Historical TinyStories 15M CPU runs passed source, result, and cleanup checks. They do not prove current readiness, broad model quality, or GPU capability |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
@@ -44,16 +44,19 @@ The project is **usable today for offline validation and control-plane developme
 
 The current hosted product path is the public ChatGPT Sites Worker with D1/R2.
 Stateful MCP tools require the authenticated Sites identity and owner-scoped
-queries; provider admission remains disabled. This ChatGPT connection has
-successfully called the Site's capability and experiment-list tools, but access
-from another ChatGPT account/process is not yet proven. Anonymous HTTP probes
-were blocked at the edge (HTTP 403), so they do not independently verify the
-Worker's public authentication behavior. The old local Runner is retired. The
-target compute order is Modal for a small fixed workload, then Runpod for
-separately gated GPU experiments. Vercel and Neon/PostgreSQL are not target
-dependencies. The legacy FastAPI/PostgreSQL Gateway source and runtime
-dependencies have been removed from the tracked tree; historical acceptance
-evidence remains under `docs/acceptance/` and in Git history.
+queries; provider admission remains disabled. The current Site Worker source
+allows only the configured owner and has a fixed Modal CPU adapter. A local
+regression suite covers its owner boundary and provider-token parsing, but the
+latest production capabilities call still reported Modal unavailable; no
+current ChatGPT CPU run has been accepted. Access from another ChatGPT
+account/process is not yet proven. Anonymous HTTP probes were blocked at the
+edge (HTTP 403), so they do not independently verify the Worker's public
+authentication behavior. The old local Runner and its Keychain credentials are
+retired. The target compute order is Modal for a small fixed workload, then
+Runpod for separately gated GPU experiments. Vercel and Neon/PostgreSQL are
+not target dependencies. The legacy FastAPI/PostgreSQL Gateway source and
+runtime dependencies have been removed from the tracked tree; historical
+acceptance evidence remains under `docs/acceptance/` and in Git history.
 
 See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the ChatGPT integration,
 [docs/RELEASE_MATRIX.md](docs/RELEASE_MATRIX.md) for current acceptance gates,
