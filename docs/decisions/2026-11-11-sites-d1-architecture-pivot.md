@@ -139,9 +139,17 @@ The first migration slice should not move every provider or destroy rollback dat
 - [x] Worker tests passed 24/24; Runner tests passed 12/12; build, packaged artifact validation, and `git diff --check` passed. A Codex Security diff review of the six implementation files completed with zero findings; the review did not exercise live D1 or restart behavior.
 - [x] Saved Sites Version 13 from source commit `52416ec02fcf3b755e1763edc617cd0a67f4ab91` with packaged artifact SHA-256 `b43b22033dea244f5680dd1d70ea836a2528254eb2a4facc7247f279f80c952c`. It is saved only; production remains on Version 11 until a coordinated Runner update/restart is ready.
 - [x] Revalidated the live ChatGPT route after the previous acceptance: run `1fdfe901fda14798a42e33e492edd538` used the registered source/image and generated four TinyStories tokens in 155 ms. It passed source/model/parameter and sandbox checks, reported `gpu_used=false`, and confirmed cleanup at `$0.00`.
-- [ ] Perform the coordinated Runner update and Version 13 deployment, then verify readiness, a zero-cost inference, cancellation, cleanup, and recovery against the live Site.
+- [x] Superseded by the Version 15 live acceptance below: the coordinated Runner update/restart, zero-cost inference, cancellation, cleanup, and one forced process-loss/lease-expiry recovery have been verified. Repeated crash windows and other listed security/recovery gates remain open.
 
-**Next implementation sequence:** (1) rotate the Runner bearer into Sites and login Keychain, then replace the ephemeral Runner with the tested LaunchAgent while admission is closed; (2) deploy the provenance-verified Version 13 with the compatible Runner and verify cancellation, forced restart, lease recovery, result reconciliation, and cleanup live; (3) rehearse D1/R2 export, restore, retention, and orphan cleanup; (4) test owner isolation and access revocation; (5) classify/export or explicitly discard the remaining Neon auth/session/control state, then retire Neon and Vercel resources when no rollback or retention need remains; (6) validate real GPU provider execution behind fresh security, price, quota, cleanup, and authorization gates. Keep paid admission parked until those gates pass.
+**Next implementation sequence (refreshed 2026-11-12):** (1) close the outstanding Runner credential-rotation and repeated crash-window security checks; (2) rehearse D1 export and restore against an isolated target, then define R2 retention/orphan cleanup; (3) verify owner isolation and revocation using a genuinely separate authenticated Site user; (4) remove legacy FastAPI/PostgreSQL source and its unneeded CI/test/dependency surface after preserving useful behavioral and security evidence in concise archived records; (5) retire external Vercel project/integration and Neon only after residual Neon rows have an explicit data disposition; (6) validate real GPU provider execution through Sites while preserving independent price, quota, cleanup, and authorization gates. Keep paid admission parked until those gates pass.
+
+### User-confirmed platform direction — 2026-11-12
+
+- ChatGPT Sites is the product interface and control-plane hosting target. Do not add or retain Vercel product features, deployment checks, or runtime assumptions. Remove the external Vercel project and integration after verifying that GitHub required checks, DNS, secrets, and rollback procedures do not depend on it. Historical build and incident evidence may remain in `docs/archive/`.
+- Cloudflare D1 is the selected control-plane database. PostgreSQL is **not required** for the Sites product. D1 already persists the live plans, runs, idempotency, leases, and Runner heartbeats. R2 holds result bytes. The separate Runner executes only the fixed registered workload and does not require a PostgreSQL service.
+- PostgreSQL-specific locks, migrations, roles, SQLAlchemy paths, and tests exist only because the legacy FastAPI Gateway used them. They are not a reason to keep Postgres in the target architecture. Remove that active source/dependency/CI surface after preserving the necessary behavior as D1 acceptance cases and retaining useful historical evidence.
+- Neon is not needed by the current product path. Its external project still contains residual legacy session/auth/control records; do not read token contents or destroy those records until their disposition is explicitly settled. Once that is settled, remove the project and credentials, not just the application's references.
+- D1 is appropriate for the present single-owner, bounded, low-volume control plane. Its serialized per-database query execution and D1-specific transaction semantics require explicit concurrency/recovery tests. Reconsider another store only if measured throughput, atomicity, query, or retention needs cannot be met with D1; do not preserve PostgreSQL preemptively.
 
 ### Version 15 live cancellation and Runner recovery refresh — 2026-11-12
 
@@ -211,9 +219,10 @@ older status notes above; those notes remain as a dated history.
 
 **Gate:** cross-owner and cross-chat acceptance passes; corrupt/oversized/missing artifacts fail closed; recovery can retrieve and validate provider output after a Worker restart.
 
-### E. Remove Vercel/Neon from the product path and retire residual resources
+### E. Remove Vercel, Neon, and the legacy PostgreSQL Gateway
 
 - [x] Remove Vercel-specific runtime config and environment assumptions from the supported release path; do not add new Vercel feature work.
+- [ ] Remove the legacy FastAPI/PostgreSQL application, PostgreSQL-only runtime dependencies and workflows once its still-required state transitions have D1 acceptance coverage; keep compact historical evidence in `docs/archive/`.
 - [ ] Export and verify any required existing run/OAuth state before data migration; otherwise document a deliberate fresh single-owner start.
 - [ ] Revoke and rotate credentials that are no longer used.
 - [ ] Delete old Vercel/Neon resources only after the D1-backed Site passes the full ChatGPT acceptance and any required data has a verified export.

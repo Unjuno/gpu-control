@@ -134,3 +134,45 @@ Sites and Runner state by this refresh:
   `requires_user_action`; no project change was made. To remove the remaining
   external integration and stop its status reports, the owner must review and
   confirm deletion at [the Vercel project deletion page](https://vercel.com/d?to=%2Funjunos-projects%2Fgpu-control%2Fsettings%2Fgeneral%23delete-project&title=Review+in+Vercel).
+
+## D1 recovery-access check — 2026-11-12
+
+- The private Site remains on Version 15. Its read-only database overview
+  reports only the `DB` binding and user tables `plans`, `runs`, and
+  `runner_heartbeats`; the Sites connector does not return the physical D1
+  database ID or provide export/restore operations. No data rows were read.
+- Wrangler 4.160.1 was run from a temporary npm execution context. A read-only
+  `wrangler d1 list` could not authenticate in this noninteractive process
+  because no `CLOUDFLARE_API_TOKEN` was supplied. No credential values were
+  read or added to the repository.
+- Cloudflare documents D1 Time Travel on the production backend, with 7 days
+  on Workers Free or 30 days on Workers Paid; the Sites connector does not
+  reveal this database's backend version or account plan. A Time Travel restore
+  overwrites the selected database in place, so it is not a safe production
+  rehearsal. See [Cloudflare D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/).
+- **Acceptance remains open:** verify the managed D1 backend/retention and run
+  a restore rehearsal against an isolated D1 target. The required database
+  identity and appropriately scoped Cloudflare access must be supplied through
+  an approved secure path; live rows must not be exported into this repository.
+
+## Vercel owner-removal handoff — 2026-11-12
+
+- A fresh Vercel read reports the `gpu-control` project as `live=false`, with
+  its latest deployment `BLOCKED`. Project metadata lists three `vercel.app`
+  aliases; the separate domain endpoint returns only the verified
+  `gpu-control.vercel.app` domain. The alias mismatch is unresolved, and no
+  user-owned custom domain appears in the domain list.
+- The repository's current PR #60 description identifies six required checks:
+  Python 3.11, 3.12 and 3.13, Trusted reference container, Project bridge tests,
+  and Sites Worker and D1 contract. Vercel is explicitly not required. Its
+  current commit status is an optional `Vercel` failure, `Deployment was
+  blocked`. Therefore removing the project will not remove a required release
+  check according to the current PR policy.
+- The Vercel connector cannot enumerate project connectors (its API returned
+  `Connector Project not found`), so this was not treated as proof that no
+  connector is attached. Project/domain metadata and the required-check list
+  were inspected independently.
+- The owner deletion handoff is
+  [Review gpu-control project deletion in Vercel](https://vercel.com/d?to=%2Funjunos-projects%2Fgpu-control%2Fsettings%2Fgeneral%23delete-project&title=Review+in+Vercel).
+  The connector returned `requires_user_action` and `mutationExecuted=false`;
+  project deletion and integration cleanup are not yet complete.
