@@ -210,6 +210,24 @@ This proves an orderly admission-gated LaunchAgent stop/start and successful
 post-restart work. It does not prove forced process death, crash/lease-expiry
 recovery, secret rotation, or owner-isolation behavior.
 
+## Additional ChatGPT inference recheck — 2026-11-12
+
+Run `7135e2d588044f6ba34dd3f44de701a9` was prepared and submitted through the
+ChatGPT Sites tools with prompt `A small green bird found a warm place to rest.`,
+seed `11212`, an eight-token limit, a 30-second runtime ceiling, and a `$0.00`
+cost ceiling. It completed successfully in 299 ms with the registered source
+`3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288` and image
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+All nine registered identity and isolation checks passed; `gpu_used=false`,
+`cleanup_state=confirmed`, and the free CPU provider was used. ChatGPT retrieved
+the complete 1,003-byte R2 `result.json`; Sites verified SHA-256
+`50d98b81cfa5e595cf39215930d181d2de5056587d7282b3143bf7f1448e8d2d` against
+the stored artifact reference.
+
+This recheck proves another live CPU inference and full artifact retrieval. It
+does not establish model quality, GPU execution, cross-owner isolation, or
+D1/R2 backup and restore.
+
 ## Active-run Runner process-loss and lease recovery acceptance — 2026-11-12
 
 Before the probe, Sites capabilities reported the free CPU Runner ready and
