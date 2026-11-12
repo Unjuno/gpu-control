@@ -309,21 +309,21 @@ signed-in Modal dashboard.
 
 ## Live execution comparison — 2026-11-12 14:53 UTC
 
-- Fresh authenticated Sites reads show multiple successful Modal TinyStories
-  runs on the same workload source `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`
-  and image digest `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
-  For example, run `eacc26ff2ad54cf69a1ee7665325b197` generated four tokens,
-  returned a checksum-verified result artifact, and has `cleanup_state=confirmed`.
-  This is evidence that ChatGPT Sites → Modal CPU → inference → result retrieval
-  has succeeded before; it is not GPU evidence.
-- The latest read-only run list contains both succeeded and failed runs for that
-  same source and image. Run `e9330c5bb5454f42bb3dabe058091dc0` (prompt `Once`,
-  one token) and runs `b3380814d0854d93a5d978799d670013` /
-  `0f2a3ddaa7da40648600bae21ccd9ed1` (16 tokens) failed with
-  `MODAL_WORKLOAD_EXIT_2`, confirmed cleanup, and no artifact. The exact
-  preflight guard is still unknown; do not infer that the read-only-filesystem
-  probe caused these failures. No new execution was submitted and admission
-  remains disabled.
+- The fresh authenticated Sites run list shows older successful TinyStories
+  runs and recent failures. The success `eacc26ff2ad54cf69a1ee7665325b197`
+  occurred before the Modal v4 deployment and is documented as executed by the
+  retired local macOS Runner; it is not Modal acceptance. Run metadata does not
+  expose provider provenance, so do not attribute other historical successes
+  to Modal without separate evidence. No successful inference has been
+  observed on the current Modal deployment.
+- Current Modal failures include `e9330c5bb5454f42bb3dabe058091dc0` (prompt
+  `Once`, one token) and `b3380814d0854d93a5d978799d670013` /
+  `0f2a3ddaa7da40648600bae21ccd9ed1` (16-token limits). They failed with
+  `MODAL_WORKLOAD_EXIT_2`, confirmed cleanup, and no artifact. Other recent
+  runs have `MODAL_WORKLOAD_FAILED`. Historical local-Runner successes cannot
+  be used as a Modal comparison or to isolate parameter sensitivity. The exact
+  Modal failure cause remains unknown. No new execution was submitted and
+  admission remains disabled.
 - Modal's current `Sandbox.create` reference documents network policy, volumes,
   and experimental options, but no read-only-root-filesystem parameter. Modal's
   filesystem guide documents sandbox filesystem writes. This means the current
