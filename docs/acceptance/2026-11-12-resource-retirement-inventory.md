@@ -196,3 +196,17 @@ Sites and Runner state by this refresh:
   retain container configuration and logs. Disposal remains pending owner
   choice; any cleanup must target only these 14 stopped containers and must
   leave images and unrelated Docker resources untouched.
+
+## Runner heartbeat and sanitized transport-log recheck — 2026-11-12 13:03 JST
+
+- A live Sites D1 read returned one `local-cpu-1` heartbeat at Unix time
+  `1794456214` (13:03:34 JST), five seconds before the local check. Its image
+  digest, source SHA, and cancellation protocol 1 match the registration. The
+  Site capabilities tool independently reported `runner_ready=true` and free
+  CPU admission enabled.
+- The Runner log contained 13 fixed-code `SITE_REQUEST_FAILED` entries and no
+  credential or response-body data. Its modification time was 10:47:12 JST;
+  no later errors appeared by 13:03 JST. A successful inference and artifact
+  retrieval completed after that log time. Treat these as historical transient
+  failures, not proof of an ongoing outage; monitor again during the repeated
+  recovery-window acceptance.
