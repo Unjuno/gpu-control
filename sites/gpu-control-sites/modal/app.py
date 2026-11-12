@@ -119,6 +119,7 @@ workload_image = modal.Image.from_dockerfile(
 api_image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install("fastapi==0.128.2")
+    .add_local_python_source("gpu_control_modal_bootstrap")
     .add_local_dir(str(SITE_ROOT / "workloads"), remote_path=str(REMOTE_SITE_ROOT / "workloads"), copy=True)
 )
 api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
