@@ -258,3 +258,19 @@ Sites and Runner state by this refresh:
 - This revalidates the deployed registered CPU inference/result/artifact path.
   It does not test the unmerged source-retirement commit, another account's
   identity boundary, GPU execution, or paid execution.
+
+## GitHub checks refresh — 2026-11-12 05:16 UTC
+
+- On PR #60 head `c88c3a7f24a2d6acd2e1a7393ee85f0f307d36b8`, all six GitHub
+  Actions jobs completed successfully: Python 3.11/3.12/3.13, trusted
+  reference container, Project bridge tests, and Sites Worker/D1 contract.
+- GitHub's separate `Vercel Preview Comments` check completed successfully
+  with no unresolved feedback. The external combined status `Vercel` is still
+  `failure` (`Deployment was blocked`). No Vercel-backed check is part of the
+  repository's six passing Actions jobs; this confirms the GitHub Vercel app
+  remains connected and is posting status independently of the Sites path.
+- The active checkout contains no Vercel deployment configuration, no
+  PostgreSQL Gateway implementation, and no PostgreSQL runtime dependency.
+  The failure can be cleared only by disconnecting or retiring the external
+  Vercel project/integration. Its dashboard deletion flow still requires the
+  account owner's action.
