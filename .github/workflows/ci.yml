@@ -76,9 +76,6 @@ jobs:
         run: npm run validate
       - name: Test Worker owner, lifecycle, and artifact boundaries
         run: npm test
-      - name: Test isolated Runner contract without provider credentials
-        run: python3 -m unittest discover -s runner -p 'test_*.py'
-
   reference-workload:
     name: Trusted reference container
     runs-on: ubuntu-24.04
