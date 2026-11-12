@@ -245,3 +245,22 @@ signed-in Modal dashboard.
   of the Worker's fail-closed reconciliation rule; it does not prove Modal API
   consistency, a live lost-response recovery, or independent background
   reconciliation. No provider call was made.
+
+## Continuation recheck — 2026-11-12 14:15 UTC
+
+- The stronger ambiguous-submit regression is pushed as `0838bd392316adc895b833f0c6f483563c1ca1a2`;
+  the remote branch matches and the worktree is clean. The Sites Worker suite
+  passes 23/23 tests.
+- A read-only status reconciliation of the latest five failed runs found three
+  `MODAL_WORKLOAD_EXIT_2` failures and two `MODAL_WORKLOAD_FAILED` failures.
+  All five have confirmed cleanup and no result artifact. The Modal Logs page
+  for the latest Sandbox showed no logs. These records do not identify the
+  failing workload check or establish a common root cause.
+- Modal Usage currently shows the `$1` Workspace limit, `$0.05` in credits
+  used, and `$0` in charges. The current Sites capability response still has
+  provider health ready but `admission_enabled=false`; no Sandbox was started.
+- The previously approved run ID `96ad1246cf744ea3b3eac326f673e547` is absent
+  from Sites (`RUN_NOT_FOUND`). Do not substitute a new run ID or fingerprint
+  without fresh authorization. The Codex environment also still reports the
+  filesystem profile as disabled, so the required managed read-only P0 scan
+  remains unstarted.
