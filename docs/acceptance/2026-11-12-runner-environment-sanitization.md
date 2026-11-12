@@ -60,3 +60,20 @@ No socket value was recorded.
   separate-account owner isolation/revocation.
 - [ ] Retire external Vercel and Neon resources after owner action and Neon data
   disposition. Paid and GPU admission remain parked.
+
+## Runner bearer rotation follow-up — 2026-11-12 05:11 UTC
+
+- The Runner bearer was rotated in Sites runtime secret storage while free CPU
+  admission was disabled. A fresh private deployment of Version 16 completed
+  successfully as `appgdep_6af54a86b95c8191a129fd1e1bb4a916`, with MCP ready and
+  environment revision 16. The previous deployment still carried revision 15;
+  this new deployment is the one that applies the rotated secret.
+- The LaunchAgent is currently not loaded. The live capabilities response
+  reports `runner_ready=false`, `available=false`, and
+  `admission_enabled=false`; paid execution remains parked. No run can be
+  admitted during this transition.
+- Keychain value matching and Runner restart are pending manual macOS unlock.
+  The Mac was locked during both checks. No credential value was displayed or
+  recorded, and the new Keychain value must not be assumed installed until a
+  non-disclosing equality check passes. Keep CPU admission disabled until the
+  Runner reports a fresh heartbeat with the rotated credential.
