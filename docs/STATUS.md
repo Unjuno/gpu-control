@@ -1,5 +1,14 @@
 # Project status
 
+## CI compatibility refresh — 2026-11-12 15:52 UTC
+
+- PR #68 code branch head `2ca43d18d364213d4aa74b996d746bd643b7966a`
+  upgrades the pinned `actions/setup-node` from v6.0.0 to official immutable
+  v7.1.0 commit `949feb2413d6458794dcd2491c4babbbce0c15c1`, addressing the
+  GitHub Actions Node 20 deprecation warning.
+- Exact-head CI and Project bridge tests both passed on `2ca43d1`; all six
+  reported checks succeeded and the prior Node runtime warning was absent.
+
 ## Current checkout and live capability refresh — 2026-11-12 15:48 UTC
 
 - At the 15:48 UTC observation, PR #68 was at head
