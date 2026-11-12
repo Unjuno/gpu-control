@@ -324,3 +324,24 @@ ChatGPT
 - Sites remains Version 27 with Modal admission disabled. Another live run
   requires its own explicit authorization. RunPod/GPU and paid execution remain
   parked, and the overall goal remains incomplete.
+
+## Repository integration refresh — 2026-11-12 14:05 UTC
+
+- GitHub still reports `main` at `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`.
+  The remote `codex/sites-modal-runner` branch is at
+  `569a9a39f8c359cce28cc0be9c3e1cf626252227`, with a clean local worktree.
+- The current branch descends from the open Draft PR #58 head
+  `80c3fcaa9e7a9924200a64e8d623556af0679bb0` by 15 commits. The incremental
+  diff since that head is 20 files (1,059 insertions, 139 deletions). GitHub
+  search found no pull request using `codex/sites-modal-runner` as its head;
+  the pushed candidate is therefore not merged or under PR review.
+- PR #58 remains an OAuth/Gateway change, while this branch carries the Sites
+  architecture pivot and current Modal work. PR #66 is another open Draft
+  stacked on PR #58; it is not this branch and does not review this candidate.
+  Preserve the stack relationship when preparing an integration proposal; do
+  not treat a push or a neighboring PR's checks/review as evidence for this
+  branch.
+- The current candidate has local regression evidence recorded above, but no
+  exact-head GitHub checks, P0 repository-wide security review, Modal inference
+  success, or RunPod Sites/GPU acceptance. Production Modal admission remains
+  disabled; repository mode remains `parked`.
