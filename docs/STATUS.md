@@ -1,5 +1,23 @@
 # Project status
 
+## Main branch protection refresh — 2026-11-12 15:56 UTC
+
+- GitHub owner settings show a classic protection rule for `main`. It requires
+  pull requests, one approval, dismissal of stale approvals, and approval of
+  the latest reviewable push by someone other than its pusher. It requires
+  these six checks: `Python 3.11`, `Python 3.12`, `Python 3.13`,
+  `Trusted reference container`, `Project bridge tests`, and
+  `Sites Worker and D1 contract`.
+- The rule also requires the branch to be up to date, all review conversations
+  to be resolved, and linear history; it applies to administrators and
+  prohibits force pushes and branch deletion. The rulesets API returned an
+  empty list, so the protection is the classic branch rule visible in the owner
+  UI. The API's 403 did not establish that protection was absent.
+- PR #68 is stacked on `codex/gpu-control-p1-dcr-v9-review`, not directly on
+  `main`; the main rule describes the eventual merge gate. PR #68 remains Draft
+  and has no independent review submissions, so it does not yet satisfy the
+  one-approval rule.
+
 ## CI compatibility refresh — 2026-11-12 15:52 UTC
 
 - PR #68 code branch head `2ca43d18d364213d4aa74b996d746bd643b7966a`
@@ -72,10 +90,9 @@
 - The current checkout contains no tracked Keychain Runner implementation or
   active Sites Worker route for RunPod. A local process query found no matching
   Runner process. RunPod/GPU and paid execution remain parked.
-- GitHub's connected integration returned 403 for main branch-protection
-  details, and the repository rulesets endpoint returned an empty list. Main
-  protection therefore remains unverified from this session; do not treat
-  policy text or past snapshots as live proof.
+- The GitHub integration returned 403 for branch-protection details and the
+  rulesets API returned an empty list in that API read. A later owner-UI read
+  confirmed the classic `main` protection rule documented above.
 
 The full delivery objective remains open: complete the repository-wide P0
 audit, obtain independent PR review, deploy and verify the fixed Modal
