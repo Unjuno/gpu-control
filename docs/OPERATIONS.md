@@ -43,6 +43,15 @@ or provider settings.
   eight tokens in 330 ms and passed registered source/model/parameter and
   container-isolation checks. Cleanup was confirmed at `$0.00`; the full
   1,005-byte R2 artifact was retrieved and its SHA-256 matched D1 metadata.
+- A separate forced process-loss probe killed the Runner only after the exact
+  registered workload container was running. launchd restarted the service;
+  after the 180-second D1 lease expired, the recovery path marked run
+  `0c3dd2ecf3d34355b6faa63a842d83c7` as `failed` with
+  `failure_code=runner_lost_recovered`, `attempt=1`, and
+  `cleanup_state=confirmed`. The container was removed, the run was not
+  replayed, and the Runner returned to ready. A fresh post-recovery run
+  (`aa45b7d899de4c9aaff2ee73fa985cc6`) then succeeded, proving admission slot
+  reuse. Its 999-byte R2 artifact was retrieved and SHA-256 verified.
 - Repeating the same submission returns the existing run instead of starting
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
@@ -54,12 +63,12 @@ or provider settings.
   free CPU admission slot available again. This proves the explicit cancellation
   path for one bounded run; it does not prove forced-process-death recovery.
 
-These checks prove repeated provenance-valid bounded CPU inferences, six
-complete R2 artifact retrievals, one live cancellation/cleanup path, and one
-planned Runner stop/start with a successful post-restart inference through
-ChatGPT. They do not prove general model quality, GPU execution, forced
-process-death/lease recovery, cross-owner isolation, long-term artifact
-retention, or backup/restore.
+These checks prove repeated provenance-valid bounded CPU inferences, seven
+complete R2 artifact retrievals, one live cancellation/cleanup path, one
+planned Runner stop/start, and one forced process-loss/lease-recovery path with
+successful post-recovery inference through ChatGPT. They do not prove general
+model quality, GPU execution, repeated crash-window reliability, cross-owner
+isolation, long-term artifact retention, or backup/restore.
 
 The currently deployed Site is Version 15, deployment
 `appgdep_6af5169fa69c8191b4dca5bb77272c84`, from Sites source commit
@@ -137,11 +146,12 @@ testing changes; schedule restarts only after a live recovery plan is ready.
    service already has a protected Keychain secret source; prove that a planned
    replacement starts with the rotated credentials, returns exact source/image
    readiness, and leaves no orphan workload before considering this gate done.
-2. Exercise forced Runner interruption/process death, lease expiry, result
-   reconciliation, and cleanup against the live Site and Runner. Planned
-   LaunchAgent stop/start and caller cancellation have already passed once.
+2. Repeat the forced Runner interruption/process-death and lease-expiry tests
+   across crash windows, including while the workload container is creating,
+   running, exiting, and writing results. One active-run process-loss case,
+   planned LaunchAgent stop/start, and caller cancellation have passed once.
 3. Define R2 artifact retention and orphan cleanup; exercise larger artifacts and
-   repeated retrieval beyond the six accepted complete result objects.
+   repeated retrieval beyond the seven accepted complete result objects.
 4. Test owner isolation across separate accounts and verify Site access revocation.
 5. Document and rehearse secret rotation, D1/R2 backup/restore, and incident
    response before increasing admission or enabling paid providers. The

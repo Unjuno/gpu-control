@@ -4,20 +4,21 @@
 
 The owner-private Sites MCP Worker uses D1 and a separately isolated CPU
 Runner. A fresh ChatGPT-originated TinyStories 15M inference completed on the
-current deployed Sites Version 15 after a controlled LaunchAgent restart. Run
-`6c817aa27a8842eda0bc07c7e5396776` used the registered workload source commit
+current deployed Sites Version 15 after a Runner process-loss recovery test.
+Run `aa45b7d899de4c9aaff2ee73fa985cc6` used the registered workload source commit
 `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288` and image
 `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
-With prompt `A tiny lantern glowed beneath the winter moon.`, seed `719241`,
-and an 8-token limit, it generated 8 tokens in 330 ms, passed identity/sandbox
-checks, returned `gpu_used=false`, and confirmed cleanup at `$0.00`. Its
-complete 1,005-byte R2 artifact was retrieved through ChatGPT; its locally
-computed SHA-256 matches D1 metadata. The hardened LaunchAgent was stopped and
-started with admission closed; Runner readiness returned before admission was
-reopened.
+With prompt `A little bird found a bright blue feather.`, seed `719243`, and an
+8-token limit, it generated 8 tokens in 291 ms, passed identity/sandbox checks,
+returned `gpu_used=false`, and confirmed cleanup at `$0.00`. Its complete
+999-byte R2 artifact was retrieved through ChatGPT; its locally computed
+SHA-256 matches D1 metadata. A separate active-run process-loss probe expired
+after 180 seconds and recovered as `runner_lost_recovered` with cleanup
+confirmed, no retry, and no leftover container. A follow-up inference proved
+the free CPU slot was available again.
 
-This does not establish general model quality, forced process-death/lease
-recovery, cross-owner isolation, or GPU capability. Free CPU admission remains
+This does not establish general model quality, repeated crash-window coverage,
+cross-owner isolation, or GPU capability. Free CPU admission remains
 bounded to one in-flight run and 30 seconds. Paid execution remains parked. The
 deployed Sites Version 15 is MCP-ready. Version 13 remains an older saved source
 candidate; Version 15's source commit is recorded separately in the acceptance

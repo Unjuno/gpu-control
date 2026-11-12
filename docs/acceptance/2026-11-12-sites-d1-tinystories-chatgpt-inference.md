@@ -209,3 +209,47 @@ A post-restart inference then completed:
 This proves an orderly admission-gated LaunchAgent stop/start and successful
 post-restart work. It does not prove forced process death, crash/lease-expiry
 recovery, secret rotation, or owner-isolation behavior.
+
+## Active-run Runner process-loss and lease recovery acceptance — 2026-11-12
+
+Before the probe, Sites capabilities reported the free CPU Runner ready and
+admission enabled; D1 listed no active run, and Docker had no containers with
+the GPU Control run label. A registered 32-token, 30-second CPU inference was
+prepared with a `$0.00` cost ceiling:
+
+- Run `0c3dd2ecf3d34355b6faa63a842d83c7`, source
+  `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image
+  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+- A host watcher waited for that exact run's labeled container to be active,
+  then sent SIGKILL to the LaunchAgent-owned Runner PID. The observed container
+  exited with code 0, while D1 correctly retained the run as `running` under
+  its lease because the Runner died before reporting the result.
+- launchd automatically restarted the service. The D1 lease was 180 seconds;
+  after expiry, Runner recovery found and removed the stopped container, then
+  sent its recovery receipt. The authoritative D1 row became `failed`,
+  `failure_code=runner_lost_recovered`, `attempt=1`,
+  `cleanup_state=confirmed`, and both lease fields were cleared. No result
+  artifact was recorded and the run was not automatically retried.
+- A Docker inventory query found no container remaining with the run label.
+  ChatGPT status confirmed the terminal state, Sites capabilities reported the
+  Runner ready and free admission available, and no other run was active.
+
+A new run then proved that admission capacity remained usable:
+
+- Run `aa45b7d899de4c9aaff2ee73fa985cc6`, prompt
+  `A little bird found a bright blue feather.`, seed `719243`, eight-token
+  maximum; generated eight tokens in 291 ms.
+- The registered provenance and all nine isolation checks passed;
+  `gpu_used=false`, cleanup confirmed, and cost `$0.00`.
+- ChatGPT retrieved the full 999-byte R2 `result.json`. Its locally computed
+  SHA-256 `dae639f57be6cd5cadfc78d07b9169dfe2442cc0137c7e63cdf747366e405fc9`
+  matched D1 metadata.
+
+This is one live active-run process-loss/lease-expiry recovery acceptance. It
+does not establish repeated reliability across every crash window, recovery of
+a container that remains active past lease expiry, owner-isolation behavior,
+credential rotation, or paid/GPU recovery. Sanitized Runner logs contained
+transient `SITE_REQUEST_FAILED` entries during the observation interval; later
+Worker logs showed successful heartbeat, recovery, and claim requests (HTTP
+200), and the run and container state converged as recorded above. Investigate
+the transient transport errors before increasing admission.

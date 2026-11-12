@@ -143,6 +143,41 @@ The first migration slice should not move every provider or destroy rollback dat
 
 **Next implementation sequence:** (1) rotate the Runner bearer into Sites and login Keychain, then replace the ephemeral Runner with the tested LaunchAgent while admission is closed; (2) deploy the provenance-verified Version 13 with the compatible Runner and verify cancellation, forced restart, lease recovery, result reconciliation, and cleanup live; (3) rehearse D1/R2 export, restore, retention, and orphan cleanup; (4) test owner isolation and access revocation; (5) classify/export or explicitly discard the remaining Neon auth/session/control state, then retire Neon and Vercel resources when no rollback or retention need remains; (6) validate real GPU provider execution behind fresh security, price, quota, cleanup, and authorization gates. Keep paid admission parked until those gates pass.
 
+### Version 15 live cancellation and Runner recovery refresh — 2026-11-12
+
+This section supersedes the Runner deployment/restart/cancellation steps in the
+older status notes above; those notes remain as a dated history.
+
+- [x] The private Site is live on Version 15 with D1/R2 and the macOS
+  Keychain-backed LaunchAgent. Its running `run.py` and Keychain launcher hashes
+  match the published Sites source; plist and installed runtime files are mode
+  `0600`.
+- [x] A live cancellation request against a running free CPU run converged to
+  `cancelled`/`caller_cancelled`, cleanup confirmed, and the free slot ready.
+- [x] A planned LaunchAgent stop/start was performed with admission closed and
+  no active runs. The new Runner heartbeat was verified before admission was
+  reopened; a post-restart ChatGPT inference and R2 artifact retrieval passed.
+- [x] A separate free CPU run was interrupted by SIGKILL to the LaunchAgent
+  Runner while its exact labeled container was active. launchd restarted the
+  Runner. After the 180-second D1 lease expired, recovery removed the stopped
+  container and persisted `failed`/`runner_lost_recovered`, attempt 1,
+  `cleanup_state=confirmed`, and no result artifact. The run was not replayed.
+  A subsequent ChatGPT inference and full R2 artifact read verified slot reuse.
+- [ ] Repeat the interruption test across container create/start, active
+  inference, container exit, and result upload windows. Sanitized Runner logs
+  contained transient `SITE_REQUEST_FAILED` retries during the observation
+  interval, although the later heartbeat/recovery/claim requests returned HTTP
+  200 and the observed run converged. Diagnose those transport retries before
+  increasing admission.
+- [ ] Complete D1/R2 backup and restore, artifact retention/orphan cleanup,
+  separate-account owner isolation/revocation, Keychain ACL/rotation, and an
+  incident runbook. Continue to keep GPU/paid admission parked during these
+  gates.
+- [ ] Retire Vercel and Neon resources after the legacy code removal and
+  required-data disposition. Vercel project deletion still requires owner UI
+  action; Neon deletion is pending the owner's explicit choice to discard or
+  export its residual auth/session/control rows.
+
 ### A. Freeze and map existing behavior
 
 - [ ] Record the exact current tool names/schemas and auth/owner invariants.
