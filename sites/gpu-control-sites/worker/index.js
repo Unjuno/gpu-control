@@ -5,6 +5,12 @@ const META_PREFIX = "io.modelcontextprotocol/";
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_RESULT_BYTES = 8 * 1024;
 const WORKLOAD = "tiny-stories-inference-v1";
+const MODAL_TIMEOUT_MS = 5000;
+const MODAL_MAX_RUNTIME_SECONDS = 30;
+const MODAL_MAX_RESULT_BYTES = 8 * 1024;
+const MODAL_MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin";
+const MODAL_MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a";
+const MODAL_TOKENIZER_SHA256 = "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361";
 
 const schemas = {
   experiment_capabilities: { type: "object", properties: {}, additionalProperties: false },
@@ -212,18 +218,166 @@ async function readJson(request, limit = MAX_BODY_BYTES) {
   return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 }
 
+function modalConfigured(env) {
+  return env.MODAL_PROVIDER_ADMISSION_ENABLED === "true" &&
+    typeof env.MODAL_API_URL === "string" && /^https:\/\/[a-z0-9.-]+(?:\/[^?#]*)?$/i.test(env.MODAL_API_URL) &&
+    !env.MODAL_API_URL.includes("@") && !env.MODAL_API_URL.includes("#") && !env.MODAL_API_URL.includes("?") &&
+    typeof env.MODAL_PROXY_TOKEN_ID === "string" && env.MODAL_PROXY_TOKEN_ID.length >= 16 &&
+    typeof env.MODAL_PROXY_TOKEN_SECRET === "string" && env.MODAL_PROXY_TOKEN_SECRET.length >= 32 &&
+    typeof env.MODAL_WORKLOAD_IMAGE_FINGERPRINT === "string" && /^[0-9a-f]{64}$/.test(env.MODAL_WORKLOAD_IMAGE_FINGERPRINT) &&
+    !!env.DB && !!env.BUCKET && typeof env.BUCKET.put === "function";
+}
+
+async function modalRequest(env, path, payload, { method = "POST", body = true } = {}) {
+  if (!modalConfigured(env)) throw new Error("MODAL_PROVIDER_NOT_CONFIGURED");
+  const base = env.MODAL_API_URL.replace(/\/$/, "");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MODAL_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${base}${path}`, {
+      method,
+      headers: {
+        "Modal-Key": env.MODAL_PROXY_TOKEN_ID,
+        "Modal-Secret": env.MODAL_PROXY_TOKEN_SECRET,
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(payload) } : {}),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(response.status === 404 ? "MODAL_RUN_NOT_FOUND" : "MODAL_PROVIDER_REQUEST_FAILED");
+    const text = await response.text();
+    if (text.length > MODAL_MAX_RESULT_BYTES) throw new Error("MODAL_PROVIDER_RESPONSE_TOO_LARGE");
+    const value = JSON.parse(text);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("MODAL_PROVIDER_INVALID_RESPONSE");
+    return value;
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("MODAL_PROVIDER_TIMEOUT");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function modalPayload(plan, env) {
+  return {
+    workload: plan.workload,
+    repository: plan.repository,
+    source_sha: plan.source_sha,
+    registered_image_digest: plan.image_digest,
+    image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT,
+    plan_fingerprint: plan.fingerprint,
+    parameters: JSON.parse(plan.parameters_json),
+    runtime_seconds: plan.runtime_seconds,
+  };
+}
+
+async function providerHealth(env) {
+  if (!modalConfigured(env)) return null;
+  try {
+    const value = await modalRequest(env, "/v1/health", null, { method: "GET", body: false });
+    if (value.ready !== true || value.provider !== "modal_cpu" || value.workload !== WORKLOAD ||
+        value.registered_image_digest !== env.CPU_WORKLOAD_IMAGE_DIGEST ||
+        value.image_fingerprint !== env.MODAL_WORKLOAD_IMAGE_FINGERPRINT ||
+        value.max_runtime_seconds !== MODAL_MAX_RUNTIME_SECONDS ||
+        value.source_sha !== env.CPU_WORKLOAD_SOURCE_SHA) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 async function capabilities(env) {
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
+  const provider = await providerHealth(env);
+  const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && !!provider;
   return {
     schema_version: 2,
     status: "ok",
-    human_summary: "Modal実行経路は未設定です。登録済み実験の実行はできません。",
-    machine_state: { available: false, provider_ready: false, admission_enabled: false, provider: "modal_cpu", workload: WORKLOAD, free: true, max_runtime_seconds: 30, max_inflight: 1 },
-    blocking_reason: "MODAL_PROVIDER_NOT_CONFIGURED",
-    providers: [{ id: "modal_cpu", enabled: false, free: true, paid: false }],
-    workloads: [{ id: WORKLOAD, enabled: false, requires_gpu: false, image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST || null }],
+    human_summary: available ? "Modalの固定CPU実行経路が利用可能です。" : "Modal実行経路は未設定または停止中です。登録済み実験の実行はできません。",
+    machine_state: { available, provider_ready: !!provider, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: true, max_runtime_seconds: 30, max_inflight: 1, image_fingerprint: provider?.image_fingerprint || null },
+    blocking_reason: available ? null : (modalConfigured(env) ? "CPU_WORKLOAD_ADMISSION_DISABLED" : "MODAL_PROVIDER_NOT_CONFIGURED"),
+    providers: [{ id: "modal_cpu", enabled: available, free: true, paid: false }],
+    workloads: [{ id: WORKLOAD, enabled: available, requires_gpu: false, image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST || null }],
     paid_execution: "parked",
   };
+}
+
+async function synchronizeModalRun(env, runId, ownerId, { submit = false, cancel = false } = {}) {
+  const row = await env.DB.prepare(`SELECT r.id, r.state, r.cancel_requested, p.workload, p.repository, p.source_sha,
+      p.image_digest, p.fingerprint, p.parameters_json, p.runtime_seconds
+    FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id=? AND r.owner_id=?`).bind(runId, ownerId).first();
+  if (!row || !["queued", "running"].includes(row.state)) return;
+  const payload = modalPayload(row, env);
+  let providerResult;
+  if (cancel || row.cancel_requested === 1) {
+    providerResult = await modalRequest(env, `/v1/runs/${runId}/cancel`, payload);
+  } else if (submit) {
+    providerResult = await modalRequest(env, `/v1/runs/${runId}/submit`, payload);
+  } else {
+    try {
+      providerResult = await modalRequest(env, `/v1/runs/${runId}/status`, payload);
+    } catch (error) {
+      if (error?.message === "MODAL_RUN_NOT_FOUND" && row.state === "queued") {
+        providerResult = await modalRequest(env, `/v1/runs/${runId}/submit`, payload);
+      } else if (error?.message === "MODAL_RUN_NOT_FOUND") {
+        // Ambiguous provider state must keep the occupied slot reserved.
+        return;
+      } else throw error;
+    }
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (providerResult.sandbox_id && typeof providerResult.sandbox_id === "string" && providerResult.sandbox_id.length <= 128) {
+    await env.DB.prepare("UPDATE runs SET lease_id=?, updated_at=? WHERE id=? AND owner_id=? AND state IN ('queued','running')")
+      .bind(providerResult.sandbox_id, now, runId, ownerId).run();
+  }
+  if (providerResult.cleanup_state !== "confirmed") return;
+  if (cancel || row.cancel_requested === 1 || providerResult.state === "cancelled") {
+    await env.DB.prepare(`UPDATE runs SET state='cancelled', failure_code='caller_cancelled', cleanup_state='confirmed', updated_at=?
+      WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
+    return;
+  }
+  if (providerResult.state === "running") return;
+  if (providerResult.state !== "succeeded" || !providerResult.result || providerResult.result.status !== "passed") {
+    if (["failed", "not_found"].includes(providerResult.state)) {
+      await env.DB.prepare(`UPDATE runs SET state='failed', failure_code='MODAL_WORKLOAD_FAILED', cleanup_state='confirmed', updated_at=?
+        WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
+    }
+    return;
+  }
+  const result = providerResult.result;
+  const metrics = result.metrics;
+  const expectedChecks = ["source_identity_present", "parameter_bounds", "model_digest_verified", "inference_completed",
+    "non_root", "no_secret_environment", "no_docker_socket", "read_only_rootfs", "network_disabled"];
+  if (result.schema_version !== 1 || result.run_id !== runId || result.source_sha !== row.source_sha ||
+      result.plan_fingerprint !== row.fingerprint || result.check !== WORKLOAD || result.gpu_used !== false ||
+      !Array.isArray(result.checks) || canonical(result.checks) !== canonical(expectedChecks) ||
+      !metrics || metrics.model_id !== MODAL_MODEL_ID || metrics.model_sha256 !== MODAL_MODEL_SHA256 ||
+      metrics.max_new_tokens !== JSON.parse(row.parameters_json).max_new_tokens ||
+      metrics.seed !== JSON.parse(row.parameters_json).seed ||
+      typeof metrics.generated_text !== "string" || new TextEncoder().encode(metrics.generated_text).byteLength > 1536 ||
+      !Number.isInteger(metrics.generated_tokens) || metrics.generated_tokens < 1 || metrics.generated_tokens > metrics.max_new_tokens ||
+      !/^[0-9a-f]{64}$/.test(metrics.prompt_sha256 || "") ||
+      typeof result.checksum !== "string" || !/^[0-9a-f]{64}$/.test(result.checksum) ||
+      await sha256(canonical({ run_id: result.run_id, source_sha: result.source_sha, plan_fingerprint: result.plan_fingerprint, metrics })) !== result.checksum) {
+    await env.DB.prepare(`UPDATE runs SET state='failed', failure_code='MODAL_RESULT_VALIDATION_FAILED', cleanup_state='confirmed', updated_at=?
+      WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
+    return;
+  }
+  const resultBytes = new TextEncoder().encode(canonical(result));
+  if (resultBytes.byteLength > MODAL_MAX_RESULT_BYTES) {
+    await env.DB.prepare(`UPDATE runs SET state='failed', failure_code='MODAL_RESULT_TOO_LARGE', cleanup_state='confirmed', updated_at=?
+      WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
+    return;
+  }
+  const digest = await sha256Bytes(resultBytes);
+  const artifactId = "result-json-v1";
+  await env.BUCKET.put(`runs/${runId}/${digest}/${artifactId}`, resultBytes, { customMetadata: {
+    run_id: runId, sha256: digest, plan_fingerprint: row.fingerprint, source_sha: row.source_sha,
+  } });
+  await env.DB.prepare(`UPDATE runs SET state='succeeded', result_json=?, result_artifact_id=?, result_artifact_sha256=?,
+      result_artifact_size=?, failure_code=NULL, cleanup_state='confirmed', updated_at=?
+    WHERE id=? AND owner_id=? AND state IN ('queued','running')`)
+    .bind(new TextDecoder().decode(resultBytes), artifactId, digest, resultBytes.byteLength, now, runId, ownerId).run();
 }
 
 async function callTool(name, args, request, env) {
@@ -237,6 +391,7 @@ async function callTool(name, args, request, env) {
       workload: args.workload, repository: args.repository, source_sha: args.commit,
       parameters: args.parameters, runtime_seconds: args.runtime_seconds, max_cost_usd: args.max_cost_usd,
       image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST,
+      image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null,
     }));
     const planId = crypto.randomUUID().replaceAll("-", "");
     const now = Math.floor(Date.now() / 1000);
@@ -254,8 +409,9 @@ async function callTool(name, args, request, env) {
   if (name === "experiment_submit") {
     if (!validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
     const now = Math.floor(Date.now() / 1000);
-    const ready = (await capabilities(env)).machine_state.available;
-    if (!ready) return { schema_version: 2, status: "blocked", human_summary: "Modal実行経路は未設定です。", machine_state: { available: false, provider: "modal_cpu", workload: WORKLOAD }, blocking_reason: "MODAL_PROVIDER_NOT_CONFIGURED", run_id: null };
+    const provider = await providerHealth(env);
+    const ready = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && !!provider;
+    if (!ready) return { schema_version: 2, status: "blocked", human_summary: "Modal実行経路は未設定または停止中です。", machine_state: { available: false, provider: "modal_cpu", workload: WORKLOAD }, blocking_reason: modalConfigured(env) ? "CPU_WORKLOAD_ADMISSION_DISABLED" : "MODAL_PROVIDER_NOT_CONFIGURED", run_id: null };
     try {
       await env.DB.batch([
         env.DB.prepare(`UPDATE plans SET state = 'queued' WHERE id = ? AND owner_id = ? AND fingerprint = ? AND image_digest = ? AND state = 'prepared' AND expires_at >= ?`)
@@ -275,18 +431,35 @@ async function callTool(name, args, request, env) {
       if (active) return { schema_version: 2, status: "blocked", human_summary: "実行枠は使用中です。", blocking_reason: "PROVIDER_SLOT_BUSY", run_id: null };
       throw new Error("SUBMIT_TRANSACTION_FAILED");
     }
-    const run = await env.DB.prepare("SELECT id, state, created_at FROM runs WHERE owner_id = ? AND plan_id = ?")
-      .bind(owner, args.run_id).first();
+    const run = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.cancel_requested, p.workload, p.repository,
+        p.source_sha, p.image_digest, p.fingerprint, p.parameters_json, p.runtime_seconds
+      FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.owner_id=? AND r.plan_id=?`).bind(owner, args.run_id).first();
     if (!run) throw new Error("PLAN_EXPIRED_OR_ALREADY_USED");
-    return { schema_version: 2, status: "ok", human_summary: submitSummary(run.state), run_id: run.id, machine_state: { state: run.state, created_at: run.created_at } };
+    if (run.state === "queued") {
+      await env.DB.prepare("UPDATE runs SET state='running', lease_expires_at=?, updated_at=? WHERE id=? AND owner_id=? AND state='queued'")
+        .bind(now + run.runtime_seconds + 30, now, run.id, owner).run();
+      await synchronizeModalRun(env, run.id, owner, { submit: true });
+    }
+    const updated = await env.DB.prepare("SELECT state, created_at, updated_at, cleanup_state, failure_code FROM runs WHERE id=? AND owner_id=?").bind(run.id, owner).first();
+    return { schema_version: 2, status: updated?.state === "running" ? "pending" : "ok", human_summary: submitSummary(updated?.state), run_id: run.id,
+      machine_state: { state: updated?.state, created_at: updated?.created_at, updated_at: updated?.updated_at, cleanup_state: updated?.cleanup_state, failure_code: updated?.failure_code },
+      next_allowed_actions: updated?.state === "running" ? ["experiment_status", "experiment_cancel"] : ["experiment_status"], blocking_reason: null };
   }
   if (name === "experiment_status" || name === "experiment_result") {
-    const row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state, r.cancel_requested,
+    let row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state, r.cancel_requested,
         r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size,
-        p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json
+        r.lease_id, p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json,
+        p.fingerprint, p.runtime_seconds, p.idempotency_key
       FROM runs r JOIN plans p ON p.id = r.plan_id WHERE r.id = ? AND r.owner_id = ?`)
       .bind(args.run_id, owner).first();
     if (!row) throw new Error("RUN_NOT_FOUND");
+    if (["queued", "running"].includes(row.state) && modalConfigured(env)) {
+      await synchronizeModalRun(env, row.id, owner, { cancel: row.cancel_requested === 1 });
+      row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state, r.cancel_requested,
+          r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size, r.lease_id,
+          p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json, p.fingerprint, p.runtime_seconds, p.idempotency_key
+        FROM runs r JOIN plans p ON p.id = r.plan_id WHERE r.id = ? AND r.owner_id = ?`).bind(args.run_id, owner).first();
+    }
     if (name === "experiment_result" && row.state !== "succeeded") return { schema_version: 2, status: "blocked", human_summary: "Result is not ready.", machine_state: { run_id: row.id, state: row.state }, next_allowed_actions: ["experiment_status"], blocking_reason: "RESULT_NOT_READY" };
     const result = row.result_json ? JSON.parse(row.result_json) : null;
     if (result && typeof result.logs === "string") {
@@ -330,7 +503,7 @@ async function callTool(name, args, request, env) {
       if (!row) throw new Error("RUN_NOT_FOUND");
     }
     if (row.state === "running" && row.cancel_requested === 1) {
-      return { schema_version: 2, status: "pending", human_summary: "Cancellation requested; Runner will stop and clean up the workload.",
+      return { schema_version: 2, status: "pending", human_summary: "Cancellation requested; Modal will stop and clean up the workload.",
         machine_state: { run_id: row.id, state: row.state, cancellation_requested: true, cleanup_state: row.cleanup_state },
         next_allowed_actions: ["experiment_status"], blocking_reason: null };
     }
