@@ -114,16 +114,14 @@ class Settings:
     def from_env(cls) -> "Settings":
         e = os.environ
 
-        database_url = e.get("GATEWAY_DATABASE_URL") or e.get("DATABASE_URL") or "sqlite:///./gateway-local.db"
+        # Do not implicitly bind the legacy Gateway to a platform DATABASE_URL.
+        database_url = e.get("GATEWAY_DATABASE_URL") or "sqlite:///./gateway-local.db"
         if database_url.startswith("postgresql://"):
             database_url = "postgresql+psycopg://" + database_url[len("postgresql://"):]
         elif database_url.startswith("postgres://"):
             database_url = "postgresql+psycopg://" + database_url[len("postgres://"):]
 
-        public_url = e.get("GATEWAY_PUBLIC_URL")
-        if not public_url:
-            production_host = e.get("VERCEL_PROJECT_PRODUCTION_URL")
-            public_url = f"https://{production_host}" if production_host else "http://127.0.0.1:8000"
+        public_url = e.get("GATEWAY_PUBLIC_URL") or "http://127.0.0.1:8000"
 
         value = cls(
             database_url=database_url,
@@ -142,7 +140,7 @@ class Settings:
             modal_app=e.get("GATEWAY_MODAL_APP", "gpu-control"),
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
             max_job_cost_usd=Decimal(e.get("GATEWAY_MAX_JOB_COST_USD", "1")),
-            hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
+            hosted=e.get("GATEWAY_HOSTED") == "true",
         )
         value.validate()
         return value

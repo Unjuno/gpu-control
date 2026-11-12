@@ -44,5 +44,5 @@ jobs:
         run: python -m pytest -o addopts= -q
       - name: WebMCP registration contract
         run: node --test tests/webmcp.test.js
-      - name: Python entrypoint compilation
-        run: python -m compileall -q app.py gpu_gateway modal_worker.py
+      - name: Python module compilation
+        run: python -m compileall -q gpu_gateway modal_worker.py

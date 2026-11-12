@@ -1,7 +1,8 @@
 """Optional Modal CPU worker deployment. Deploying activates billable CPU scheduling.
 
-Do not import this file as the Vercel app. Run manually from gateway/ only after
-creating the database schema and the operator-owned gpu-control-worker Secret.
+This is a legacy optional worker for the Python Gateway. Run manually from
+gateway/ only after creating its local-test database schema and the
+operator-owned gpu-control-worker Secret.
 The Secret contains gateway DB/settings. Provider credentials stay off the Web app.
 """
 from pathlib import Path

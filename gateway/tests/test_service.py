@@ -184,15 +184,16 @@ def test_hosted_sqlite_and_unsecured_origin_rejected():
         Settings(public_url="http://example.com").validate()
 
 
-def test_vercel_neon_standard_env_fallback(monkeypatch):
+def test_retired_platform_environment_variables_are_ignored(monkeypatch):
     monkeypatch.delenv("GATEWAY_DATABASE_URL", raising=False)
     monkeypatch.delenv("GATEWAY_PUBLIC_URL", raising=False)
     monkeypatch.setenv("VERCEL", "1")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@example.neon.tech/db?sslmode=require")
+    monkeypatch.setenv("GATEWAY_HOSTED", "false")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@retired-db.invalid/db?sslmode=require")
     monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "gpu-control-gateway.vercel.app")
 
     settings = Settings.from_env()
 
-    assert settings.database_url == "postgresql+psycopg://user:pass@example.neon.tech/db?sslmode=require"
-    assert settings.public_url == "https://gpu-control-gateway.vercel.app"
-    assert settings.hosted is True
+    assert settings.database_url == "sqlite:///./gateway-local.db"
+    assert settings.public_url == "http://127.0.0.1:8000"
+    assert settings.hosted is False

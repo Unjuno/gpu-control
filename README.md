@@ -19,11 +19,15 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and control-plane development**, but **live paid GPU execution is still disabled**.
+The ChatGPT-facing experiment service runs as a **private ChatGPT Site**, using a Cloudflare Worker with D1 state and R2 artifacts. A real registered CPU inference completed through ChatGPT. Paid GPU execution remains parked.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
+| ChatGPT experiment service | Sites Worker + D1 + R2; private Site, version 14 deployed |
+| Registered CPU experiment through ChatGPT | Real TinyStories inference completed; cleanup confirmed |
+| Vercel deployment path | Retired; the old project is inactive and not part of the runtime |
+| Neon/PostgreSQL hosted state | Not used by the Sites runtime; Neon project cleanup is pending confirmation |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
 | Synthetic provider/controller self-test | Ready |
@@ -39,6 +43,8 @@ The project is **usable today for offline validation and control-plane developme
 | Live paid GPU execution | Disabled / parked |
 
 See [docs/STATUS.md](docs/STATUS.md) for the capability-by-capability status and exact activation blockers.
+
+The Python `gateway/` package and Linux deployment templates remain as legacy recovery/security evidence and future policy-porting material; they are not the live ChatGPT service. Its retired Vercel entrypoint, deployment files, and comment-trigger Gateway route are preserved under [`docs/archive/legacy-vercel-gateway/`](docs/archive/legacy-vercel-gateway/). The active Sites architecture is recorded in [`docs/decisions/2026-11-12-sites-d1-runtime.md`](docs/decisions/2026-11-12-sites-d1-runtime.md).
 
 ## What you can do now
 
