@@ -186,9 +186,13 @@ function validToolArguments(name, args, env) {
   return false;
 }
 
-function userId(request) {
+function userId(request, env) {
   const id = request.headers.get("oai-authenticated-user-id");
-  return id && id.length <= 256 ? id : null;
+  if (!id || id.length > 256) return null;
+  const allowed = new Set(typeof env.GPU_CONTROL_ALLOWED_USER_IDS === "string"
+    ? env.GPU_CONTROL_ALLOWED_USER_IDS.split(",").map((value) => value.trim()).filter(Boolean)
+    : []);
+  return allowed.has(id) ? id : null;
 }
 
 async function readJson(request, limit = MAX_BODY_BYTES) {
@@ -408,8 +412,8 @@ async function synchronizeModalRun(env, runId, ownerId, { submit = false, cancel
 }
 
 async function callTool(name, args, request, env) {
-  const owner = userId(request);
-  if (!owner) throw new Error("AUTHENTICATED_SITE_USER_REQUIRED");
+  const owner = userId(request, env);
+  if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
   if (name === "experiment_capabilities") return capabilities(env);
   if (name === "experiment_prepare") {
@@ -613,7 +617,7 @@ async function handleMcp(request, env) {
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
-      const known = new Set(["AUTHENTICATED_SITE_USER_REQUIRED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+      const known = new Set(["AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
       const code = known.has(error?.message) ? error.message : "INTERNAL_ERROR";
       return json({ jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: JSON.stringify({ error: code }) }] } });
     }

@@ -15,6 +15,7 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
   };
   return {
     CPU_WORKLOAD_ADMISSION_ENABLED: admission,
+    GPU_CONTROL_ALLOWED_USER_IDS: "test-owner",
     CPU_WORKLOAD_REPOSITORY: "Unjuno/gpu-control",
     CPU_WORKLOAD_SOURCE_SHA: sourceSha,
     CPU_WORKLOAD_IMAGE_DIGEST: imageDigest,
@@ -71,6 +72,21 @@ test("public MCP data tools reject anonymous callers before touching D1", async 
   assert.equal(response.status, 200);
   assert.equal(rpc.result.isError, true);
   assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "AUTHENTICATED_SITE_USER_REQUIRED" });
+  assert.equal(databaseReads, 0);
+});
+
+test("authenticated users outside the configured owner allowlist cannot touch D1", async () => {
+  const env = environment();
+  let databaseReads = 0;
+  env.DB.prepare = () => {
+    databaseReads++;
+    throw new Error("unauthorized Site user reached D1");
+  };
+  const response = await toolCall(env, "another-chatgpt-user", "experiment_list", {});
+  const rpc = await response.json();
+
+  assert.equal(rpc.result.isError, true);
+  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "SITE_USER_NOT_AUTHORIZED" });
   assert.equal(databaseReads, 0);
 });
 
@@ -192,6 +208,7 @@ test("requests cooperative cancellation for an owned running run", async () => {
 
 test("does not let another Site user cancel an owned run", async () => {
   const { env, run, updates } = cancellationEnvironment("queued");
+  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,other-owner";
   const response = await toolCall(env, "other-owner", "experiment_cancel", { run_id: run.id });
   const rpc = await response.json();
 
@@ -290,6 +307,7 @@ test("artifact chunks require the authenticated owner and verify stored content"
   let bucketReads = 0;
   let corruptObject = false;
   const env = environment();
+  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,different-owner";
   env.DB.prepare = (sql) => ({
     bind(run, owner) { return { async first() {
       assert.match(sql, /owner_id = \?/);
@@ -352,6 +370,7 @@ test("another Site user cannot read an owned run status or result", async () => 
     parameters_json: JSON.stringify({ prompt: "private", max_new_tokens: 1, seed: 1 }),
   };
   const env = environment();
+  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,different-owner";
   env.DB.prepare = (sql) => ({ bind(run, owner) { return { async first() {
     assert.match(sql, /r\.owner_id = \?/);
     assert.equal(run, runId);
@@ -369,6 +388,7 @@ test("another Site user cannot read an owned run status or result", async () => 
 
 test("experiment_list returns no other owner's run metadata", async () => {
   const env = environment();
+  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,different-owner";
   env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
     assert.match(sql, /WHERE r\.owner_id = \?/);
     assert.equal(owner, "different-owner");
@@ -384,6 +404,7 @@ test("experiment_list returns no other owner's run metadata", async () => {
 test("prepare idempotency keys are isolated by Site owner", async () => {
   const plans = new Map();
   const env = environment();
+  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,different-owner";
   env.DB.prepare = (sql) => ({ bind(...values) {
     if (sql.includes("INSERT OR IGNORE INTO plans")) {
       assert.match(sql, /owner_id/);

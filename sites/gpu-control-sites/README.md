@@ -11,10 +11,14 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   `provider_ready=false`, and `admission_enabled=false` for `modal_cpu` until
   the Modal endpoint, Workspace Proxy Token, image fingerprint, and admission
   flag are configured and health-checked.
+- MCP access is restricted to the owner IDs listed in the secret runtime
+  variable `GPU_CONTROL_ALLOWED_USER_IDS`; missing or non-listed identities
+  are rejected before D1 or Modal access.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
-- Modal control service and the Sites adapter are now in source, but the
-  endpoint and runtime credentials are not deployed; no Modal Sandbox has been
-  started. RunPod is not connected and paid GPU execution remains parked.
+- Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
+  in the `main` Environment. Its Proxy Token is not yet stored in Sites, so
+  provider readiness remains blocked and no Modal Sandbox has been started.
+  RunPod is not connected and paid GPU execution remains parked.
 - Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
 Every data-bearing or execution MCP tool must require the Sites-injected user
