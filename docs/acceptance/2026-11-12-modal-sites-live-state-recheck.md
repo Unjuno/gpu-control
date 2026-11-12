@@ -26,11 +26,14 @@ Read-only calls to the installed `GPU Control — ChatGPT実験管理` MCP retur
   needed to unlock the remainder. This is a credit balance notice, not a hard
   spend-stop guarantee.
 - App overview at the time of inspection: deployment shown as 22 minutes old,
-  `$0.02` usage this cycle, 0 live containers, 0 live Sandboxes.
+  `$0.02` usage this cycle, 0 live containers, 0 live Sandboxes. The function
+  deployment timeline identifies the current deployment as v4 at
+  2026-11-12 18:06:03 JST.
 - The `control_api` function showed recent `/v1/health` calls returning HTTP
   200. The app overview does not expose a source commit in the inspected view,
   so the live deployment cannot be tied to the latest Git commit from this
-  evidence alone.
+  evidence alone. Both failed runs above (17:21 and 17:52 JST) predate v4; the
+  listed successful run at 14:02 JST also predates v4. None accepts current v4.
 
 ## Gate disposition
 
