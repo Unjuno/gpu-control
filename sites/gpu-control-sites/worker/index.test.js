@@ -27,6 +27,14 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
   };
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 async function capabilities(env) {
   const request = new Request("https://site.invalid/mcp", {
     method: "POST",
@@ -147,6 +155,91 @@ test("health can be verified while Modal admission remains disabled", async () =
     assert.equal(result.blocking_reason, "CPU_WORKLOAD_ADMISSION_DISABLED");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("retries Modal result persistence after an R2 or D1 write failure", async () => {
+  const runId = "e".repeat(32);
+  const fingerprint = "f".repeat(64);
+  const parameters = { prompt: "Once", max_new_tokens: 1, seed: 1 };
+  const checks = ["source_identity_present", "parameter_bounds", "model_digest_verified", "inference_completed",
+    "non_root", "no_secret_environment", "no_docker_socket", "read_only_rootfs", "network_disabled"];
+  const metrics = { model_id: "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin",
+    model_sha256: "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a",
+    max_new_tokens: 1, seed: 1, generated_text: "A", generated_tokens: 1, prompt_sha256: "1".repeat(64) };
+  const resultCore = { schema_version: 1, run_id: runId, source_sha: sourceSha, plan_fingerprint: fingerprint,
+    check: "tiny-stories-inference-v1", status: "passed", gpu_used: false, checks, metrics };
+  const result = { ...resultCore,
+    checksum: createHash("sha256").update(canonicalJson({ run_id: runId, source_sha: sourceSha,
+      plan_fingerprint: fingerprint, metrics })).digest("hex") };
+  const joined = { id: runId, state: "running", cancel_requested: 0, workload: "tiny-stories-inference-v1",
+    repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest, fingerprint,
+    parameters_json: JSON.stringify(parameters), runtime_seconds: 10, lease_id: null };
+
+  for (const fault of ["r2", "d1"]) {
+    const env = environment({ admission: "true" });
+    env.MODAL_API_URL = "https://modal.invalid";
+    env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
+    env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
+    env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "a".repeat(64);
+    let bucketWrites = 0;
+    env.BUCKET = { put: async () => {
+      if (fault === "r2" && bucketWrites++ === 0) throw new Error("injected R2 write failure");
+      if (fault === "d1") bucketWrites++;
+      return {};
+    } };
+    let finalizeWrites = 0;
+    const current = { ...joined };
+    env.DB.prepare = (sql) => ({ bind(...values) {
+      return {
+        async first() {
+          if (sql.includes("FROM runs r JOIN plans p")) return { ...current };
+          throw new Error(`unexpected D1 first query: ${sql}`);
+        },
+        async run() {
+          if (sql.startsWith("UPDATE runs SET lease_id=")) {
+            current.lease_id = values[0];
+            return { success: true };
+          }
+          if (sql.startsWith("UPDATE runs SET state='succeeded'")) {
+            if (fault === "d1" && finalizeWrites++ === 0) throw new Error("injected D1 finalize failure");
+            current.state = "succeeded";
+            current.result_json = values[0];
+            current.result_artifact_id = values[1];
+            current.result_artifact_sha256 = values[2];
+            current.result_artifact_size = values[3];
+            current.cleanup_state = "confirmed";
+            return { success: true };
+          }
+          throw new Error(`unexpected D1 write query: ${sql}`);
+        },
+      };
+    } });
+
+    const originalFetch = globalThis.fetch;
+    let providerReads = 0;
+    try {
+      globalThis.fetch = async (url, init) => {
+        assert.match(String(url), new RegExp(`/v1/runs/${runId}/status$`));
+        assert.equal(new Headers(init.headers).get("modal-key"), env.MODAL_PROXY_TOKEN_ID);
+        providerReads++;
+        return Response.json({ state: "succeeded", cleanup_state: "confirmed", sandbox_id: "sb-terminal", result });
+      };
+      const firstResponse = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+      const firstRpc = await firstResponse.json();
+      assert.equal(firstRpc.result.isError, true, `${fault} failure must remain visible`);
+      assert.equal(current.state, "running", `${fault} failure must not mark an unpersisted result successful`);
+
+      const retryResponse = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+      const retryRpc = await retryResponse.json();
+      assert.equal(retryRpc.result.isError, false);
+      assert.equal(JSON.parse(retryRpc.result.content[0].text).machine_state.state, "succeeded");
+      assert.equal(current.state, "succeeded");
+      assert.equal(providerReads, 2, "retry must reconcile the same deterministic Modal run");
+      assert.equal(bucketWrites, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   }
 });
 
