@@ -8,9 +8,13 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
 - The current capability tool reports `available=false`,
-  `provider_ready=false`, and `admission_enabled=false` for `modal_cpu`.
+  `provider_ready=false`, and `admission_enabled=false` for `modal_cpu` until
+  the Modal endpoint, Workspace Proxy Token, image fingerprint, and admission
+  flag are configured and health-checked.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
-- Modal and Runpod are not connected; paid execution remains parked.
+- Modal control service and the Sites adapter are now in source, but the
+  endpoint and runtime credentials are not deployed; no Modal Sandbox has been
+  started. RunPod is not connected and paid GPU execution remains parked.
 - Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
 Every data-bearing or execution MCP tool must require the Sites-injected user
@@ -50,9 +54,11 @@ untouched.
 
 - `worker/index.js`: ChatGPT MCP Worker and D1/R2 control-plane logic.
 - `drizzle/`: append-only D1 schema migrations.
-- `workloads/tiny_stories_inference/`: pinned workload and container recipe;
-  it is not a current compute service. Provider-specific packaging must verify
-  the source and model digests before use.
+- `modal/`: authenticated, fixed-purpose Modal control API. Its Sandbox can
+  start only the pinned CPU workload and has outbound networking blocked.
+- `workloads/tiny_stories_inference/`: pinned workload and container recipe.
+  Provider-specific packaging must verify the source and model digests before
+  use.
 - `workloads/third_party/llama2.c/`: the pinned upstream C inference source
   and its license.
 - `scripts/`: deterministic Worker build and artifact validation.
