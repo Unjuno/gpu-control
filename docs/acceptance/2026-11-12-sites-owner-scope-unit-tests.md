@@ -32,6 +32,17 @@ identity header is rejected. It does not prove isolation between two
 authenticated ChatGPT accounts, verify revocation, or close the owner-isolation
 gate.
 
+## Public-route spoof recheck — 2026-11-12 09:19 UTC
+
+A direct HTTPS POST to the public `/mcp` endpoint again supplied a synthetic
+non-owner `oai-authenticated-user-id` and requested only `experiment_list`.
+The public Sites route returned HTTP **401** with a Bearer challenge for the
+Site's `resource.invoke` scope; no tool result or user data was returned. The
+request did not include a real owner ID or invoke a mutation. This verifies the
+public-route authentication challenge against an unauthenticated forged header
+for this probe only. Separate authenticated-account isolation and revocation
+remain unverified.
+
 These tests use an in-process D1-shaped test double. They do not prove Cloudflare
 Sites' authenticated-user header cannot be forged, test access from a genuinely
 separate ChatGPT account, or verify access revocation. Those deployed checks
