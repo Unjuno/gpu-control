@@ -1,5 +1,33 @@
 # Project status
 
+## Local security-tool refresh — 2026-11-13
+
+- PR #68 already exists as a Draft and currently points at this checkout's
+  exact head `9cdb8eb88e6eca9c8384045ce87ea269a65ba848`; creating another Draft
+  would duplicate the same candidate. The GitHub API confirms the PR is open,
+  based on `codex/gpu-control-p1-dcr-v9-review`, and its six required exact-head
+  checks are green.
+- A local Gitleaks scan across the full Git history reported 11
+  `generic-api-key` matches. All 11 were inspected without treating their
+  strings as credentials: they map to pinned SHA-256 checksums, test-only
+  fixtures/idempotency values, or synthetic encoded test data. No live
+  credential was verified. This is a reviewed false-positive set, not proof
+  that all secret exposure risks are absent.
+- A local Semgrep `p/security-audit` scan parsed about 100% of 254 tracked
+  files (50 excluded by `.semgrepignore`) and produced one warning for SHA-1
+  in `project_control/runner.py`. That code reproduces GitHub Contents API's
+  Git blob object ID solely for source-integrity matching; it is not used for
+  signatures, credentials, or security tokens. The official API example links
+  `sha` to the Git blob endpoint. The code now sets `usedforsecurity=False` and
+  documents the purpose. Semgrep still reports the rule because it does not
+  account for that flag; the warning remains visible and reviewed rather than
+  suppressed. All 19 Project Control unit tests pass.
+- GitHub Code Scanning has no analysis recorded, and Dependabot alerts are
+  disabled. The Codex Security repository-wide P0 scan remains unstarted
+  because the active session lacks its required managed read-only filesystem
+  profile. These local checks do not replace that audit or an independent PR
+  review.
+
 ## Live refresh — 2026-11-13 17:05 UTC
 
 - PR #68 is open as Draft at head
