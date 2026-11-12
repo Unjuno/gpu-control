@@ -1,5 +1,33 @@
 # Project status
 
+## Current checkout and live capability refresh — 2026-11-12 15:42 UTC
+
+- The source head is `504e492ec2e03f79a94cfad41729d6e30531f598` on
+  `codex/sites-modal-runner`, matching `origin`. PR #68 remains open as a Draft
+  against `codex/gpu-control-p1-dcr-v9-review`. This head adds
+  `gpu_control_modal_bootstrap` to the Modal API image; it follows the earlier
+  `67f60a2` change that introduced bounded Sandbox exit markers.
+- Exact-head GitHub runs passed: CI `43249691251` and Project bridge tests
+  `43249691590`. A Security Review of the one-line image-packaging change found
+  no issue; this is not an independent review of the full PR. No full-PR review
+  is recorded.
+- The ChatGPT Sites capability tool reports Modal provider health ready,
+  admission disabled, and availability false with
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. Live Sites still expects fingerprint
+  `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`; the
+  current Modal candidate computes
+  `c88df3ef00889df55690df701d99f2701424dd52abc33a1c32e1b812724f22f2`.
+  The candidate has not been deployed and the Sites environment has not been
+  updated to the candidate fingerprint.
+- Latest run `e9330c5bb5454f42bb3dabe058091dc0` is still failed with
+  `MODAL_WORKLOAD_EXIT_2`, cleanup confirmed, and no result or artifact.
+  No Sandbox was started during this refresh.
+- The repository-wide P0 Deep Security Scan did not start: the scanner requires
+  a managed read-only filesystem permission profile, which was unavailable in
+  the current session. Do not treat the one-line diff review as the P0 audit.
+- Deployment and another Sandbox run remain unperformed. Modal admission is
+  still closed; RunPod/GPU execution remains parked.
+
 ## Live branch refresh — 2026-11-13
 
 - PR #68 remains open as a Draft, based on `codex/gpu-control-p1-dcr-v9-review`;
