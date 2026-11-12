@@ -93,3 +93,71 @@ The production Sites deployment is still Version 11 (`appgdep_6af4d87aee20819197
 - Run `5447466fe7f9413980d2b47a2b079289` was prepared, submitted, polled, and retrieved through the ChatGPT tools. It used prompt `A tiny red fox`, seed `61117`, and a four-token limit; it generated four tokens in 150 ms, passed source/model/parameter and container-isolation checks, returned `gpu_used=false`, and confirmed cleanup at a `$0.00` ceiling. Result artifact metadata reports 961 bytes and SHA-256 `3eca2a067a2230b5de6272850eaeac6cc8bf91684293e125a6029c93f0cc456e`; this run's full R2 artifact bytes were not separately fetched.
 
 These rechecks prove more bounded CPU inference on the current Version 11 path. They do not validate Version 13's D1 migration, a live Runner restart, cancellation, cross-owner isolation, or paid/GPU execution.
+
+## Current live refresh — 2026-11-12
+
+The Sites version inventory now shows Version 14 deployed successfully with
+MCP enabled at `https://gpu-control-sites.unjuno.chatgpt.site`:
+
+- Deployment: `appgdep_6af5027bff688191b429517650af2496`
+- Sites source-repository commit: `1f0a2d49dc0918411cbe1984d5369f365b862839`
+- The Sites source commit is distinct from the registered workload source SHA
+  below. Version 14 is the currently deployed Sites source; the workload SHA is
+  separately registered in D1 as `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`.
+- Capabilities recheck reports the fixed TinyStories workload available,
+  Runner ready, admission enabled, free local CPU, one in-flight run, 30-second
+  maximum, and paid execution parked.
+
+A fresh ChatGPT tool run was prepared, submitted, polled, and retrieved:
+
+- Run ID: `22a28cca6479404aa0dc9206490111de`
+- Parameters: prompt `A tiny robot found a blue seed.`, seed `61117`,
+  `max_new_tokens=12`, runtime ceiling 30 seconds, cost ceiling `$0.00`.
+- Workload source: `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`; image:
+  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+- State: `succeeded`; result status: `passed`; generated 12 tokens in 310 ms.
+- Result: `A tiny robot found a blue seed. He was so happy! He had been looking for a way`
+- Checks passed: registered source identity, parameter bounds, model digest,
+  inference completion, non-root, no secret environment, no Docker socket,
+  read-only root filesystem, and disabled network. `gpu_used=false` and
+  `cleanup_state=confirmed`.
+- ChatGPT separately retrieved the R2 `result.json` artifact; the tool verified
+  its 1,003-byte payload against SHA-256
+  `9ff9c340788e6bd4c428c8750a655ceac01d32b55fcbac35cc30d9c18782f119`.
+
+This refresh supersedes the earlier Version 11 live-status snapshot above. It
+validates the current free CPU inference and artifact-read path only; it does
+not close restart/cancellation recovery, cross-owner isolation, backup/restore,
+retention/orphan cleanup, real GPU, or paid-execution gates.
+
+## Version 15 and hardened live Runner refresh — 2026-11-12
+
+The private Site was updated to Version 15, deployment
+`appgdep_6af5169fa69c8191b4dca5bb77272c84`, from Sites source commit
+`e3cfaf71c5f084c6a6ab40adbae8e189327197ad`. The change hardens macOS Runner
+Keychain credential loading and LaunchAgent file handling. The deployed
+runtime admission policy was not changed.
+
+The local LaunchAgent was already running. Its `run.py` and Keychain launcher
+SHA-256 values match the published source; Keychain items exist without reading
+their values, and plist/runtime files have mode `0600`. No restart or
+credential rotation was needed for this validation. The partial-coverage static
+security review found no actionable finding; it is not a live restart, ACL, or
+rotation test.
+
+A new ChatGPT-originated inference completed after deployment:
+
+- Run `a1cdf7e9516b4a00802b6b606f228b08`, prompt `A purple seed appeared.`,
+  seed `61118`, eight-token limit; generated eight tokens in 227 ms.
+- Registered workload source
+  `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`; image
+  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+- Source, parameter, model digest, inference, non-root, secret-free environment,
+  no Docker socket, read-only filesystem, and no-network checks passed.
+- `gpu_used=false`, cleanup confirmed, and provider cost `$0.00`.
+- ChatGPT retrieved the 979-byte R2 result artifact; SHA-256
+  `bb7a05682bfbb1903abd26118cdcc1128bd9aff81b545e72a5e59a805af0311e`.
+
+This remains CPU-only acceptance. Forced restart, interruption/cancellation,
+lease expiry/reconciliation, Keychain ACL and rotation, cross-owner isolation,
+backup/restore, retention/orphan cleanup, GPU, and paid execution remain open.

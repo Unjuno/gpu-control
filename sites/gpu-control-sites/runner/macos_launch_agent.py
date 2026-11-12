@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import plistlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,15 +18,25 @@ DEFAULT_REPOSITORY = "Unjuno/gpu-control"
 DEFAULT_SOURCE_SHA = "3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288"
 DEFAULT_IMAGE_DIGEST = "sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541"
 PATH = "/run/current-system/sw/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+RUNTIME_PATH = Path.home() / "Library/Application Support/Unjuno/gpu-control"
 
 
-def build_plist(repository_root: Path, python_executable: str, home: Path) -> dict:
-    launcher = repository_root / "runner/macos_keychain_launcher.py"
+def default_python() -> str:
+    nix_python = Path("/run/current-system/sw/bin/python3")
+    if nix_python.is_file() and os.access(nix_python, os.X_OK):
+        return str(nix_python)
+    return sys.executable
+
+
+def build_plist(runtime_root: Path, python_executable: str, home: Path) -> dict:
+    launcher = runtime_root / "runner/macos_keychain_launcher.py"
     logs = home / "Library/Logs"
     return {
         "Label": LABEL,
-        "ProgramArguments": [python_executable, str(launcher)],
-        "WorkingDirectory": str(repository_root),
+        # Avoid user-site packages and environment-dependent startup hooks in
+        # the unattended launchd process. The Runner uses only the stdlib.
+        "ProgramArguments": [python_executable, "-I", "-S", str(launcher)],
+        "WorkingDirectory": str(runtime_root),
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": 30,
@@ -81,6 +92,31 @@ def write_plist(path: Path, document: dict) -> None:
             pass
 
 
+def install_runner_files(source_root: Path, runtime_root: Path) -> None:
+    source_dir = source_root / "runner"
+    runtime_dir = runtime_root / "runner"
+    runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(runtime_root, 0o700)
+    os.chmod(runtime_dir, 0o700)
+    for name in ("run.py", "macos_keychain_launcher.py"):
+        source = source_dir / name
+        if not source.is_file():
+            raise FileNotFoundError(f"required Runner source is missing: {name}")
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{name}.", dir=runtime_dir)
+        try:
+            os.fchmod(descriptor, 0o600)
+            with source.open("rb") as reader, os.fdopen(descriptor, "wb") as writer:
+                shutil.copyfileobj(reader, writer)
+                writer.flush()
+                os.fsync(writer.fileno())
+            os.replace(temporary, runtime_dir / name)
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_mutually_exclusive_group(required=True)
@@ -90,11 +126,14 @@ def main() -> int:
     actions.add_argument("--stop", action="store_true", help="stop and unload the LaunchAgent")
     actions.add_argument("--status", action="store_true", help="report whether the LaunchAgent is loaded")
     actions.add_argument("--uninstall", action="store_true", help="stop and remove only the LaunchAgent plist")
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--python", default=sys.executable)
+    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[1],
+                        help="source checkout used to install the Runner")
+    parser.add_argument("--runtime-root", type=Path, default=RUNTIME_PATH,
+                        help="private local directory used by the installed LaunchAgent")
+    parser.add_argument("--python", default=default_python())
     parser.add_argument("--home", type=Path, default=Path.home())
     args = parser.parse_args()
-    document = plistlib.dumps(build_plist(args.repository_root.resolve(), args.python, args.home), fmt=plistlib.FMT_XML)
+    document = plistlib.dumps(build_plist(args.runtime_root.resolve(), args.python, args.home), fmt=plistlib.FMT_XML)
     target = plist_path(args.home)
     service = f"{domain()}/{LABEL}"
     loaded = launchctl("print", service).returncode == 0
@@ -103,6 +142,10 @@ def main() -> int:
     elif args.install:
         if loaded:
             parser.error("LaunchAgent is loaded; stop it before replacing the plist")
+        try:
+            install_runner_files(args.repository_root.resolve(), args.runtime_root.resolve())
+        except (OSError, FileNotFoundError) as exc:
+            parser.error(f"Runner installation failed: {exc}")
         write_plist(target, plistlib.loads(document))
         print(f"installed {target}")
     elif args.start:

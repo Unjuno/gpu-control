@@ -30,17 +30,15 @@ launch_agent = load_module("macos_launch_agent_under_test", "macos_launch_agent.
 
 class KeychainLauncherTests(unittest.TestCase):
     def test_secret_read_uses_fixed_keychain_identity_and_never_logs_value(self):
-        secret = b"opaque-test-secret-0123456789abcdef"
-        with patch.object(keychain.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, secret + b"\n", b"")) as run:
-            self.assertEqual(keychain.read_secret("runner-bearer"), secret.decode())
-        args = run.call_args.args[0]
-        self.assertEqual(args, [keychain.SECURITY, "find-generic-password", "-s", keychain.SERVICE, "-a", "runner-bearer", "-w"])
-        self.assertNotIn(secret.decode(), " ".join(args))
+        secret = "opaque-test-secret-0123456789abcdef"
+        with patch.object(keychain, "_read_keychain_item", return_value=secret) as read:
+            self.assertEqual(keychain.read_secret("runner-bearer"), secret)
+        read.assert_called_once_with(keychain.SERVICE, "runner-bearer")
 
     def test_unknown_account_and_keychain_failure_fail_closed(self):
         with self.assertRaises(keychain.KeychainUnavailable):
             keychain.read_secret("provider-token")
-        with patch.object(keychain.subprocess, "run", return_value=subprocess.CompletedProcess([], 44, b"", b"not found")):
+        with patch.object(keychain, "_read_keychain_item", side_effect=keychain.KeychainUnavailable):
             with self.assertRaises(keychain.KeychainUnavailable):
                 keychain.read_secret("runner-bearer")
 
@@ -72,7 +70,10 @@ class KeychainLauncherTests(unittest.TestCase):
         document = launch_agent.build_plist(Path("/work/gpu-control"), "/opt/homebrew/bin/python3", Path("/Users/test"))
         encoded = plistlib.dumps(document).decode()
         self.assertEqual(document["Label"], launch_agent.LABEL)
-        self.assertEqual(document["ProgramArguments"][1], "/work/gpu-control/runner/macos_keychain_launcher.py")
+        self.assertEqual(document["ProgramArguments"], [
+            "/opt/homebrew/bin/python3", "-I", "-S",
+            "/work/gpu-control/runner/macos_keychain_launcher.py",
+        ])
         self.assertEqual(document["EnvironmentVariables"]["GPU_CONTROL_SITE_URL"], launch_agent.DEFAULT_SITE)
         self.assertNotIn("RUNNER_BEARER_TOKEN", encoded)
         self.assertNotIn("SITES_SERVICE_TOKEN", encoded)
@@ -87,6 +88,32 @@ class KeychainLauncherTests(unittest.TestCase):
             launch_agent.write_plist(path, document)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(plistlib.loads(path.read_bytes()), document)
+
+    def test_install_copies_only_required_runner_files_to_private_runtime_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            runtime = root / "Application Support/Unjuno/gpu-control"
+            home = root / "home"
+            (source / "runner").mkdir(parents=True)
+            (source / "runner/run.py").write_text("runner code", encoding="utf-8")
+            (source / "runner/macos_keychain_launcher.py").write_text("launcher code", encoding="utf-8")
+            (source / "runner/other.py").write_text("not copied", encoding="utf-8")
+            with patch.object(sys, "argv", [
+                "macos_launch_agent.py", "--install", "--repository-root", str(source),
+                "--runtime-root", str(runtime), "--home", str(home), "--python", "/usr/bin/python3",
+            ]), patch.object(launch_agent, "launchctl", return_value=subprocess.CompletedProcess([], 1, b"", b"")):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(launch_agent.main(), 0)
+            installed = runtime / "runner"
+            self.assertEqual((installed / "run.py").read_text(encoding="utf-8"), "runner code")
+            self.assertEqual((installed / "macos_keychain_launcher.py").read_text(encoding="utf-8"), "launcher code")
+            self.assertFalse((installed / "other.py").exists())
+            self.assertEqual(installed.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((installed / "run.py").stat().st_mode & 0o777, 0o600)
+            plist = plistlib.loads(launch_agent.plist_path(home).read_bytes())
+            self.assertEqual(plist["ProgramArguments"][3], str((installed / "macos_keychain_launcher.py").resolve()))
+            self.assertEqual(plist["WorkingDirectory"], str(runtime.resolve()))
 
     def test_runner_process_inventory_only_returns_runner_commands(self):
         output = (" 123 /opt/python -c runpy.run_path('sites/gpu-control-sites/runner/run.py')\n"

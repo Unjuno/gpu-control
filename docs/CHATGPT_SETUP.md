@@ -41,10 +41,10 @@ secret.
 
 ## Current acceptance boundary
 
-The deployed version has completed a fixed-image checksum smoke and seven
+The deployed version has completed a fixed-image checksum smoke and eight
 provenance-valid TinyStories 15M CPU inferences through ChatGPT, Sites, D1, and
-the Runner. The latest recheck, `5447466fe7f9413980d2b47a2b079289`, generated
-four tokens in 150 ms, returned `gpu_used=false`, passed identity and sandbox
+the Runner. The latest recheck, `1fdfe901fda14798a42e33e492edd538`, generated
+four tokens in 155 ms, returned `gpu_used=false`, passed identity and sandbox
 validation, and was retrieved through `experiment_result`; cleanup was
 confirmed at `$0.00`. Three result artifacts have also been retrieved and
 SHA-256 verified through ChatGPT. Two earlier outputs used a non-resolving

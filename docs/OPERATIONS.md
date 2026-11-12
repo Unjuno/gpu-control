@@ -27,24 +27,34 @@ or provider settings.
 - A seventh provenance-valid run (`5447466fe7f9413980d2b47a2b079289`) was
   retrieved through ChatGPT. It generated four tokens in 150 ms, passed identity
   and sandbox checks, and confirmed cleanup at `$0.00`.
+- An eighth live recheck (`1fdfe901fda14798a42e33e492edd538`) was prepared,
+  submitted, polled, and retrieved through ChatGPT. It generated four tokens in
+  155 ms, passed identity/sandbox checks, reported `gpu_used=false`, and
+  confirmed cleanup at `$0.00`.
+- A fresh run (`a1cdf7e9516b4a00802b6b606f228b08`) completed through the
+  currently deployed Sites Version 15. It generated 8 tokens in 227 ms,
+  passed registered source/model/parameter and container-isolation checks,
+  reported `gpu_used=false`, and confirmed cleanup at `$0.00`. ChatGPT retrieved
+  the complete 979-byte R2 result artifact and the Site verified its SHA-256.
 - Repeating the same submission returns the existing run instead of starting
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
   reports `gpu_used=false`; paid provider execution remains parked.
 
-These checks prove seven provenance-valid bounded CPU inferences and three
-bounded R2 artifact retrievals. They do not prove general model quality, GPU
-execution, live forced-restart/cancellation recovery, cross-owner isolation,
-long-term artifact retention, or backup/restore. Do not use this candidate to
-claim those capabilities.
+These checks prove repeated provenance-valid bounded CPU inferences and five
+complete R2 artifact retrievals through ChatGPT. They do not prove general
+model quality, GPU execution, live forced-restart/cancellation recovery,
+cross-owner isolation, long-term artifact retention, or backup/restore.
 
-The currently deployed Site is Version 11 from source commit
-`1b6916cb53e001af352808f6fd80db4dcff43999`. Cancellation support is saved as
-Site Version 13 from source commit `52416ec02fcf3b755e1763edc617cd0a67f4ab91`,
-but is not deployed. It adds a D1 protocol-version check so legacy Runners fail
-closed. The local suite passes 24 Worker tests and 12 Runner tests; build and
-artifact validation also pass. This local evidence does not establish live
-cancellation behavior.
+The currently deployed Site is Version 15, deployment
+`appgdep_6af5169fa69c8191b4dca5bb77272c84`, from Sites source commit
+`e3cfaf71c5f084c6a6ab40adbae8e189327197ad`; it reports MCP ready and served the
+new inference above. Version 13 introduced a D1 protocol-version check so
+legacy Runners fail closed. The live macOS LaunchAgent is running with login
+Keychain credentials; its `run.py` and Keychain launcher hashes match the
+published source, and plist/runtime files have mode `0600`. Static security
+review found no actionable issue in the reviewed diff. It did not exercise
+restart, cancellation, Keychain ACL, or credential rotation.
 
 ## Operating boundaries
 
@@ -66,12 +76,12 @@ cancellation behavior.
 
 ## macOS Runner secret and service management
 
-The tested local candidate reads both Runner credentials from the user's
-login Keychain at launch and keeps them in process memory. Its LaunchAgent plist
-contains only the fixed Site URL, registered source/image identity, and polling
+The deployed macOS LaunchAgent reads both Runner credentials from the user's
+login Keychain at launch and keeps them in process memory. Its plist contains
+only the fixed Site URL, registered source/image identity, and polling
 settings. The plist is written atomically with mode `0600`; a missing Keychain
-entry fails closed. The candidate has not yet replaced the currently running
-ephemeral Runner.
+entry fails closed. The installed service and Keychain items are present, and
+the running source hashes match the published Version 15 source.
 
 To provision or operate it after admission is closed and all runs are terminal:
 
@@ -99,19 +109,18 @@ To provision or operate it after admission is closed and all runs are terminal:
    revoke credentials separately after a replacement is proven and no Runner
    depends on them.
 
-The source SHA recorded in the saved Site Version 13 is not present in the
-current Sites checkout. Do not deploy that version or replace the current
-Runner until its source provenance has been reconciled.
+The source SHA recorded in saved Site Version 13 was reconciled with the
+Cloudflare artifact repository at that time. Version 15 is now the live Site
+version. For further edits, reconcile the checkout against the deployed source
+before pushing. Preserve the active Runner and its Keychain credentials while
+testing changes; schedule restarts only after a live recovery plan is ready.
 
 ## Open operational acceptance
 
-1. Establish a persistent, protected Runner secret source and supported
-   start/stop procedure, then rehearse credential rotation and restart with
-   admission closed. The current process was started through an ephemeral
-   launcher; its credentials are not available to a new process. Do not restart
-   it until a replacement secret source is configured and the active process
-   state has been checked. Verify that readiness returns only after the exact
-   image and source have been checked.
+1. Rehearse credential rotation and restart with admission closed. The current
+   service already has a protected Keychain secret source; prove that a planned
+   replacement starts with the rotated credentials, returns exact source/image
+   readiness, and leaves no orphan workload before considering this gate done.
 2. Exercise cancellation, Runner interruption/restart, lease expiry, result
    reconciliation, and cleanup against the live Site and Runner.
 3. Define R2 artifact retention and orphan cleanup; exercise larger artifacts and

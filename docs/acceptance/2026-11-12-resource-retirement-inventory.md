@@ -8,13 +8,20 @@ No database row contents, secrets, credentials, or tokens were read.
 
 - Sites project `appgprj_6af482670c2081919ffe27a6faa0f746` is active at the
   existing URL. Its custom access policy has one allowed user, no groups, and
-  zero external visitors. Version 9's deployment reports `succeeded` and
-  `has_mcp=true`.
+  zero external visitors. Version 11's deployment
+  (`appgdep_6af4d87aee20819197c9ff12ed9e81fa`) reports `succeeded` and
+  `has_mcp=true`; Versions 12 and 13 are saved but have not been deployed.
 - Its D1 binding is `DB`, with `plans`, `runs`, and `runner_heartbeats` tables.
 - The ChatGPT capabilities tool reports the Runner ready and the registered
   free `tiny-stories-inference-v1` CPU workload available, with a 30-second
   runtime ceiling and one in-flight run. This is the current control path;
   PostgreSQL is not required for it.
+- A live recheck on 2026-11-12 completed and retrieved run
+  `1fdfe901fda14798a42e33e492edd538` through ChatGPT. It generated four tokens
+  in 155 ms, passed model digest, registered source, bounded-parameter, non-root,
+  no-secret, no-Docker-socket, read-only-rootfs, and network-disabled checks;
+  it reported `gpu_used=false`, `$0.00`, and confirmed cleanup. This verifies
+  the current CPU route only, not cancellation or forced-restart recovery.
 
 ## Vercel
 
@@ -38,7 +45,8 @@ No database row contents, secrets, credentials, or tokens were read.
   `br-raspy-cell-b3l93n46`, has a suspended compute endpoint
   (`ep-small-night-b3a74joo`, `suspended_at=2026-11-11T19:47:02Z`). The project
   and stored database have not been deleted.
-- Aggregate-only row counts on the production branch:
+- Exact aggregate row counts on the production branch, queried without reading
+  row contents on 2026-11-12:
 
   | Schema/table group | Rows |
   | --- | ---: |
@@ -59,6 +67,18 @@ No database row contents, secrets, credentials, or tokens were read.
   owner confirmation because it permanently removes the legacy database and
   its remaining session/config/control state.
 
+## Source provenance and Runner lifecycle refresh
+
+- Sites Version 13 records source commit
+  `52416ec02fcf3b755e1763edc617cd0a67f4ab91`. A fresh read-only fetch from the
+  configured `cloudflare_artifact` source repository verified that its current
+  `main` HEAD is the same commit. Version 13's source provenance is therefore
+  reconciled; deployment and Runner replacement are still pending.
+- The macOS Runner process is still running under PID 34930. The planned login
+  Keychain entries (`runner-bearer` and `sites-service`) are absent, and the
+  LaunchAgent is not loaded. Do not stop the current Runner until replacement
+  credentials and the coordinated migration are ready.
+
 ## Decision
 
 D1 is the active product database. Keep the Neon compute suspended and the
@@ -66,3 +86,27 @@ legacy rows untouched until the owner chooses between a deliberate fresh start
 (discard all remaining legacy data) and an approved export/retention plan. The
 old FastAPI/PostgreSQL Gateway remains historical reference code and is not a
 deployment or rollback dependency for the Sites path.
+
+## Post-Version-15 refresh — 2026-11-12
+
+The earlier inventory above is a dated snapshot and is superseded for current
+Sites and Runner state by this refresh:
+
+- The private Sites deployment is Version 15, deployment
+  `appgdep_6af5169fa69c8191b4dca5bb77272c84`, Sites source commit
+  `e3cfaf71c5f084c6a6ab40adbae8e189327197ad`. The active D1 binding remains
+  the product database; no PostgreSQL or Neon dependency was added.
+- A post-deployment ChatGPT-originated CPU inference
+  (`a1cdf7e9516b4a00802b6b606f228b08`) succeeded, its complete R2 artifact was
+  retrieved and verified, container cleanup was confirmed, and cost was `$0.00`.
+- The macOS LaunchAgent is already running. Both Keychain items are present
+  (credential values were not read). The installed `run.py` and Keychain
+  launcher hashes match the published source; plist/runtime file modes are
+  `0600`. This supersedes the older PID 34930/no-Keychain snapshot above.
+- The Neon project was not deleted. Its remaining session/config/control rows
+  were not inspected or exported; retain the prior deletion boundary until the
+  owner explicitly decides to discard them or authorizes a verified export.
+- Vercel is not used by the product path. PR #67 proposes removing the legacy
+  gateway integration but remains Draft and requires independent review. The
+  Vercel project and attached domains have not been deleted; the connected
+  deletion flow requires account-owner action.

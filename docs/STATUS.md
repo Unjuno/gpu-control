@@ -3,23 +3,26 @@
 ## Hosted Sites MCP CPU vertical — 2026-11-12
 
 The owner-private Sites MCP Worker uses D1 and a separately isolated CPU
-Runner. Seven provenance-valid TinyStories 15M inferences have completed through
-ChatGPT, Sites, D1, and the Runner. The latest recheck, run
-`5447466fe7f9413980d2b47a2b079289`, used the registered source commit
+Runner. A fresh ChatGPT-originated TinyStories 15M inference completed on the
+current deployed Sites Version 15. Run
+`a1cdf7e9516b4a00802b6b606f228b08` used the registered workload source commit
 `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288` and image
 `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
-With prompt `A tiny red fox`, seed `61117`, and a four-token limit, it generated
-four tokens in 150 ms, passed identity/sandbox checks, returned
-`gpu_used=false`, and confirmed cleanup at `$0.00`. Run
-`6b4cabf7b6aa4aea826c4c8e672705b3` generated 32 tokens in 631 ms, passed the
-same provenance/sandbox checks, and confirmed cleanup. Three result artifacts
-have also been retrieved and SHA-256 verified through ChatGPT.
+With prompt `A purple seed appeared.`, seed `61118`, and an 8-token limit, it
+generated 8 tokens in 227 ms, passed identity/sandbox checks, returned
+`gpu_used=false`, and confirmed cleanup at `$0.00`. Its complete 979-byte R2
+artifact was retrieved through ChatGPT and SHA-256 verified by the Site. The
+run followed publication of the hardened macOS Keychain/LaunchAgent Runner in
+Version 15; live process hashes match the published source and installed
+plist/runtime files have mode `0600`.
 
 This does not establish general model quality, live restart/cancellation
 recovery, cross-owner isolation, or GPU capability. Free CPU admission remains
 bounded to one in-flight run and 30 seconds. Paid execution remains parked. The
-latest source candidate is saved as Sites Version 13 but not deployed; live
-protocol migration and Runner restart remain open. Full evidence and open gates are tracked in
+deployed Sites Version 15 is MCP-ready. Version 13 remains an older saved source
+candidate; Version 15's source commit is recorded separately in the acceptance
+evidence. Live restart/cancellation recovery remains open. Full evidence
+and open gates are tracked in
 [`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
 
 The rest of this document records standalone CLI and provider-adapter status on
