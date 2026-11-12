@@ -13,7 +13,10 @@ cross-account plugin access remains unverified.
 
 The latest 16-token ChatGPT-initiated Modal Sandbox run
 `b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was
-confirmed and no artifact was produced. Modal Usage last showed a `$1`
+confirmed and no artifact was produced. A fresh read-only history check also
+found an earlier failed run `0f2a3ddaa7da40648600bae21ccd9ed1` at 11:25 UTC
+with the same exit code and confirmed cleanup; its deployment/authorization
+provenance is unknown. Modal Usage last showed a `$1`
 Workspace limit, `$0.04` credits used, and `$0` charges. Commit `d1dd4fe`
 pushed to `codex/sites-modal-runner` adds a bounded preflight line diagnostic,
 but it has not been deployed. The previous one-run authorization is consumed;

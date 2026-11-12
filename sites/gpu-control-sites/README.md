@@ -38,6 +38,11 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   recorded cleanup confirmed. Do not retry under the consumed one-run
   authorization. RunPod remains absent from the Sites Worker route and GPU/paid
   execution remains parked.
+- A fresh read-only history check found another failed status,
+  `0f2a3ddaa7da40648600bae21ccd9ed1`, created earlier at 11:25 UTC with
+  `MODAL_WORKLOAD_EXIT_2`, confirmed cleanup, and no artifact. Its deployment
+  and authorization provenance remain unknown; it is retained as a separate
+  failed event.
 - Diagnostic follow-up commit `d1dd4fe2bbaf220e24fe1c1f97f958491a3d5674`
   adds a non-sensitive inference preflight line marker and strict Worker
   persistence. It is pushed to GitHub but not deployed; the current production

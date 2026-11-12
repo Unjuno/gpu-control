@@ -282,7 +282,10 @@ ChatGPT
   Capability reports Modal ready, admission disabled, and unavailable. The
   latest live run `b3380814d0854d93a5d978799d670013` failed with exit code 2;
   cleanup was confirmed, no artifact was produced, and the exact failed check
-  remains unknown. The new diagnostic commit is not deployed.
+  remains unknown. A new read-only run-list reconciliation also found
+  `0f2a3ddaa7da40648600bae21ccd9ed1` (11:25 UTC) with the same failure and
+  confirmed cleanup; its deployment and approval provenance are unknown. The
+  new diagnostic commit is not deployed.
 - The previous one-run authorization was consumed by that failed attempt.
   Repository policy requires current explicit authorization per run. A request
   is pending for one 30-second CPU-only diagnostic run, with admission closed

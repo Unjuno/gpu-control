@@ -112,3 +112,15 @@ signed-in Modal dashboard.
   with admission disabled, and the previous one-run authorization is consumed.
   Deploying this diagnostic and performing one bounded inference require a
   new explicit authorization. No new Modal token or Sandbox was created.
+
+## Historical run-list reconciliation — 2026-11-12 12:40 UTC
+
+- A fresh read-only ChatGPT `experiment_list` and `experiment_status` check
+  also surfaced run `0f2a3ddaa7da40648600bae21ccd9ed1`, created at
+  2026-11-12 11:25 UTC. It is `failed` with `MODAL_WORKLOAD_EXIT_2`,
+  `cleanup_state=confirmed`, and no result artifact. Its request was bounded
+  to 16 generated tokens. The current read did not establish which deployment
+  or authorization was in effect at creation; preserve it as a separate failed
+  event without inferring its approval provenance.
+- The latest run `b3380814d0854d93a5d978799d670013` remains failed with the same
+  exit code and confirmed cleanup. No successful Modal inference is recorded.
