@@ -274,3 +274,17 @@ Sites and Runner state by this refresh:
   The failure can be cleared only by disconnecting or retiring the external
   Vercel project/integration. Its dashboard deletion flow still requires the
   account owner's action.
+
+## Neon project retirement — 2026-11-12 05:20 UTC
+
+- Following the user's instruction to stop using Neon and clean up the legacy
+  resource, project `delicate-smoke-00521013` (`gpu-control-gateway`) was
+  deleted. Before deletion, the project had one `production` branch, one idle,
+  suspended compute, no snapshots, and 31,670,272 bytes of logical data. No
+  row contents were read or exported.
+- The project no longer appears in the normal project list. Neon exposes it
+  only through the recoverable-project listing until
+  `2026-11-19T05:19:58Z`. This is a soft deletion with a recovery window, not
+  immediate physical erasure; verify it is absent after that deadline.
+- The current application remains on Sites + D1/R2. No Neon connection string
+  or credential was added to the active repository or Site configuration.
