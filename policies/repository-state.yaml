@@ -47,6 +47,46 @@ while_parked:
   scheduled_paid_execution_allowed: false
   repository_dispatch_paid_execution_allowed: false
 
+# Narrow exception for the ChatGPT Sites CPU vertical slice. This does not
+# activate the RunPod/GPU or paid-training path above.
+modal_cpu_smoke_exception:
+  allowed_while_parked: true
+  purpose: one_authenticated_registered_cpu_inference
+  provider: modal
+  environment: main
+  workload:
+    repository: Unjuno/gpu-control
+    source_sha: 3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288
+    workload_id: tiny-stories-inference-v1
+    image_digest: sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541
+  execution_bounds:
+    max_runs_per_authorization: 1
+    max_runtime_seconds: 30
+    max_cpu_cores: 1
+    max_memory_mib: 512
+    gpu_allowed: false
+    network_egress: blocked
+    max_inflight: 1
+    automatic_retry_after_ambiguous_submit: false
+    require_confirmed_cleanup_before_next_run: true
+    per_run_cost_ceiling_usd: "0.01"
+    cost_is_usage_billed: true
+    credit_eligibility_is_not_zero_cost: true
+  account_guard:
+    require_current_modal_workspace_usage_limit_usd_at_most: "1.00"
+    require_usage_and_charge_state_rechecked_before_each_run: true
+  authorization:
+    explicit_current_human_request_required: true
+    authenticated_sites_owner_required: true
+    exact_plan_fingerprint_required: true
+  credentials:
+    allow_existing_sites_modal_proxy_secret: true
+    allow_temporary_workspace_deploy_token: true
+    maximum_deploy_token_lifetime_minutes: 60
+    deploy_command_must_target_environment: main
+    revoke_deploy_token_immediately_after_deploy: true
+    credentials_exposed_to_sandbox: false
+
 authorization:
   activation_requires_explicit_human_request: true
   repository_access_does_not_activate: true

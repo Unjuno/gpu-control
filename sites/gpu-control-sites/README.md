@@ -5,35 +5,49 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Deployed Site version: 24, source commit
-  `c919b0047b203fb0c22b6dd7755934834e899f8f`; D1/R2 environment revision 22.
+- Deployed Site version: 27, source commit
+  `64d2646815be198b0173877b821264cf3efc10a6`; current environment revision 27.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- Current capability evidence (2026-11-12): `provider_ready=true`,
-  `admission_enabled=false`, and `available=false` for `modal_cpu`; one
-  historical ChatGPT inference result belongs to the retired local Runner, not
-  Modal. Two Modal attempts failed before the dashboard's v4 deployment; no
-  successful inference after v4 is recorded, so admission stays closed.
+- Current ChatGPT capability evidence (2026-11-12 12:19 UTC):
+  `provider_ready=true`, `admission_enabled=false`, and `available=false` for
+  `modal_cpu`. The latest bounded ChatGPT-initiated run failed with workload
+  exit code 2; cleanup was confirmed. The v27 Worker labels the provider as
+  billable and estimates Sandbox CPU/memory only. The estimate excludes
+  separately billed Modal control functions and is not a total-cost guarantee.
 - MCP access is restricted to the owner IDs listed in the secret runtime
   variable `GPU_CONTROL_ALLOWED_USER_IDS`; missing or non-listed identities
   are rejected before D1 or Modal access.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
 - Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
-  in the `main` Environment. The Sites health check reports it ready, but the
-  Modal dashboard did not expose the v4 source commit and no successful v4
-  inference is recorded. The four-token run `eacc26ff2ad54cf69a1ee7665325b197`
-  was executed by the retired local Runner. Two Modal runs failed before v4
-  with cleanup confirmed. Version 24 records bounded Modal exit-code failure
-  codes without provider stderr; no live run has tested this diagnostic. Keep
-  admission disabled. RunPod remains absent from the Sites Worker route and
-  paid GPU execution remains parked.
+  in `main`; the current health response matches all eight Site checks,
+  including source, image digest, fingerprint, and runtime. The deploy used a
+  temporary one-hour Workspace token which was deleted immediately afterward.
+  The Modal Usage page showed a `$1` Workspace usage limit, `$0.04` in credits
+  used, and `$0` in charges at 2026-11-12 12:20 UTC, up from `$0.03` before the
+  run. This total includes control/deploy activity and cannot be attributed to
+  the Sandbox alone. The displayed limit is an account-level ceiling, not a
+  per-run cost guarantee. Official Sandbox list rates imply about `$0.0013` for
+  the maximum 30-second, 1-core, 512-MiB request; credits may offset this usage.
+  The fix that drops Sandbox privileges to UID/GID 10001 and binds that
+  effective command into the image fingerprint is deployed. The four-token run
+  `eacc26ff2ad54cf69a1ee7665325b197` was executed by the retired local Runner.
+  The latest 16-token Modal run `b3380814d0854d93a5d978799d670013` failed with
+  `MODAL_WORKLOAD_EXIT_2`; Modal dashboard showed Sandbox
+  `sb-01M77TZXQ0D04PVJ52QG6Y8F0E` failed with code 2 and no logs, while Site
+  recorded cleanup confirmed. Do not retry under the consumed one-run
+  authorization. RunPod remains absent from the Sites Worker route and GPU/paid
+  execution remains parked.
 - Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
 Every data-bearing or execution MCP tool must require the Sites-injected user
 ID and enforce D1 ownership. This ChatGPT connection has called the capability
 and experiment-list tools; access from another ChatGPT account/process is not
 yet verified. Anonymous HTTP probes were blocked at the edge and do not verify
-Worker-level authentication. Provider admission remains disabled.
+Worker-level authentication. Execution is currently disabled after the single
+bounded Modal attempt. The `$0.01` ceiling applies to Sandbox CPU/memory only.
+Control-function charges are separate and remain governed by the account-level
+Workspace usage limit.
 
 ## Target execution architecture
 

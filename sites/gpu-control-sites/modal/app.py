@@ -82,6 +82,7 @@ def workload_image_fingerprint() -> str:
         "model_sha256": MODEL_SHA256,
         "tokenizer_sha256": TOKENIZER_SHA256,
         "entrypoint": ["python", "-I", "/work/inference.py"],
+        "sandbox_entrypoint": list(SANDBOX_ENTRYPOINT),
         "sandbox": {"cpu": 1, "memory_mib": 512, "network": "blocked", "max_runtime_seconds": MAX_RUNTIME_SECONDS},
     }
     return _sha256(_canonical(manifest))

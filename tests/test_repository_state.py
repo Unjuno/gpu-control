@@ -57,6 +57,36 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
     }
     parked = state["while_parked"]
     assert all(value is False for value in parked.values())
+    cpu = state["modal_cpu_smoke_exception"]
+    assert cpu["allowed_while_parked"] is True
+    assert cpu["purpose"] == "one_authenticated_registered_cpu_inference"
+    assert cpu["provider"] == "modal"
+    assert cpu["environment"] == "main"
+    assert cpu["workload"] == {
+        "repository": "Unjuno/gpu-control",
+        "source_sha": "3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288",
+        "workload_id": "tiny-stories-inference-v1",
+        "image_digest": "sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541",
+    }
+    bounds = cpu["execution_bounds"]
+    assert bounds["max_runs_per_authorization"] == 1
+    assert bounds["max_runtime_seconds"] == 30
+    assert bounds["max_cpu_cores"] == 1
+    assert bounds["max_memory_mib"] == 512
+    assert bounds["gpu_allowed"] is False
+    assert bounds["network_egress"] == "blocked"
+    assert bounds["automatic_retry_after_ambiguous_submit"] is False
+    assert bounds["require_confirmed_cleanup_before_next_run"] is True
+    assert bounds["per_run_cost_ceiling_usd"] == "0.01"
+    assert bounds["cost_is_usage_billed"] is True
+    assert bounds["credit_eligibility_is_not_zero_cost"] is True
+    assert cpu["account_guard"]["require_current_modal_workspace_usage_limit_usd_at_most"] == "1.00"
+    assert cpu["authorization"]["explicit_current_human_request_required"] is True
+    assert cpu["authorization"]["exact_plan_fingerprint_required"] is True
+    assert cpu["credentials"]["maximum_deploy_token_lifetime_minutes"] == 60
+    assert cpu["credentials"]["deploy_command_must_target_environment"] == "main"
+    assert cpu["credentials"]["revoke_deploy_token_immediately_after_deploy"] is True
+    assert cpu["credentials"]["credentials_exposed_to_sandbox"] is False
     assert state["authorization"]["activation_requires_explicit_human_request"] is True
 
 
