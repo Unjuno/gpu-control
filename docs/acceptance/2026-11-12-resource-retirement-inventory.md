@@ -238,3 +238,23 @@ Sites and Runner state by this refresh:
   retirement action: Vercel requires owner confirmation in its dashboard, and
   Neon deletion requires an explicit choice to discard its residual data or
   export it first. The Neon project remains idle pending that choice.
+
+## Fresh ChatGPT-originated CPU inference — 2026-11-12 04:42 UTC
+
+- Sites capability recheck reports `runner_ready=true`, `admission_enabled=true`,
+  provider `local_cpu`, the registered `tiny-stories-inference-v1` workload,
+  `max_runtime_seconds=30`, `max_inflight=1`, and `paid_execution=parked`. This
+  supersedes older snapshots that described free CPU admission as disabled.
+- Through the ChatGPT tool flow, prepared and submitted run
+  `a52182ea907744718cd4e485513a030e` for the already registered source
+  `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, with cost cap `$0.00`, a four-token
+  ceiling, and a 30-second runtime ceiling. It succeeded in 131 ms and returned
+  `Once upon a time, there was a`; `gpu_used=false`, all nine registered
+  security/inference checks passed, and `cleanup_state=confirmed`.
+- The separate ChatGPT result operation returned the terminal result. The
+  artifact operation returned the complete 952-byte R2 object (`eof=true`),
+  SHA-256 `399b251c1b58b15c617fcfcb9e8b74486523172f471ac09d166d849db844bbd0`.
+  Independently hashing the decoded bytes returned that same digest.
+- This revalidates the deployed registered CPU inference/result/artifact path.
+  It does not test the unmerged source-retirement commit, another account's
+  identity boundary, GPU execution, or paid execution.

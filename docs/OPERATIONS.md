@@ -185,3 +185,15 @@ testing changes; schedule restarts only after a live recovery plan is ready.
    supported Runner start/stop procedure has passed one planned live rehearsal.
 
 Detailed current state and evidence: `decisions/2026-11-11-sites-d1-architecture-pivot.md`.
+
+## Latest live CPU acceptance — 2026-11-12
+
+A fresh ChatGPT-originated, registered TinyStories inference succeeded after
+this runbook's earlier recovery checks. It ran four tokens in 131 ms under a
+`$0.00` cost cap, returned a passed result with all nine workload checks,
+reported `gpu_used=false`, and confirmed container cleanup. The separate result
+and artifact tools returned the terminal record and complete 952-byte R2
+artifact; a local SHA-256 independently matched the artifact metadata. Current
+Sites capabilities report free CPU admission enabled and paid execution parked.
+This confirms the CPU route remains live; separate-account isolation, real GPU,
+paid execution, and D1/R2 restore acceptance remain open.
