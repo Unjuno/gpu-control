@@ -278,24 +278,42 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
   }
 });
 
-test("ambiguous Modal submission stays reserved when status cannot find the Sandbox", async () => {
+test("lost Modal submit response is reconciled without creating a duplicate Sandbox", async () => {
   const runId = "9".repeat(32);
-  const current = { id: runId, state: "running", cancel_requested: 0, workload: "tiny-stories-inference-v1",
-    repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
-    fingerprint: "c".repeat(64), parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
-    runtime_seconds: 10, idempotency_key: "ambiguous-submission", created_at: 10, updated_at: 11,
-    result_json: null, failure_code: null, cleanup_state: "pending", result_artifact_id: null,
-    result_artifact_sha256: null, result_artifact_size: null, lease_id: null };
-  const env = environment();
+  const plan = { id: runId, owner_id: "test-owner", state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 300,
+    fingerprint: "c".repeat(64), image_digest: imageDigest, workload: "tiny-stories-inference-v1",
+    repository: "Unjuno/gpu-control", source_sha: sourceSha,
+    parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }), runtime_seconds: 10 };
+  let current = null;
+  const env = environment({ admission: "true" });
   env.MODAL_API_URL = "https://modal.invalid";
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
   env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "d".repeat(64);
   env.BUCKET = { put: async () => {} };
-  env.DB.prepare = (sql) => ({ bind() { return {
+  env.DB.batch = async () => {
+    assert.equal(plan.state, "prepared");
+    plan.state = "queued";
+    current = { id: runId, state: "queued", cancel_requested: 0, cleanup_state: "pending", lease_id: null,
+      created_at: Math.floor(Date.now() / 1000), updated_at: Math.floor(Date.now() / 1000) };
+  };
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
     async first() {
-      if (sql.includes("FROM runs r JOIN plans p")) return { ...current };
+      if (sql.includes("FROM runs r JOIN plans p")) return current ? { ...plan, ...current } : null;
+      if (sql.startsWith("SELECT state, created_at, updated_at, cleanup_state, failure_code FROM runs")) return current;
       throw new Error(`unexpected D1 first query: ${sql}`);
+    },
+    async run() {
+      if (sql.startsWith("UPDATE runs SET state='running'")) {
+        current.state = "running";
+        current.updated_at = values[1];
+        return { success: true };
+      }
+      if (sql.startsWith("UPDATE runs SET lease_id=")) {
+        current.lease_id = values[0];
+        return { success: true };
+      }
+      throw new Error(`unexpected D1 write query: ${sql}`);
     },
   }; } });
 
@@ -304,24 +322,45 @@ test("ambiguous Modal submission stays reserved when status cannot find the Sand
   let submitCalls = 0;
   try {
     globalThis.fetch = async (url) => {
-      if (String(url).endsWith(`/v1/runs/${runId}/submit`)) submitCalls++;
-      if (String(url).endsWith(`/v1/runs/${runId}/status`)) statusChecks++;
-      return Response.json({ detail: "Sandbox not found" }, { status: 404 });
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/v1/health")) {
+        return Response.json({ ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
+          source_sha: sourceSha, registered_image_digest: imageDigest,
+          image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT, max_runtime_seconds: 30 });
+      }
+      if (requestUrl.endsWith(`/v1/runs/${runId}/submit`)) {
+        submitCalls++;
+        throw new TypeError("response lost after provider accepted the request");
+      }
+      if (requestUrl.endsWith(`/v1/runs/${runId}/status`)) {
+        statusChecks++;
+        if (statusChecks === 1) return Response.json({ detail: "Sandbox not found" }, { status: 404 });
+        return Response.json({ state: "running", sandbox_id: "sb-existing", cleanup_state: "pending" });
+      }
+      throw new Error(`unexpected provider request: ${requestUrl}`);
     };
+
+    const submitResponse = await toolCall(env, "test-owner", "experiment_submit", {
+      run_id: runId, plan_fingerprint: plan.fingerprint,
+    });
+    const submitRpc = await submitResponse.json();
+    assert.equal(submitRpc.result.isError, true, "the lost provider response is reported as an error");
+    assert.equal(current.state, "running", "the durable run reservation survives the lost response");
+
     for (let attempt = 0; attempt < 2; attempt++) {
       const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
       const rpc = await response.json();
       const result = JSON.parse(rpc.result.content[0].text);
-      assert.equal(rpc.result.isError, false);
+      assert.equal(rpc.result.isError, false, rpc.result.content[0].text);
       assert.equal(result.machine_state.state, "running");
-      assert.equal(result.machine_state.cleanup_state, "pending");
     }
   } finally {
     globalThis.fetch = originalFetch;
   }
-  assert.equal(statusChecks, 2, "each status check reconciles the same reserved run");
-  assert.equal(submitCalls, 0, "an ambiguous accepted submit must never be blindly retried");
-  assert.equal(current.state, "running", "unknown provider state must retain the occupied slot");
+  assert.equal(statusChecks, 2, "repeated status checks reconcile the same reserved run");
+  assert.equal(submitCalls, 1, "a lost submit response is never blindly retried");
+  assert.equal(current.state, "running", "the reconciled Sandbox retains the occupied slot");
+  assert.equal(current.lease_id, "sb-existing", "the later provider lookup reconnects the original Sandbox");
 });
 
 test("retries Modal result persistence after an R2 or D1 write failure", async () => {
