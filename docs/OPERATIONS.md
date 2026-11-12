@@ -36,6 +36,13 @@ or provider settings.
   passed registered source/model/parameter and container-isolation checks,
   reported `gpu_used=false`, and confirmed cleanup at `$0.00`. ChatGPT retrieved
   the complete 979-byte R2 result artifact and the Site verified its SHA-256.
+- A controlled LaunchAgent stop/start was completed with CPU admission closed
+  and no active runs. The old Runner process exited; the LaunchAgent loaded a
+  new process and Site heartbeat readiness returned before admission reopened.
+  A post-restart ChatGPT run (`6c817aa27a8842eda0bc07c7e5396776`) generated
+  eight tokens in 330 ms and passed registered source/model/parameter and
+  container-isolation checks. Cleanup was confirmed at `$0.00`; the full
+  1,005-byte R2 artifact was retrieved and its SHA-256 matched D1 metadata.
 - Repeating the same submission returns the existing run instead of starting
   another container.
 - CPU admission is limited to one in-flight run and 30 seconds. The workload
@@ -47,10 +54,11 @@ or provider settings.
   free CPU admission slot available again. This proves the explicit cancellation
   path for one bounded run; it does not prove forced-process-death recovery.
 
-These checks prove repeated provenance-valid bounded CPU inferences, five
-complete R2 artifact retrievals, and one live cancellation/cleanup path through
-ChatGPT. They do not prove general model quality, GPU execution, forced Runner
-restart or process-death recovery, cross-owner isolation, long-term artifact
+These checks prove repeated provenance-valid bounded CPU inferences, six
+complete R2 artifact retrievals, one live cancellation/cleanup path, and one
+planned Runner stop/start with a successful post-restart inference through
+ChatGPT. They do not prove general model quality, GPU execution, forced
+process-death/lease recovery, cross-owner isolation, long-term artifact
 retention, or backup/restore.
 
 The currently deployed Site is Version 15, deployment
@@ -60,8 +68,9 @@ new inference above. Version 13 introduced a D1 protocol-version check so
 legacy Runners fail closed. The live macOS LaunchAgent is running with login
 Keychain credentials; its `run.py` and Keychain launcher hashes match the
 published source, and plist/runtime files have mode `0600`. Static security
-review found no actionable issue in the reviewed diff. It did not exercise
-restart, cancellation, Keychain ACL, or credential rotation.
+review found no actionable issue in the reviewed diff. Planned stop/start and
+caller cancellation passed live acceptance; forced process death, Keychain
+ACL, and credential rotation remain untested.
 
 ## Operating boundaries
 
@@ -128,13 +137,14 @@ testing changes; schedule restarts only after a live recovery plan is ready.
    service already has a protected Keychain secret source; prove that a planned
    replacement starts with the rotated credentials, returns exact source/image
    readiness, and leaves no orphan workload before considering this gate done.
-2. Exercise cancellation, Runner interruption/restart, lease expiry, result
-   reconciliation, and cleanup against the live Site and Runner.
+2. Exercise forced Runner interruption/process death, lease expiry, result
+   reconciliation, and cleanup against the live Site and Runner. Planned
+   LaunchAgent stop/start and caller cancellation have already passed once.
 3. Define R2 artifact retention and orphan cleanup; exercise larger artifacts and
-   repeated retrieval beyond the two accepted result objects.
+   repeated retrieval beyond the six accepted complete result objects.
 4. Test owner isolation across separate accounts and verify Site access revocation.
-5. Add and rehearse a supported Runner start/stop, secret rotation, backup,
-   restore, and incident procedure before increasing admission or enabling paid
-   providers.
+5. Document and rehearse secret rotation, D1/R2 backup/restore, and incident
+   response before increasing admission or enabling paid providers. The
+   supported Runner start/stop procedure has passed one planned live rehearsal.
 
 Detailed current state and evidence: `decisions/2026-11-11-sites-d1-architecture-pivot.md`.

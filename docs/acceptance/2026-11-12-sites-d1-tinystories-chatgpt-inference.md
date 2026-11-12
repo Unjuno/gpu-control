@@ -177,3 +177,35 @@ available again. No result artifact was expected for a cancelled run.
 This verifies caller-requested cancellation and cleanup on the live free CPU
 route. It does not verify forced Runner termination, lease-expiry recovery,
 restart reconciliation, cross-owner cancellation denial, or GPU/paid execution.
+
+## Planned Runner restart acceptance — 2026-11-12
+
+Before restarting the local Runner, D1 run inventory showed no queued or active
+runs. The owner-private Site's `CPU_WORKLOAD_ADMISSION_ENABLED` was changed to
+`false` (environment revision 11), and the same saved Version 15 was deployed
+successfully as `appgdep_6af51a366ba481918b161ffda837486e`. Capabilities then
+reported `available=false`, `runner_ready=true`, and `admission_enabled=false`.
+
+The LaunchAgent `--stop` returned success. Its status reported `not loaded`,
+the previous Runner PID had exited, and no process matching either managed
+Runner entrypoint remained. LaunchAgent `--start` returned success and loaded a
+new process (PID 72010). While admission remained closed, a fresh capabilities
+read reported the Runner ready. Admission was restored to `true` (environment
+revision 12) and the same Version 15 was deployed successfully as
+`appgdep_6af51a9b39188191851d8d2b0a8eb487`.
+
+A post-restart inference then completed:
+
+- Run `6c817aa27a8842eda0bc07c7e5396776`, prompt
+  `A tiny lantern glowed beneath the winter moon.`, seed `719241`, eight-token
+  maximum; generated eight tokens in 330 ms.
+- The registered source and image identities matched; all nine workload
+  provenance and isolation checks passed, `gpu_used=false`, and cleanup was
+  confirmed at `$0.00`.
+- ChatGPT retrieved the entire 1,005-byte `result.json` artifact. Its locally
+  computed SHA-256, `15c464657fe126108c6835e3049ad5d822711d791255ca52909dac121d56473d`,
+  matched the D1 artifact metadata.
+
+This proves an orderly admission-gated LaunchAgent stop/start and successful
+post-restart work. It does not prove forced process death, crash/lease-expiry
+recovery, secret rotation, or owner-isolation behavior.
