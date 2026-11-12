@@ -6,13 +6,15 @@ in the Sites-provisioned D1 database and result objects in R2. The live Site is
 Version 24 from source commit `c919b0047b203fb0c22b6dd7755934834e899f8f`, with
 environment revision 22. Current ChatGPT capabilities report
 `provider_ready=true`, `available=false`, and `admission_enabled=false` for
-`modal_cpu`. The authenticated Modal endpoint is healthy. One post-fix ChatGPT
-CPU inference and complete R2 artifact retrieval succeeded, but two later runs
-failed without preserving the Sandbox exit code. Version 24 adds bounded
-exit-code failure codes without exposing provider stderr; this new diagnostic
-has not yet been observed on a live run. Keep compute admission closed while
-those failures remain undiagnosed. Historical CPU success records below
-remain evidence for the runs and runtime versions they describe.
+`modal_cpu`. The authenticated Modal endpoint is healthy, but the current Modal
+deployment has no accepted inference result. The successful run previously
+attributed to Modal was actually executed by the retired local Runner under
+Sites Version 16. Two Modal runs failed before the dashboard's v4 deployment;
+the UI did not bind v4 to a source commit, and no successful inference has run
+after v4. Site Version 24 now records bounded exit-code failure codes without
+provider stderr, but this diagnostic has not been observed live. Keep compute
+admission closed. Historical CPU results below apply only to their recorded
+provider and runtime versions.
 
 ## Latest Modal attempt and recovery status — 2026-11-12
 
@@ -21,17 +23,18 @@ ChatGPT with a 30-second runtime and `$0.00` Site cost ceiling. It failed as
 `MODAL_WORKLOAD_FAILED`; D1/Sites reported `cleanup_state=confirmed`. Modal
 The earlier Modal app failure logged Sandbox exit `code 2` after 165 ms with
 no stdout/stderr logs; the root-dependent launcher was removed in commit
-`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`. Later, run
-`eacc26ff2ad54cf69a1ee7665325b197` succeeded post-fix in
-142 ms and ChatGPT retrieved its complete 962-byte R2 result, verified against
-SHA-256 `39ff3134a0b69d34ea8e4d220a4445583c803eb6382c88593a291486cffb5030`.
-Two still later runs, `96d7efef9542463d9fc51f47ffbfd5d7` and
+`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`. Historical run
+`eacc26ff2ad54cf69a1ee7665325b197` succeeded in 142 ms and ChatGPT retrieved
+its complete 962-byte R2 result, but it used the local Runner, not Modal. Two
+Modal runs, `96d7efef9542463d9fc51f47ffbfd5d7` and
 `599473dcc1ed4034a42d849bcb42e261`, failed with cleanup confirmed. The Site
 discarded their Modal exit codes, and the later Sandbox log filter had no
-entries, so their cause remains unknown. Current admission is disabled. The
-temporary one-hour deployment API token was revoked and the Modal token list
-returned zero entries. Modal showed `$0.01` usage this cycle. Details:
-[`Modal post-fix inference and later failures`](acceptance/2026-11-12-modal-post-fix-inference-and-later-failures.md).
+entries, so their cause remains unknown. Both failures predate the dashboard's
+v4 deployment; the dashboard did not expose v4's source commit, and no v4
+inference is recorded. Current admission is disabled. The temporary one-hour
+deployment API token was revoked and the Modal token list returned zero
+entries. Modal showed `$0.01` usage this cycle. Details:
+[`Modal and CPU inference chronology`](acceptance/2026-11-12-modal-and-cpu-inference-chronology.md).
 
 Keep all failed runs as failed evidence; do not retry them under the same
 idempotency keys. A new bounded smoke needs a new authorization and idempotency
@@ -177,8 +180,8 @@ history and historical run evidence.
 
 ## Open operational acceptance
 
-1. Verify one authorized post-fix inference through the deployed authenticated
-   Modal CPU path with idempotent submit, bounded status/collection, and no
+1. Verify one authorized inference against the current deployed Modal CPU
+   source with idempotent submit, bounded status/collection, and no
    caller-selected code or image. Admission is currently disabled.
 2. Exercise ambiguous submission, timeout, cancellation, provider failure, D1
    and R2 write failure, and recovery without duplicate runs or orphan compute.

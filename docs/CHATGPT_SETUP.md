@@ -12,8 +12,8 @@ ChatGPT.
 
 The Worker does not run Docker or model inference. The personal-host Runner
 has been retired. A fixed Modal CPU adapter is deployed and its health endpoint
-is ready, but admission is disabled and post-fix model inference has not been
-accepted through ChatGPT. RunPod GPU execution remains a separately gated
+is ready, but admission is disabled and no successful inference against the
+current Modal deployment has been accepted through ChatGPT. RunPod GPU execution remains a separately gated
 future path; paid execution is parked.
 
 The legacy FastAPI/PostgreSQL Gateway and its Vercel deployment are archived
@@ -48,7 +48,8 @@ R2 artifacts. They establish that earlier CPU route only. They do not establish
 current Modal inference, general model quality, or GPU execution. The latest
 live capability read reports `provider_ready=true`, `admission_enabled=false`,
 and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. A fresh
-post-fix ChatGPT inference and artifact verification are still required.
+ChatGPT inference and artifact verification against the current Modal deployment
+are still required.
 
 The former local Runner path is removed and provider admission remains closed.
 Keep paid providers parked. The exact runtime keys and controlled publication steps are

@@ -23,10 +23,11 @@ provide model compute. Compute remains an explicitly configured provider.
   plugin exists and is connected for the owner; this does not
   establish that another user's ChatGPT process can install or call it.
 - Current ChatGPT capabilities report `provider_ready=true`, `available=false`,
-  and `admission_enabled=false` for `modal_cpu`. One post-fix inference and
-  artifact retrieval succeeded; two later runs failed with cleanup confirmed,
-  but their Modal exit codes were discarded by the Worker. Admission stays
-  closed until those failures are diagnosable. Paid execution remains parked.
+  and `admission_enabled=false` for `modal_cpu`. The successful run previously
+  attributed to Modal was executed by the retired local Runner under Sites
+  Version 16. Two Modal runs failed with cleanup confirmed before the dashboard
+  showed v4; no successful v4 inference is recorded. Admission stays closed.
+  Paid execution remains parked.
 - D1 and R2 remain the Site's storage bindings. Preserve their current records,
   migrations, artifacts, and historical evidence during provider changes.
 - The macOS LaunchAgent and its local runtime were removed, and the two local
@@ -90,7 +91,7 @@ ChatGPT
 
 ### 0. Repository and account inventory
 
-- Reconcile this checkout, `main`, open PRs, current Site Version 23, D1/R2 bindings,
+- Reconcile this checkout, `main`, open PRs, current Site Version 24, D1/R2 bindings,
   deployment state, Modal workspace limits, and Runpod active-resource state.
 - Resolve the ChatGPT distribution route for non-owner users and test with a
   genuinely separate ChatGPT identity; a public Site URL or the owner's plugin
@@ -159,14 +160,17 @@ ChatGPT
 
 1. The fixed Modal CPU adapter and authenticated dispatch are deployed. Current
    Sites health reports Modal ready. ChatGPT run
-   `eacc26ff2ad54cf69a1ee7665325b197` passed post-fix with verified R2 artifact
-   and cleanup. Two later runs failed as `MODAL_WORKLOAD_FAILED`, also with
-   cleanup confirmed. The Site does not retain the Modal exit code, so the cause
-   is unknown. Admission is disabled until failure diagnostics and recovery
-   behavior are adequate for another bounded run.
+   `eacc26ff2ad54cf69a1ee7665325b197` returned a verified R2 artifact, but it
+   was executed by the retired local Runner and is not Modal acceptance. Two
+   Modal runs failed as `MODAL_WORKLOAD_FAILED` with cleanup confirmed before
+   the dashboard's v4 deployment; the v4 source commit was not exposed and no
+   successful v4 inference is recorded. Site Version 24 records bounded Modal
+   exit-code failure codes without provider stderr, but this diagnostic has not
+   been observed on a live run. Admission stays disabled until failures are
+   diagnosed and recovery behavior is adequate for another bounded run.
 2. The local Runner is retired. Modal recovery and operational failure
-   coverage remain incomplete; one post-fix run passed, but later failures
-   remain unexplained.
+   coverage remains incomplete; no successful inference after the current
+   Modal dashboard deployment has been accepted.
 3. Runpod live use remains parked. The canonical API and pricing path now use
    REST v2, with current public OpenAPI and catalog contracts reviewed offline.
    Live account, result, cleanup, concurrency, security, and spend acceptance
@@ -222,11 +226,12 @@ ChatGPT
 
 ## Sites failure-diagnostic refresh — 2026-11-12
 
-- Read-only ChatGPT tool calls verified one post-fix Modal CPU success,
+- Read-only ChatGPT tool calls verified the successful historical run
   `eacc26ff2ad54cf69a1ee7665325b197`: four generated tokens, 142 ms,
-  `gpu_used=false`, all identity/isolation checks passed, and cleanup confirmed.
-  ChatGPT retrieved the full 962-byte R2 artifact and the Site verified SHA-256
-  `39ff3134a0b69d34ea8e4d220a4445583c803eb6382c88593a291486cffb5030`.
+  `gpu_used=false`, identity/isolation checks passed, cleanup confirmed, and a
+  verified 962-byte R2 artifact. The Runner acceptance record shows that this
+  run used the local Runner under Sites Version 16, not Modal. It does not
+  establish Modal inference success.
 - Two subsequent runs failed with cleanup confirmed. The former Worker
   discarded the provider exit code, and the Modal log view for the later
   Sandbox had no entries. The cause remains unverified.
@@ -238,3 +243,25 @@ ChatGPT
   report provider ready, admission false, and unavailable. No new Sandbox was
   started; live behavior of the new diagnostic remains to be verified during a
   separately authorized run.
+
+## Current deployment and integration follow-up — 2026-11-12
+
+- The authenticated Sites API currently reports production Version 24 from
+  source `c919b0047b203fb0c22b6dd7755934834e899f8f`, public access, and the
+  existing D1/R2-backed Site URL. A fresh ChatGPT capability call identifies
+  the route as `modal_cpu`, with provider health ready but admission disabled
+  and `available=false`.
+- The current Sites Worker has a fixed Modal CPU path. RunPod REST v2 exists in
+  the offline core library, but no RunPod provider route is exposed through the
+  Sites MCP tools yet. Live RunPod, result transport, and cleanup gates remain
+  open.
+- The Modal Starter account cannot create Service Users without a Team upgrade.
+  The approved main-scoped deployment credential was therefore unavailable;
+  no plan change or Workspace-wide token was used. The latest source delta
+  changes the Sites Worker, not the Modal app, so it had no Modal code to
+  redeploy.
+- Remaining work: diagnose the two historical Modal failures before reopening
+  CPU admission; verify the new diagnostic on a bounded live run; complete
+  recovery, cross-account, and backup/restore acceptance; build and review a
+  separately gated RunPod route through Sites; then satisfy live GPU, cleanup,
+  and spend evidence. The goal remains incomplete.

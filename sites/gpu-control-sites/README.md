@@ -11,22 +11,22 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
 - Current capability evidence (2026-11-12): `provider_ready=true`,
   `admission_enabled=false`, and `available=false` for `modal_cpu`; one
-  post-fix ChatGPT inference succeeded, but two subsequent workload failures
-  remain undiagnosed, so admission stays closed.
+  historical ChatGPT inference result belongs to the retired local Runner, not
+  Modal. Two Modal attempts failed before the dashboard's v4 deployment; no
+  successful inference after v4 is recorded, so admission stays closed.
 - MCP access is restricted to the owner IDs listed in the secret runtime
   variable `GPU_CONTROL_ALLOWED_USER_IDS`; missing or non-listed identities
   are rejected before D1 or Modal access.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
 - Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
-  in the `main` Environment. The Sites health check reports it ready. A
-  post-fix run completed a four-token TinyStories inference in 142 ms, passed
-  identity/isolation checks, and confirmed cleanup; ChatGPT retrieved and
-  verified its full R2 result artifact. Two newer runs failed with cleanup
-  confirmed, but the Worker discarded their Modal exit codes. Keep admission
-  disabled until those failures are diagnosable. Version 24 records a bounded
-  Modal exit-code failure code while withholding provider stderr; it has not yet
-  been observed on a live run. RunPod is not connected and paid GPU execution
-  remains parked.
+  in the `main` Environment. The Sites health check reports it ready, but the
+  Modal dashboard did not expose the v4 source commit and no successful v4
+  inference is recorded. The four-token run `eacc26ff2ad54cf69a1ee7665325b197`
+  was executed by the retired local Runner. Two Modal runs failed before v4
+  with cleanup confirmed. Version 24 records bounded Modal exit-code failure
+  codes without provider stderr; no live run has tested this diagnostic. Keep
+  admission disabled. RunPod remains absent from the Sites Worker route and
+  paid GPU execution remains parked.
 - Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
 Every data-bearing or execution MCP tool must require the Sites-injected user
