@@ -180,3 +180,19 @@ Sites and Runner state by this refresh:
   [Review gpu-control project deletion in Vercel](https://vercel.com/d?to=%2Funjunos-projects%2Fgpu-control%2Fsettings%2Fgeneral%23delete-project&title=Review+in+Vercel).
   The connector returned `requires_user_action` and `mutationExecuted=false`;
   project deletion and integration cleanup are not yet complete.
+
+## Runner-host orphan-container inventory — 2026-11-12
+
+- The LaunchAgent reports `loaded`; its managed Runner and Keychain launcher
+  processes are present. Sites capabilities report the Runner ready and free
+  admission enabled. The D1 run list contains no active run.
+- Docker lists 14 containers carrying the exact
+  `io.unjuno.gpu-control.run-id` label namespace. All 14 are `exited`, were
+  created between 2026-10-28 and 2026-11-02, and have zero mounts. Their run IDs
+  are absent from the current D1 database: the authenticated status tool
+  returned `RUN_NOT_FOUND` for each. No container environment, command output,
+  or logs were read; no image or container was removed.
+- These are orphaned historical containers, not active Site runs. They may
+  retain container configuration and logs. Disposal remains pending owner
+  choice; any cleanup must target only these 14 stopped containers and must
+  leave images and unrelated Docker resources untouched.
