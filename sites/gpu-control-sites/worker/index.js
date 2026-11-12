@@ -546,26 +546,37 @@ async function runner(request, env, path) {
     const body = await readJson(request, MAX_RESULT_BYTES);
     if (!body || Object.keys(body).sort().join(",") !== "cleanup_confirmation,lease_id,result,run_id,status" ||
         typeof body.run_id !== "string" || !/^[0-9a-f]{32}$/.test(body.run_id) || typeof body.lease_id !== "string" || !/^[0-9a-f]{32}$/.test(body.lease_id)) return json({ error: "INVALID_RUN_RECEIPT" }, 400);
+    const resultReceivedAt = Math.floor(Date.now() / 1000);
     const workloadRun = await env.DB.prepare(`SELECT r.state, r.lease_id, r.lease_expires_at, r.cancel_requested,
+        r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size,
         p.fingerprint, p.source_sha, p.image_digest, p.parameters_json, p.runtime_seconds
       FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id=?`)
       .bind(body.run_id).first();
     const value = body.result;
     const cleanup = body.cleanup_confirmation;
+    if (workloadRun?.state === "succeeded" && body.status === "passed" && value && typeof value === "object") {
+      const replayBytes = new TextEncoder().encode(JSON.stringify(value));
+      const replaySha256 = await sha256Bytes(replayBytes);
+      if (workloadRun.result_artifact_id === "result.json" &&
+          workloadRun.result_artifact_sha256 === replaySha256 &&
+          workloadRun.result_artifact_size === replayBytes.byteLength) {
+        return json({ ok: true, run: { id: body.run_id, state: "succeeded" } });
+      }
+    }
     const cleanupKeys = ["absent", "container_id", "container_name", "image_digest", "lease_id", "observed_at", "plan_fingerprint", "run_id", "source_sha"];
     const resultKeys = ["check", "checks", "checksum", "gpu_used", "metrics", "plan_fingerprint", "run_id", "schema_version", "source_sha", "status"];
     if (!workloadRun || workloadRun.state !== "running" || workloadRun.lease_id !== body.lease_id ||
-        workloadRun.lease_expires_at < now || !cleanup || typeof cleanup !== "object" || Object.keys(cleanup).sort().join(",") !== cleanupKeys.join(",") ||
+        workloadRun.lease_expires_at < resultReceivedAt || !cleanup || typeof cleanup !== "object" || Object.keys(cleanup).sort().join(",") !== cleanupKeys.join(",") ||
         cleanup.absent !== true || typeof cleanup.container_id !== "string" || !/^[0-9a-f]{12,64}$/.test(cleanup.container_id) ||
         cleanup.container_name !== `gpu-control-${body.run_id}` || cleanup.lease_id !== body.lease_id ||
         cleanup.run_id !== body.run_id || cleanup.plan_fingerprint !== workloadRun.fingerprint ||
         cleanup.source_sha !== workloadRun.source_sha || cleanup.image_digest !== workloadRun.image_digest ||
         workloadRun.image_digest !== env.CPU_WORKLOAD_IMAGE_DIGEST ||
-        !Number.isSafeInteger(cleanup.observed_at) || cleanup.observed_at > now + 30 || now - cleanup.observed_at > 60) return json({ error: "INVALID_RESULT" }, 400);
+        !Number.isSafeInteger(cleanup.observed_at) || cleanup.observed_at > resultReceivedAt + 30 || resultReceivedAt - cleanup.observed_at > 60) return json({ error: "INVALID_RESULT" }, 400);
     if (workloadRun.cancel_requested === 1) {
       if (!["cancelled", "failed", "passed"].includes(body.status) ||
           (body.status === "cancelled" && body.result !== null)) return json({ error: "INVALID_CANCELLATION_RESULT" }, 400);
-      const cancelled = await finalizeRequestedCancellation(env, body, cleanup, now);
+      const cancelled = await finalizeRequestedCancellation(env, body, cleanup, resultReceivedAt);
       if (!cancelled) return json({ error: "STALE_OR_EXPIRED_LEASE" }, 409);
       return json({ ok: true, run: cancelled });
     }
@@ -576,11 +587,11 @@ async function runner(request, env, path) {
       const updated = await env.DB.prepare(`UPDATE runs SET state='failed', result_json=NULL,
           cleanup_receipt_json=?, failure_code=?, cleanup_state='confirmed', updated_at=?, lease_id=NULL, lease_expires_at=NULL
         WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at>=? AND cancel_requested=0 RETURNING id, state, failure_code, cleanup_state`)
-        .bind(JSON.stringify(cleanup), value.failure_code, now, body.run_id, body.lease_id, now).first();
+        .bind(JSON.stringify(cleanup), value.failure_code, resultReceivedAt, body.run_id, body.lease_id, resultReceivedAt).first();
       if (!updated) {
         const current = await env.DB.prepare("SELECT state, cancel_requested FROM runs WHERE id = ?").bind(body.run_id).first();
         if (current?.state === "running" && current.cancel_requested === 1) {
-          const cancelled = await finalizeRequestedCancellation(env, body, cleanup, now);
+          const cancelled = await finalizeRequestedCancellation(env, body, cleanup, resultReceivedAt);
           if (cancelled) return json({ ok: true, run: cancelled });
         }
         return json({ error: "STALE_OR_EXPIRED_LEASE" }, 409);
@@ -626,11 +637,12 @@ async function runner(request, env, path) {
     }
     const state = "succeeded";
     let updated;
+    const persistAt = Math.floor(Date.now() / 1000);
     try {
       updated = await env.DB.prepare(`UPDATE runs SET state=?, result_json=?, cleanup_receipt_json=?, failure_code=?, cleanup_state='confirmed', updated_at=?, lease_id=NULL, lease_expires_at=NULL,
           result_artifact_id=?, result_artifact_sha256=?, result_artifact_size=?
       WHERE id=? AND state='running' AND lease_id=? AND lease_expires_at>=? AND cancel_requested=0 RETURNING id, state`)
-        .bind(state, result, JSON.stringify(cleanup), null, now, artifactId, artifactSha256, artifactBytes.byteLength, body.run_id, body.lease_id, now).first();
+        .bind(state, result, JSON.stringify(cleanup), null, persistAt, artifactId, artifactSha256, artifactBytes.byteLength, body.run_id, body.lease_id, persistAt).first();
     } catch {
       try {
         const current = await env.DB.prepare("SELECT result_artifact_sha256 FROM runs WHERE id = ?").bind(body.run_id).first();
@@ -647,7 +659,7 @@ async function runner(request, env, path) {
         if (current.result_artifact_sha256 !== artifactSha256) {
           try { await env.BUCKET.delete(artifactKey); } catch { /* unreferenced artifact remains inaccessible */ }
         }
-        const cancelled = await finalizeRequestedCancellation(env, body, cleanup, now);
+        const cancelled = await finalizeRequestedCancellation(env, body, cleanup, persistAt);
         if (cancelled) return json({ ok: true, run: cancelled });
       }
       if (current && current.result_artifact_sha256 !== artifactSha256) {

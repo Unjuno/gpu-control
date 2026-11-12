@@ -406,6 +406,84 @@ test("persists only a model- and prompt-bound inference result with verified che
   assert.deepEqual(await response.json(), { ok: true, run: { id: value.run_id, state: "succeeded" } });
 });
 
+test("acknowledges a duplicate successful result receipt without writing R2 twice", async () => {
+  const value = await inferenceResult();
+  const resultJson = JSON.stringify(value.result);
+  const artifactSha256 = createHash("sha256").update(resultJson).digest("hex");
+  let state = "running";
+  let bucketPuts = 0;
+  const env = resultEnvironment();
+  env.DB.prepare = (sql) => ({ bind() { return { async first() {
+    if (sql.includes("SELECT r.state")) return {
+      state, lease_id: state === "running" ? "e".repeat(32) : null,
+      lease_expires_at: Math.floor(Date.now() / 1000) + 30, cancel_requested: 0,
+      fingerprint: value.fingerprint, source_sha: sourceSha, image_digest: imageDigest,
+      parameters_json: JSON.stringify({ prompt: value.prompt, max_new_tokens: 8, seed: 61112 }),
+      runtime_seconds: 30, result_artifact_id: state === "succeeded" ? "result.json" : null,
+      result_artifact_sha256: state === "succeeded" ? artifactSha256 : null,
+      result_artifact_size: state === "succeeded" ? Buffer.byteLength(resultJson) : null,
+    };
+    if (sql.includes("UPDATE runs SET state=?")) {
+      state = "succeeded";
+      return { id: value.run_id, state };
+    }
+    throw new Error("unexpected duplicate-result query");
+  } }; } });
+  env.BUCKET = { async put() { bucketPuts++; return {}; }, async delete() {} };
+
+  const first = await postInferenceResult(value, env);
+  assert.equal(first.status, 200);
+  const retry = await postInferenceResult(value, env);
+  assert.equal(retry.status, 200);
+  assert.deepEqual(await retry.json(), { ok: true, run: { id: value.run_id, state: "succeeded" } });
+  assert.equal(bucketPuts, 1);
+});
+
+test("does not commit a result after its D1 lease expires during the R2 write", async () => {
+  const value = await inferenceResult();
+  const startMs = 1_800_000_000_000;
+  const leaseExpiresAt = Math.floor(startMs / 1000) + 1;
+  let currentMs = startMs;
+  let updateTimestamp = null;
+  const deletedKeys = [];
+  const env = resultEnvironment();
+  env.DB.prepare = (sql) => ({ bind(...values) { return { async first() {
+    if (sql.includes("SELECT r.state")) return {
+      state: "running", lease_id: "e".repeat(32), lease_expires_at: leaseExpiresAt,
+      cancel_requested: 0, fingerprint: value.fingerprint, source_sha: sourceSha,
+      image_digest: imageDigest,
+      parameters_json: JSON.stringify({ prompt: value.prompt, max_new_tokens: 8, seed: 61112 }),
+      runtime_seconds: 30, result_artifact_id: null, result_artifact_sha256: null,
+      result_artifact_size: null,
+    };
+    if (sql.includes("UPDATE runs SET state=?")) {
+      updateTimestamp = values[4];
+      return updateTimestamp <= leaseExpiresAt ? { id: value.run_id, state: "succeeded" } : null;
+    }
+    if (sql.includes("SELECT state, cancel_requested, result_artifact_sha256")) {
+      return { state: "running", cancel_requested: 0, result_artifact_sha256: null };
+    }
+    throw new Error("unexpected lease-expiry query");
+  } }; } });
+  env.BUCKET = {
+    async put() { currentMs = startMs + 2_000; return {}; },
+    async delete(key) { deletedKeys.push(key); },
+  };
+  const realDateNow = Date.now;
+  Date.now = () => currentMs;
+  let response;
+  try {
+    response = await postInferenceResult(value, env);
+  } finally {
+    Date.now = realDateNow;
+  }
+
+  assert.equal(updateTimestamp, leaseExpiresAt + 1);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "STALE_OR_EXPIRED_LEASE" });
+  assert.equal(deletedKeys.length, 1);
+});
+
 test("rejects inference results with a different model digest or excess generated tokens", async () => {
   const wrongModel = await inferenceResult({ modelSha256: "0".repeat(64) });
   const modelResponse = await postInferenceResult(wrongModel, resultEnvironment());
