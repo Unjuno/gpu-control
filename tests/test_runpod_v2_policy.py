@@ -31,27 +31,35 @@ def test_live_runpod_calls_are_disabled_by_default() -> None:
 def test_current_api_audit_records_v2_contract_and_offline_acceptance_boundary() -> None:
     audit = load_policy()["api_contract_audit"]
 
-    assert audit["implementation_contract"] == "rest_v2_documented_offline"
-    assert audit["implementation_matches_current_official_rest_contract"] is False
+    assert audit["implementation_contract"] == "rest_v2_openapi_reviewed_offline"
+    assert audit["implementation_matches_current_official_rest_contract"] is True
     assert audit["current_official_rest_version_observed"] == "v2"
     assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
     assert audit["deprecated_rest_v1_retirement_date"] == "2026-11-15"
     assert audit["current_official_create_pod_endpoint"] == "POST /pods"
     assert audit["current_official_list_pods_endpoint"] == "GET /pods"
-    assert audit["current_official_list_pods_response_shape"] == "object_with_pods_array"
+    assert audit["current_official_list_pods_response_shape"] == "cursor_paginated_object_with_pods_array"
     assert audit["current_official_delete_pod_endpoint"] == "DELETE /pods/{id}"
     assert audit["current_official_network_volume_attach_fields_observed"] is True
     assert audit["current_official_network_volume_fields"] == [
         "mounts.network[].volumeId", "mounts.network[].path", "dataCenterIds"
     ]
     assert audit["migration_to_current_official_rest_contract_required"] is False
-    assert audit["current_official_contract_revalidation_required"] is True
+    assert audit["current_official_contract_revalidation_required"] is False
     assert audit["implementation_may_not_be_enabled_live_until_revalidated"] is True
     assert audit["live_enablement_by_flag_only_forbidden"] is True
     assert audit["create_env_contract_observed"] is True
     assert audit["list_pods_contract_observed"] is True
     assert audit["implementation_list_pods_endpoint"] == "GET /pods"
     assert audit["implementation_list_pods_response_envelope"] == "pods"
+    assert audit["implementation_list_pods_pagination"] == "opaque_cursor"
+    assert audit["implementation_list_pods_page_limit"] == 256
+    assert audit["implementation_list_pods_max_pages"] == 32
+    assert audit["implementation_list_pods_max_inventory_entries"] == 256
+    assert audit["implementation_list_pods_cursor_cycle_rejected"] is True
+    assert audit["implementation_list_pods_duplicate_ids_rejected"] is True
+    assert audit["implementation_pricing_endpoint"] == "GET /catalog/gpus"
+    assert audit["implementation_exact_volume_datacenter_stock_binding"] is True
     assert audit["implementation_list_pods_server_side_name_filter_supported"] is False
     assert audit["pod_container_log_sse_status"] == "officially_documented_not_live_verified"
     assert audit["pod_container_log_sse_prod_verified"] is False
@@ -194,6 +202,11 @@ def test_catalog_evidence_is_short_lived_and_capacity_checked() -> None:
     assert catalog["require_profile_min_vram"] is True
     assert catalog["require_cloud_price"] is True
     assert catalog["require_cloud_capacity"] is True
+    assert catalog["cloud"] == "SECURE"
+    assert catalog["price_field"] == "price.secure"
+    assert catalog["capacity_field"] == "maxCount.secure"
+    assert catalog["exact_datacenter_field"] == "dataCenters[].id"
+    assert catalog["exact_datacenter_availability_field"] == "dataCenters[].availability"
 
 
 def test_ambiguous_or_future_provider_states_fail_closed() -> None:

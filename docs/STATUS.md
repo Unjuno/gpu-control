@@ -64,10 +64,10 @@ This document describes what `gpu-control` on `main` can do today. It deliberate
 | Decision/context security policy | Ready at policy/CI level | Action constitution, source-to-sink trust policy, failure catalog, and adversarial fixtures are present. |
 | Approved execution plan contracts | Ready offline | Immutable/fingerprinted plans, pricing evidence, durable lifecycle state, cleanup state, and bounded result manifests are implemented. |
 | Structured exact human authorization | Ready for RunPod adapter boundary | Runtime validator and expiring `LiveExecutionPermit` exist; RunPod adapter construction/submission requires the exact unexpired permit. End-to-end paid workflow wiring remains absent. |
-| Current RunPod REST v1 transport layer | Ready offline | Fixed `rest.runpod.io/v1` client, current create field names, List Pods array normalization, `desiredStatus`, `costPerHr`, machine cloud evidence, Network Volume identity, GET, and DELETE 204 are mock-tested. |
-| Current RunPod pricing/availability evidence | Ready offline | Fixed GraphQL origin and Bearer auth, `securePrice`, VRAM, exact Network Volume datacenter, HIGH stock, 300-second maximum TTL, and content-digest binding are mock-tested. |
-| RunPod REST v1 provider adapter | Ready offline for selected canary | Canonical adapter requires current pricing evidence, exact Network Volume DC, unexpired live permit, and v1-backed occupancy/reconciliation before create. |
-| RunPod ambiguous create/cleanup reconciliation | Ready offline on REST v2 transport | Bounded occupancy/reconciliation logic consumes the v2 account inventory and remains fail-closed. Provider behavior and cleanup remain unverified live; REST v1 is deprecated and scheduled for retirement on 2026-11-15. |
+| Current RunPod REST v2 transport layer | Ready offline | Fixed `api.runpod.io/v2` client, cursor-paginated List Pods with bounded complete inventory, v2 create/get/delete, trusted Network Volume attachment, and response identity checks are mock-tested. |
+| Current RunPod pricing/availability evidence | Ready offline | Fixed REST v2 GPU catalog, secure price/capacity, VRAM, exact Network Volume datacenter, HIGH stock, 300-second maximum TTL, and content-digest binding are mock-tested. |
+| RunPod REST v2 provider adapter | Ready offline for selected canary | Canonical v2 adapter requires current pricing evidence, exact Network Volume DC, unexpired live permit, and v2-backed occupancy/reconciliation before create. |
+| RunPod ambiguous create/cleanup reconciliation | Ready offline on REST v2 transport | Bounded occupancy/reconciliation consumes every cursor page and remains fail-closed. Provider behavior and cleanup remain unverified live. REST v1 is retained for offline compatibility only and is forbidden for live calls. |
 | Authenticated Orbitune completion v3 | Ready offline | Root signer binds exact result bytes and the observed process exit code into HMAC-SHA256 evidence; legacy v2 remains only during migration. |
 | RunPod Network Volume/S3 result transport | Ready offline | Fixed RunPod S3 origin, trusted `/outputs` mount, exact two-object bounded collection, and v3 authentication are mock-tested. Live verification and real credentials/volume are pending. |
 | Orbitune paid-canary result acceptance | Ready offline | Workload-specific acceptance accepts authenticated log-v2 or durable volume-v3 evidence and remains separate from provider cleanup/finalization. |
@@ -91,7 +91,7 @@ The repository currently records this canary workload:
 - exact-main full pytest run: `33313993621` — passed
 - exact-main RunPod canary smoke run: `33313993623` — passed
 
-The source CI, root/non-root signer isolation, v3 signed exit-code envelope, current REST v1 adapter contract, current price/DC-stock contract, and central offline volume-transport tests are green. That does **not** mean the control plane is authorized to spend money today.
+The source CI, root/non-root signer isolation, v3 signed exit-code envelope, current REST v2 adapter contract, current v2 price/DC-stock contract, and central offline volume-transport tests are green. That does **not** mean the control plane is authorized to spend money today.
 
 ## Durable result transport
 
@@ -110,12 +110,12 @@ This transport is implemented and mock-tested, but not yet live-verified. Networ
 
 The selected RunPod path is now complete at offline/mock level from price selection through result collection:
 
-- current GPU price and VRAM come from a fixed-origin Bearer-authenticated GraphQL query;
+- current GPU price and VRAM come from the fixed-origin REST v2 GPU catalog;
 - exact per-datacenter stock is checked for the Network Volume datacenter;
 - current price/DC evidence is short-lived and content-digest bound;
 - the approved plan carries the exact price/reference/time window;
-- `RunPodV1Adapter` rechecks that evidence and the Network Volume DC immediately before submission;
-- current REST v1 creates the Pod and v1 List Pods backs account occupancy/reconciliation;
+- `RunPodV2CurrentAdapter` rechecks that evidence and the Network Volume DC immediately before submission;
+- current REST v2 creates the Pod and cursor-paginated v2 List Pods backs account occupancy/reconciliation;
 - durable Network Volume/S3 result collection authenticates completion v3 after exit;
 - cleanup remains explicit and reconciliation-backed.
 

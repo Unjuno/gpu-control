@@ -1,16 +1,18 @@
 version: 1
 
 provider: runpod
-contract: rest_v1_current_official
-status: control_and_pricing_paths_implemented_offline_mock_tested
+contract: rest_v1_legacy_offline_only
+status: retired_from_canonical_path_offline_tests_only
 
 api:
   base_url: https://rest.runpod.io/v1
   authentication: bearer_header
   openapi_endpoint: GET /openapi.json
   live_calls_enabled: false
-  adapter_migrated: true
+  adapter_migrated: false
   workflow_enabled: false
+  canonical_api_version: v2
+  forbidden_for_live_provider_calls: true
 
 pod_endpoints:
   create: POST /pods
@@ -62,7 +64,7 @@ response_normalization:
   network_volume_identity_revalidated_when_configured: true
 
 pricing_and_availability:
-  status: implemented_offline_mock_tested
+  status: retired_legacy_reference
   graphql_url: https://api.runpod.io/graphql
   authentication: bearer_header
   live_calls_enabled: false
@@ -99,6 +101,9 @@ pricing_and_availability:
   adapter_rechecks_evidence_before_submit: true
 
 migration:
+  canonical_provider_api_version: v2
+  provider_adapter_migrated_to_v2: true
+  live_v1_calls_forbidden: true
   current_v1_http_client_implemented: true
   current_v1_payload_builder_implemented: true
   current_v1_response_normalizer_implemented: true
@@ -107,7 +112,7 @@ migration:
   current_v1_provider_adapter_implemented: true
   current_v1_occupancy_probe_implemented: true
   current_v1_reconciliation_probe_implemented: true
-  current_pricing_graphql_client_implemented: true
+  current_pricing_graphql_client_implemented: false
   current_pricing_evidence_implemented: true
   exact_datacenter_stock_binding_implemented: true
   provider_adapter_migration_pending: false
@@ -117,6 +122,8 @@ migration:
   live_provider_verification_pending: true
 
 forbidden:
+  - live_calls_to_rest_v1
+  - canonical_adapter_on_rest_v1
   - live_calls_before_live_provider_verification
   - live_submission_without_fresh_current_pricing_evidence
   - live_submission_with_pricing_for_different_datacenter

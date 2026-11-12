@@ -45,27 +45,17 @@ def current_pricing():  # type: ignore[no-untyped-def]
         max_cost_usd=Decimal("0.20"),
     )
     return build_current_pricing_evidence(
-        [
-            {
-                "id": GPU_ID,
-                "displayName": "RTX 4090",
-                "memoryInGb": 24,
-                "secureCloud": True,
-                "communityCloud": True,
-                "securePrice": 0.44,
-                "communityPrice": 0.34,
-            }
-        ],
-        [
-            {
-                "id": "US-KS-2",
-                "name": "Kansas",
-                "location": "US",
-                "gpuAvailability": [
-                    {"gpuTypeId": GPU_ID, "displayName": "RTX 4090", "stockStatus": "High"}
-                ],
-            }
-        ],
+        {"gpus": [{
+            "id": GPU_ID,
+            "name": "RTX 4090",
+            "memory": 24,
+            "secure": True,
+            "community": True,
+            "price": {"secure": 0.44, "community": 0.34},
+            "maxCount": {"secure": 8, "community": 4},
+            "availability": "HIGH",
+            "dataCenters": [{"id": "US-KS-2", "name": "Kansas", "availability": "HIGH"}],
+        }]},
         request,
         {"profile": "cheap-24gb", "gpu_count": 1, "min_vram_gb": 24},
         volume(),
