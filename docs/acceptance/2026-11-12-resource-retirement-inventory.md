@@ -162,12 +162,15 @@ Sites and Runner state by this refresh:
   aliases; the separate domain endpoint returns only the verified
   `gpu-control.vercel.app` domain. The alias mismatch is unresolved, and no
   user-owned custom domain appears in the domain list.
-- The repository's current PR #60 description identifies six required checks:
+- PR #60 identifies six required checks:
   Python 3.11, 3.12 and 3.13, Trusted reference container, Project bridge tests,
   and Sites Worker and D1 contract. Vercel is explicitly not required. Its
-  current commit status is an optional `Vercel` failure, `Deployment was
-  blocked`. Therefore removing the project will not remove a required release
-  check according to the current PR policy.
+  Vercel is explicitly not required. On implementation head `e818a41`, the
+  optional `Vercel` status was `FAILURE` (`Deployment was blocked`). The latest
+  docs-only head `0754a21` has no Vercel status; its GitHub Actions workflows
+  `CI` and `Project bridge tests` both completed successfully. Therefore
+  removing the project will not remove a required release check according to
+  the current PR policy.
 - The Vercel connector cannot enumerate project connectors (its API returned
   `Connector Project not found`), so this was not treated as proof that no
   connector is attached. Project/domain metadata and the required-check list
