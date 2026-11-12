@@ -646,3 +646,109 @@ test("artifact chunks require the authenticated owner and verify stored content"
   assert.equal(tamperedRpc.result.isError, true);
   assert.equal(bucketReads, 2);
 });
+
+test("another Site user cannot read an owned run status or result", async () => {
+  const runId = "8".repeat(32);
+  const privateMarker = "owner-private-result-marker";
+  const row = {
+    id: runId, state: "succeeded", created_at: 1, updated_at: 2,
+    result_json: JSON.stringify({ output: privateMarker }), failure_code: null,
+    cleanup_state: "confirmed", cancel_requested: 0, result_artifact_id: null,
+    result_artifact_sha256: null, result_artifact_size: null,
+    workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control",
+    source_sha: sourceSha, image_digest: imageDigest,
+    parameters_json: JSON.stringify({ prompt: "private", max_new_tokens: 1, seed: 1 }),
+  };
+  const env = environment();
+  env.DB.prepare = (sql) => ({ bind(run, owner) { return { async first() {
+    assert.match(sql, /r\.owner_id = \?/);
+    assert.equal(run, runId);
+    return owner === "test-owner" ? row : null;
+  } }; } });
+
+  for (const name of ["experiment_status", "experiment_result"]) {
+    const response = await toolCall(env, "different-owner", name, { run_id: runId });
+    const rpc = await response.json();
+    assert.equal(rpc.result.isError, true);
+    assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "RUN_NOT_FOUND" });
+    assert.equal(JSON.stringify(rpc).includes(privateMarker), false);
+  }
+});
+
+test("experiment_list returns no other owner's run metadata", async () => {
+  const env = environment();
+  env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
+    assert.match(sql, /WHERE r\.owner_id = \?/);
+    assert.equal(owner, "different-owner");
+    return { results: [] };
+  } }; } });
+
+  const response = await toolCall(env, "different-owner", "experiment_list", {});
+  const rpc = await response.json();
+  assert.equal(rpc.result.isError, false);
+  assert.deepEqual(JSON.parse(rpc.result.content[0].text).machine_state.experiments, []);
+});
+
+test("prepare idempotency keys are isolated by Site owner", async () => {
+  const plans = new Map();
+  const env = environment();
+  env.DB.prepare = (sql) => ({ bind(...values) {
+    if (sql.includes("INSERT OR IGNORE INTO plans")) {
+      assert.match(sql, /owner_id/);
+      return { async run() {
+        const [id, owner, key, fingerprint, , , , digest] = values;
+        const mapKey = `${owner}:${key}`;
+        if (!plans.has(mapKey)) plans.set(mapKey, { id, fingerprint, image_digest: digest,
+          state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 300 });
+      } };
+    }
+    assert.match(sql, /WHERE owner_id = \? AND idempotency_key = \?/);
+    return { async first() { return plans.get(`${values[0]}:${values[1]}`) || null; } };
+  } });
+
+  const args = { repository: "Unjuno/gpu-control", commit: sourceSha,
+    workload: "tiny-stories-inference-v1",
+    parameters: { prompt: "A", max_new_tokens: 1, seed: 1 },
+    runtime_seconds: 10, max_cost_usd: "0.00", idempotency_key: "same-key-0001" };
+  const first = JSON.parse((await (await toolCall(env, "test-owner", "experiment_prepare", args)).json()).result.content[0].text).machine_state;
+  const second = JSON.parse((await (await toolCall(env, "different-owner", "experiment_prepare", args)).json()).result.content[0].text).machine_state;
+
+  assert.equal(first.state, "prepared");
+  assert.equal(second.state, "prepared");
+  assert.notEqual(first.run_id, second.run_id);
+  assert.equal(plans.size, 2);
+});
+
+test("another Site user cannot submit an owner's prepared plan", async () => {
+  const runId = "a".repeat(32);
+  const now = Math.floor(Date.now() / 1000);
+  const statements = [];
+  const env = environment({ heartbeatAt: now, admission: "true" });
+  env.DB.prepare = (sql) => ({ bind(...values) {
+    const statement = { sql, values };
+    statements.push(statement);
+    return { async first() {
+      if (sql.includes("runner_heartbeats")) return {
+        last_seen_at: now, image_digest: imageDigest, source_sha: sourceSha, cancellation_protocol: 1,
+      };
+      if (sql.includes("SELECT id, state, created_at FROM runs")) return null;
+      throw new Error("unexpected query");
+    } };
+  } });
+  let batchCount = 0;
+  env.DB.batch = async () => { batchCount++; return [{ meta: { changes: 0 } }, { meta: { changes: 0 } }]; };
+
+  const response = await toolCall(env, "different-owner", "experiment_submit", {
+    run_id: runId, plan_fingerprint: "b".repeat(64),
+  });
+  const rpc = await response.json();
+
+  assert.equal(rpc.result.isError, true);
+  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "PLAN_EXPIRED_OR_ALREADY_USED" });
+  assert.equal(batchCount, 1);
+  const ownershipStatements = statements.filter((statement) => statement.sql.includes("UPDATE plans") || statement.sql.includes("INSERT INTO runs"));
+  assert.equal(ownershipStatements.length, 2);
+  assert.ok(ownershipStatements.every((statement) => statement.sql.includes("owner_id = ?")));
+  assert.equal(ownershipStatements[0].values[1], "different-owner");
+  assert.equal(ownershipStatements[1].values[3], "different-owner");
+});
