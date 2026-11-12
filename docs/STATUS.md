@@ -1,6 +1,6 @@
 # Project status
 
-## Current checkout and live capability refresh — 2026-11-12 15:42 UTC
+## Current checkout and live capability refresh — 2026-11-12 15:48 UTC
 
 - The source head is `504e492ec2e03f79a94cfad41729d6e30531f598` on
   `codex/sites-modal-runner`, matching `origin`. PR #68 remains open as a Draft
@@ -21,7 +21,11 @@
   updated to the candidate fingerprint.
 - Latest run `e9330c5bb5454f42bb3dabe058091dc0` is still failed with
   `MODAL_WORKLOAD_EXIT_2`, cleanup confirmed, and no result or artifact.
-  No Sandbox was started during this refresh.
+  Modal's app overview shows 0 live containers and 0 live Sandboxes (5 Sandbox
+  creations in the last 24 hours); no Sandbox was started during this refresh.
+- Modal Usage & billing shows `$0.07` in credits, `$0` in charges, and a `$1`
+  Workspace usage limit. The API-token page shows 0 tokens. The earlier `$0.05`
+  snapshot is superseded; no token was created in this refresh.
 - The repository-wide P0 Deep Security Scan did not start: the scanner requires
   a managed read-only filesystem permission profile, which was unavailable in
   the current session. Do not treat the one-line diff review as the P0 audit.
