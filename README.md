@@ -19,14 +19,14 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and control-plane development**, but **live paid GPU execution is still disabled**.
+The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published, but no compute path is currently available; Modal integration is not yet implemented, and paid GPU execution remains parked.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
-| ChatGPT MCP endpoint | Owner-private Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; Sites reports MCP ready and its plugin is already installed |
-| Registered CPU experiment through ChatGPT | Repeated free, fixed-image TinyStories inferences completed through ChatGPT → Sites → D1 → Runner → D1; result retrieval and cleanup were verified, including eight complete R2 artifact reads |
-| Real model inference through ChatGPT | Repeated free TinyStories 15M CPU runs with a Git-resolving source SHA completed; result retrieval and cleanup were confirmed. This proves the bounded CPU vertical, not broad model quality or GPU capability |
+| ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; current capabilities report the retired Runner unavailable |
+| Registered CPU experiment through ChatGPT | Previously accepted through the personal-host Runner. That Runner and its Keychain credentials are retired; no current compute path is available |
+| Real model inference through ChatGPT | Historical TinyStories 15M CPU runs passed source, result, and cleanup checks. They do not prove current readiness, broad model quality, or GPU capability |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
@@ -42,21 +42,22 @@ The project is **usable today for offline validation and control-plane developme
 | Paid RunPod workflow | Not enabled; Sites admission wiring and authenticated result transport remain incomplete |
 | Live paid GPU execution | Disabled / parked |
 
-The hosted product path is ChatGPT Sites + D1 with a separate isolated Runner.
-The deployed version has completed a checksum smoke and repeated
-provenance-valid TinyStories 15M inferences through ChatGPT, bounded to 30
-seconds and one in-flight run. The inferred text was persisted in D1 and
-retrieved through the ChatGPT tool. This does not establish general model quality, live recovery,
-cross-owner isolation, or GPU capability. Paid providers remain parked. The
-legacy FastAPI/PostgreSQL Gateway source and its runtime dependencies have been
-removed from the working tree; historical acceptance records remain under
-`docs/acceptance/` and the source remains available in Git history.
+The current hosted product path is the ChatGPT Sites Worker with D1/R2. The Site
+is currently owner-only; the target is public discovery with authenticated,
+owner-scoped use. Before widening access, verify anonymous requests cannot read
+data or trigger compute and add public-use limits. The old local Runner is
+retired. The target compute order is Modal for a small fixed workload, then
+Runpod for separately gated GPU experiments. Vercel and Neon/PostgreSQL are not
+target dependencies. The legacy FastAPI/PostgreSQL Gateway source and runtime
+dependencies have been removed from the tracked tree; historical acceptance
+evidence remains under `docs/acceptance/` and in Git history.
 
-See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the supported ChatGPT
-path, [docs/RELEASE_MATRIX.md](docs/RELEASE_MATRIX.md) for current acceptance
-gates, and [docs/STATUS.md](docs/STATUS.md) for capability-by-capability
-blockers. Historical Vercel/Postgres setup and release records are archived;
-they are not current deployment instructions.
+See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the ChatGPT integration,
+[docs/RELEASE_MATRIX.md](docs/RELEASE_MATRIX.md) for current acceptance gates,
+[docs/STATUS.md](docs/STATUS.md) for current capability blockers, and
+[docs/SITES_MODAL_RUNPOD_DELIVERY.md](docs/SITES_MODAL_RUNPOD_DELIVERY.md) for
+the staged Sites/Modal/Runpod implementation plan. Historical Vercel/Postgres
+records are archived, not deployment instructions.
 
 ## What you can do now
 

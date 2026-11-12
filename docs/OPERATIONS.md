@@ -2,12 +2,26 @@
 
 The supported ChatGPT control plane is the owner-private Sites MCP Worker at
 `https://gpu-control-sites.unjuno.chatgpt.site`. Its product records are stored
-in the Sites-provisioned D1 database. The current free CPU Runner is a separate
-host process and executes only the exact registered Linux workload image. The
-Site Worker does not execute containers or accept caller-selected code, images,
-or provider settings.
+in the Sites-provisioned D1 database and result objects in R2. As of 2026-11-12,
+the live Site is Version 16, but its capability tool reports
+`available=false`, `runner_ready=false`, and `admission_enabled=false` for the
+retired `local_cpu` path. There is no currently available compute provider.
+Historical CPU success records below remain valid evidence for those earlier
+runs; they do not show present readiness.
 
-## Verified now
+The target is a publicly discoverable ChatGPT Site + D1/R2 control plane, Modal
+as the first bounded compute integration, and Runpod as the later separately
+gated GPU provider. Public discovery does not mean anonymous execution: every
+data-bearing or execution tool must require the authenticated Sites user ID and
+enforce owner-scoped D1 queries. Vercel, Neon/PostgreSQL, and the macOS Keychain
+Runner are retired.
+See [`SITES_MODAL_RUNPOD_DELIVERY.md`](SITES_MODAL_RUNPOD_DELIVERY.md) for the
+current staged acceptance plan.
+
+## Historical acceptance
+
+The following observations were made before the local Runner was retired. They
+are retained as historical evidence and are not current operating instructions.
 
 - ChatGPT can discover and call the private Site's experiment tools.
 - One fixed-image CPU checksum smoke completed through ChatGPT → Sites → D1 →
@@ -97,107 +111,54 @@ identifiers, and run results. Cloudflare documents SQL export through Wrangler
 and its API, but that route needs an approved credential and a protected
 destination before use: [D1 import and export](https://developers.cloudflare.com/d1/best-practices/import-export-data/).
 
-The currently deployed Site is Version 16, deployment
-`appgdep_6af5482ff16c819197cfe56dc3755193`, from Sites source commit
-`82d9a5dba4af54a60dc5e48cbbe6f16a1ebfa4e3`; it reports MCP ready. The
-Version 16 rollout and post-restart inference are recorded in
-`acceptance/2026-11-12-runner-environment-sanitization.md`. Version 13 introduced a D1 protocol-version check so
-legacy Runners fail closed. The live macOS LaunchAgent is running with login
-Keychain credentials; its `run.py` and Keychain launcher hashes match the
-published source, and plist/runtime files have mode `0600`. Static security
-review found no actionable issue in the reviewed diff. Planned stop/start and
-caller cancellation passed live acceptance; forced process death, Keychain
-ACL, and credential rotation remain untested.
+The currently deployed Site was observed as Version 16 and MCP-ready. The local
+Runner and Keychain credentials have since been removed. Do not infer that the
+historical heartbeat, local process, or prior capability state still exists.
 
 ## Operating boundaries
 
-- Keep the Site owner-private. Sites authenticates MCP callers; each tool must
-  still enforce persisted owner checks.
-- Keep provider credentials out of the Site source, MCP arguments, logs, and
-  workload container. Store runtime secrets only through the Sites secret
-  controls and the Runner host's protected secret mechanism.
+- Before changing the Site from owner-only to public, verify anonymous calls
+  cannot access user data or trigger compute. Every stateful MCP tool must
+  require Sites' authenticated user ID and enforce owner-scoped queries;
+  discovery/tool schemas may remain public. Add per-user and global resource
+  bounds before any public compute path is enabled.
+- Keep provider credentials out of Site source, MCP arguments, logs, and
+  workload containers. The replacement provider must use a scoped runtime
+  secret store and must never reintroduce a personal-host Runner token.
 - Keep paid execution parked until its separate approval, price, quota,
   authentication, cleanup, and recovery gates pass.
 - Do not bring the archived FastAPI/PostgreSQL, Vercel, or Neon stack back into
   the product path. Historical runbook: `archive/OPERATIONS-legacy-postgresql.md`.
-- Vercel is not a rollback dependency for Sites. Retire its legacy project
-  after checking DNS, GitHub hooks/status requirements, and user workflows for
-  remaining references. Do not direct product traffic back to that deployment.
-- Do not delete the existing Neon project until its auth/run records are
-  classified and any retained data has a verified export or is explicitly
-  recorded as disposable. The live control plane uses D1.
+- Vercel and Neon are retired from the target runtime. Keep old records as
+  historical evidence; do not make either service a deployment or release gate.
 
-## macOS Runner secret and service management
+## Retired macOS Runner
 
-The deployed macOS LaunchAgent reads both Runner credentials from the user's
-login Keychain at launch and keeps them in process memory. Its plist contains
-only the fixed Site URL, registered source/image identity, and polling
-settings. The plist is written atomically with mode `0600`; a missing Keychain
-entry fails closed. The installed service and Keychain items are present, and
-the running source hashes match the published Version 16 source.
-
-To provision or operate it after admission is closed and all runs are terminal:
-
-1. Generate a fresh high-entropy Runner bearer, configure it as the masked
-   `RUNNER_BEARER_TOKEN` Sites secret, and store that same value in the login
-   Keychain under service `com.unjuno.gpu-control.runner`, account
-   `runner-bearer`. Also store the Sites service-access credential in account
-   `sites-service`. Use `security add-generic-password -U -s
-   com.unjuno.gpu-control.runner -a runner-bearer -w` and repeat with
-   `-a sites-service`; `security` prompts for each value, so do not put a token
-   on the command line or in a file. Deploy the exact saved Site version after
-   changing its runtime secret; admission stays closed during the rotation.
-2. Run `python3 runner/macos_launch_agent.py --install` from the
-   `sites/gpu-control-sites` checkout. Check the installed plist has mode
-   `0600` and contains no credential values.
-3. Stop the existing Runner through its current process supervisor and verify
-   it exited and removed any workload container. The LaunchAgent `--start`
-   command refuses to start while it detects an unmanaged Runner process.
-4. Run `python3 runner/macos_launch_agent.py --start`, then `--status`. Verify
-   the Site reports the exact source and image ready before reopening admission.
-   If already loaded, `--start` reports that state and does not force a restart.
-5. For maintenance, close admission and wait for terminal runs before running
-   `python3 runner/macos_launch_agent.py --stop`, then verify the process and
-   workload container are gone. Preserve Keychain entries during uninstall;
-   revoke credentials separately after a replacement is proven and no Runner
-   depends on them.
-
-The source SHA recorded in saved Site Version 13 was reconciled with the
-Cloudflare artifact repository at that time. Version 16 is now the live Site
-version. Its Runner environment sanitizer was installed through a coordinated
-stop/install/start with free admission closed; a fresh heartbeat and zero-cost
-post-restart inference passed. Credential rotation and Keychain ACL review
-remain open. For further edits, reconcile the checkout against the deployed source
-before pushing. Preserve the active Runner and its Keychain credentials while
-testing changes; schedule restarts only after a live recovery plan is ready.
+The current Site remains owner-only until the authenticated public-access gates
+are implemented and checked. The former LaunchAgent was unloaded, its local runtime was removed, and the
+`runner-bearer` and `sites-service` Keychain entries were deleted. Do not ask
+for a macOS password, restore either Keychain item, reinstall the LaunchAgent,
+or restart the old Runner. The old endpoint and runtime secret must be removed
+from the deployed Site as part of the reviewed provider cutover. Preserve D1/R2
+history and historical run evidence.
 
 ## Open operational acceptance
 
-1. Rehearse credential rotation and restart with admission closed. The current
-   service already has a protected Keychain secret source; prove that a planned
-   replacement starts with the rotated credentials, returns exact source/image
-   readiness, and leaves no orphan workload before considering this gate done.
-2. Repeat the forced Runner interruption/process-death and lease-expiry tests
-   across crash windows, including while the workload container is creating,
-   running, exiting, and writing results. One active-run process-loss case,
-   planned LaunchAgent stop/start, and caller cancellation have passed once.
+1. Implement and deploy the authenticated Modal CPU path with idempotent submit,
+   bounded status/collection, and no caller-selected code or image.
+2. Exercise ambiguous submission, timeout, cancellation, provider failure, D1
+   and R2 write failure, and recovery without duplicate runs or orphan compute.
 3. Define R2 artifact retention and orphan cleanup; exercise larger artifacts and
    repeated retrieval beyond the seven accepted complete result objects.
 4. Test owner isolation across separate accounts and verify Site access revocation.
-5. Document and rehearse secret rotation, D1/R2 backup/restore, and incident
-   response before increasing admission or enabling paid providers. The
-   supported Runner start/stop procedure has passed one planned live rehearsal.
+5. Document and rehearse scoped provider-secret rotation, D1/R2 backup/restore,
+   and incident response before enabling paid providers.
 
 Detailed current state and evidence: `decisions/2026-11-11-sites-d1-architecture-pivot.md`.
 
 ## Latest live CPU acceptance — 2026-11-12
 
-A fresh ChatGPT-originated, registered TinyStories inference succeeded after
-this runbook's earlier recovery checks. It ran four tokens in 131 ms under a
-`$0.00` cost cap, returned a passed result with all nine workload checks,
-reported `gpu_used=false`, and confirmed container cleanup. The separate result
-and artifact tools returned the terminal record and complete 952-byte R2
-artifact; a local SHA-256 independently matched the artifact metadata. Current
-Sites capabilities report free CPU admission enabled and paid execution parked.
-This confirms the CPU route remains live; separate-account isolation, real GPU,
-paid execution, and D1/R2 restore acceptance remain open.
+This dated record describes a successful run at the time it was performed. It
+is superseded for present readiness by the live capability response observed
+on 2026-11-12 (`available=false`; local Runner absent; admission disabled).
+The next acceptance must use the Modal-backed Sites path.

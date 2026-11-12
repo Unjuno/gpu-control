@@ -51,6 +51,29 @@ async function toolCall(env, user, name, args) {
   }), env);
 }
 
+test("public MCP data tools reject anonymous callers before touching D1", async () => {
+  const env = environment();
+  let databaseReads = 0;
+  env.DB.prepare = () => {
+    databaseReads++;
+    throw new Error("anonymous request reached D1");
+  };
+  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 7, method: "tools/call",
+      params: { name: "experiment_list", arguments: {} },
+    }),
+  }), env);
+  const rpc = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(rpc.result.isError, true);
+  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "AUTHENTICATED_SITE_USER_REQUIRED" });
+  assert.equal(databaseReads, 0);
+});
+
 function cancellationEnvironment(initialState) {
   const run = { id: "c".repeat(32), owner_id: "test-owner", state: initialState,
     cancel_requested: 0, cleanup_state: "pending", lease_id: "d".repeat(32) };
@@ -133,131 +156,9 @@ test("does not advertise cancellation for a terminal run", async () => {
   assert.deepEqual(result.next_allowed_actions, ["experiment_status"]);
 });
 
-test("accepts a Runner cancellation receipt only after cleanup for a requested run", async () => {
-  const runId = "f".repeat(32);
-  const leaseId = "e".repeat(32);
-  let bucketWrites = 0;
-  let persisted;
-  const env = environment({ admission: "true" });
-  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
-  env.DB.prepare = (sql) => ({ bind() { return { async first() {
-    if (sql.includes("SELECT r.state")) return {
-      state: "running", cancel_requested: 1, lease_id: leaseId,
-      lease_expires_at: Math.floor(Date.now() / 1000) + 30,
-      fingerprint: "a".repeat(64), source_sha: sourceSha, image_digest: imageDigest,
-      parameters_json: JSON.stringify({ prompt: "Once upon a time", max_new_tokens: 8, seed: 61112 }), runtime_seconds: 30,
-    };
-    if (sql.includes("UPDATE runs SET state='cancelled'")) {
-      persisted = { id: runId, state: "cancelled", cleanup_state: "confirmed" };
-      return persisted;
-    }
-    throw new Error("unexpected cancellation result query");
-  } }; } });
-  env.BUCKET = { async put() { bucketWrites++; return {}; } };
-  const now = Math.floor(Date.now() / 1000);
-  const response = await worker.fetch(new Request("https://site.invalid/runner/result", {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ status: "cancelled", run_id: runId, lease_id: leaseId, result: null,
-      cleanup_confirmation: { absent: true, container_id: "1".repeat(12), container_name: `gpu-control-${runId}`,
-        image_digest: imageDigest, lease_id: leaseId, observed_at: now, plan_fingerprint: "a".repeat(64),
-        run_id: runId, source_sha: sourceSha } }),
-  }), env);
 
-  const payload = await response.json();
-  assert.equal(response.status, 200, JSON.stringify(payload));
-  assert.deepEqual(payload, { ok: true, run: persisted });
-  assert.equal(bucketWrites, 0);
-});
 
-test("cancellation wins if requested while a validated result artifact is being written", async () => {
-  const value = await inferenceResult();
-  const leaseId = "e".repeat(32);
-  let cancelRequested = 0;
-  let bucketWrites = 0;
-  let bucketDeletes = 0;
-  let cancelledRow;
-  const env = environment({ admission: "true" });
-  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
-  env.DB.prepare = (sql) => ({ bind() { return { async first() {
-    if (sql.includes("SELECT r.state")) return {
-      state: "running", cancel_requested: cancelRequested, lease_id: leaseId,
-      lease_expires_at: Math.floor(Date.now() / 1000) + 30,
-      fingerprint: value.fingerprint, source_sha: sourceSha, image_digest: imageDigest,
-      parameters_json: JSON.stringify({ prompt: value.prompt, max_new_tokens: 8, seed: 61112 }), runtime_seconds: 30,
-    };
-    if (sql.includes("UPDATE runs SET state='cancelled'")) {
-      cancelledRow = { id: value.run_id, state: "cancelled", failure_code: "caller_cancelled", cleanup_state: "confirmed" };
-      return cancelledRow;
-    }
-    if (sql.includes("result_artifact_id=?")) return null;
-    if (sql.includes("SELECT state, cancel_requested, result_artifact_sha256")) {
-      return { state: "running", cancel_requested: cancelRequested, result_artifact_sha256: null };
-    }
-    throw new Error("unexpected cancellation race query");
-  } }; } });
-  env.BUCKET = {
-    async put() { bucketWrites++; cancelRequested = 1; return {}; },
-    async delete() { bucketDeletes++; },
-  };
 
-  const response = await postInferenceResult(value, env);
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, run: cancelledRow });
-  assert.equal(bucketWrites, 1);
-  assert.equal(bucketDeletes, 1);
-});
-
-test("Runner cancellation polling is lease-bound and returns the current request bit", async () => {
-  const runId = "a".repeat(32);
-  const leaseId = "b".repeat(32);
-  const env = environment();
-  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
-  env.DB.prepare = (sql) => ({ bind(id) { return { async first() {
-    assert.match(sql, /cancel_requested/);
-    assert.equal(id, runId);
-    return { state: "running", lease_id: leaseId, lease_expires_at: Math.floor(Date.now() / 1000) + 30, cancel_requested: 1 };
-  } }; } });
-  async function poll(lease) {
-    return worker.fetch(new Request("https://site.invalid/runner/cancel-check", {
-      method: "POST", headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
-      body: JSON.stringify({ run_id: runId, lease_id: lease }),
-    }), env);
-  }
-
-  const accepted = await poll(leaseId);
-  assert.equal(accepted.status, 200);
-  assert.deepEqual(await accepted.json(), { cancel_requested: true });
-  const stale = await poll("c".repeat(32));
-  assert.equal(stale.status, 409);
-});
-
-test("expired cancellation finalizes as cancelled only after Runner recovery receipt", async () => {
-  const runId = "a".repeat(32);
-  const leaseId = "b".repeat(32);
-  let persisted;
-  const env = environment();
-  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
-  env.DB.prepare = (sql) => ({ bind(...values) { return { async first() {
-    assert.match(sql, /UPDATE runs/);
-    assert.equal(values[2], runId);
-    assert.equal(values[3], leaseId);
-    const cancellationAware = sql.includes("cancel_requested=1");
-    persisted = { id: runId, state: cancellationAware ? "cancelled" : "failed",
-      failure_code: cancellationAware ? "caller_cancelled_runner_lost" : "runner_lost_recovered", cleanup_state: "confirmed" };
-    return persisted;
-  } }; } });
-  const response = await worker.fetch(new Request("https://site.invalid/runner/recover", {
-    method: "POST", headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ absent: true, image_digest: imageDigest, lease_id: leaseId,
-      plan_fingerprint: "c".repeat(64), run_id: runId, source_sha: sourceSha }),
-  }), env);
-
-  assert.equal(response.status, 200);
-  assert.equal(persisted.state, "cancelled");
-  assert.equal(persisted.failure_code, "caller_cancelled_runner_lost");
-  assert.deepEqual((await response.json()).run, persisted);
-});
 
 async function listTools(env) {
   const request = new Request("https://site.invalid/mcp", {
@@ -270,7 +171,7 @@ async function listTools(env) {
   return (await response.json()).result.tools;
 }
 
-test("advertises only the bounded, registered pretrained CPU inference contract", async () => {
+test("advertises the bounded registered inference contract", async () => {
   const tools = await listTools(environment());
   const prepare = tools.find((tool) => tool.name === "experiment_prepare");
   assert.equal(prepare.inputSchema.properties.workload.const, "tiny-stories-inference-v1");
@@ -317,353 +218,6 @@ test("rejects a malformed UTF-16 prompt before writing a plan", async () => {
   const response = await worker.fetch(request, environment());
   const rpc = await response.json();
   assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "INVALID_ARGUMENTS" });
-});
-
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-async function sha256(value) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function inferenceResult({ modelSha256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a", generatedTokens = 6 } = {}) {
-  const runId = "f".repeat(32);
-  const fingerprint = "a".repeat(64);
-  const prompt = "Once upon a time";
-  const metrics = {
-    elapsed_ms: 800,
-    generated_text: `${prompt}, there was a little girl`,
-    generated_tokens: generatedTokens,
-    max_new_tokens: 8,
-    model_id: "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin",
-    model_sha256: modelSha256,
-    prompt_sha256: await sha256(prompt),
-    seed: 61112,
-    temperature: 0.8,
-  };
-  const identity = { run_id: runId, source_sha: sourceSha, plan_fingerprint: fingerprint, metrics };
-  return {
-    run_id: runId, fingerprint, prompt, metrics,
-    result: {
-      schema_version: 1, run_id: runId, source_sha: sourceSha, plan_fingerprint: fingerprint,
-      check: "tiny-stories-inference-v1", status: "passed", gpu_used: false,
-      checks: ["source_identity_present", "parameter_bounds", "model_digest_verified", "inference_completed",
-        "non_root", "no_secret_environment", "no_docker_socket", "read_only_rootfs", "network_disabled"],
-      metrics, checksum: await sha256(canonical(identity)),
-    },
-  };
-}
-
-function resultEnvironment(expectedImage = imageDigest) {
-  const env = environment({ admission: "true" });
-  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
-  env.DB.prepare = (sql) => ({
-    bind() {
-      return {
-        async first() {
-          if (sql.includes("SELECT r.state")) return {
-            state: "running", lease_id: "e".repeat(32), lease_expires_at: Math.floor(Date.now() / 1000) + 30,
-            fingerprint: "a".repeat(64), source_sha: sourceSha, image_digest: expectedImage,
-            parameters_json: JSON.stringify({ prompt: "Once upon a time", max_new_tokens: 8, seed: 61112 }),
-            runtime_seconds: 30,
-          };
-          if (sql.includes("UPDATE runs SET state=?")) return { id: "f".repeat(32), state: "succeeded" };
-          throw new Error("unexpected result query");
-        },
-      };
-    },
-  });
-  env.BUCKET = { async put() { return {}; }, async delete() {} };
-  return env;
-}
-
-async function postInferenceResult(value, env) {
-  const now = Math.floor(Date.now() / 1000);
-  return worker.fetch(new Request("https://site.invalid/runner/result", {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      status: "passed", run_id: value.run_id, lease_id: "e".repeat(32), result: value.result,
-      cleanup_confirmation: {
-        absent: true, container_id: "1".repeat(12), container_name: `gpu-control-${value.run_id}`,
-        image_digest: imageDigest, lease_id: "e".repeat(32), observed_at: now,
-        plan_fingerprint: value.fingerprint, run_id: value.run_id, source_sha: sourceSha,
-      },
-    }),
-  }), env);
-}
-
-test("persists only a model- and prompt-bound inference result with verified checksum", async () => {
-  const value = await inferenceResult();
-  const response = await postInferenceResult(value, resultEnvironment());
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, run: { id: value.run_id, state: "succeeded" } });
-});
-
-test("acknowledges a duplicate successful result receipt without writing R2 twice", async () => {
-  const value = await inferenceResult();
-  const resultJson = JSON.stringify(value.result);
-  const artifactSha256 = createHash("sha256").update(resultJson).digest("hex");
-  let state = "running";
-  let bucketPuts = 0;
-  const env = resultEnvironment();
-  env.DB.prepare = (sql) => ({ bind() { return { async first() {
-    if (sql.includes("SELECT r.state")) return {
-      state, lease_id: state === "running" ? "e".repeat(32) : null,
-      lease_expires_at: Math.floor(Date.now() / 1000) + 30, cancel_requested: 0,
-      fingerprint: value.fingerprint, source_sha: sourceSha, image_digest: imageDigest,
-      parameters_json: JSON.stringify({ prompt: value.prompt, max_new_tokens: 8, seed: 61112 }),
-      runtime_seconds: 30, result_artifact_id: state === "succeeded" ? "result.json" : null,
-      result_artifact_sha256: state === "succeeded" ? artifactSha256 : null,
-      result_artifact_size: state === "succeeded" ? Buffer.byteLength(resultJson) : null,
-    };
-    if (sql.includes("UPDATE runs SET state=?")) {
-      state = "succeeded";
-      return { id: value.run_id, state };
-    }
-    throw new Error("unexpected duplicate-result query");
-  } }; } });
-  env.BUCKET = { async put() { bucketPuts++; return {}; }, async delete() {} };
-
-  const first = await postInferenceResult(value, env);
-  assert.equal(first.status, 200);
-  const retry = await postInferenceResult(value, env);
-  assert.equal(retry.status, 200);
-  assert.deepEqual(await retry.json(), { ok: true, run: { id: value.run_id, state: "succeeded" } });
-  assert.equal(bucketPuts, 1);
-});
-
-test("does not commit a result after its D1 lease expires during the R2 write", async () => {
-  const value = await inferenceResult();
-  const startMs = 1_800_000_000_000;
-  const leaseExpiresAt = Math.floor(startMs / 1000) + 1;
-  let currentMs = startMs;
-  let updateTimestamp = null;
-  const deletedKeys = [];
-  const env = resultEnvironment();
-  env.DB.prepare = (sql) => ({ bind(...values) { return { async first() {
-    if (sql.includes("SELECT r.state")) return {
-      state: "running", lease_id: "e".repeat(32), lease_expires_at: leaseExpiresAt,
-      cancel_requested: 0, fingerprint: value.fingerprint, source_sha: sourceSha,
-      image_digest: imageDigest,
-      parameters_json: JSON.stringify({ prompt: value.prompt, max_new_tokens: 8, seed: 61112 }),
-      runtime_seconds: 30, result_artifact_id: null, result_artifact_sha256: null,
-      result_artifact_size: null,
-    };
-    if (sql.includes("UPDATE runs SET state=?")) {
-      updateTimestamp = values[4];
-      return updateTimestamp <= leaseExpiresAt ? { id: value.run_id, state: "succeeded" } : null;
-    }
-    if (sql.includes("SELECT state, cancel_requested, result_artifact_sha256")) {
-      return { state: "running", cancel_requested: 0, result_artifact_sha256: null };
-    }
-    throw new Error("unexpected lease-expiry query");
-  } }; } });
-  env.BUCKET = {
-    async put() { currentMs = startMs + 2_000; return {}; },
-    async delete(key) { deletedKeys.push(key); },
-  };
-  const realDateNow = Date.now;
-  Date.now = () => currentMs;
-  let response;
-  try {
-    response = await postInferenceResult(value, env);
-  } finally {
-    Date.now = realDateNow;
-  }
-
-  assert.equal(updateTimestamp, leaseExpiresAt + 1);
-  assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), { error: "STALE_OR_EXPIRED_LEASE" });
-  assert.equal(deletedKeys.length, 1);
-});
-
-test("rejects inference results with a different model digest or excess generated tokens", async () => {
-  const wrongModel = await inferenceResult({ modelSha256: "0".repeat(64) });
-  const modelResponse = await postInferenceResult(wrongModel, resultEnvironment());
-  assert.equal(modelResponse.status, 400);
-  const tooManyTokens = await inferenceResult({ generatedTokens: 9 });
-  const tokenResponse = await postInferenceResult(tooManyTokens, resultEnvironment());
-  assert.equal(tokenResponse.status, 400);
-});
-
-test("reports a matching live runner separately from disabled admission", async () => {
-  const result = await capabilities(environment({ heartbeatAt: Math.floor(Date.now() / 1000) }));
-  assert.equal(result.machine_state.runner_ready, true);
-  assert.equal(result.machine_state.admission_enabled, false);
-  assert.equal(result.machine_state.available, false);
-  assert.equal(result.blocking_reason, "WORKLOAD_ADMISSION_DISABLED");
-  assert.equal(result.providers[0].enabled, false);
-  assert.equal(result.paid_execution, "parked");
-});
-
-test("reports a stale runner as not ready", async () => {
-  const result = await capabilities(environment({ heartbeatAt: Math.floor(Date.now() / 1000) - 61 }));
-  assert.equal(result.machine_state.runner_ready, false);
-  assert.equal(result.blocking_reason, "RUNNER_OR_WORKLOAD_NOT_READY");
-});
-
-test("does not accept a heartbeat for another registered image", async () => {
-  const result = await capabilities(environment({
-    heartbeatAt: Math.floor(Date.now() / 1000),
-    heartbeatDigest: `sha256:${"c".repeat(64)}`,
-  }));
-  assert.equal(result.machine_state.runner_ready, false);
-  assert.equal(result.blocking_reason, "RUNNER_OR_WORKLOAD_NOT_READY");
-});
-
-test("does not treat a legacy Runner without cancellation support as ready", async () => {
-  const result = await capabilities(environment({
-    heartbeatAt: Math.floor(Date.now() / 1000),
-    cancellationProtocol: 0,
-  }));
-  assert.equal(result.machine_state.runner_ready, false);
-  assert.equal(result.machine_state.available, false);
-  assert.equal(result.blocking_reason, "RUNNER_OR_WORKLOAD_NOT_READY");
-});
-
-test("reports availability only when runner, registration, and admission are ready", async () => {
-  const result = await capabilities(environment({
-    heartbeatAt: Math.floor(Date.now() / 1000),
-    admission: "true",
-  }));
-  assert.equal(result.machine_state.runner_ready, true);
-  assert.equal(result.machine_state.available, true);
-  assert.equal(result.blocking_reason, null);
-  assert.equal(result.providers[0].enabled, true);
-  assert.equal(result.paid_execution, "parked");
-});
-
-test("disabled admission cancels queued work before the runner can claim it", async () => {
-  const statements = [];
-  const env = environment({ heartbeatAt: Math.floor(Date.now() / 1000) });
-  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
-  env.DB.prepare = (sql) => ({
-    bind(...values) {
-      return {
-        async run() { statements.push({ sql, values }); return { success: true }; },
-        async first() { throw new Error("claim path must not read or lease a run"); },
-      };
-    },
-  });
-  const response = await worker.fetch(new Request("https://site.invalid/runner/claim", {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}` },
-    body: "{}",
-  }), env);
-
-  assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), { error: "WORKLOAD_ADMISSION_DISABLED" });
-  assert.equal(statements.length, 1);
-  assert.match(statements[0].sql, /SET state='cancelled'.*WHERE state='queued'/s);
-  assert.equal(Number.isSafeInteger(statements[0].values[0]), true);
-});
-
-test("rejects legacy heartbeat before it can restore Runner readiness", async () => {
-  let persisted = false;
-  const env = environment();
-  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
-  env.DB.prepare = () => ({ bind() { return { async run() { persisted = true; } }; } });
-  const response = await worker.fetch(new Request("https://site.invalid/runner/heartbeat", {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ runner_id: "local-cpu-1", image_digest: imageDigest, source_sha: sourceSha }),
-  }), env);
-  assert.equal(response.status, 400);
-  assert.deepEqual(await response.json(), { error: "INVALID_RUNNER_HEARTBEAT" });
-  assert.equal(persisted, false);
-});
-
-test("does not let a legacy heartbeat claim new work", async () => {
-  const env = environment({ heartbeatAt: Math.floor(Date.now() / 1000), admission: "true", cancellationProtocol: 0 });
-  env.RUNNER_BEARER_TOKEN = "r".repeat(48);
-  const response = await worker.fetch(new Request("https://site.invalid/runner/claim", {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}`, "content-type": "application/json" },
-    body: "{}",
-  }), env);
-  assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), { error: "RUNNER_PROTOCOL_OUTDATED" });
-});
-
-test("duplicate submit returns the succeeded run without claiming it was newly queued", async () => {
-  const runId = "c".repeat(32);
-  const fingerprint = "d".repeat(64);
-  const env = environment({ heartbeatAt: Math.floor(Date.now() / 1000), admission: "true" });
-  env.DB.prepare = (sql) => ({
-    bind() {
-      return {
-        async first() {
-          if (sql.includes("runner_heartbeats")) return {
-            last_seen_at: Math.floor(Date.now() / 1000), image_digest: imageDigest, source_sha: sourceSha,
-            cancellation_protocol: 1,
-          };
-          if (sql.includes("SELECT id, state, created_at FROM runs")) {
-            return { id: runId, state: "succeeded", created_at: 123 };
-          }
-          throw new Error("unexpected query");
-        },
-      };
-    },
-  });
-  env.DB.batch = async () => { throw new Error("unique plan/run constraint"); };
-  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
-    method: "POST",
-    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: 2, method: "tools/call",
-      params: { name: "experiment_submit", arguments: { run_id: runId, plan_fingerprint: fingerprint } },
-    }),
-  }), env);
-
-  assert.equal(response.status, 200);
-  const rpc = await response.json();
-  const result = JSON.parse(rpc.result.content[0].text);
-  assert.equal(result.run_id, runId);
-  assert.equal(result.machine_state.state, "succeeded");
-  assert.equal(result.human_summary, "この実験は完了しています。");
-});
-
-test("submit uses the persisted state when D1 batch resolves without creating a new row", async () => {
-  const runId = "e".repeat(32);
-  const env = environment({ heartbeatAt: Math.floor(Date.now() / 1000), admission: "true" });
-  env.DB.prepare = (sql) => ({
-    bind() {
-      return {
-        async first() {
-          if (sql.includes("runner_heartbeats")) return {
-            last_seen_at: Math.floor(Date.now() / 1000), image_digest: imageDigest, source_sha: sourceSha,
-            cancellation_protocol: 1,
-          };
-          if (sql.includes("SELECT id, state, created_at FROM runs")) {
-            return { id: runId, state: "succeeded", created_at: 123 };
-          }
-          throw new Error("unexpected query");
-        },
-      };
-    },
-  });
-  env.DB.batch = async () => [{ meta: { changes: 0 } }, { meta: { changes: 0 } }];
-  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
-    method: "POST",
-    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: 3, method: "tools/call",
-      params: { name: "experiment_submit", arguments: { run_id: runId, plan_fingerprint: "f".repeat(64) } },
-    }),
-  }), env);
-
-  assert.equal(response.status, 200);
-  const result = JSON.parse((await response.json()).result.content[0].text);
-  assert.equal(result.run_id, runId);
-  assert.equal(result.machine_state.state, "succeeded");
-  assert.equal(result.human_summary, "この実験は完了しています。");
 });
 
 test("artifact chunks require the authenticated owner and verify stored content", async () => {
@@ -797,36 +351,32 @@ test("prepare idempotency keys are isolated by Site owner", async () => {
   assert.equal(plans.size, 2);
 });
 
-test("another Site user cannot submit an owner's prepared plan", async () => {
-  const runId = "a".repeat(32);
-  const now = Math.floor(Date.now() / 1000);
-  const statements = [];
-  const env = environment({ heartbeatAt: now, admission: "true" });
-  env.DB.prepare = (sql) => ({ bind(...values) {
-    const statement = { sql, values };
-    statements.push(statement);
-    return { async first() {
-      if (sql.includes("runner_heartbeats")) return {
-        last_seen_at: now, image_digest: imageDigest, source_sha: sourceSha, cancellation_protocol: 1,
-      };
-      if (sql.includes("SELECT id, state, created_at FROM runs")) return null;
-      throw new Error("unexpected query");
-    } };
-  } });
-  let batchCount = 0;
-  env.DB.batch = async () => { batchCount++; return [{ meta: { changes: 0 } }, { meta: { changes: 0 } }]; };
 
-  const response = await toolCall(env, "different-owner", "experiment_submit", {
-    run_id: runId, plan_fingerprint: "b".repeat(64),
+
+test("keeps Modal submission blocked until the provider is configured", async () => {
+  const env = environment();
+  let writes = 0;
+  env.DB.batch = async () => { writes++; throw new Error("blocked submission must not write"); };
+  const response = await toolCall(env, "test-owner", "experiment_submit", {
+    run_id: "f".repeat(32), plan_fingerprint: "a".repeat(64),
   });
   const rpc = await response.json();
+  assert.equal(rpc.result.isError, false);
+  const result = JSON.parse(rpc.result.content[0].text);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.blocking_reason, "MODAL_PROVIDER_NOT_CONFIGURED");
+  assert.equal(writes, 0);
+});
 
-  assert.equal(rpc.result.isError, true);
-  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "PLAN_EXPIRED_OR_ALREADY_USED" });
-  assert.equal(batchCount, 1);
-  const ownershipStatements = statements.filter((statement) => statement.sql.includes("UPDATE plans") || statement.sql.includes("INSERT INTO runs"));
-  assert.equal(ownershipStatements.length, 2);
-  assert.ok(ownershipStatements.every((statement) => statement.sql.includes("owner_id = ?")));
-  assert.equal(ownershipStatements[0].values[1], "different-owner");
-  assert.equal(ownershipStatements[1].values[3], "different-owner");
+test("retired Runner routes stay closed even when a legacy bearer is supplied", async () => {
+  const env = environment();
+  env.RUNNER_BEARER_TOKEN = "x".repeat(48);
+  env.DB.prepare = () => { throw new Error("retired route reached D1"); };
+  for (const path of ["/runner/heartbeat", "/runner/claim", "/runner/result"]) {
+    const response = await worker.fetch(new Request(`https://site.invalid${path}`, {
+      method: "POST", headers: { authorization: `Bearer ${env.RUNNER_BEARER_TOKEN}` }, body: "{}",
+    }), env);
+    assert.equal(response.status, 404, path);
+    assert.deepEqual(await response.json(), { error: "NOT_FOUND" });
+  }
 });

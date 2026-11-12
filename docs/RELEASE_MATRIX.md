@@ -8,10 +8,11 @@ identity, recovery, or provider acceptance gate.
 
 | Gate | State | Evidence and remaining work |
 | --- | --- | --- |
-| ChatGPT Sites MCP | PASS for the private Site and repeated provenance-valid inference runs | The private Site and generated plugin are published. Version 16 is deployed and MCP-ready. ChatGPT prepared, submitted, polled, and retrieved registered TinyStories results through Sites → D1 → Runner → D1. Eight complete result artifacts have been retrieved and SHA-256 verified through ChatGPT. The Site remains owner-private. |
-| D1 control plane | PASS for bounded provenance-valid inference lifecycles; more acceptance remains | D1 stores owner-scoped plans/runs, idempotency, leases, Runner heartbeats, and R2 artifact references. Post-recovery run `aa45b7d899de4c9aaff2ee73fa985cc6` was persisted and its complete 999-byte R2 artifact retrieved; its SHA-256 matched D1 metadata. A killed in-flight run expired after its 180-second lease and became `runner_lost_recovered`, attempt 1, cleanup confirmed, with no replay. Complete backup/export and restore rehearsal and separate-account owner isolation remain open. |
-| Real CPU model inference | PASS for repeated provenance-valid bounded end-to-end runs | TinyStories 15M is pinned by upstream revision and SHA-256. Latest ChatGPT run `360e6ee7bb664bea80ec9846bf1d8b6c` used source `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`, prompt `A quiet green hill waited.`, seed `61122`, and 4 generated tokens in 165 ms. It passed all nine source/model/parameter and container-isolation checks, returned `gpu_used=false`, confirmed cleanup, and incurred `$0.00` cost. ChatGPT retrieved the complete 962-byte R2 artifact and locally computed SHA-256 `f58c3d83a7f5b551da5c00ff64cd5552f4bcc8b140d0a5f7a1c8e84b19c869a0`, matching D1/R2 metadata. This does not establish broad model quality or GPU capability; details: [`live inference refresh`](acceptance/2026-11-12-sites-d1-tinystories-chatgpt-inference.md). |
-| Runner security and recovery | PARTIAL; credential cutover pending | Version 16 is deployed and MCP-ready, and the sanitized Runner completed provenance-valid free CPU inference before a planned bearer rotation. The new Sites secret is applied by deployment `appgdep_6af54a86b95c8191a129fd1e1bb4a916` at environment revision 16. The LaunchAgent is unloaded, live capabilities report `runner_ready=false` and `admission_enabled=false`, and the Mac lock prevented confirming the matching Keychain value. Keep CPU admission disabled until the rotated credential is verified and a fresh heartbeat is accepted. Earlier live caller cancellation and three process-loss windows recovered through the 180-second lease with cleanup and no replay. Post-result-persistence/R2-upload recovery, cross-owner isolation, Keychain ACL/rotation verification, backup/restore, and orphan reconciliation remain open. The Runner host has 14 exited historical containers with zero mounts; disposal is pending owner choice. |
+| ChatGPT Sites MCP | Published owner-only today; public access target pending auth gates | Version 16 and its capability tool are live. Current capabilities report `available=false`, `runner_ready=false`, `admission_enabled=false`. Before public access, prove anonymous callers cannot access user data or invoke compute; stateful tools must require Sites identity and enforce D1 ownership. |
+| D1/R2 control plane | PASS for prior bounded lifecycles; preservation and recovery gates remain | D1/R2 hold owner-bound run and artifact records from earlier accepted runs. Preserve these records during migration. Backup/restore, current provider lifecycle/reconciliation, and separate-account owner isolation remain open. |
+| Real CPU model inference | Previously accepted through the now-retired local Runner; currently unavailable | TinyStories 15M was pinned by upstream revision and SHA-256, and earlier ChatGPT runs retrieved and verified their R2 artifacts with cleanup confirmed. No current Modal compute path is implemented or deployed. The evidence does not establish broad model quality or GPU capability. |
+| Local Runner / Keychain | RETIRED | LaunchAgent, local runtime, and Keychain entries were removed. Do not restore the old path. Remove its unused Worker routes and Site secret in the reviewed Site cutover while preserving D1/R2 history. |
+| Modal CPU execution | NOT IMPLEMENTED | Build a fixed, authenticated, bounded async path through Sites; validate it offline and then run one short CPU invocation within a refreshed account cap. |
 | Result artifacts | PARTIAL; eight bounded R2 results accepted | A production R2 binding stores the verified result JSON. D1 records its artifact ID, digest and byte size; the ChatGPT artifact tool checks owner/run binding, metadata and content digest before returning bounded base64 chunks. Eight complete run artifacts were retrieved and SHA-256 verified. R2 retention and orphan cleanup policy, larger artifacts and a broader lifecycle remain open. |
 | Owner isolation and revocation | NOT ACCEPTED | Local Worker unit checks cover owner-bound prepare, submit, list, status, result, cancel, and artifact queries using a D1-shaped fake. An unauthenticated direct request with a forged owner header received HTTP 401. These checks do not prove cross-owner separation between authenticated Site users. Test a genuinely separate Site account and verify access revocation. Evidence: [`Sites owner-scope checks`](acceptance/2026-11-12-sites-owner-scope-unit-tests.md). |
 | GPU provider execution | NOT ACCEPTED | No real GPU run has been accepted through ChatGPT. Preserve provider adapters as compute integrations, but keep GPU admission disabled until provider identity, result authentication, recovery, and cleanup are verified. |
@@ -20,11 +21,12 @@ identity, recovery, or provider acceptance gate.
 
 ## Current implementation boundary
 
-The product path is ChatGPT Sites Worker → D1 → separately isolated Runner →
-D1 → ChatGPT. The Worker does not execute model code. The active workload is
-one registered free local CPU inference path. D1 is the selected database for this path. Reconsider a
-different database only if measured workload or product requirements exceed
-D1's documented limits.
+The current product path is the owner-private ChatGPT Sites Worker → D1/R2 →
+ChatGPT. The former Runner has been retired and no compute provider is currently
+available. The target path adds Modal as the first fixed compute provider and
+Runpod later for GPU execution; both remain separate from the Sites control
+plane and gated independently. D1 is the current database, and R2 stores bounded
+artifacts.
 
 No Vercel deployment status is a required check or evidence for this release
 path. Historical Actions/Vercel/PostgreSQL results are not erased; they remain
@@ -36,4 +38,5 @@ available in the archived matrix and dated acceptance records.
 - [ChatGPT Sites setup](CHATGPT_SETUP.md)
 - [Sites + D1 architecture decision](decisions/2026-11-11-sites-d1-architecture-pivot.md)
 - [Project status](STATUS.md)
+- [Sites, Modal, and Runpod delivery plan](SITES_MODAL_RUNPOD_DELIVERY.md)
 - [Sites source and Runner contract](../sites/gpu-control-sites/README.md)

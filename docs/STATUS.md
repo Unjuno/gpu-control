@@ -1,10 +1,16 @@
 # Project status
 
-## Hosted Sites MCP CPU vertical — 2026-11-12
+## Hosted Sites and provider status — 2026-11-12
 
-The owner-private Sites MCP Worker uses D1 and a separately isolated CPU
-Runner. A fresh ChatGPT-originated TinyStories 15M inference completed on the
-current deployed Sites Version 15 after a Runner process-loss recovery test.
+The owner-private ChatGPT Sites MCP Worker is deployed as Version 16, with D1
+and R2. Its current capability response reports `available=false`,
+`runner_ready=false`, `admission_enabled=false`, and paid execution as parked.
+The personal-host CPU Runner and its Keychain authentication path have been
+retired. The older accepted TinyStories 15M runs remain historical evidence;
+they do not establish a currently usable execution path.
+
+Before retirement, a ChatGPT-originated TinyStories 15M inference completed on
+Sites Version 15 after a Runner process-loss recovery test.
 Run `aa45b7d899de4c9aaff2ee73fa985cc6` used the registered workload source commit
 `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288` and image
 `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
@@ -18,14 +24,11 @@ confirmed, no retry, and no leftover container. A follow-up inference proved
 the free CPU slot was available again.
 
 This does not establish general model quality, repeated crash-window coverage,
-cross-owner isolation, or GPU capability. Free CPU admission remains
-bounded to one in-flight run and 30 seconds. Paid execution remains parked. The
-deployed Sites Version 15 is MCP-ready. Version 13 remains an older saved source
-candidate; Version 15's source commit is recorded separately in the acceptance
-evidence. Planned restart, caller cancellation, and one forced process-loss/
-lease-expiry recovery case are accepted. Repeated crash-window coverage remains
-open. Full evidence and open gates are tracked in
+cross-owner isolation, or GPU capability. Free CPU admission is currently
+unavailable. Modal compute integration and real Runpod GPU acceptance remain
+open. Full evidence and gates are tracked in
 [`decisions/2026-11-11-sites-d1-architecture-pivot.md`](decisions/2026-11-11-sites-d1-architecture-pivot.md).
+The current staged plan is [`SITES_MODAL_RUNPOD_DELIVERY.md`](SITES_MODAL_RUNPOD_DELIVERY.md).
 
 The rest of this document records standalone CLI and provider-adapter status on
 `main`; it does not supersede the hosted Sites acceptance snapshot above.

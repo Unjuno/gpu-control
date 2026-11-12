@@ -3,7 +3,7 @@ FROM ${PYTHON_BASE} AS build
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-COPY runner/third_party/llama2.c/run.c /build/run.c
+COPY workloads/third_party/llama2.c/run.c /build/run.c
 RUN printf '%s  %s\n' '78951c4623437da86cc5d835ea26af8c750c5132dfeb6e506c4a2db918e61682' /build/run.c | sha256sum -c -
 RUN gcc -O2 -fno-strict-aliasing -Werror=implicit-function-declaration /build/run.c -lm -o /build/run
 RUN curl --fail --location --silent --show-error \
@@ -25,7 +25,7 @@ WORKDIR /work
 COPY --from=build /build/run /work/run
 COPY --from=build /build/stories15M.bin /work/stories15M.bin
 COPY --from=build /build/tokenizer.bin /work/tokenizer.bin
-COPY runner/tiny_stories_inference/inference.py /work/inference.py
+COPY workloads/tiny_stories_inference/inference.py /work/inference.py
 USER 10001:10001
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "-I", "/work/inference.py"]
