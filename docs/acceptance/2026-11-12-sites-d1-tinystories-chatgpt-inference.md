@@ -324,3 +324,33 @@ post-recovery slot reuse. Recovery at process loss during container execution
 has a separate accepted run above. Container start/exit and result-upload crash
 windows, repeated trials, cross-owner isolation, secret rotation, and
 D1/R2 backup/restore remain open.
+
+## Runner death after container exit and before result report — 2026-11-12
+
+With the free CPU Runner ready, admission enabled, no active run, and no
+GPU-Control-labeled container, a registered 32-token inference was prepared
+with a `$0.00` cost ceiling:
+
+- Run `68f7e7199102484586e795b1a88a83a0`, source
+  `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image
+  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+- A Docker event watcher matched this run's exact container `die` event,
+  stopped the current LaunchAgent Runner, verified the container was exited,
+  and then sent SIGKILL. The container exit code was 0, but the Runner had not
+  persisted or uploaded a result; D1 remained `running` with cleanup pending.
+- launchd restarted the Runner. After the 180-second lease expired, D1 changed
+  the run to `failed` / `runner_lost_recovered`, with
+  `cleanup_state=confirmed`, no result or artifact, and no replay. The exact
+  labeled container was absent. Sites capabilities again reported the Runner
+  ready and free admission enabled.
+- Follow-up run `360e6ee7bb664bea80ec9846bf1d8b6c` generated four tokens in
+  165 ms. All nine source/model/isolation checks passed, `gpu_used=false`, and
+  cleanup was confirmed at `$0.00`. ChatGPT retrieved the complete 962-byte
+  R2 artifact; local SHA-256
+  `f58c3d83a7f5b551da5c00ff64cd5552f4bcc8b140d0a5f7a1c8e84b19c869a0`
+  matched the D1 artifact reference.
+
+This accepts the container-exit-before-result-report recovery window once and
+verifies slot reuse. It does not test a crash after result persistence during
+R2 upload, repeated trials, owner isolation, credential rotation, or
+D1/R2 backup and restore.

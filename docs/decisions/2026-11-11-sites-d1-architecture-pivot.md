@@ -171,12 +171,15 @@ older status notes above; those notes remain as a dated history.
   container and persisted `failed`/`runner_lost_recovered`, attempt 1,
   `cleanup_state=confirmed`, and no result artifact. The run was not replayed.
   A subsequent ChatGPT inference and full R2 artifact read verified slot reuse.
-- [ ] Repeat the interruption test across container create/start, active
-  inference, container exit, and result upload windows. Sanitized Runner logs
-  contained transient `SITE_REQUEST_FAILED` retries during the observation
-  interval, although the later heartbeat/recovery/claim requests returned HTTP
-  200 and the observed run converged. Diagnose those transport retries before
-  increasing admission.
+- [x] Live forced Runner loss was accepted at three boundaries: during active
+  inference, after container creation but before start, and after container
+  exit but before result reporting. Each run expired through its D1 lease,
+  became `runner_lost_recovered`, confirmed cleanup without result/replay, and
+  was followed by a successful free CPU run. See the dated acceptance records.
+- [ ] Test the remaining post-result-persistence/R2-upload window and repeat
+  recovery trials. Sanitized Runner logs contained transient
+  `SITE_REQUEST_FAILED` retries during earlier observation; diagnose any
+  recurrence before increasing admission.
 - [ ] Complete D1/R2 backup and restore, artifact retention/orphan cleanup,
   separate-account owner isolation/revocation, Keychain ACL/rotation, and an
   incident runbook. Continue to keep GPU/paid admission parked during these
