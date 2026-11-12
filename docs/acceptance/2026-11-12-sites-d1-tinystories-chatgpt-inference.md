@@ -293,3 +293,34 @@ This refresh verifies another current ChatGPT → Sites → D1 → Runner → D1
 ChatGPT CPU result cycle. It does not establish separate-account owner
 isolation, backup/restore, repeated crash-window recovery, GPU execution, or
 paid execution.
+
+## Runner death after container creation and before start — 2026-11-12
+
+With no other queued or active run and no running GPU Control container, a
+second bounded, free CPU run was submitted:
+
+- Run `3e738bf9ff3a49dabbef79999a53f10b`, source
+  `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image
+  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`,
+  32-token maximum and `$0.00` cost ceiling.
+- A Docker event watcher matched this exact run's container-create event,
+  stopped the Runner before Docker reported the container as `created`, then
+  sent SIGKILL to the Runner. The container had not started. launchd restarted
+  the Runner, which continued heartbeating while the 180-second lease remained
+  valid.
+- After lease expiry, D1 reported `failed` with
+  `failure_code=runner_lost_recovered`, `cleanup_state=confirmed`, and no
+  result/artifact. Docker no longer listed a container for the run. The run was
+  not replayed.
+- A new run, `f3947494204f4125a08e6f0e5de5239e`, then succeeded in 193 ms,
+  generated four tokens, passed all nine provenance/isolation checks, reported
+  `gpu_used=false`, and confirmed cleanup at `$0.00`. ChatGPT retrieved its
+  complete 971-byte R2 artifact. Local SHA-256
+  `dfd1454b1c9776e9973ac28d007c6a091a2e3a18688f6b321224b8dfd89f561b` matched
+  the D1/R2 reference.
+
+This adds live evidence for the container-create-before-start crash window and
+post-recovery slot reuse. Recovery at process loss during container execution
+has a separate accepted run above. Container start/exit and result-upload crash
+windows, repeated trials, cross-owner isolation, secret rotation, and
+D1/R2 backup/restore remain open.
