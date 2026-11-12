@@ -124,3 +124,24 @@ signed-in Modal dashboard.
   event without inferring its approval provenance.
 - The latest run `b3380814d0854d93a5d978799d670013` remains failed with the same
   exit code and confirmed cleanup. No successful Modal inference is recorded.
+
+## Bounded diagnostic deploy — 2026-11-12 12:49 UTC
+
+- With the user's explicit approval, issued a Workspace API token with a
+  one-hour lifetime. No Sandbox was authorized or started. The token was kept
+  out of the local Modal profile and repository and was revoked immediately
+  after deployment.
+- The first CLI attempt stopped before deployment because the temporary CLI
+  environment did not include FastAPI. The second used Modal CLI 1.6.3 and the
+  repository-pinned FastAPI 0.128.2; `modal deploy --env main app.py` returned
+  exit code 0 for `unjuno/main`.
+- The Modal app overview showed `gpu-control-sites` deployed just now, 0 live
+  containers, and 0 live Sandboxes. The API-token list showed 0 tokens after a
+  page reload. The dashboard displayed `$0.04` usage this cycle; the `$1`
+  Workspace limit was last observed at 12:35 UTC, so no new limit check is
+  claimed here.
+- This deploy includes the bounded preflight return-line diagnostic added in
+  `d1dd4fe`. No health request or inference call was made after deployment;
+  diagnostic behavior remains unverified live. Sites Version 27 and
+  `CPU_WORKLOAD_ADMISSION_ENABLED=false` remain unchanged. A new live Sandbox
+  requires its own current authorization.

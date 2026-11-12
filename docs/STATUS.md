@@ -2,7 +2,7 @@
 
 ## Hosted Sites and provider status — refreshed 2026-11-12
 
-Latest refresh — 2026-11-12 12:35 UTC: the public ChatGPT Sites MCP Worker is
+Latest refresh — 2026-11-12 12:49 UTC: the public ChatGPT Sites MCP Worker is
 deployed as Version 27 from Site source commit
 `64d2646815be198b0173877b821264cf3efc10a6`, with production environment
 revision 27 and D1/R2. Current ChatGPT capabilities report
@@ -16,12 +16,15 @@ The latest 16-token ChatGPT-initiated Modal Sandbox run
 confirmed and no artifact was produced. A fresh read-only history check also
 found an earlier failed run `0f2a3ddaa7da40648600bae21ccd9ed1` at 11:25 UTC
 with the same exit code and confirmed cleanup; its deployment/authorization
-provenance is unknown. Modal Usage last showed a `$1`
-Workspace limit, `$0.04` credits used, and `$0` charges. Commit `d1dd4fe`
-pushed to `codex/sites-modal-runner` adds a bounded preflight line diagnostic,
-but it has not been deployed. The previous one-run authorization is consumed;
-keep admission disabled until a fresh authorization, diagnostic deployment,
-and one bounded run are completed.
+provenance is unknown. Modal Usage last showed a `$1` Workspace limit,
+`$0.04` credits used, and `$0` charges at 12:35 UTC. The bounded preflight
+diagnostic from `d1dd4fe` was deployed to Modal `unjuno/main` at 12:49 UTC;
+the CLI returned success and the dashboard showed the app deployed just now
+with zero live containers and zero live Sandboxes. The diagnostic has not been
+exercised by a new inference. Modal displayed `$0.04` usage this cycle; the
+`$1` limit was not rechecked during this deploy. A one-hour Workspace deploy
+token was deleted immediately after deployment; reloading the API-token page
+showed zero tokens. No Sandbox was started. Admission remains disabled.
 
 The Modal dashboard's deployment timeline showed v4 at 2026-11-12 18:06 JST,
 but its history row did not identify a source commit. The successful ChatGPT
@@ -34,8 +37,9 @@ No successful inference after v4 is recorded. Site Version 24 now stores a
 bounded Modal exit-code failure code without provider stderr, but no live run
 has tested that diagnostic. A fresh ChatGPT capability read reports provider
 health ready, admission disabled, and unavailable. Modal's account page
-previously showed `$0.01` usage this cycle. The temporary deploy token was
-deleted; Modal's API-token page showed zero tokens. The Sites Worker has no
+previously showed `$0.01` usage this cycle. The earlier temporary deploy token
+was deleted; Modal's API-token page showed zero tokens after each revocation.
+The Sites Worker has no
 RunPod route; live RunPod and paid GPU execution remain parked.
 
 The personal-host CPU Runner and its Keychain authentication path are retired.

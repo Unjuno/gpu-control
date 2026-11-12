@@ -285,13 +285,12 @@ ChatGPT
   remains unknown. A new read-only run-list reconciliation also found
   `0f2a3ddaa7da40648600bae21ccd9ed1` (11:25 UTC) with the same failure and
   confirmed cleanup; its deployment and approval provenance are unknown. The
-  new diagnostic commit is not deployed.
+  diagnostic deployment at 12:49 UTC is recorded below.
 - The previous one-run authorization was consumed by that failed attempt.
-  Repository policy requires current explicit authorization per run. A request
-  is pending for one 30-second CPU-only diagnostic run, with admission closed
-  immediately afterward and the temporary deploy token revoked. Until approved,
-  do not issue a token, deploy the diagnostic, change admission, or start a
-  Sandbox.
+  Repository policy requires current explicit authorization per run. No
+  current authorization exists for a new 30-second CPU-only diagnostic run.
+  Keep admission closed; do not start a Sandbox until the run has separate
+  current authorization.
 - GitHub's connected status and workflow-run reads returned no checks for
   `d1dd4fe`; the local `gh` Actions query was blocked by GitHub API rate limit.
   Do not treat this push as having passed remote CI.
@@ -300,3 +299,27 @@ ChatGPT
   the activation prerequisites in `policies/repository-state.yaml`. Separate
   account isolation, recovery, paired D1/R2 restore, and the approved public
   plugin distribution route also remain unaccepted.
+
+## Modal bounded-diagnostic deploy — 2026-11-12 12:49 UTC
+
+- The user authorized a one-hour Workspace API token, deployment to `main`, and
+  immediate token revocation. Modal Starter does not provide an environment-
+  scoped deploy token. The token was passed to the Modal CLI only through
+  process environment variables; it was not written to the Modal local profile
+  or repository. The pinned Modal CLI 1.6.3 and repository FastAPI 0.128.2 were
+  used from a temporary `uvx` environment.
+- The first deploy attempt stopped at import because the temporary CLI
+  environment lacked FastAPI. No Sandbox was started. Adding the pinned FastAPI
+  dependency allowed `modal deploy --env main app.py` to return exit code 0.
+- The Modal dashboard then showed `gpu-control-sites` deployed just now, with
+  zero live containers and zero live Sandboxes. The bounded preflight diagnostic
+  from `d1dd4fe` is now deployed, but it has not yet been exercised by a new
+  inference. No control API health request or Sandbox call was made in this
+  deploy step.
+- The one-hour token was deleted immediately afterward. Reloading the API-token
+  page showed zero API tokens. The Modal dashboard displayed `$0.04` usage this
+  cycle; the `$1` Workspace usage limit was last confirmed at 12:35 UTC. Do not
+  attribute the displayed usage to this deployment alone.
+- Sites remains Version 27 with Modal admission disabled. Another live run
+  requires its own explicit authorization. RunPod/GPU and paid execution remain
+  parked, and the overall goal remains incomplete.
