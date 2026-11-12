@@ -264,3 +264,13 @@ signed-in Modal dashboard.
   without fresh authorization. The Codex environment also still reports the
   filesystem profile as disabled, so the required managed read-only P0 scan
   remains unstarted.
+
+## GitHub integration recheck — 2026-11-12 14:17 UTC
+
+- GitHub branch `codex/sites-modal-runner` resolves to
+  `d5983d5e029eb24ca4295d3f9e7844e6a2861100`, matching the local HEAD. The
+  commit-status endpoint returned no checks, the PR-triggered workflow-run
+  query returned none, and an open-PR search for this branch found no PR.
+- Local `npm test` evidence remains 23/23, but this exact pushed head has no
+  GitHub CI or PR review evidence. The branch is not merged; checks from PR #58
+  or its neighbouring PR cannot be applied to this candidate.
