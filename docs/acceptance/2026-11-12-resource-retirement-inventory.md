@@ -288,3 +288,21 @@ Sites and Runner state by this refresh:
   immediate physical erasure; verify it is absent after that deadline.
 - The current application remains on Sites + D1/R2. No Neon connection string
   or credential was added to the active repository or Site configuration.
+
+## Vercel project deletion — 2026-11-12 05:45 UTC
+
+- At the user's explicit request, Vercel project `gpu-control`
+  (`prj_fMufIBiFDlXtWcuJ0bWpAekEMIAp`) was permanently deleted from team
+  `unjunos-projects`. The Vercel dashboard returned to the Projects page with
+  `projectDeleted=gpu-control`; a fresh Vercel API search returned zero
+  projects named `gpu-control`.
+- Immediately before deletion the project was paused, had no production traffic,
+  and had one attached standard domain, `gpu-control.vercel.app`. Project
+  deletion removed the project and its deployments, domains, environment
+  variables, functions, and settings. No other Vercel project or the GitHub
+  repository was changed.
+- PR #60's existing head `de7bfa951b306202028675e4a072e578c503eb7b` still
+  shows all six repository Actions checks passing and an optional `Vercel`
+  failure pointing to the now-deleted deployment. This is the status already
+  attached to that commit; verify the next commit head to see whether the
+  external integration posts another status without the project.
