@@ -724,6 +724,57 @@ test("experiment_list returns no other owner's run metadata", async () => {
   assert.deepEqual(JSON.parse(rpc.result.content[0].text).machine_state.experiments, []);
 });
 
+test("experiment_list labels historical Runner records separately from Modal and unknown provenance", async () => {
+  const env = environment();
+  const localRunId = "1".repeat(32);
+  const modalRunId = "2".repeat(32);
+  const results = [
+    { run_id: localRunId, state: "succeeded", created_at: 1, updated_at: 2, workload: "tiny-stories-inference-v1",
+      repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest, lease_id: null,
+      cleanup_receipt_json: JSON.stringify({ absent: true, container_id: "a".repeat(64),
+        container_name: `gpu-control-${localRunId}`, image_digest: imageDigest, lease_id: "b".repeat(32), run_id: localRunId }) },
+    { run_id: modalRunId, state: "failed", created_at: 3, updated_at: 4, workload: "tiny-stories-inference-v1",
+      repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
+      lease_id: "sb-01ABCDEF", cleanup_receipt_json: null },
+    { run_id: "3".repeat(32), state: "succeeded", created_at: 5, updated_at: 6, workload: "tiny-stories-inference-v1",
+      repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
+      lease_id: null, cleanup_receipt_json: null },
+  ];
+  env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
+    assert.match(sql, /WHERE r\.owner_id = \?/);
+    assert.equal(owner, "test-owner");
+    return { results };
+  } }; } });
+
+  const response = await toolCall(env, "test-owner", "experiment_list", {});
+  const rpc = await response.json();
+  const runs = JSON.parse(rpc.result.content[0].text).machine_state.experiments;
+  assert.deepEqual(runs.map((run) => [run.run_id, run.execution_origin]), [
+    [localRunId, "retired_local_runner"], [modalRunId, "modal_sandbox"], ["3".repeat(32), "unknown"],
+  ]);
+  assert.equal(JSON.stringify(runs).includes("container_id"), false, "raw cleanup receipts stay private");
+});
+
+test("experiment_status identifies a historical local Runner result from its cleanup receipt", async () => {
+  const env = environment();
+  const runId = "4".repeat(32);
+  const row = { id: runId, state: "succeeded", created_at: 1, updated_at: 2, result_json: null,
+    failure_code: null, cleanup_state: "confirmed", cancel_requested: 0, result_artifact_id: null,
+    result_artifact_sha256: null, result_artifact_size: null, lease_id: null, workload: "tiny-stories-inference-v1",
+    repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
+    parameters_json: JSON.stringify({ prompt: "A", max_new_tokens: 1, seed: 1 }), fingerprint: "c".repeat(64),
+    runtime_seconds: 1, idempotency_key: "legacy-run", cleanup_receipt_json: JSON.stringify({ absent: true,
+      container_id: "d".repeat(64), container_name: `gpu-control-${runId}`, image_digest: imageDigest,
+      lease_id: "e".repeat(32), run_id: runId }) };
+  env.DB.prepare = (sql) => ({ bind() { return { async first() {
+    assert.match(sql, /r\.cleanup_receipt_json/);
+    return row;
+  } }; } });
+  const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+  const rpc = await response.json();
+  assert.equal(JSON.parse(rpc.result.content[0].text).machine_state.execution_origin, "retired_local_runner");
+});
+
 test("prepare idempotency keys are isolated by Site owner", async () => {
   const plans = new Map();
   const env = environment();

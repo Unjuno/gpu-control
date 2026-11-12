@@ -418,3 +418,38 @@ signed-in Modal dashboard.
 - No Modal deploy, Sandbox execution, admission change, or provider state change
   was performed. A deployed-image run and end-to-end ChatGPT acceptance remain
   open and require a new exact one-run authorization after deployment.
+
+## Execution-origin reconciliation and ChatGPT history labeling — 2026-11-12
+
+- Fresh Sites owner inventory confirms project `gpu-control-sites` is the active
+  public Site at `https://gpu-control-sites.unjuno.chatgpt.site`; its D1 binding
+  contains `plans`, `runs`, and `runner_heartbeats`. The public Site audience is
+  separate from MCP access: the Worker requires the authenticated Sites user ID
+  and enforces `GPU_CONTROL_ALLOWED_USER_IDS` before touching D1.
+- The ChatGPT `experiment_list` contains historical `succeeded` rows, including
+  `360e6ee7bb664bea80ec9846bf1d8b6c` and `eacc26ff2ad54cf69a1ee7665325b197`.
+  Their D1 cleanup receipts record a `gpu-control-<run_id>` container name,
+  container ID, local lease ID, and `absent=true`; the `runner_heartbeats` table
+  records `local-cpu-1` at 2026-11-12 05:07:41 UTC. The result artifact for
+  `eacc26ff2ad54cf69a1ee7665325b197` was also returned by Sites with its D1
+  SHA-256 verified. These are retained successes from the retired local Runner,
+  not evidence of Modal execution.
+- Independent Modal UI checks over the matching period still show five Sandbox
+  executions, all failed with code 2. Filtering the `gpu-control-sites` app for
+  the successful `gpu-control-360e6ee7bb664bea80ec9846bf1d8b6c` Sandbox name
+  returns no row; the Modal control API call list also has no call in that run's
+  creation interval. The two systems agree once the D1 rows are attributed to
+  their recorded local Docker receipts.
+- The previous note that the historical Site success had an unknown provider is
+  superseded by this D1 receipt and heartbeat cross-check. No currently deployed
+  Modal inference success is evidenced. Capabilities still report
+  `provider_ready=true`, `admission_enabled=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`.
+- The Worker history endpoint previously omitted execution origin, so successful
+  local Runner records could be mistaken for Modal successes. The pending PR
+  patch adds `execution_origin` labels to run list and status responses:
+  `retired_local_runner` for matching legacy Docker cleanup receipts,
+  `modal_sandbox` for recorded Modal Sandbox IDs, and `unknown` otherwise. Raw
+  cleanup receipts remain private. Worker regression tests cover all three
+  cases and status labeling. This patch has not been deployed; no D1 rows or
+  provider state were changed.
