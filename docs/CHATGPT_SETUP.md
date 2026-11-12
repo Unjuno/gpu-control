@@ -50,10 +50,8 @@ now-retired local Runner produced provenance-checked results and retrievable
 R2 artifacts. They establish that earlier CPU route only. They do not establish
 current Modal inference, general model quality, or GPU execution. The latest
 live capability read reports `provider_ready=true`, `admission_enabled=false`,
-and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. The
-currently exposed ChatGPT `experiment_prepare` schema constrains
-`max_cost_usd` to `0.00`, while the Worker requires `0.01`; resolve and verify
-that published tool-schema mismatch before preparing a new run. A fresh
+and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. Sites
+Version 28 exposes the aligned `experiment_prepare.max_cost_usd=0.01` schema. A fresh
 ChatGPT inference and artifact verification against the current Modal deployment
 are still required.
 

@@ -169,3 +169,20 @@ signed-in Modal dashboard.
   not yet pushed or deployed as a new Sites version.
 - A separate one-run CPU authorization is still required before any Sandbox
   starts. RunPod/GPU and paid training remain parked.
+
+## Sites Version 28 and fresh diagnostic plan — 2026-11-12 13:24 UTC
+
+- Published Site Version 28 from source commit
+  `237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 28. The
+  refreshed ChatGPT tool schema now accepts `max_cost_usd=0.01`, and the
+  deployed Worker carries the bounded 15-second Modal request timeout.
+- A fresh live `experiment_capabilities` call passed all eight Modal health
+  checks. Admission remains false and capabilities report
+  `CPU_WORKLOAD_ADMISSION_DISABLED`.
+- Prepared one fixed TinyStories 15M inference plan against registered source
+  `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`: prompt `Once`, one generated
+  token, seed `61112`, 30-second runtime, 1 CPU, 512 MiB, no GPU, blocked
+  network. The estimated Sandbox usage is `$0.0013`, with a `$0.01` Sandbox-only
+  ceiling; Modal control-function charges are separate. The plan is prepared
+  but not submitted, and the Sandbox has not been started. Opening admission
+  and submitting require exact-run authorization.

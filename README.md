@@ -25,7 +25,7 @@ The project is **usable today for offline validation and control-plane developme
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Modal health passed, but admission is disabled and current inference is unverified; the exposed ChatGPT prepare schema says `$0.00` while the Worker requires `$0.01`, so the schema must be refreshed before a plan can be prepared |
+| Registered CPU experiment through ChatGPT | Modal health passed and the refreshed ChatGPT prepare schema accepts the `$0.01` Sandbox-only ceiling; admission is disabled and a new inference remains unverified |
 | Real model inference through ChatGPT | Historical TinyStories 15M CPU runs passed source, result, and cleanup checks. They do not prove current readiness, broad model quality, or GPU capability |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
@@ -47,10 +47,11 @@ Stateful MCP tools require the authenticated Sites identity and owner-scoped
 queries; provider admission remains disabled. The current Site Worker source
 allows only the configured owner and has a fixed Modal CPU adapter. A local
 regression suite covers its owner boundary and provider-token parsing. The
-latest recorded production capability read reported Modal ready but unavailable
-for execution because admission is disabled; no current ChatGPT CPU run has
-been accepted. The exposed ChatGPT prepare schema conflicts with the Worker
-cost contract (`$0.00` versus `$0.01`) and must be refreshed before preparation.
+latest production capability read reported Modal ready but unavailable for
+execution because admission is disabled; no current ChatGPT CPU run has been
+accepted. Sites Version 28 refreshed the ChatGPT prepare schema to the Worker's
+`$0.01` Sandbox-only ceiling. A new, exact one-run authorization and verified
+cleanup are still required.
 Access from another ChatGPT
 account/process is not yet proven. Anonymous HTTP probes were blocked at the
 edge (HTTP 403), so they do not independently verify the Worker's public

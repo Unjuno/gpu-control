@@ -2,21 +2,20 @@
 
 ## Hosted Sites and provider status — refreshed 2026-11-12
 
-Latest verified capability — 2026-11-12 12:57 UTC: the public ChatGPT Sites MCP Worker is
-deployed as Version 27 from Site source commit
-`64d2646815be198b0173877b821264cf3efc10a6`, with production environment
-revision 28 and D1/R2. The recorded ChatGPT capability read reported
+Latest verified capability — 2026-11-12 13:24 UTC: the public ChatGPT Sites MCP Worker is
+deployed as Version 28 from Site source commit
+`237c0bed24277cf7c808f8c0e9946c71d517288c`, with production environment
+revision 28 and D1/R2. The live ChatGPT capability read reported
 `provider_ready=true`, all provider identity/health checks true,
 `admission_enabled=false`, and `available=false` for `modal_cpu`. Paid
 execution remains parked. The owner's ChatGPT connection has called the Site;
 cross-account plugin access remains unverified.
 
-The exposed ChatGPT tool signature constrains
-`experiment_prepare.max_cost_usd` to `0.00`, while the Worker correctly
-requires the usage-billed Sandbox ceiling `0.01`. Resolve this mismatch before
-plan preparation. A local Worker change raises its bounded Modal request
-timeout from 5 to 15 seconds to accommodate the observed 6.3-second control
-function cold start; this source change is not yet deployed.
+The refreshed ChatGPT tool signature accepts
+`experiment_prepare.max_cost_usd=0.01`, matching the usage-billed Sandbox
+ceiling. The 15-second bounded Modal request timeout is deployed. A fresh
+one-token diagnostic plan is prepared, but has not been submitted; admission
+remains closed pending exact-run authorization.
 
 The latest 16-token ChatGPT-initiated Modal Sandbox run
 `b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was

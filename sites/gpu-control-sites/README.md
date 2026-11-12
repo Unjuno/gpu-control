@@ -5,11 +5,11 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Deployed Site version: 27, source commit
-  `64d2646815be198b0173877b821264cf3efc10a6`; current environment revision 28.
+- Deployed Site version: 28, source commit
+  `237c0bed24277cf7c808f8c0e9946c71d517288c`; current environment revision 28.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- Current recorded ChatGPT capability evidence (2026-11-12 12:57 UTC):
+- Current ChatGPT capability evidence (2026-11-12 13:24 UTC):
   `provider_ready=true`, every provider health check passed,
   `admission_enabled=false`, and `available=false` for
   `modal_cpu`. The latest bounded ChatGPT-initiated run failed with workload
@@ -50,12 +50,11 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   deploy token was revoked and the API-token page showed zero tokens. No new
   Sandbox was started. A separate current authorization is required before
   any inference attempt.
-- The current installed ChatGPT tool schema constrains
-  `experiment_prepare.max_cost_usd` to `0.00`, while this Worker requires
-  `0.01` for usage-billed CPU/memory. Refresh and verify the published tool
-  schema before preparing an inference.
-- The Worker source now uses a 15-second bounded Modal request timeout to
-  accommodate a measured 6.3-second cold start; this change is not yet deployed.
+- The deployed ChatGPT tool schema accepts
+  `experiment_prepare.max_cost_usd=0.01`, matching this Worker's usage-billed
+  Sandbox CPU/memory ceiling.
+- The Worker uses a 15-second bounded Modal request timeout to accommodate a
+  measured 6.3-second cold start; this change is deployed in Site Version 28.
 - Vercel and Neon/PostgreSQL are not target runtime dependencies.
 
 Every data-bearing or execution MCP tool must require the Sites-injected user

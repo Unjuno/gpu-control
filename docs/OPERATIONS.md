@@ -1,11 +1,12 @@
 # Current operations: ChatGPT Sites + D1
 
-## Latest operational state — 2026-11-12 12:57 UTC
+## Latest operational state — 2026-11-12 13:24 UTC
 
-Production Sites is Version 27, source commit
-`64d2646815be198b0173877b821264cf3efc10a6`, environment revision 28, with D1/R2.
-The latest recorded ChatGPT capability read reported Modal provider health
-ready and admission disabled.
+Production Sites is Version 28, source commit
+`237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 28, with D1/R2.
+A live ChatGPT capability read at 13:24 UTC passed all eight Modal health checks;
+admission remains disabled. The exposed ChatGPT prepare schema now accepts the
+Worker's `$0.01` Sandbox-only ceiling.
 The latest ChatGPT-originated Modal run
 `b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was
 confirmed and no artifact was produced. The bounded preflight diagnostic at
@@ -14,11 +15,12 @@ live Sandboxes. Its behavior has not been exercised by a new inference, and no
 Sandbox was started during deploy. The temporary one-hour deploy token was
 revoked and the token list showed zero entries. RunPod has no Sites MCP
 execution route. Keep Modal admission disabled and GPU/paid execution parked
-until their separate authorizations and acceptance gates pass. The exposed
-ChatGPT prepare schema still says `$0.00`, while the Worker requires the
-usage-billed `$0.01` ceiling; resolve that mismatch before preparing a run. A
-local Worker change now allows 15 seconds for bounded Modal requests after an
-observed 6.3-second cold start; it has not yet been published.
+until their separate authorizations and acceptance gates pass. The 15-second
+bounded Modal request timeout is deployed in Sites Version 28 after an observed
+6.3-second cold start. A one-token, 30-second CPU diagnostic plan is prepared;
+its Sandbox estimate is `$0.0013`, ceiling `$0.01`, and Modal control-function
+costs are separate. It has not been submitted; a new current authorization is
+required before admission is opened and the Sandbox is started.
 
 The following paragraph is an earlier operational snapshot, superseded by the
 latest state above.
