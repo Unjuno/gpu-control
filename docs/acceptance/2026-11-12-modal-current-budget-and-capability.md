@@ -371,3 +371,23 @@ signed-in Modal dashboard.
 - The exact current PR head remains `6b4a56492071abe75be6558f9c1cb80a9b736756`
   on Draft PR #68, with its six exact-head checks previously observed passing.
   No source, deployment, credential, admission, or provider state changed.
+
+## Modal UI provenance cross-check — 2026-11-12 16:06 UTC
+
+- The signed-in Modal `gpu-control-sites` app's Sandboxes view, filtered to
+  2026-11-11 15:48 through 2026-11-12 15:48 UTC, reports exactly five
+  Sandboxes created. All five rows match the known failed run IDs
+  `96d7efef9542463d9fc51f47ffbfd5d7`,
+  `599473dcc1ed4034a42d849bcb42e261`,
+  `0f2a3ddaa7da40648600bae21ccd9ed1`,
+  `b3380814d0854d93a5d978799d670013`, and
+  `e9330c5bb5454f42bb3dabe058091dc0`; each shows Failed (code 2).
+- Successful Site record `360e6ee7bb664bea80ec9846bf1d8b6c` was created at
+  2026-11-12 04:26 UTC, inside that window, but no Sandbox with its deterministic
+  `gpu-control-<run_id>` name appears in the complete five-row app list. It is
+  therefore not evidence of execution by this Modal app. Site responses do not
+  expose another provider identity, so its actual origin remains unverified.
+- This cross-check strengthens the finding that no successful run is evidenced
+  for this Modal app. It does not resolve the exit-2 cause, prove behavior from
+  a different Modal environment, or authorize another run. No provider or app
+  state was changed.
