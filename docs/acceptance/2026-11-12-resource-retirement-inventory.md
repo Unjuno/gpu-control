@@ -106,7 +106,14 @@ Sites and Runner state by this refresh:
 - The Neon project was not deleted. Its remaining session/config/control rows
   were not inspected or exported; retain the prior deletion boundary until the
   owner explicitly decides to discard them or authorizes a verified export.
-- Vercel is not used by the product path. PR #67 proposes removing the legacy
-  gateway integration but remains Draft and requires independent review. The
-  Vercel project and attached domains have not been deleted; the connected
-  deletion flow requires account-owner action.
+- Vercel is not used by the product path. The current Sites candidate removes
+  the Vercel entrypoint, deployment manifest, client-IP autodetection, and
+  Vercel-specific CI bridge from the active runtime; provider adapters remain
+  available for the roadmap and are not Vercel dependencies. Historical code
+  and evidence are archived. GitHub still receives an optional `Vercel`
+  failure status from the external Vercel-to-GitHub connection; this is not a
+  repository workflow or a required check. The Vercel project and attached
+  domains remain inactive and undeleted. The owner must confirm deletion in
+  Vercel; the current review link is above. PR #67 is based directly on `main`
+  and predates the Sites implementation in PR #60, so it is not the integration
+  path and must not be merged as the Sites replacement.
