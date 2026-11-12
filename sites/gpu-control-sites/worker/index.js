@@ -361,7 +361,8 @@ function modalWorkloadFailureCode(providerResult) {
   const exitCode = providerResult?.exit_code;
   if (Number.isInteger(exitCode) && exitCode >= 0 && exitCode <= 255) {
     if (exitCode === 2 && typeof providerResult.diagnostic_code === "string" &&
-        /^PREFLIGHT_RETURN_LINE_[1-9][0-9]{0,3}$/.test(providerResult.diagnostic_code)) {
+        (/^PREFLIGHT_RETURN_LINE_[1-9][0-9]{0,3}$/.test(providerResult.diagnostic_code) ||
+         providerResult.diagnostic_code === "PREFLIGHT_SYSTEM_EXIT_2")) {
       return `MODAL_WORKLOAD_EXIT_2_${providerResult.diagnostic_code}`;
     }
     return exitCode === 0 ? "MODAL_RESULT_MISSING" : `MODAL_WORKLOAD_EXIT_${exitCode}`;

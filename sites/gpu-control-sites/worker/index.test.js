@@ -260,10 +260,11 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
     },
   }; } });
 
+  let diagnosticCode = "PREFLIGHT_RETURN_LINE_68";
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = async () => Response.json({ state: "failed", exit_code: 2,
-      diagnostic_code: "PREFLIGHT_RETURN_LINE_68",
+      diagnostic_code: diagnosticCode,
       stderr: "private-provider-diagnostic-must-not-leak", sandbox_id: "sb-failed",
       cleanup_state: "confirmed" });
     const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
@@ -273,6 +274,14 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
     assert.equal(result.machine_state.failure_code, "MODAL_WORKLOAD_EXIT_2_PREFLIGHT_RETURN_LINE_68");
     assert.equal(result.machine_state.cleanup_state, "confirmed");
     assert.doesNotMatch(JSON.stringify(result), /private-provider-diagnostic-must-not-leak/);
+
+    current.state = "running";
+    current.failure_code = null;
+    diagnosticCode = "PREFLIGHT_SYSTEM_EXIT_2";
+    const fallbackResponse = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const fallbackRpc = await fallbackResponse.json();
+    const fallbackResult = JSON.parse(fallbackRpc.result.content[0].text);
+    assert.equal(fallbackResult.machine_state.failure_code, "MODAL_WORKLOAD_EXIT_2_PREFLIGHT_SYSTEM_EXIT_2");
   } finally {
     globalThis.fetch = originalFetch;
   }
