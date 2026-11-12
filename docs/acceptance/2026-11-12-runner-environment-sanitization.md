@@ -77,3 +77,12 @@ No socket value was recorded.
   recorded, and the new Keychain value must not be assumed installed until a
   non-disclosing equality check passes. Keep CPU admission disabled until the
   Runner reports a fresh heartbeat with the rotated credential.
+
+## Retirement disposition — 2026-11-12
+
+The Keychain rotation, ACL, and Runner restart checklist above is historical
+and is no longer an active task. The project has retired the local Runner in
+favor of the ChatGPT Sites control plane and Modal. Do not unlock macOS, read or
+rotate Runner Keychain items, reinstall a LaunchAgent, or reopen local Runner
+routes to satisfy that old checklist. The current provider path has its own
+separate runtime and recovery acceptance gates.

@@ -315,3 +315,19 @@ Sites and Runner state by this refresh:
 - GitHub returned no external commit statuses on this head, including no new
   Vercel status. The failure remains attached only to the older commit that
   predates project deletion.
+
+## Local Runner retirement verification — 2026-11-12 09:14 UTC
+
+- The current checkout no longer contains a macOS Keychain launcher or Runner
+  LaunchAgent manager. A read-only host check found no matching GPU Control
+  LaunchAgent plist under `~/Library/LaunchAgents`, no matching launchd service,
+  and no Sites Runner process. `com.apple.gputoolsserviced` was the only broad
+  `gpu` launchd name and is unrelated.
+- No Keychain item was opened or queried in this check. Credential presence
+  and contents are therefore not asserted here. The supported product path
+  must continue to avoid Keychain, local polling, and requests for a Mac
+  password. Historical entries above record their own earlier observations and
+  are not current instructions.
+- Current Sites capabilities report Modal provider health ready while
+  admission is disabled. This confirms the new control plane no longer depends
+  on a local Runner heartbeat.
