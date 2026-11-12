@@ -1,9 +1,11 @@
 # Project status
 
-## Dependency audit and remediation — 2026-11-12 17:28 UTC
+## Dependency audit and remediation — 2026-11-12 17:31 UTC
 
-- PR #68 is open as Draft at head `d3f9f16f7e1de42b90b33704ff9249f3e87517fc`.
-  All six required exact-head checks passed; no independent review is recorded.
+- PR #68 is open as Draft. The dependency fix at code head
+  `7b16186cd35c621a33f550efded78aabe63a64d4` passed all six required
+  exact-head checks, including the new audit step in Python 3.12. No independent
+  review is recorded.
 - Fresh ChatGPT capabilities still report Modal health ready but
   `admission_enabled=false`, `available=false`, and
   `CPU_WORKLOAD_ADMISSION_DISABLED`. Run `e9330c5bb5454f42bb3dabe058091dc0`
@@ -14,9 +16,9 @@
   `$0` charges, and zero deploy API tokens. No app deployment, setting change,
   or provider run occurred in this refresh.
 - Dependency audit found 10 advisory records (five distinct advisories) for
-  Starlette in the Modal API image's
-  previous unconstrained transitive resolution (`fastapi==0.128.2` selected
-  `starlette==0.50.0`). The API image now installs a hash-locked dependency
+  Starlette in the previous Modal API image dependency resolution
+  (`fastapi==0.128.2` selected `starlette==0.50.0`). The candidate API image
+  now installs a hash-locked dependency
   set from `sites/gpu-control-sites/modal/requirements.txt`, generated from
   `requirements.in` with FastAPI `0.162.2` and Starlette `1.10.0`. A fresh
   pip-audit scan of 42 development and Modal API packages found no known

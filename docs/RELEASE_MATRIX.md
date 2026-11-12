@@ -1,6 +1,6 @@
 # Current release matrix — ChatGPT Sites + D1
 
-Live status last refreshed 2026-11-13 17:05 UTC. The production Site and the
+Live status last refreshed 2026-11-12 17:31 UTC. The production Site and the
 unmerged PR candidate are reported separately below.
 
 This matrix describes the supported product path. Historical Vercel,
