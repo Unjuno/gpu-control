@@ -117,3 +117,20 @@ Sites and Runner state by this refresh:
   Vercel; the current review link is above. PR #67 is based directly on `main`
   and predates the Sites implementation in PR #60, so it is not the integration
   path and must not be merged as the Sites replacement.
+
+## Vercel retirement recheck — 2026-11-12 03:27 UTC
+
+- A fresh Vercel project read still reports `gpu-control` as `live=false`,
+  framework `fastapi`, with latest deployment `BLOCKED` and SSO protection
+  enabled. It lists three `vercel.app` aliases; the dedicated project-domain
+  listing returns only the verified `gpu-control.vercel.app` domain. No
+  user-owned custom domain was returned by that listing. Treat the alias
+  discrepancy as unresolved metadata until deletion completes.
+- PR #60 remains OPEN/DRAFT at `72564168cbcfc8d0e6e98df48b8d7a453486b3a0`,
+  stacked on `codex/gpu-control-p1-dcr-v9-review`. Its six repository-required
+  checks pass; the Vercel deployment status remains an optional failure
+  (`Deployment was blocked`) and Vercel Preview Comments is successful.
+- The Vercel connector verified the project and returned
+  `requires_user_action`; no project change was made. To remove the remaining
+  external integration and stop its status reports, the owner must review and
+  confirm deletion at [the Vercel project deletion page](https://vercel.com/d?to=%2Funjunos-projects%2Fgpu-control%2Fsettings%2Fgeneral%23delete-project&title=Review+in+Vercel).
