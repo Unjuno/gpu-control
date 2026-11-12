@@ -70,6 +70,33 @@ successful post-recovery inference through ChatGPT. They do not prove general
 model quality, GPU execution, repeated crash-window reliability, cross-owner
 isolation, long-term artifact retention, or backup/restore.
 
+## D1 and R2 recovery boundary
+
+Cloudflare D1 Time Travel is enabled by default for databases on its production
+storage backend and can restore to a point within the retention window without
+an extra restore fee. As of 2026-11-12, Cloudflare documents seven days of
+history on Workers Free and 30 days on Workers Paid. The Sites connector does
+not expose the backing mode or account plan, so confirm both before relying on
+a specific recovery window.
+See [D1 Time Travel and backups](https://developers.cloudflare.com/d1/reference/time-travel/)
+and [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
+
+Time Travel restore overwrites the live database and cancels in-flight queries;
+it is recovery, not a safe way to rehearse restoration. Do not run a restore
+against the production Site as a test. The restore rehearsal remains open until
+it is performed on an isolated scratch D1 database and verifies schema,
+owner-scoped run records, leases, and a normal ChatGPT read after restore.
+
+D1 recovery does not restore the separate R2 objects. Reconcile artifact IDs,
+object metadata, byte counts, and SHA-256 digests after any D1 recovery; an
+unreferenced object must remain inaccessible, and a missing object must not be
+reported as a successful result. R2 retention, orphan cleanup, and paired
+D1/R2 recovery remain separate acceptance gates. Do not export live D1 rows to a
+local file or add them to Git; an export may contain private prompts, owner
+identifiers, and run results. Cloudflare documents SQL export through Wrangler
+and its API, but that route needs an approved credential and a protected
+destination before use: [D1 import and export](https://developers.cloudflare.com/d1/best-practices/import-export-data/).
+
 The currently deployed Site is Version 15, deployment
 `appgdep_6af5169fa69c8191b4dca5bb77272c84`, from Sites source commit
 `e3cfaf71c5f084c6a6ab40adbae8e189327197ad`; it reports MCP ready and served the
