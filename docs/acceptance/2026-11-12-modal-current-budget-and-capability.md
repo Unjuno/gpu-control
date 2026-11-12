@@ -223,3 +223,14 @@ signed-in Modal dashboard.
 - This one-run authorization is consumed. Do not retry without a new exact-run
   authorization and a diagnostic change that can distinguish the failure.
   RunPod/GPU and paid execution remain parked.
+
+## Offline regression evidence — after the live attempt
+
+- `uv run --locked pytest`: 565 passed, 1 skipped. This covers repository unit
+  and contract tests, not Modal live inference or the repository-wide P0
+  security audit.
+- `npm test` in `sites/gpu-control-sites`: 22 passed. `npm run build` and
+  `npm run validate` both passed; the Site Worker artifact was complete.
+- No provider call or Sandbox was made during these checks. The P0 scan remains
+  unstarted because the current Codex thread does not have the managed read-only
+  filesystem permission profile required by its scanner.
