@@ -16,27 +16,26 @@ provide model compute. Compute remains an explicitly configured provider.
 ## Live baseline — refreshed 2026-11-12
 
 - The public Site `gpu-control-sites` is active at
-  `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 24,
-  source commit `c919b0047b203fb0c22b6dd7755934834e899f8f`, and environment
-  revision 22.
+  `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 28,
+  Site source commit `237c0bed24277cf7c808f8c0e9946c71d517288c`, and
+  environment revision 28.
 - Its current Sites access mode is `public` (access revision 2). A Site-hosted
   plugin exists and is connected for the owner; this does not
   establish that another user's ChatGPT process can install or call it.
-- Current ChatGPT capabilities report `provider_ready=true`, `available=false`,
-  and `admission_enabled=false` for `modal_cpu`. The successful run previously
-  attributed to Modal was executed by the retired local Runner under Sites
-  Version 16. Two Modal runs failed with cleanup confirmed before the dashboard
-  showed v4; no successful v4 inference is recorded. Admission stays closed.
-  Paid execution remains parked.
+- The latest live ChatGPT capabilities read passed all eight Modal health
+  checks and reported `available=false` and `admission_enabled=false` for
+  `modal_cpu`. The current tool schema accepts the `$0.01` Sandbox-only
+  ceiling. No successful Modal inference after the dashboard v4 deployment is
+  recorded. The latest one-token diagnostic plan expired without submission;
+  no Sandbox was started. Admission stays closed. Paid execution remains parked.
 - D1 and R2 remain the Site's storage bindings. Preserve their current records,
   migrations, artifacts, and historical evidence during provider changes.
 - The macOS LaunchAgent and its local runtime were removed, and the two local
   Keychain items used by that Runner were deleted. Do not re-provision or use
   that authentication path.
-- The Modal account is Starter. Its live UI showed `$1` of `$30/mo` in free
-  credits and `$0.01` usage this cycle. The credits are not a hard billing stop.
-- Runpod's console showed `$15` balance. That is not authorization to spend and
-  does not satisfy repository activation prerequisites.
+- Modal usage limit and RunPod balance must be freshly checked before the next
+  live run; prior account observations are historical only. Credits are not a
+  hard billing stop, and a balance is not authorization to spend.
 - Vercel and Neon are retired from the target runtime. Their historical
   records remain historical evidence and must not become deployment gates.
 
@@ -158,29 +157,27 @@ ChatGPT
 
 ## Current blockers
 
-1. The fixed Modal CPU adapter and authenticated dispatch are deployed. Current
-   Sites health reports Modal ready. ChatGPT run
-   `eacc26ff2ad54cf69a1ee7665325b197` returned a verified R2 artifact, but it
-   was executed by the retired local Runner and is not Modal acceptance. Two
-   Modal runs failed as `MODAL_WORKLOAD_FAILED` with cleanup confirmed before
-   the dashboard's v4 deployment; the v4 source commit was not exposed and no
-   successful v4 inference is recorded. Site Version 24 records bounded Modal
-   exit-code failure codes without provider stderr, but this diagnostic has not
-   been observed on a live run. Admission stays disabled until failures are
-   diagnosed and recovery behavior is adequate for another bounded run.
-2. The local Runner is retired. Modal recovery and operational failure
-   coverage remains incomplete; no successful inference after the current
-   Modal dashboard deployment has been accepted.
-3. Runpod live use remains parked. The canonical API and pricing path now use
+1. Sites Version 28 publishes the fixed Modal CPU adapter, aligned `$0.01`
+   prepare schema, and bounded 15-second timeout. Current ChatGPT health checks
+   pass, but no current Modal inference has succeeded. Admission remains
+   disabled. A new exact-run authorization and a fresh Modal usage-limit check
+   are required before another one-run canary.
+2. The local Runner is retired. Modal duplicate-submit, ambiguous-response,
+   timeout, cancellation-race, D1/R2 failure, restart, and reconciliation
+   scenarios remain incompletely verified.
+3. RunPod live use remains parked. The canonical API and pricing path now use
    REST v2, with current public OpenAPI and catalog contracts reviewed offline.
    Live account, result, cleanup, concurrency, security, and spend acceptance
    remains required.
-4. The Modal account UI showed `$0.01` usage this cycle and a free-credit
-   banner. Recheck its current state before another run. Runpod balance is not
-   a spend target.
-5. Public Site hosting does not currently prove public plugin distribution. The
+4. Public Site hosting does not currently prove public plugin distribution. The
    account's eligible sharing/publication route and a separate-user ChatGPT test
    remain unresolved.
+5. Repository-wide P0 review is still open. The focused timeout diff scan found
+   no actionable issue, but the full Deep Scan could not start because the
+   coordinator reported that the parent did not provide a managed filesystem
+   permission profile. The installed `/opt/homebrew/bin/codex` is version
+   `0.146.1` and exposes `--sandbox read-only`; do not bypass the missing managed
+   profile by selecting a broader sandbox.
 
 ## Continuation refresh — 2026-11-12
 

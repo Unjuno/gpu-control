@@ -17,10 +17,10 @@ revoked and the token list showed zero entries. RunPod has no Sites MCP
 execution route. Keep Modal admission disabled and GPU/paid execution parked
 until their separate authorizations and acceptance gates pass. The 15-second
 bounded Modal request timeout is deployed in Sites Version 28 after an observed
-6.3-second cold start. A one-token, 30-second CPU diagnostic plan is prepared;
-its Sandbox estimate is `$0.0013`, ceiling `$0.01`, and Modal control-function
-costs are separate. It has not been submitted; a new current authorization is
-required before admission is opened and the Sandbox is started.
+6.3-second cold start. The one-token, 30-second CPU diagnostic plan expired
+without submission; its Sandbox estimate was `$0.0013`, ceiling `$0.01`, and
+Modal control-function costs are separate. Prepare a fresh plan and obtain
+exact-run authorization before opening admission and starting a Sandbox.
 
 The following paragraph is an earlier operational snapshot, superseded by the
 latest state above.

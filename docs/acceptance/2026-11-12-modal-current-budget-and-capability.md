@@ -186,3 +186,11 @@ signed-in Modal dashboard.
   ceiling; Modal control-function charges are separate. The plan is prepared
   but not submitted, and the Sandbox has not been started. Opening admission
   and submitting require exact-run authorization.
+
+## Diagnostic plan expiration — 2026-11-12 13:30 UTC
+
+- The prepared plan expired without submission while exact-run authorization
+  was pending. No Sandbox started and production admission remained false.
+- Recheck the Modal Workspace usage limit, prepare a new plan, and bind any
+  submission to fresh explicit authorization for that plan's run ID and
+  fingerprint.

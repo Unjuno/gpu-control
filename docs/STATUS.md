@@ -13,9 +13,9 @@ cross-account plugin access remains unverified.
 
 The refreshed ChatGPT tool signature accepts
 `experiment_prepare.max_cost_usd=0.01`, matching the usage-billed Sandbox
-ceiling. The 15-second bounded Modal request timeout is deployed. A fresh
-one-token diagnostic plan is prepared, but has not been submitted; admission
-remains closed pending exact-run authorization.
+ceiling. The 15-second bounded Modal request timeout is deployed. The prepared
+one-token diagnostic plan expired without submission; admission remains
+closed. Prepare a fresh plan and obtain exact-run authorization before execution.
 
 The latest 16-token ChatGPT-initiated Modal Sandbox run
 `b3380814d0854d93a5d978799d670013` failed with exit code 2; cleanup was
