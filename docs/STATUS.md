@@ -2,13 +2,17 @@
 
 ## Current checkout and live capability refresh — 2026-11-12 15:48 UTC
 
-- The source head is `504e492ec2e03f79a94cfad41729d6e30531f598` on
-  `codex/sites-modal-runner`, matching `origin`. PR #68 remains open as a Draft
-  against `codex/gpu-control-p1-dcr-v9-review`. This head adds
-  `gpu_control_modal_bootstrap` to the Modal API image; it follows the earlier
-  `67f60a2` change that introduced bounded Sandbox exit markers.
-- Exact-head GitHub runs passed: CI `43249691251` and Project bridge tests
-  `43249691590`. A Security Review of the one-line image-packaging change found
+- At the 15:48 UTC observation, PR #68 was at head
+  `ac8efc265021e4dfe6d9169ef0c4a3b7e417229a` on `codex/sites-modal-runner`,
+  matching `origin`; that commit updates only operations documentation. The
+  latest code commit is
+  `504e492ec2e03f79a94cfad41729d6e30531f598`, which adds
+  `gpu_control_modal_bootstrap` to the Modal API image after the earlier
+  `67f60a2` bounded Sandbox exit-marker change. PR #68 remains open as a Draft
+  against `codex/gpu-control-p1-dcr-v9-review`.
+- The code commit's exact-head GitHub runs passed: CI `43249691251` and Project
+  bridge tests `43249691590`. No checks were created for the documentation-only
+  head `ac8efc2`. A Security Review of the one-line image-packaging change found
   no issue; this is not an independent review of the full PR. No full-PR review
   is recorded.
 - The ChatGPT Sites capability tool reports Modal provider health ready,
