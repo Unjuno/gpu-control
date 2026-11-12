@@ -344,3 +344,30 @@ signed-in Modal dashboard.
   empty; the Execution and Call Graph tabs did not expose the function return
   payload. This confirms only that the control function call completed, not
   why the workload exited 2. No provider state was changed.
+
+## Continuation verification — 2026-11-12 16:03 UTC
+
+- The current ChatGPT `experiment_capabilities` call reports all eight Modal
+  health checks true and the deployed fingerprint
+  `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`, while
+  `admission_enabled=false`, `available=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. No provider execution was started.
+- The authenticated ChatGPT run list and status tool confirm the newest run
+  `e9330c5bb5454f42bb3dabe058091dc0` is failed with
+  `MODAL_WORKLOAD_EXIT_2`, cleanup confirmed, and no result/artifact. A newer
+  successful historical record (`360e6ee7bb664bea80ec9846bf1d8b6c`) contains a
+  valid result and artifact digest, but the Site tool response does not expose
+  provider provenance. It is not counted as Modal acceptance; this preserves
+  the provenance rule above.
+- Local `tests/test_modal_bootstrap.py` passed 3/3; the Sites Worker suite
+  passed 23/23. These verify the synthetic bootstrap marker and mocked Worker
+  lifecycle only. The host's OrbStack Docker daemon is stopped and the Modal
+  SDK is absent, so no local image/container reproduction was possible.
+- A direct external probe with no identity and with a synthetic non-owner
+  identity was blocked by the Cloudflare edge with HTTP 403/error 1010 before
+  reaching the Worker. It proves neither Worker authorization nor spoof
+  resistance. No real owner identity was sent. Separate-account isolation
+  remains open.
+- The exact current PR head remains `6b4a56492071abe75be6558f9c1cb80a9b736756`
+  on Draft PR #68, with its six exact-head checks previously observed passing.
+  No source, deployment, credential, admission, or provider state changed.
