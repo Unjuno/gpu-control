@@ -244,9 +244,37 @@ async function modalRequest(env, path, payload, { method = "POST", body = true }
       ...(body ? { body: JSON.stringify(payload) } : {}),
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(response.status === 404 ? "MODAL_RUN_NOT_FOUND" : "MODAL_PROVIDER_REQUEST_FAILED");
-    const text = await response.text();
-    if (text.length > MODAL_MAX_RESULT_BYTES) throw new Error("MODAL_PROVIDER_RESPONSE_TOO_LARGE");
+    if (!response.ok) {
+      try { await response.body?.cancel(); } catch {}
+      throw new Error(response.status === 404 ? "MODAL_RUN_NOT_FOUND" : "MODAL_PROVIDER_REQUEST_FAILED");
+    }
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MODAL_MAX_RESULT_BYTES) {
+      try { await response.body?.cancel(); } catch {}
+      throw new Error("MODAL_PROVIDER_RESPONSE_TOO_LARGE");
+    }
+    if (!response.body) throw new Error("MODAL_PROVIDER_INVALID_RESPONSE");
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MODAL_MAX_RESULT_BYTES) {
+          try { await reader.cancel(); } catch {}
+          throw new Error("MODAL_PROVIDER_RESPONSE_TOO_LARGE");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     const value = JSON.parse(text);
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("MODAL_PROVIDER_INVALID_RESPONSE");
     return value;

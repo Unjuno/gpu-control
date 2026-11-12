@@ -74,6 +74,40 @@ test("public MCP data tools reject anonymous callers before touching D1", async 
   assert.equal(databaseReads, 0);
 });
 
+test("Modal response bodies are byte-bounded and cancelled as soon as the limit is exceeded", async () => {
+  const env = environment({ admission: "true" });
+  env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";
+  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_PROXY_TOKEN_ID = "t".repeat(16);
+  env.MODAL_PROXY_TOKEN_SECRET = "s".repeat(32);
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  const originalFetch = globalThis.fetch;
+  let cancelCalls = 0;
+  try {
+    globalThis.fetch = async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("x".repeat(4096)));
+        controller.enqueue(new TextEncoder().encode("y".repeat(4097)));
+      },
+      cancel() { cancelCalls++; },
+    }));
+    const result = await capabilities(env);
+    assert.equal(result.machine_state.provider_ready, false);
+    assert.equal(cancelCalls, 1);
+
+    globalThis.fetch = async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode("x".repeat(8193))); },
+      cancel() { cancelCalls++; },
+    }), { headers: { "content-length": "8193" } });
+    const declaredSizeResult = await capabilities(env);
+    assert.equal(declaredSizeResult.machine_state.provider_ready, false);
+    assert.equal(cancelCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function cancellationEnvironment(initialState) {
   const run = { id: "c".repeat(32), owner_id: "test-owner", state: initialState,
     cancel_requested: 0, cleanup_state: "pending", lease_id: "d".repeat(32) };
