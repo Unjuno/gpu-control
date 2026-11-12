@@ -219,8 +219,7 @@ async function readJson(request, limit = MAX_BODY_BYTES) {
 }
 
 function modalConfigured(env) {
-  return env.MODAL_PROVIDER_ADMISSION_ENABLED === "true" &&
-    typeof env.MODAL_API_URL === "string" && /^https:\/\/[a-z0-9.-]+(?:\/[^?#]*)?$/i.test(env.MODAL_API_URL) &&
+  return typeof env.MODAL_API_URL === "string" && /^https:\/\/[a-z0-9.-]+(?:\/[^?#]*)?$/i.test(env.MODAL_API_URL) &&
     !env.MODAL_API_URL.includes("@") && !env.MODAL_API_URL.includes("#") && !env.MODAL_API_URL.includes("?") &&
     typeof env.MODAL_PROXY_TOKEN_ID === "string" && env.MODAL_PROXY_TOKEN_ID.length >= 16 &&
     typeof env.MODAL_PROXY_TOKEN_SECRET === "string" && env.MODAL_PROXY_TOKEN_SECRET.length >= 32 &&

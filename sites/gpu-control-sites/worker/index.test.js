@@ -108,6 +108,32 @@ test("Modal response bodies are byte-bounded and cancelled as soon as the limit 
   }
 });
 
+test("health can be verified while Modal admission remains disabled", async () => {
+  const env = environment();
+  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_PROXY_TOKEN_ID = "t".repeat(16);
+  env.MODAL_PROXY_TOKEN_SECRET = "s".repeat(32);
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_url, init) => {
+      assert.equal(new Headers(init.headers).get("modal-key"), env.MODAL_PROXY_TOKEN_ID);
+      assert.equal(new Headers(init.headers).get("modal-secret"), env.MODAL_PROXY_TOKEN_SECRET);
+      return Response.json({ ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
+        source_sha: sourceSha, registered_image_digest: imageDigest,
+        image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT, max_runtime_seconds: 30 });
+    };
+    const result = await capabilities(env);
+    assert.equal(result.machine_state.provider_ready, true);
+    assert.equal(result.machine_state.admission_enabled, false);
+    assert.equal(result.machine_state.available, false);
+    assert.equal(result.blocking_reason, "CPU_WORKLOAD_ADMISSION_DISABLED");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function cancellationEnvironment(initialState) {
   const run = { id: "c".repeat(32), owner_id: "test-owner", state: initialState,
     cancel_requested: 0, cleanup_state: "pending", lease_id: "d".repeat(32) };
