@@ -44,6 +44,8 @@ def build_plist(runtime_root: Path, python_executable: str, home: Path) -> dict:
         "StandardErrorPath": str(logs / "gpu-control-runner.log"),
         "EnvironmentVariables": {
             "PATH": PATH,
+            "HOME": str(home),
+            "LANG": "C",
             "GPU_CONTROL_SITE_URL": DEFAULT_SITE,
             "CPU_WORKLOAD_REPOSITORY": DEFAULT_REPOSITORY,
             "CPU_WORKLOAD_SOURCE_SHA": DEFAULT_SOURCE_SHA,

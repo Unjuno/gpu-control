@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import contextlib
 import io
+import os
 import plistlib
 import subprocess
 import sys
@@ -47,6 +48,35 @@ class KeychainLauncherTests(unittest.TestCase):
             values = keychain.load_secrets()
         self.assertEqual(set(values), set(keychain.ACCOUNTS))
         self.assertEqual(values["GPU_CONTROL_RUNNER_BEARER_TOKEN"], "opaque-runner-bearer")
+
+    def test_runner_launcher_discards_unapproved_inherited_environment(self):
+        allowed = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/Users/test",
+            "LANG": "C",
+            "GPU_CONTROL_SITE_URL": launch_agent.DEFAULT_SITE,
+            "CPU_WORKLOAD_REPOSITORY": "Unjuno/gpu-control",
+            "CPU_WORKLOAD_SOURCE_SHA": "a" * 40,
+            "CPU_WORKLOAD_IMAGE_DIGEST": "sha256:" + "b" * 64,
+            "GPU_CONTROL_RUNNER_POLL_SECONDS": "5",
+        }
+        inherited = {
+            **allowed,
+            "SSH_AUTH_SOCK": "/tmp/agent.sock",
+            "SSH_AGENT_PID": "123",
+            "HTTPS_PROXY": "http://attacker.invalid:8080",
+            "DOCKER_HOST": "tcp://attacker.invalid:2375",
+            "PYTHONPATH": "/tmp/untrusted",
+            "GPU_CONTROL_RUNNER_BEARER_TOKEN": "must-not-use-env-secret",
+        }
+        with patch.dict("os.environ", inherited, clear=True):
+            keychain.sanitize_process_environment()
+            self.assertEqual(dict(os.environ), allowed)
+
+    def test_launch_agent_pins_home_and_locale(self):
+        document = launch_agent.build_plist(Path("/work/gpu-control"), "/usr/bin/python3", Path("/Users/test"))
+        self.assertEqual(document["EnvironmentVariables"]["HOME"], "/Users/test")
+        self.assertEqual(document["EnvironmentVariables"]["LANG"], "C")
 
     def test_runner_uses_keychain_values_instead_of_environment_secrets(self):
         runner = load_module("runner_config_under_test", "run.py")

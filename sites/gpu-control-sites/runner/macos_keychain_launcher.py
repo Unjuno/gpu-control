@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 from pathlib import Path
 
@@ -12,6 +13,16 @@ ACCOUNTS = {
     "GPU_CONTROL_RUNNER_BEARER_TOKEN": "runner-bearer",
     "GPU_CONTROL_SITES_SERVICE_TOKEN": "sites-service",
 }
+ENVIRONMENT_ALLOWLIST = (
+    "HOME",
+    "LANG",
+    "PATH",
+    "GPU_CONTROL_SITE_URL",
+    "CPU_WORKLOAD_REPOSITORY",
+    "CPU_WORKLOAD_SOURCE_SHA",
+    "CPU_WORKLOAD_IMAGE_DIGEST",
+    "GPU_CONTROL_RUNNER_POLL_SECONDS",
+)
 
 
 class KeychainUnavailable(Exception):
@@ -81,7 +92,15 @@ def load_secrets() -> dict[str, str]:
     return {name: read_secret(account) for name, account in ACCOUNTS.items()}
 
 
+def sanitize_process_environment() -> None:
+    """Drop launchd/user environment that the fixed Runner does not need."""
+    allowed = {name: os.environ[name] for name in ENVIRONMENT_ALLOWLIST if name in os.environ}
+    os.environ.clear()
+    os.environ.update(allowed)
+
+
 def main() -> int:
+    sanitize_process_environment()
     runner_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(runner_dir))
     import run  # noqa: PLC0415
