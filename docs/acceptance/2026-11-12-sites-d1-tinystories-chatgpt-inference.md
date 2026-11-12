@@ -271,3 +271,25 @@ transient `SITE_REQUEST_FAILED` entries during the observation interval; later
 Worker logs showed successful heartbeat, recovery, and claim requests (HTTP
 200), and the run and container state converged as recorded above. Investigate
 the transient transport errors before increasing admission.
+
+## Additional D1/R2 artifact recheck — 2026-11-12
+
+ChatGPT prepared and submitted registered run
+`4b5ece4beca94113a8282608974f241b` through the private Sites MCP tool. The
+request used source `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, image
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`,
+prompt `A quiet blue bird rested.`, seed `61120`, four-token maximum, 15-second
+runtime ceiling, and `$0.00` cost ceiling.
+
+- D1 reported `succeeded`, `cleanup_state=confirmed`, and no cancellation or
+  failure. The result reported `gpu_used=false`, four generated tokens in
+  180 ms, and passed all nine registered identity and isolation checks.
+- ChatGPT retrieved the entire 968-byte R2 `result.json` artifact. A local
+  SHA-256 calculation yielded
+  `ff019e509b806088d099c5f3b5a85faf571ca287a746b60de088fa811cf9d31b`, matching
+  both the artifact response and the D1 result-artifact reference.
+
+This refresh verifies another current ChatGPT → Sites → D1 → Runner → D1/R2 →
+ChatGPT CPU result cycle. It does not establish separate-account owner
+isolation, backup/restore, repeated crash-window recovery, GPU execution, or
+paid execution.
