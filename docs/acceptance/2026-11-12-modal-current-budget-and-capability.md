@@ -306,3 +306,35 @@ signed-in Modal dashboard.
   parent session did not provide a managed filesystem permission profile. The
   same requirement is still unmet; the P0 audit remains open. No source,
   admission, credential, or provider setting was changed in this recheck.
+
+## Live execution comparison — 2026-11-12 14:53 UTC
+
+- Fresh authenticated Sites reads show multiple successful Modal TinyStories
+  runs on the same workload source `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`
+  and image digest `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+  For example, run `eacc26ff2ad54cf69a1ee7665325b197` generated four tokens,
+  returned a checksum-verified result artifact, and has `cleanup_state=confirmed`.
+  This is evidence that ChatGPT Sites → Modal CPU → inference → result retrieval
+  has succeeded before; it is not GPU evidence.
+- The latest read-only run list contains both succeeded and failed runs for that
+  same source and image. Run `e9330c5bb5454f42bb3dabe058091dc0` (prompt `Once`,
+  one token) and runs `b3380814d0854d93a5d978799d670013` /
+  `0f2a3ddaa7da40648600bae21ccd9ed1` (16 tokens) failed with
+  `MODAL_WORKLOAD_EXIT_2`, confirmed cleanup, and no artifact. The exact
+  preflight guard is still unknown; do not infer that the read-only-filesystem
+  probe caused these failures. No new execution was submitted and admission
+  remains disabled.
+- Modal's current `Sandbox.create` reference documents network policy, volumes,
+  and experimental options, but no read-only-root-filesystem parameter. Modal's
+  filesystem guide documents sandbox filesystem writes. This means the current
+  `read_only_rootfs` result should be interpreted narrowly as the workload's
+  `/work/write-probe` check, not proof that the entire root filesystem is
+  mounted read-only. Since successful runs return the same check list, this
+  observation alone does not explain the recent exit-2 failures. Sources:
+  <https://modal.com/docs/sdk/py/latest/Sandbox>
+  <https://modal.com/docs/guide/sandbox-files>.
+- The fresh capability read remains `provider_ready=true`,
+  `admission_enabled=false`, `available=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. The exact one-run authorization remains
+  consumed, so the next live attempt requires fresh authorization bound to a
+  new run plan and a diagnostic improvement that identifies the failing guard.
