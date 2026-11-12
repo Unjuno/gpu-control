@@ -31,6 +31,13 @@ MAX_STDERR_BYTES = 2048
 RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 SHA64_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+# Modal ignores Dockerfile USER and launches the image entrypoint as root.
+# Drop privileges in this fixed bootstrap before executing the pinned workload.
+SANDBOX_ENTRYPOINT = (
+    "python", "-I", "-c",
+    "import os,sys; os.setgroups([]); os.setgid(10001); os.setuid(10001); "
+    "os.execv(sys.executable,[sys.executable,'-I','/work/inference.py'])",
+)
 
 REMOTE_SITE_ROOT = Path("/root/gpu-control-sites")
 
@@ -226,6 +233,7 @@ async def submit(run_id: str, request: Request):
         return _capture(existing, run_id, payload)
     try:
         sandbox = modal.Sandbox.create(
+            *SANDBOX_ENTRYPOINT,
             app=app,
             image=workload_image,
             name=_sandbox_name(run_id),
