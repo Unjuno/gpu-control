@@ -77,6 +77,16 @@ class SandboxBootstrapTests(unittest.TestCase):
         self.assertIn("os.setgid(10001)", command[3])
         self.assertIn("os.setuid(10001)", command[3])
 
+    def test_modal_api_image_uses_hash_locked_framework_dependencies(self) -> None:
+        requirements = (MODAL_DIR / "requirements.txt").read_text(encoding="utf-8")
+        app_source = (MODAL_DIR / "app.py").read_text(encoding="utf-8")
+        pins = {line.split("\\", 1)[0].strip() for line in requirements.splitlines()
+                if line.startswith(("fastapi==", "starlette=="))}
+        self.assertIn("fastapi==0.162.2", pins)
+        self.assertIn("starlette==1.10.0", pins)
+        self.assertIn(".pip_install_from_requirements(str(SITE_ROOT / \"modal\" / \"requirements.txt\"))", app_source)
+        self.assertGreaterEqual(requirements.count("--hash=sha256:"), 11)
+
 
 if __name__ == "__main__":
     unittest.main()

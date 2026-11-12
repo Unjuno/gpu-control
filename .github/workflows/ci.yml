@@ -41,6 +41,21 @@ jobs:
       - name: Sync locked environment
         run: uv sync --locked --extra dev
 
+      - name: Export locked dependencies for audit
+        if: matrix.python-version == '3.12'
+        run: >-
+          uv export --locked --extra dev --no-emit-project --no-annotate
+          --no-header --format requirements-txt
+          --output-file "$RUNNER_TEMP/gpu-control-dev-requirements.txt"
+
+      - name: Audit Python and Modal API image dependencies
+        if: matrix.python-version == '3.12'
+        run: >-
+          uv run --locked pip-audit --disable-pip --require-hashes
+          --format json
+          -r "$RUNNER_TEMP/gpu-control-dev-requirements.txt"
+          -r sites/gpu-control-sites/modal/requirements.txt
+
       - name: Standalone self-test
         run: |
           cd /tmp

@@ -16,6 +16,10 @@ CPU, 512 MiB, blocked outbound networking, and at most 30 seconds.
 ## Deploy requirements
 
 - Modal Python SDK 1.6.3.
+- The API image installs the hash-locked dependency set in `requirements.txt`.
+  Update top-level constraints in `requirements.in`, regenerate the lock with
+  `uv pip compile --generate-hashes --output-file requirements.txt
+  requirements.in`, then run the repository dependency audit before deploy.
 - A Modal deploy credential kept outside the Site and repository.
 - One Proxy Token with access only to the `main` Modal Environment, if the
   Workspace supports environment-scoped proxy tokens.

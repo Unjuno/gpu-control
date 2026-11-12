@@ -1,5 +1,33 @@
 # Project status
 
+## Dependency audit and remediation — 2026-11-12 17:28 UTC
+
+- PR #68 is open as Draft at head `d3f9f16f7e1de42b90b33704ff9249f3e87517fc`.
+  All six required exact-head checks passed; no independent review is recorded.
+- Fresh ChatGPT capabilities still report Modal health ready but
+  `admission_enabled=false`, `available=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. Run `e9330c5bb5454f42bb3dabe058091dc0`
+  remains failed with confirmed cleanup and no artifact. Earlier successful
+  records predate retirement of the local Runner and do not establish current
+  Modal success.
+- The signed-in Modal UI shows a `$1` Workspace limit, `$0.07` credits used,
+  `$0` charges, and zero deploy API tokens. No app deployment, setting change,
+  or provider run occurred in this refresh.
+- Dependency audit found 10 advisory records (five distinct advisories) for
+  Starlette in the Modal API image's
+  previous unconstrained transitive resolution (`fastapi==0.128.2` selected
+  `starlette==0.50.0`). The API image now installs a hash-locked dependency
+  set from `sites/gpu-control-sites/modal/requirements.txt`, generated from
+  `requirements.in` with FastAPI `0.162.2` and Starlette `1.10.0`. A fresh
+  pip-audit scan of 42 development and Modal API packages found no known
+  vulnerabilities. CI now audits both locked dependency sets in the required
+  Python 3.12 job. The findings correspond to Starlette's [advisory list](https://github.com/Kludex/starlette/security/advisories);
+  the fixes are documented in its [release notes](https://github.com/Kludex/starlette/blob/main/docs/release-notes.md).
+  This candidate change has not been deployed.
+- The whole-repository Codex Deep Scan remains incomplete because the current
+  host still lacks its required managed read-only filesystem profile. Do not
+  treat dependency scanning or local Semgrep/Gitleaks checks as a replacement.
+
 ## Local security-tool refresh — 2026-11-13
 
 - PR #68 already exists as a Draft and currently points at this checkout's
