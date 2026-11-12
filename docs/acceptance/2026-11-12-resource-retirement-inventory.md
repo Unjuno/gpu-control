@@ -167,10 +167,11 @@ Sites and Runner state by this refresh:
   and Sites Worker and D1 contract. Vercel is explicitly not required. Its
   Vercel is explicitly not required. On implementation head `e818a41`, the
   optional `Vercel` status was `FAILURE` (`Deployment was blocked`). The latest
-  docs-only head `0754a21` has no Vercel status; its GitHub Actions workflows
-  `CI` and `Project bridge tests` both completed successfully. Therefore
-  removing the project will not remove a required release check according to
-  the current PR policy.
+  docs-only head `e99c8fd` also receives an optional Vercel failure, confirming
+  the integration still runs even on documentation-only changes. Its GitHub
+  Actions workflows `CI` and `Project bridge tests` both completed
+  successfully. Removing the Vercel project will stop this non-required status
+  without removing a required repository check under current PR policy.
 - The Vercel connector cannot enumerate project connectors (its API returned
   `Connector Project not found`), so this was not treated as proof that no
   connector is attached. Project/domain metadata and the required-check list
