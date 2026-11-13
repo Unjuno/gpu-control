@@ -1,5 +1,31 @@
 # Project status
 
+## Sites production reconciliation — 2026-11-13
+
+- Sites Version 29 is now deployed from the GitHub candidate's synchronized
+  source. The Site-only source commit is
+  `6144d58acf6de609c8ac42d0b06542e29d89b1ab`; production environment revision
+  remains 32. The publish applied D1 migrations 0005–0006; the live schema
+  overview now includes `authorization_challenges`, `human_authorizations`,
+  `provider_account_leases`, and `provider_account_lease_events`.
+- Fresh ChatGPT capabilities confirm the exact-plan authorization flow is
+  present and the owner authorization store is ready. Admission remains
+  `false`; capabilities report unavailable with
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. Worker error logs were empty in the
+  five-minute post-deploy window. No inference or D1 row read/write was made.
+- The synchronized archive SHA-256 is
+  `e1a7a2666e895df1133a7ef1690e8ac1a54fff9ec67cc81c8fd8a0ad21b0092a`.
+  Site-source `npm test` passed 30/30, and build and validation succeeded.
+  Modal showed zero live Sandboxes and zero running control calls; no provider
+  compute was started. See
+  [`Sites Version 29 production acceptance`](acceptance/2026-11-13-sites-v29-production-deploy.md).
+- PR #68 remains Draft. Its GitHub head is the previously pushed `01dd2a6`;
+  the Site-only deploy commit is separate from GitHub history. Modal's rebuilt
+  OCI image digest and fingerprint still do not match the current candidate,
+  and the independent-account browser check, independent PR review, repository
+  P0 audit, Modal image readiness, and post-deploy authorized inference remain
+  open. Keep admission closed.
+
 ## Build backend dependency pin — 2026-11-13
 
 - PEP 517 requirements now pin setuptools and wheel, and `build-constraints.txt`

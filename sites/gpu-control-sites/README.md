@@ -5,25 +5,35 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Deployed Site version: 28, source commit
-  `237c0bed24277cf7c808f8c0e9946c71d517288c`; current environment revision 32.
+- Deployed Site version: 29, source commit
+  `6144d58acf6de609c8ac42d0b06542e29d89b1ab`; current environment revision 32.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- Current ChatGPT capability evidence (2026-11-12 13:46 UTC):
-  `provider_ready=true`, every provider health check passed,
-  `admission_enabled=false`, and `available=false` for
-  `modal_cpu`. The latest bounded ChatGPT-initiated run failed with workload
-  exit code 2; cleanup was confirmed. The v28 Worker labels the provider as
-  billable and estimates Sandbox CPU/memory only. The estimate excludes
-  separately billed Modal control functions and is not a total-cost guarantee.
+- Current ChatGPT capability evidence (2026-11-13; after Version 29 deploy):
+  owner authorization store ready, exact-plan confirmation required,
+  `admission_enabled=false`, and `available=false` for `modal_cpu` with
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. Provider health is deferred until an
+  authorized submission. The latest bounded run failed with workload exit
+  code 2; cleanup was confirmed. The cost estimate covers Sandbox CPU/memory
+  only and excludes separately billed Modal control functions.
 - MCP access is restricted to the owner IDs listed in the secret runtime
   variable `GPU_CONTROL_ALLOWED_USER_IDS`; missing or non-listed identities
   are rejected before D1 or Modal access.
+- Version 29 runs the exact-plan Site confirmation flow and includes D1
+  migrations 0005–0006. A fresh ChatGPT capability read reports
+  `human_authorization_store_ready=true` and
+  `explicit_plan_confirmation_required=true`. It also reports
+  `admission_enabled=false`, `available=false`, and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`; provider health is deferred until an
+  explicitly authorized submission. The live D1 overview lists the
+  `authorization_challenges` and `human_authorizations` tables plus
+  `provider_account_leases` and `provider_account_lease_events`.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
 - Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
-  in `main`; the current health response matches all eight Site checks,
-  including source, image digest, fingerprint, and runtime. The deploy used a
-  temporary one-hour Workspace token which was deleted immediately afterward.
+  in `main`. Current candidate image readiness is not established: the Dockerfile
+  startup correction still needs a rebuilt OCI digest and matching fingerprint
+  deployed to Modal and registered in the Site environment. The earlier deploy
+  used a temporary one-hour Workspace token which was deleted immediately afterward.
   The Modal Usage page showed a `$1` Workspace usage limit, `$0.04` in credits
   used, and `$0` in charges at 2026-11-12 12:20 UTC, up from `$0.03` before the
   run. This total includes control/deploy activity and cannot be attributed to
@@ -68,7 +78,7 @@ Sandbox CPU/memory only.
 Control-function charges are separate and remain governed by the account-level
 Workspace usage limit.
 
-### Candidate source change: exact-plan browser confirmation
+### Version 29: exact-plan browser confirmation
 
 The PR #68 candidate adds `/authorize` to the Sites Worker. `experiment_prepare`
 returns a link showing the exact inference inputs and cost caveat; the signed-in
@@ -79,18 +89,19 @@ same-origin, owner-scoped, CSRF-challenged, and non-cacheable. It records an
 authenticated Site browser form submission; it does not cryptographically
 prove a human operated the browser.
 
-This candidate is not included in deployed Site Version 28. Its D1 migration,
-published Worker version, current ChatGPT tool refresh, browser confirmation,
-and separate-account denial all remain unverified. Keep admission disabled
-until those checks and the required reviews pass.
+The Worker source is deployed in Site Version 29 and the required D1 tables are
+present. Browser confirmation through an independently authenticated session,
+separate-account denial, current Modal image readiness, and another authorized
+inference remain unverified. Keep admission disabled until those checks and the
+required reviews pass.
 
 PR #68 also changes the Modal workload Dockerfile from an `ENTRYPOINT` to a
 default `CMD`. Modal's Sandbox command overrides `CMD` but does not replace an
 image `ENTRYPOINT`; the previous image could therefore bypass the fixed
 privilege-dropping bootstrap and hit the non-root guard as UID 0. This source
-correction requires a rebuilt OCI digest and image fingerprint before the new
-Modal app and Sites environment can pass readiness. It has not been deployed or
-retested in Modal. See
+correction is in the deployed Sites source, but its rebuilt OCI digest and
+image fingerprint have not been deployed to Modal or registered in the Sites
+environment. No inference was run after Version 29. See
 [`docs/acceptance/2026-11-13-modal-entrypoint-root-cause.md`](../../docs/acceptance/2026-11-13-modal-entrypoint-root-cause.md).
 
 ## Target execution architecture
