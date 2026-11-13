@@ -19,13 +19,13 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published with owner-bound plan confirmation and an exact-plan gate on separately billed Modal health checks. CPU admission remains disabled because the current Modal image identity and authenticated readiness have not been verified. No successful inference against the current Modal deployment has been accepted. RunPod/GPU and paid training remain parked.
+The project is **usable today for offline validation and ChatGPT-side experiment preparation**. The ChatGPT Site is published and CPU admission is enabled for one fixed, owner-authorized workload under a $0.01 Sandbox ceiling. ChatGPT can read capabilities and runs; a fresh one-use Site confirmation is required for each plan. Authenticated Modal readiness and a successful inference after the current deployment have not yet been verified. RunPod/GPU and paid training remain parked.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Not ready: production Site Version 32 requires exact-plan confirmation, but admission is disabled until Modal image identity and authenticated readiness are verified. |
+| Registered CPU experiment through ChatGPT | Available for the fixed TinyStories workload after exact-plan owner confirmation; 30 seconds, one in flight, estimated Sandbox cost $0.0013, Sandbox ceiling $0.01. Modal control-function charges are separate. |
 | Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment. The latest Modal attempts failed with workload exit code 2 and confirmed cleanup; older local-Runner successes are historical evidence only. |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
@@ -43,12 +43,13 @@ The project is **usable today for offline validation and control-plane developme
 | Live paid GPU execution | Disabled / parked |
 
 The current hosted product path is the ChatGPT Sites Worker with D1/R2. The
-Site access policy allows only the owner, and stateful MCP tools enforce the
-Sites-authenticated user ID against the owner allowlist. Cross-account denial
-has not been independently verified. Sites Version 32 applies the exact-plan
-authorization and billed-health gate; admission remains disabled, so this is
-not yet a successful real experiment path. PR #68 remains an open Draft at
-commit `602457d`; its six exact-head checks pass, but it is not merged.
+Site access is public, while stateful MCP tools enforce the Sites-authenticated
+user ID against the owner allowlist. Cross-account denial has not been
+independently verified. Sites Version 32 is live at environment revision 34;
+CPU admission is enabled, with exact-plan one-use owner confirmation and a
+Modal readiness preflight before submission. No successful inference is yet
+accepted. PR #68 remains an open Draft; its latest pushed head's CI passes, but
+the PR is not merged.
 Historical ChatGPT CPU successes used the retired local Runner and do not
 prove current Modal readiness. The latest Modal attempts failed with exit
 code 2 and confirmed cleanup. The old local Runner and Keychain credentials

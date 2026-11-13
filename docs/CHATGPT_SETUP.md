@@ -66,22 +66,22 @@ now-retired local Runner produced provenance-checked results and retrievable
 R2 artifacts. They establish that earlier CPU route only. They do not establish
 current Modal inference, general model quality, or GPU execution. The latest
 live capability read reports `provider_configured=true`,
-`provider_ready=null`, `admission_enabled=false`, and
-`CPU_WORKLOAD_ADMISSION_DISABLED`. Site Version 31 is active. Its Worker archive
-contains the exact-plan authorization implementation from the Version 30
-release, and the current D1 overview includes the authorization and health
-cooldown tables. The existing ChatGPT connector has not refreshed to expose
-`experiment_provider_health`, and a fresh ChatGPT-originated prepare,
-confirmation, and health-check sequence has not been accepted against this
-release. Do not submit while admission is disabled or until the Modal image
-identity and provider readiness are reconciled. The latest authorized one-token
-Modal run failed with exit code 2 after 247 ms; cleanup was confirmed but no
-result or artifact was produced. Admission is closed at Sites environment
-revision 32. A successful ChatGPT inference and artifact verification against
-the current Modal deployment are still required.
+`human_authorization_store_ready=true`, `available=true`, and
+`admission_enabled=true`; readiness is checked during the normal submit path
+after the exact plan is confirmed. Site Version 32 is active at environment
+revision 34, and D1 includes the authorization and health-check tables. The
+separate `experiment_provider_health` connector schema is still empty, but a
+fresh submit calls the same authenticated Modal health endpoint internally.
+The Modal digest remains unreconciled with the rebuilt local image, and no
+post-deploy inference has been accepted. Use the ordinary prepare → exact
+owner confirmation → submit flow; each authorization expires and is usable
+once. The 30-second Sandbox ceiling is $0.01 and excludes separately billed
+Modal control-function calls. The latest recorded exit-code-2 runs predate the
+current Modal deployment; no result or artifact from a post-deploy test exists.
 
-The former local Runner path is removed and provider admission remains closed.
-Keep paid providers parked. The exact runtime keys and controlled publication steps are
+The former local Runner path is removed. Keep paid RunPod/GPU experiments
+parked until their Sites route and security, result, recovery and cleanup gates
+are accepted. The exact runtime keys and controlled publication steps are
 in [`sites/gpu-control-sites/README.md`](../sites/gpu-control-sites/README.md);
 current gates are in [`RELEASE_MATRIX.md`](RELEASE_MATRIX.md) and
 [`STATUS.md`](STATUS.md).

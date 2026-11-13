@@ -2,24 +2,27 @@
 
 ## Live release gate refresh — 2026-11-13
 
-Production is still Sites Version 28 at source commit
-`237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 32. A
-read-only D1 overview lists `plans`, `runs`, and `runner_heartbeats`; the
-human-authorization tables are absent. Runtime configuration confirms
-`CPU_WORKLOAD_ADMISSION_ENABLED=false`. Do not call the current production
-`experiment_submit` route: its source lacks plan authorization and performs a
-Modal health request before admission checks. Modal secret values were not
-returned by the environment reader and remain unverified.
+Production is Sites Version 32 at source commit
+`7aacaac46a0111621d450c89a85fde7ce8cca6a2`, environment revision 34. D1
+contains the exact-plan authorization and Modal health tables. Admission is
+enabled for one fixed CPU workload only after one-use owner confirmation for
+each plan. ChatGPT capabilities and experiment-list calls succeeded from this
+account. No post-deployment Modal inference, authenticated health response, or
+artifact has yet been accepted. The Site points to Modal digest
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`;
+the locally rebuilt image ID is `sha256:60ea9d29f70def1ad4577021ac51e2b186b8f8d2c6dee7a2d2d848b441fcbda1` and has not been verified as Modal's deployed OCI digest.
 
-PR #68 remains Draft with no independent review. The latest full six-job run
-passed, including the Sites Worker/D1 artifact contract and the root Python
-suite. The only subsequent updates are documentation. A new in-memory SQLite replay test applies migrations
-0000–0005 to synthetic pre-existing records and verifies old plan/run/heartbeat
-preservation, authorization table creation, and foreign-key integrity. It
-passes as part of `uv run --locked pytest` (573 passed, 1 skipped); it does not
-prove the live D1 mutation. No production migration, Site deployment, or
-provider execution occurred in this refresh. Detailed reconciliation:
-[`Sites production source reconciliation`](acceptance/2026-11-13-sites-source-reconciliation.md).
+Modal's UI shows a `$1` Workspace usage limit, `$0.10` in credit usage,
+`$0` charges, and an option to add a payment method to raise the limit. The
+Sandbox estimate is `$0.0013` with a `$0.01` ceiling; Modal control-function
+charges are separate. No payment method or temporary API token was added.
+Modal's documentation explains that usage budgets apply before credits and
+that net spend limits are separate; keep the Workspace limit unchanged.
+
+PR #68 remains Draft. Its preceding head had all six CI checks passing. The
+full repository P0 scan still needs the managed read-only profile;
+cross-account denial and image digest reconciliation remain open. No provider
+run has been started in this refresh.
 
 ## Sites migration behavior and recovery
 
