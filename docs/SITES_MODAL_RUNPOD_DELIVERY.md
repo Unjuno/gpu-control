@@ -43,6 +43,17 @@ provide model compute. Compute remains an explicitly configured provider.
 - Vercel and Neon are retired from the target runtime. Their historical
   records remain historical evidence and must not become deployment gates.
 
+## Live acceptance refresh — 2026-11-13
+
+The connected ChatGPT plugin can list the authenticated owner's runs, and an
+anonymous POST to `/mcp` receives HTTP 401. A real `experiment_prepare` call
+also created an expiring plan, but the production tool response returned
+`approval_required=false` and no confirmation URL. The current PR #68 Worker
+source requires exact-plan approval, so the live Site does not yet provide the
+required confirmation flow. The plan was not submitted; provider admission
+remains closed. Full evidence is in
+[`acceptance/2026-11-13-live-chatgpt-mcp-recheck.md`](acceptance/2026-11-13-live-chatgpt-mcp-recheck.md).
+
 ## Target boundaries
 
 ```text
