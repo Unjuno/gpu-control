@@ -515,17 +515,16 @@ async function humanAuthorizationStoreReady(env) {
 async function capabilities(env) {
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
   const authorizationStoreReady = await humanAuthorizationStoreReady(env);
-  const health = authorizationStoreReady
-    ? await providerHealth(env)
-    : { provider: null, checks: { configured: modalConfigured(env), skipped: "human_authorization_store_not_ready" } };
-  const provider = health.provider;
-  const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && !!provider && authorizationStoreReady;
+  const providerConfigured = modalConfigured(env);
+  // Capabilities is read-only. Defer the billable live health probe until submit,
+  // after the exact plan's one-use human authorization has been verified.
+  const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady;
   return {
     schema_version: 2,
     status: "ok",
-    human_summary: available ? "Modalの固定CPU実行経路が利用可能です。Sandbox使用料が発生し、利用可能なクレジットがあれば充当されます。" : "Modal実行経路は未設定または停止中です。登録済み実験の実行はできません。",
-    machine_state: { available, provider_ready: !!provider, provider_health_checks: health.checks, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: 30, max_inflight: 1, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(30), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: provider?.image_fingerprint || null },
-    blocking_reason: available ? null : (!authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" : (!modalConfigured(env) ? "MODAL_PROVIDER_NOT_CONFIGURED" : (!provider ? "MODAL_PROVIDER_HEALTHCHECK_FAILED" : "CPU_WORKLOAD_ADMISSION_DISABLED"))),
+    human_summary: available ? "Modalの固定CPU実行設定が有効です。実際の接続確認はplan確認後の送信時に行います。Sandbox使用料が発生し、利用可能なクレジットがあれば充当されます。" : "Modal実行経路は未設定または停止中です。登録済み実験の実行はできません。",
+    machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: 30, max_inflight: 1, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(30), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
+    blocking_reason: available ? null : (!authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" : (!providerConfigured ? "MODAL_PROVIDER_NOT_CONFIGURED" : "CPU_WORKLOAD_ADMISSION_DISABLED")),
     providers: [{ id: "modal_cpu", enabled: available, free: false, paid: true, credit_eligible: true }],
     workloads: [{ id: WORKLOAD, enabled: available, requires_gpu: false, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(30), image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST || null }],
     paid_execution: "parked",

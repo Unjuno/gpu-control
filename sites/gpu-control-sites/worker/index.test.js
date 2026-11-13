@@ -241,7 +241,7 @@ test("Site confirmation binds one exact plan to the authenticated owner and cons
   assert.equal(authorizations.size, 1);
 });
 
-test("Modal response bodies are byte-bounded and cancelled as soon as the limit is exceeded", async () => {
+test("read-only capabilities do not call Modal", async () => {
   const env = environment({ admission: "true" });
   env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";
   env.MODAL_API_URL = "https://modal.invalid";
@@ -249,6 +249,39 @@ test("Modal response bodies are byte-bounded and cancelled as soon as the limit 
   env.MODAL_PROXY_TOKEN_SECRET = "ws-" + "s".repeat(16);
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
   env.BUCKET = { put: async () => {} };
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  try {
+    globalThis.fetch = async () => { providerCalls++; throw new Error("read-only capabilities must not call Modal"); };
+    const result = await capabilities(env);
+    assert.equal(result.machine_state.provider_ready, null);
+    assert.equal(result.machine_state.provider_configured, true);
+    assert.deepEqual(result.machine_state.provider_health_checks, { configured: true, deferred_until_authorized_submit: true });
+    assert.equal(result.machine_state.available, true);
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("authorized submission still bounds and cancels oversized Modal health responses", async () => {
+  const env = environment({ admission: "true" });
+  env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";
+  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
+  env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  const fingerprint = "e".repeat(64);
+  const runId = "c".repeat(32);
+  env.DB.prepare = (sql) => ({ bind() { return { first: async () => {
+    if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return null;
+    if (sql.includes("FROM human_authorizations")) return { id: "a".repeat(32), fingerprint,
+      expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
+    return null;
+  } }; } });
+  let batchCalls = 0;
+  env.DB.batch = async () => { batchCalls++; throw new Error("unhealthy provider must not reserve a run"); };
   const originalFetch = globalThis.fetch;
   let cancelCalls = 0;
   try {
@@ -259,23 +292,19 @@ test("Modal response bodies are byte-bounded and cancelled as soon as the limit 
       },
       cancel() { cancelCalls++; },
     }));
-    const result = await capabilities(env);
-    assert.equal(result.machine_state.provider_ready, false);
+    const response = await toolCall(env, "test-owner", "experiment_submit", { run_id: runId, plan_fingerprint: fingerprint });
+    const rpc = await response.json();
+    const result = JSON.parse(rpc.result.content[0].text);
+    assert.equal(rpc.result.isError, false);
+    assert.equal(result.status, "blocked");
     assert.equal(cancelCalls, 1);
-
-    globalThis.fetch = async () => new Response(new ReadableStream({
-      start(controller) { controller.enqueue(new TextEncoder().encode("x".repeat(8193))); },
-      cancel() { cancelCalls++; },
-    }), { headers: { "content-length": "8193" } });
-    const declaredSizeResult = await capabilities(env);
-    assert.equal(declaredSizeResult.machine_state.provider_ready, false);
-    assert.equal(cancelCalls, 2);
+    assert.equal(batchCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("health can be verified while Modal admission remains disabled", async () => {
+test("capabilities reports configured Modal without a health probe while admission remains disabled", async () => {
   const env = environment();
   env.MODAL_API_URL = "https://modal.invalid";
   env.MODAL_PROXY_TOKEN_ID = "wk-" + "t".repeat(16);
@@ -284,19 +313,11 @@ test("health can be verified while Modal admission remains disabled", async () =
   env.BUCKET = { put: async () => {} };
   const originalFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async (_url, init) => {
-      assert.equal(new Headers(init.headers).get("modal-key"), env.MODAL_PROXY_TOKEN_ID);
-      assert.equal(new Headers(init.headers).get("modal-secret"), env.MODAL_PROXY_TOKEN_SECRET);
-      return Response.json({ ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
-        source_sha: sourceSha, registered_image_digest: imageDigest,
-        image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT, max_runtime_seconds: 30 });
-    };
+    globalThis.fetch = async () => { throw new Error("capabilities must defer provider health"); };
     const result = await capabilities(env);
-    assert.equal(result.machine_state.provider_ready, true);
-    assert.deepEqual(result.machine_state.provider_health_checks, {
-      configured: true, ready: true, provider: true, workload: true,
-      registered_image_digest: true, image_fingerprint: true, max_runtime_seconds: true, source_sha: true,
-    });
+    assert.equal(result.machine_state.provider_ready, null);
+    assert.equal(result.machine_state.provider_configured, true);
+    assert.deepEqual(result.machine_state.provider_health_checks, { configured: true, deferred_until_authorized_submit: true });
     assert.equal(result.machine_state.admission_enabled, false);
     assert.equal(result.machine_state.available, false);
     assert.equal(result.machine_state.free, false);
@@ -311,7 +332,7 @@ test("health can be verified while Modal admission remains disabled", async () =
   }
 });
 
-test("Modal health requests survive cold starts longer than the former five-second timeout", async () => {
+test("capabilities avoids Modal cold starts", async () => {
   const env = environment();
   env.MODAL_API_URL = "https://modal.invalid";
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
@@ -321,15 +342,11 @@ test("Modal health requests survive cold starts longer than the former five-seco
 
   const originalFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 6300));
-      return Response.json({ ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
-        source_sha: sourceSha, registered_image_digest: imageDigest,
-        image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT, max_runtime_seconds: 30 });
-    };
+    let providerCalls = 0;
+    globalThis.fetch = async () => { providerCalls++; throw new Error("capabilities must not contact Modal"); };
     const result = await capabilities(env);
-    assert.equal(result.machine_state.provider_ready, true);
-    assert.equal(result.machine_state.provider_health_checks.ready, true);
+    assert.equal(result.machine_state.provider_ready, null);
+    assert.equal(providerCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
