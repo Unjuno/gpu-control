@@ -30,4 +30,10 @@ const costCeilingMigration = readFileSync(join(root, ".openai/drizzle/0004_sandb
 assert.match(costCeilingMigration, /max_cost_usd TEXT NOT NULL CHECK \(max_cost_usd IN \('0\.00', '0\.01'\)\)/);
 assert.match(costCeilingMigration, /SELECT[\s\S]*max_cost_usd[\s\S]*FROM plans/);
 assert.match(costCeilingMigration, /PRAGMA foreign_key_check/);
+assert.ok(migrations.includes("0005_human_plan_authorization.sql"));
+const humanAuthorizationMigration = readFileSync(join(root, ".openai/drizzle/0005_human_plan_authorization.sql"), "utf8");
+assert.match(humanAuthorizationMigration, /CREATE TABLE authorization_challenges/);
+assert.match(humanAuthorizationMigration, /CREATE TABLE human_authorizations/);
+assert.match(humanAuthorizationMigration, /plan_id TEXT NOT NULL UNIQUE REFERENCES plans\(id\)/);
+assert.match(humanAuthorizationMigration, /CHECK \(expires_at - authorized_at <= 900\)/);
 console.log("Site Worker artifact is complete.");

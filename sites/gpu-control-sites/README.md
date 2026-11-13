@@ -68,6 +68,22 @@ Sandbox CPU/memory only.
 Control-function charges are separate and remain governed by the account-level
 Workspace usage limit.
 
+### Candidate source change: exact-plan browser confirmation
+
+The PR #68 candidate adds `/authorize` to the Sites Worker. `experiment_prepare`
+returns a link showing the exact inference inputs and cost caveat; the signed-in
+owner confirms that exact plan in the Site, and the Worker persists a one-use,
+short-lived D1 authorization. `experiment_submit` checks it before Modal calls
+and consumes it in the D1 reservation batch. The confirmation page is
+same-origin, owner-scoped, CSRF-challenged, and non-cacheable. It records an
+authenticated Site browser form submission; it does not cryptographically
+prove a human operated the browser.
+
+This candidate is not included in deployed Site Version 28. Its D1 migration,
+published Worker version, current ChatGPT tool refresh, browser confirmation,
+and separate-account denial all remain unverified. Keep admission disabled
+until those checks and the required reviews pass.
+
 ## Target execution architecture
 
 The Site remains the only ChatGPT-facing product and control plane. Modal is the
@@ -76,7 +92,8 @@ separate authorization, pricing, availability, result-integrity, and cleanup
 gates. D1/R2 lifecycle data must be preserved through the transition.
 
 ```text
-ChatGPT -> public Sites MCP Worker (authenticated stateful tools) -> D1/R2
+ChatGPT -> Sites MCP Worker -> owner-scoped D1/R2
+                    -> exact-plan Sites confirmation page -> one-use D1 authorization
                                     -> authenticated Modal function
                                     -> Runpod only after live gates pass
 ```

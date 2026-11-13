@@ -48,6 +48,7 @@ provide model compute. Compute remains an explicitly configured provider.
 ```text
 ChatGPT
   -> public ChatGPT Site MCP Worker (authenticated owner-scoped operations)
+       -> exact-plan, owner-authenticated Site confirmation before paid submit
        -> D1: owner-bound plans, executions, idempotency, lifecycle
        -> R2: bounded result artifacts
        -> Modal: fixed registered function, authenticated, async submit/collect
@@ -130,10 +131,17 @@ ChatGPT
 - First live probe must be CPU-only, one invocation, a short runtime, and within
   the account's current cap. Record observed usage before considering another
   call.
+- Before any provider health or submit call for a plan, show its exact inputs
+  and cost caveats on the owner-authenticated Site confirmation page. Persist a
+  short-lived, exact-fingerprint authorization and consume it atomically with
+  run reservation. Reject missing, expired, replayed, cross-owner, and
+  mismatched approvals. A browser confirmation event is not cryptographic proof
+  of manual interaction; retain that limitation in the product and review.
 - Completion: an actual ChatGPT conversation prepares, submits, observes,
   retrieves, and verifies a result through Sites → Modal → Sites/D1/R2, and the
   Modal invocation reaches a terminal state with no lingering compute. An
-  anonymous request is rejected, and a second authenticated user cannot read,
+  exact-plan confirmation is required once; an anonymous request is rejected,
+  and a second authenticated user cannot read,
   cancel, or retrieve the first user's run. The second user's own ChatGPT
   process must discover/install/connect the plugin and complete the same flow.
 
@@ -168,11 +176,13 @@ ChatGPT
 1. Sites Version 28 and the live Modal app remain on the old fingerprint
    `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`.
    PR #68's diagnostic candidate computes
-   `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560` and is
-   not deployed. Current health checks pass, but admission is disabled and the
-   latest Modal run failed with exit code 2 despite confirmed cleanup. Deploy,
-   align the Site fingerprint, recheck current spend limits, and obtain a new
-   exact-run authorization before another one-run canary.
+   `0fc60d1890c26a646330a0d848750a0dedc03ff8a56a6e6dd214dba1e3471560`; the
+   current exact-plan confirmation implementation is source-only and not
+   deployed. Admission remains disabled. The latest Modal run failed with exit
+   code 2 despite confirmed cleanup. Required next evidence is exact-head
+   security review and CI, applying/verifying D1 migration 0005, publishing and
+   refreshing the Site plugin, a ChatGPT owner confirmation flow, separate-user
+   denial, a refreshed spend snapshot, and a newly authorized bounded canary.
 2. The local Runner is retired. Mock coverage now includes duplicate submit,
    ambiguous response, timeout, cancellation/result race, and D1/R2 write
    failures. Live forced restart, lease-expiry reconciliation, cross-account
@@ -379,3 +389,28 @@ ChatGPT
   exact-head GitHub checks, P0 repository-wide security review, Modal inference
   success, or RunPod Sites/GPU acceptance. Production Modal admission remains
   disabled; repository mode remains `parked`.
+
+## Continuation refresh — 2026-11-13 03:28 UTC
+
+- PR #68 remains an open Draft at exact head
+  `325601324bff0a8dc8a25f9191e66af66b8e367e`. Its exact-head CI and bridge
+  checks passed in runs `43270977339` and `43270977373`; the PR body now includes
+  the completed source-only Codex Security diff review and its one conditional
+  P3 finding. No provider call or deployment occurred.
+- Implemented an owner-authenticated Site confirmation page for the exact
+  Modal CPU plan, a D1 short-lived challenge and one-use authorization record,
+  pre-provider authorization checks, and atomic consumption with run
+  reservation. Confirmation events are not cryptographic proof of manual
+  browser interaction. The new migration and Worker source remain unpublished.
+- Local validation: 27 Sites Worker tests, Worker artifact build/validation,
+  `git diff --check`, and fresh SQLite application of migrations 0000–0005 with
+  clean foreign-key checks passed. Exact-head CI and security review for these
+  new edits are not yet available.
+- Remaining: push this source update; complete the exact-change security review
+  and CI; finish the repository-wide P0 audit after reconnecting with a managed
+  read-only filesystem profile; obtain independent PR review; then apply the
+  D1 migration and publish only with admission disabled. Verify the actual
+  ChatGPT owner confirmation and separate-account denial before rechecking
+  spend and requesting a new one-run authorization. The last Modal run still
+  failed with exit code 2 and cleanup confirmed. RunPod/GPU and paid execution
+  remain parked, so the overall goal is incomplete.

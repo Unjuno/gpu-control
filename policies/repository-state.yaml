@@ -79,6 +79,12 @@ modal_cpu_smoke_exception:
     explicit_current_human_request_required: true
     authenticated_sites_owner_required: true
     exact_plan_fingerprint_required: true
+    same_origin_sites_confirmation_page_required: true
+    confirmation_validity_seconds_at_most: 600
+    authorization_consumed_atomically_with_run_reservation: true
+    max_runs_per_authorization: 1
+    provider_health_and_submit_calls_forbidden_before_confirmation: true
+    browser_confirmation_is_not_cryptographic_manual_interaction_proof: true
   credentials:
     allow_existing_sites_modal_proxy_secret: true
     allow_temporary_workspace_deploy_token: true
