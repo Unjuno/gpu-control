@@ -192,7 +192,7 @@ Unknown or expired price, missing provider-resource identity, missing policy dat
 
 ## Provider API contract and lifecycle
 
-The current RunPod implementation uses REST v2. The official OpenAPI and catalog contract were checked on 2026-11-12; the observed contract and offline implementation mapping are recorded in `policies/runpod-v2-policy.yaml`. This establishes offline contract alignment only, not live account behavior, pricing, inventory, result collection, or cleanup. Before the first live provider call, revalidate the official contract and the dated policy evidence, then complete the separate account, authorization, result, and cleanup gates. REST v1 is legacy and must not be used for live calls. Live use must not be enabled by changing policy booleans alone.
+The current RunPod implementation uses REST v2. The official OpenAPI and catalog contract were rechecked on 2026-11-13; the observed contract and offline implementation mapping are recorded in `policies/runpod-v2-policy.yaml`. This establishes offline contract alignment only, not live account behavior, pricing, inventory, result collection, or cleanup. Before the first live provider call, revalidate the official contract and the dated policy evidence, then complete the separate account, authorization, result, and cleanup gates. REST v1 is legacy and must not be used for live calls. Live use must not be enabled by changing policy booleans alone.
 
 Once paid provider integration is enabled, any created resource must be cleaned up on normal completion, failure, timeout, cancellation where possible, and provider/API errors after allocation.
 
