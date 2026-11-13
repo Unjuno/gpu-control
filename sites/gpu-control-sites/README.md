@@ -84,6 +84,15 @@ published Worker version, current ChatGPT tool refresh, browser confirmation,
 and separate-account denial all remain unverified. Keep admission disabled
 until those checks and the required reviews pass.
 
+PR #68 also changes the Modal workload Dockerfile from an `ENTRYPOINT` to a
+default `CMD`. Modal's Sandbox command overrides `CMD` but does not replace an
+image `ENTRYPOINT`; the previous image could therefore bypass the fixed
+privilege-dropping bootstrap and hit the non-root guard as UID 0. This source
+correction requires a rebuilt OCI digest and image fingerprint before the new
+Modal app and Sites environment can pass readiness. It has not been deployed or
+retested in Modal. See
+[`docs/acceptance/2026-11-13-modal-entrypoint-root-cause.md`](../../docs/acceptance/2026-11-13-modal-entrypoint-root-cause.md).
+
 ## Target execution architecture
 
 The Site remains the only ChatGPT-facing product and control plane. Modal is the

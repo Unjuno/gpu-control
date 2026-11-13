@@ -76,6 +76,14 @@ class SandboxBootstrapTests(unittest.TestCase):
         self.assertIn("os.setgroups([])", command[3])
         self.assertIn("os.setgid(10001)", command[3])
         self.assertIn("os.setuid(10001)", command[3])
+        workload_root = MODAL_DIR.parent / "workloads" / "tiny_stories_inference"
+        dockerfile = (workload_root / "Dockerfile").read_text(encoding="utf-8")
+        app_source = (MODAL_DIR / "app.py").read_text(encoding="utf-8")
+        self.assertIn('CMD ["python", "-I", "/work/inference.py"]', dockerfile)
+        self.assertNotIn("ENTRYPOINT", dockerfile)
+        self.assertIn("*SANDBOX_ENTRYPOINT", app_source)
+        self.assertIn('"image_cmd": ["python", "-I", "/work/inference.py"]', app_source)
+        self.assertIn('"sandbox_command": list(SANDBOX_ENTRYPOINT)', app_source)
 
     def test_modal_api_image_uses_hash_locked_framework_dependencies(self) -> None:
         requirements = (MODAL_DIR / "requirements.txt").read_text(encoding="utf-8")

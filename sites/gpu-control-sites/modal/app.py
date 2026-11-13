@@ -32,7 +32,7 @@ MAX_STDERR_BYTES = 2048
 RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 SHA64_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
-# Modal ignores Dockerfile USER and launches the image entrypoint as root.
+# Modal ignores Dockerfile USER and starts Sandbox commands as root.
 # Drop privileges in this fixed bootstrap before executing the pinned workload.
 SANDBOX_ENTRYPOINT = sandbox_entrypoint()
 
@@ -78,8 +78,8 @@ def workload_image_fingerprint() -> str:
         "model_id": MODEL_ID,
         "model_sha256": MODEL_SHA256,
         "tokenizer_sha256": TOKENIZER_SHA256,
-        "entrypoint": ["python", "-I", "/work/inference.py"],
-        "sandbox_entrypoint": list(SANDBOX_ENTRYPOINT),
+        "image_cmd": ["python", "-I", "/work/inference.py"],
+        "sandbox_command": list(SANDBOX_ENTRYPOINT),
         "preflight_exit_code_map": {
             str(code): diagnostic for code, diagnostic in sorted(preflight_exit_code_map().items())
         },
