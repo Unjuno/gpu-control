@@ -28,6 +28,9 @@
   from this change.
 - Full deployment evidence and the exact remaining acceptance are recorded in
   [`Sites Version 30 acceptance`](acceptance/2026-11-13-sites-v30-modal-health-diagnostic.md).
+- A follow-up failure-path regression now also proves a D1 limiter-write error
+  prevents any Modal request. The worker suite is **33/33** after this addition;
+  this changes tests only and does not alter the deployed Worker archive.
 
 ## Modal candidate deployment update — 2026-11-13
 

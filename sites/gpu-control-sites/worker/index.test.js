@@ -207,6 +207,30 @@ test("Modal health diagnostic reports auth/config failure without starting a San
   }
 });
 
+test("Modal health diagnostic fails closed when the global call budget cannot be reserved", async () => {
+  const env = environment();
+  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  env.DB.prepare = (sql) => ({
+    bind() { return { run: async () => { if (sql.includes("modal_health_check_limits")) throw new Error("D1 unavailable"); } }; },
+  });
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", {});
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.blocking_reason, "MODAL_HEALTH_CHECK_LIMIT_UNAVAILABLE");
+    assert.equal(result.machine_state.sandbox_started, false);
+    assert.equal(called, false, "D1 budget reservation failure must prevent Modal access");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("authenticated users outside the configured owner allowlist cannot touch D1", async () => {
   const env = environment();
   let databaseReads = 0;
