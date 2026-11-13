@@ -19,8 +19,8 @@ charges are separate. No payment method or temporary API token was added.
 Modal's documentation explains that usage budgets apply before credits and
 that net spend limits are separate; keep the Workspace limit unchanged.
 
-PR #68 remains Draft. Its preceding head had all six CI checks passing. The
-full repository P0 scan still needs the managed read-only profile;
+PR #68 remains Draft. The preceding head `3e31de5` passed all six CI checks.
+The full repository P0 scan still needs the managed read-only profile;
 cross-account denial and image digest reconciliation remain open. No provider
 run has been started in this refresh.
 

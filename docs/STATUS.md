@@ -45,9 +45,9 @@
   [Modal billing](https://modal.com/docs/guide/billing).
 - Modal's API-token inventory is empty; the named main-environment Proxy Token
   remains available to the Site. No temporary Workspace API token is retained.
-- PR #68 remains open and Draft. The preceding exact-head had all six CI checks
-  passing; this documentation-only update will be checked separately. The D1
-  migration test now includes migration 0008.
+- PR #68 remains open and Draft. CI reruns on each push; preceding head
+  `3e31de5` passed all six checks. The D1 migration test includes migration
+  0008.
 - Security diff review of this change found no source-level candidate
   vulnerability. Coverage is partial: live Sites identity-header provenance,
   cross-account denial, provider image/readiness, payment limits, and the

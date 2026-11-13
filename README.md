@@ -48,8 +48,8 @@ user ID against the owner allowlist. Cross-account denial has not been
 independently verified. Sites Version 32 is live at environment revision 34;
 CPU admission is enabled, with exact-plan one-use owner confirmation and a
 Modal readiness preflight before submission. No successful inference is yet
-accepted. PR #68 remains an open Draft; its latest pushed head's CI passes, but
-the PR is not merged.
+accepted. PR #68 remains an open Draft. Each push triggers CI; the preceding
+head `3e31de5` passed all six checks, but the PR is not merged.
 Historical ChatGPT CPU successes used the retired local Runner and do not
 prove current Modal readiness. The latest Modal attempts failed with exit
 code 2 and confirmed cleanup. The old local Runner and Keychain credentials
