@@ -22,7 +22,16 @@
 - `uv sync --locked --extra dev --offline` — passed.
 - `uv run --locked --offline pytest -q` — **573 passed, 1 skipped**.
 
-These checks are local. CI under its pinned uv `0.10.0` and an independent
-security review of this exact patch remain pending. This change does not alter
-Sites deployment, provider configuration, RunPod admission, or paid-execution
-policy.
+The local checks passed. CI under its pinned uv `0.10.0` and a Codex Security
+diff review of this exact patch passed at code commit
+`cc076b8157d467e985f0ef0f550b8c42bc2bf85f`:
+
+- GitHub CI run `43381726975`: Python 3.11, 3.12, 3.13, Sites Worker and D1
+  contract, and Trusted reference container all passed.
+- Project bridge tests run `43381726868` passed.
+- Exact-range Codex Security diff scan `6d1a4697-bbd5-4526-83c5-f2f78c3c1ca6`
+  reported zero findings across four reviewed surfaces.
+
+The scan is limited to this build-tooling diff. It does not replace the
+repository-wide P0 audit, and this change does not establish Sites deployment,
+provider configuration, RunPod admission, or paid-execution acceptance.
