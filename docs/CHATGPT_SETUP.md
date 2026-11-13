@@ -30,7 +30,10 @@ and [`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-g
 2. Install or connect the Site's generated `gpu-control` plugin when ChatGPT
    offers the plugin card.
 3. In a ChatGPT conversation, select or mention `gpu-control` and call
-   `experiment_capabilities` before preparing a run.
+   `experiment_capabilities` before preparing a run. The owner-only
+   `experiment_provider_health` diagnostic checks the authenticated Modal
+   endpoint and image identity without starting inference or a Sandbox; Modal
+   control-function charges may apply separately from the Sandbox ceiling.
 4. Prepare only the advertised fixed workload and review its exact source,
    usage estimate, and `$0.01` Sandbox-only ceiling. Modal control-function
    calls are billed separately. Credits are not a zero-cost guarantee. Submit

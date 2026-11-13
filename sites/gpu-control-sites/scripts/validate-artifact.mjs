@@ -43,4 +43,8 @@ assert.match(accountLeaseMigration, /PRIMARY KEY \(provider, account_scope_sha25
 assert.match(accountLeaseMigration, /state IN \('reserved', 'submitting', 'uncertain', 'active', 'cleanup_pending', 'released'\)/);
 assert.match(accountLeaseMigration, /provider_account_leases_one_active_per_run/);
 assert.doesNotMatch(accountLeaseMigration, /lease_expires_at/);
+assert.ok(migrations.includes("0007_modal_health_check_limit.sql"));
+const healthLimitMigration = readFileSync(join(root, ".openai/drizzle/0007_modal_health_check_limit.sql"), "utf8");
+assert.match(healthLimitMigration, /scope TEXT PRIMARY KEY CHECK \(scope = 'workspace'\)/);
+assert.match(healthLimitMigration, /last_checked_at INTEGER NOT NULL CHECK/);
 console.log("Site Worker artifact is complete.");

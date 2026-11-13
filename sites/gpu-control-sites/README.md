@@ -28,6 +28,11 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   explicitly authorized submission. The live D1 overview lists the
   `authorization_challenges` and `human_authorizations` tables plus
   `provider_account_leases` and `provider_account_lease_events`.
+- The current PR candidate adds an owner-authenticated `experiment_provider_health`
+  tool to test Modal credentials, readiness, and registered image identity
+  without inference or Sandbox creation. Calls may incur separate Modal control
+  function charges and use a D1-backed workspace-wide 60-second cooldown. Its
+  D1 migration and tool are not live until the candidate is published.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
 - Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
   in `main` from PR #68 head `496e28c`. The corrected API image built and

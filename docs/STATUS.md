@@ -1,5 +1,22 @@
 # Project status
 
+## Authenticated Modal health diagnostic candidate — 2026-11-13
+
+- Added the owner-allowlisted `experiment_provider_health` MCP operation. It
+  makes an authenticated GET to Modal `/v1/health`, compares readiness, source,
+  workload, digest, fingerprint and runtime limit, and explicitly reports that
+  no Sandbox or inference was started. Its description discloses separately
+  billed control-function requests; the MCP annotation does not mislabel this
+  billable/stateful diagnostic as read-only or idempotent.
+- A D1 atomic workspace-wide cooldown permits at most one health request per
+  60 seconds. Migration `0007_modal_health_check_limit.sql` adds one shared
+  limiter row without storing user IDs. D1 migration replay passed, Site Worker
+  tests passed **32/32**, and Site build plus packaged-artifact validation
+  succeeded. `git diff --check` passed.
+- This is still an unpushed/unpublished candidate at this point. Production
+  remains Sites Version 29 with admission disabled and old image identity
+  settings; no health request or Sandbox has been sent from this change.
+
 ## Modal candidate deployment update — 2026-11-13
 
 - PR #68 head `496e28cdb1b257c2a508e56a11fcdb07f6aa8028` is deployed to

@@ -47,6 +47,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0004_sandbox_cost_ceiling.sql",
         "0005_human_plan_authorization.sql",
         "0006_runpod_account_leases.sql",
+        "0007_modal_health_check_limit.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -110,6 +111,9 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     ]
     assert original_plan[0] == "plan-existing"
     assert original_heartbeat[0] == "retired-runner"
+    assert db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='modal_health_check_limits'"
+    ).fetchone()[0].find("scope TEXT PRIMARY KEY CHECK (scope = 'workspace')") >= 0
 
     tables = {
         row[0]

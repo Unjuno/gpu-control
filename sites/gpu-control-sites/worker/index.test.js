@@ -8,6 +8,7 @@ const sourceSha = "b".repeat(40);
 const siteOrigin = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 function environment({ heartbeatAt, admission = "false", heartbeatDigest = imageDigest, heartbeatSha = sourceSha, cancellationProtocol = 1 } = {}) {
+  const healthLimit = new Map();
   const heartbeat = heartbeatAt === undefined ? null : {
     last_seen_at: heartbeatAt,
     image_digest: heartbeatDigest,
@@ -23,7 +24,23 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
     DB: {
       prepare(sql) {
         const row = sql.includes("sqlite_master") ? { name: "human_authorizations" } : heartbeat;
-        return { first: async () => row, bind() { return { first: async () => row }; } };
+        return {
+          first: async () => row,
+          bind(...values) {
+            return {
+              first: async () => row,
+              run: async () => {
+                if (!sql.includes("modal_health_check_limits")) return { meta: { changes: 1 } };
+                const [now, threshold] = values;
+                const prior = healthLimit.get("workspace");
+                if (prior !== undefined && prior > threshold) return { meta: { changes: 0 } };
+                healthLimit.set("workspace", now);
+                return { meta: { changes: 1 } };
+              },
+            };
+          },
+          run: async () => ({ meta: { changes: 1 } }),
+        };
       },
     },
   };
@@ -116,6 +133,78 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   assert.deepEqual(tools.experiment_cancel, {
     readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
   });
+  assert.deepEqual(tools.experiment_provider_health, {
+    readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
+  });
+});
+
+test("Modal health diagnostic is owner-scoped and performs only an authenticated GET", async () => {
+  const env = environment();
+  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async (url, init) => {
+    called = true;
+    assert.equal(url, "https://modal.example.test/v1/health");
+    assert.equal(init.method, "GET");
+    assert.equal(init.body, undefined);
+    assert.equal(init.headers["Modal-Key"], env.MODAL_PROXY_TOKEN_ID);
+    assert.equal(init.headers["Modal-Secret"], env.MODAL_PROXY_TOKEN_SECRET);
+    return new Response(JSON.stringify({
+      ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
+      registered_image_digest: imageDigest, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT,
+      max_runtime_seconds: 30, source_sha: sourceSha,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const denied = await toolCall(env, "other-owner", "experiment_provider_health", {});
+    const deniedValue = JSON.parse((await denied.json()).result.content[0].text);
+    assert.deepEqual(deniedValue, { error: "SITE_USER_NOT_AUTHORIZED" });
+    assert.equal(called, false, "unauthorized caller must not reach Modal");
+
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", {});
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.status, "ok");
+    assert.equal(result.machine_state.ready, true);
+    assert.equal(result.machine_state.sandbox_started, false);
+    assert.equal(result.machine_state.inference_started, false);
+    assert.equal(result.machine_state.control_function_cost_included_in_sandbox_ceiling, false);
+    assert.equal(called, true);
+    assert.equal(JSON.stringify(result).includes(env.MODAL_PROXY_TOKEN_SECRET), false);
+
+    const limitedResponse = await toolCall(env, "test-owner", "experiment_provider_health", {});
+    const limited = JSON.parse((await limitedResponse.json()).result.content[0].text);
+    assert.equal(limited.blocking_reason, "MODAL_HEALTH_CHECK_RATE_LIMITED");
+    assert.equal(called, true, "rate limited repeat must not call Modal");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Modal health diagnostic reports auth/config failure without starting a Sandbox", async () => {
+  const env = environment();
+  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("unauthorized", { status: 401 });
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", {});
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.machine_state.ready, false);
+    assert.equal(result.machine_state.checks.request_succeeded, false);
+    assert.equal(result.machine_state.sandbox_started, false);
+    assert.equal(result.machine_state.inference_started, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("authenticated users outside the configured owner allowlist cannot touch D1", async () => {
