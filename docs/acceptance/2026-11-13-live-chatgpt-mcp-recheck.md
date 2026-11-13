@@ -56,3 +56,41 @@ ChatGPT plugin and an anonymous HTTP rejection. It does not verify a separate
 ChatGPT identity, the production exact-plan confirmation flow, Modal inference
 success, fresh spend controls, or RunPod/GPU execution. No new compute was
 authorized or started.
+
+## Follow-up recheck — 2026-11-13 08:23 UTC
+
+The current Sites and connected ChatGPT state was read again after the exact-
+HEAD P0 scan:
+
+- The Site remains active at Version 28, public access mode, with production
+  environment revision 32. No runtime values were exposed or changed. The
+  live deployment still points to source `237c0bed24277cf7c808f8c0e9946c71d517288c`,
+  which is absent from `Unjuno/gpu-control`; the current candidate remains
+  separate from the deployed Worker.
+- The authenticated ChatGPT plugin returned capabilities with
+  `provider_ready=true`, `admission_enabled=false`,
+  `CPU_WORKLOAD_ADMISSION_DISABLED`, and `paid_execution=parked`. No submit or
+  prepare call was made in this follow-up.
+- `experiment_list` returned the owner's runs. The newest run,
+  `e9330c5bb5454f42bb3dabe058091dc0`, is failed with
+  `MODAL_WORKLOAD_EXIT_2`, confirmed cleanup, and no result artifact. The
+  latest retrieved successful run,
+  `eacc26ff2ad54cf69a1ee7665325b197`, contains a checksum-validated
+  TinyStories CPU result and `cleanup_state=confirmed`; its result explicitly
+  reports `gpu_used=false`. This is historical success evidence, not proof
+  that the current source is deployed or that execution is presently enabled.
+- A raw unauthenticated POST carrying a forged
+  `oai-authenticated-user-id: attacker-probe-20261113` header received HTTP
+  401 and a Bearer `WWW-Authenticate` challenge at the Sites edge. This shows
+  that an unauthenticated public request cannot reach the Worker with that
+  header. It does not prove how the edge handles a forged header on an already
+  authenticated request, so the conditional owner-header finding remains
+  open pending a valid-authenticated spoof test or an authoritative edge
+  contract.
+- These were read-only probes. No D1 writes, environment updates, deployments,
+  provider requests, or compute occurred.
+
+The updated candidate still has not been applied to the separate Sites source
+repository or deployed. Keep production admission closed until exact-plan
+authorization, source provenance, the additive migration, and the matching
+Modal image are deployed and verified together.
