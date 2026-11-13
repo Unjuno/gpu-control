@@ -17,7 +17,7 @@
   ready, and admission enabled.
 - An exact bounded plan was prepared (`run_id` `851a10287ace484d8f4fb404cd2d5795`;
   TinyStories 15M; prompt `Once`; 1 token; seed 61112; 30 seconds; CPU only;
-  Sandbox estimate `$0.0013`, Sandbox ceiling `$0.01`). It expires at
+  Sandbox estimate `$0.0013`, Sandbox ceiling `$0.01`). It expired at
   `2026-11-13T13:05:50Z`. Browser sign-in was not completed, no owner approval
   was recorded, and no provider health call or Sandbox was started. A status
   lookup returned `RUN_NOT_FOUND`, consistent with no submitted run.
@@ -28,8 +28,18 @@
 - The Sites connector can read capabilities in this ChatGPT conversation, but
   the embedded browser opened a separate OpenAI login page. Complete the
   account sign-in there, then prepare a fresh plan if this one has expired.
-  PR #68 remains Draft; this Site source commit is in the separate Site source
-  repository and is not yet represented in the GitHub PR candidate.
+  PR #68 is Draft, current head `b22732fd689767ba3401dff91afebdce5b54bf04`,
+  with all six checks passing. The PR contains the Site deployment evidence;
+  Site Worker source itself is maintained in the separate Site source repo.
+- Supplemental local security scans: Semgrep 1.161.0 scanned 276 tracked files
+  with 110 rules and reported one SHA-1 compatibility warning at
+  `project_control/runner.py:147`; the code reproduces GitHub Git-blob IDs with
+  `usedforsecurity=False`, not a signature. Gitleaks 8.30.1 reported five
+  generic-key matches: four pinned tokenizer SHA-256 constants (including a
+  generated bundle copy) and one forged authenticated-user-ID test example.
+  No credential was verified. These are current-tree checks, not the required
+  independent repository-wide Deep Security Scan or complete history audit.
+  See [local security scan](acceptance/2026-11-13-local-security-scans.md).
 
 ## Sites Version 32, environment revision 34, and current execution gates — 2026-11-13
 
