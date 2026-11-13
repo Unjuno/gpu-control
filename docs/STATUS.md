@@ -28,6 +28,9 @@
   three `TOKENIZER_SHA256` 64-character hex checksums and no verified provider
   credential. These scans cover the deployed source snapshot only and do not
   close the P0 audit.
+- Added a SQLite replay regression covering migrations 0000–0005 and synthetic
+  existing D1 rows; `uv run --locked pytest` passes 573 tests with 1 skipped.
+  This proves migration compatibility on local SQLite, not on live D1.
 - Repository-wide Codex Deep Scan and independent review remain incomplete.
   Local scans and green CI are not substitutes for either.
 

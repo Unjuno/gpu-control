@@ -21,6 +21,10 @@ whether the credentials are configured. No values were logged or changed.
   this Site, but is not a commit in `Unjuno/gpu-control`. The public Site and
   GitHub PR therefore have independent source histories; PR CI does not
   validate the currently deployed Worker.
+- Migrations `0000` through `0004` in the fetched live source are byte-identical
+  to the GitHub candidate. The deployed D1 table overview showed the expected
+  current tables plus no authorization tables, so candidate migration `0005`
+  is the missing additive schema step; no production migration was run.
 - Version 28 source `worker/index.js` returns `approval_required: false` from
   `experiment_prepare` and provides no exact-plan authorization URL. Its
   `experiment_submit` calls `providerHealth()` before checking admission and
@@ -47,6 +51,14 @@ whether the credentials are configured. No values were logged or changed.
   assigned to `TOKENIZER_SHA256` / `MODAL_TOKENIZER_SHA256` constants. These
   are fixed integrity checksums, not provider credentials. This narrow static
   scan is not a substitute for repository P0 review.
+- Added [`tests/test_sites_d1_migrations.py`](../../tests/test_sites_d1_migrations.py)
+  to replay all six migrations in an in-memory SQLite database. It starts with
+  synthetic pre-migration plan, failed-run, and retired-runner heartbeat rows,
+  confirms those rows survive migrations 0001–0004, creates the 0005 approval
+  tables, inserts valid approval records, and checks foreign-key integrity.
+  `uv run --locked pytest` passed 573 tests with 1 skipped. This verifies the
+  checked-in SQLite-compatible sequence against representative rows; it does
+  not mutate or prove the live D1 database.
 - The current GitHub candidate includes the human-authorization migration and
   approval checks, a Modal bootstrap module and dependency input, and the
   Dockerfile startup fix. Its Worker tests specifically require the exact-plan
