@@ -15,6 +15,10 @@
   ChatGPT `experiment_capabilities` operation currently reports the registered
   CPU workload available, provider configured, human-authorization storage
   ready, and admission enabled.
+- A direct public authorization-page request returned HTTP 401 both without
+  identity and with a forged `oai-authenticated-user-id` header. The edge did
+  not accept the caller-supplied identity. A genuinely separate signed-in
+  account denial check is still open.
 - An exact bounded plan was prepared (`run_id` `851a10287ace484d8f4fb404cd2d5795`;
   TinyStories 15M; prompt `Once`; 1 token; seed 61112; 30 seconds; CPU only;
   Sandbox estimate `$0.0013`, Sandbox ceiling `$0.01`). It expired at
@@ -41,7 +45,11 @@
   generated bundle copy) and one forged authenticated-user-ID test example.
   No credential was verified. These are current-tree checks, not the required
   independent repository-wide Deep Security Scan or complete history audit.
-  See [local security scan](acceptance/2026-11-13-local-security-scans.md).
+  Codex Security requires a managed read-only profile, unavailable in this
+  session. Daybreak had no existing repository environment and returned a
+  conflicting exhausted-credit status despite a displayed `$500` allowance;
+  no cloud scan was launched. See
+  [local security scan](acceptance/2026-11-13-local-security-scans.md).
 
 ## Sites Version 32, environment revision 34, and current execution gates — 2026-11-13
 

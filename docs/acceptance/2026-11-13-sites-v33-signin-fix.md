@@ -57,6 +57,13 @@ this is consistent with the prepared plan not having been submitted. The Worker
 source and regression test are mirrored in the GitHub PR branch; production
 publication still reads the separate Sites source repository.
 
+After Version 33 deployed, a direct public GET to `/authorize` without identity
+returned HTTP 401 and the new sign-in page. Repeating the same request with a
+forged `oai-authenticated-user-id` header also returned HTTP 401 with the same
+page and `Cache-Control: no-store`. This shows a client-supplied header alone
+does not establish Site identity at the edge. It does not replace a test from a
+genuinely separate signed-in Site account.
+
 ## Remaining acceptance
 
 - Complete ChatGPT browser sign-in and confirm that the exact plan page returns

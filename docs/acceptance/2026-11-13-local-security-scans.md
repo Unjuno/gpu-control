@@ -31,3 +31,11 @@ read-only worker: the parent must provide a managed filesystem permission
 profile.` No replacement scan was started. Repository-wide semantic audit,
 full-history secret validation, independent review, actual authenticated
 cross-account testing, and hosted provider acceptance remain open.
+
+Daybreak Defense Factory is connected to GitHub and its workflow is enabled,
+but its API listed no Cloud environment or existing workflow run for this
+repository. The New Scan UI could select `Unjuno/gpu-control` and offered an
+auto-created environment on Start Scan. The usage endpoint simultaneously
+reported an ineligible `credits_exhausted` state and `$500` remaining allowance.
+Because actual scan admission/cost was unclear, no cloud environment or scan
+was launched. The dashboard's empty finding summary is not a scan result.
