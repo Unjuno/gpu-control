@@ -44,9 +44,8 @@ def test_main_must_be_protected_before_live_paid_authorization() -> None:
         "Python 3.12",
         "Python 3.13",
         "Trusted reference container",
-        "Gateway offline tests",
-        "Gateway comment bridge tests",
         "Project bridge tests",
+        "Sites Worker and D1 contract",
     ]
     assert controls["force_pushes_forbidden"] is True
     assert controls["deletions_forbidden"] is True
