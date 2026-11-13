@@ -11,10 +11,9 @@ human-authorization tables are absent. Runtime configuration confirms
 Modal health request before admission checks. Modal secret values were not
 returned by the environment reader and remain unverified.
 
-PR #68 remains Draft with no independent review. Its current head is a
-documentation-only update; the prior full six-job run at
-`11f5f1148678092694569b55cfa58de139890ba9` passed, including the Sites
-Worker/D1 artifact contract and the root Python suite. A new in-memory SQLite replay test applies migrations
+PR #68 remains Draft with no independent review. The latest full six-job run
+passed, including the Sites Worker/D1 artifact contract and the root Python
+suite. The only subsequent updates are documentation. A new in-memory SQLite replay test applies migrations
 0000–0005 to synthetic pre-existing records and verifies old plan/run/heartbeat
 preservation, authorization table creation, and foreign-key integrity. It
 passes as part of `uv run --locked pytest` (573 passed, 1 skipped); it does not
