@@ -36,3 +36,14 @@ health request or Sandbox was started. The source-level mock tests do not prove
 the production Modal token works. Keep admission disabled until the connected
 ChatGPT tool list refreshes, the one bounded health diagnostic reports matching
 identity, and image digest/fingerprint reconciliation is complete.
+
+## Version 31 source README refresh
+
+The Site source README was corrected after Version 30 publication and published
+as Version 31 from source commit
+`7be42adca5306a7cd3d7ecd84718af47969dd9b0`. Its packaged Worker archive hash
+is unchanged from Version 30, and the deployment succeeded with MCP enabled.
+This did not change Worker behavior, environment revision, admission, or the
+health-diagnostic acceptance state above. An anonymous live `tools/list`
+request returned HTTP 401; the authenticated diagnostic has still not been
+called from the ChatGPT connector.

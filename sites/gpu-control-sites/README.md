@@ -5,8 +5,8 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Deployed Site version: 30, source commit
-  `b97c5ceaad1d509c262d66a07015f74bb4e17546`; current environment revision 32.
+- Deployed Site version: 31, source commit
+  `7be42adca5306a7cd3d7ecd84718af47969dd9b0`; current environment revision 32.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
 - Current ChatGPT capability evidence (2026-11-13; after Version 29 deploy):

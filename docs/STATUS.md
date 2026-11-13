@@ -14,13 +14,18 @@
   tests passed **32/32**, and Site build plus packaged-artifact validation
   succeeded. `git diff --check` passed.
 - The candidate is on GitHub PR #68 and deployed as Sites Version 30 from
-  Site-source commit `b97c5ceaad1d509c262d66a07015f74bb4e17546`. The deploy
-  succeeded with MCP enabled and environment revision 32. Live D1 now lists
+  Site-source commit `b97c5ceaad1d509c262d66a07015f74bb4e17546`; Version 31
+  then republished the corrected source README from
+  `7be42adca5306a7cd3d7ecd84718af47969dd9b0`. Both deploys succeeded with MCP
+  enabled and environment revision 32; Version 31 has the same packaged
+  Worker archive hash as Version 30. Live D1 now lists
   `modal_health_check_limits`; live admission remains false and the previously
   registered digest/fingerprint remain unchanged.
 - The existing ChatGPT GPU Control connector still exposes its prior tool
   schema in this session, so the new diagnostic has not yet been invoked through
-  ChatGPT. No Modal health call or Sandbox was started from this change.
+  ChatGPT. An anonymous public `tools/list` request received HTTP 401; no
+  authentication was fabricated. No Modal health call or Sandbox was started
+  from this change.
 - Full deployment evidence and the exact remaining acceptance are recorded in
   [`Sites Version 30 acceptance`](acceptance/2026-11-13-sites-v30-modal-health-diagnostic.md).
 
