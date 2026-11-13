@@ -1,5 +1,31 @@
 # Current operations: ChatGPT Sites + D1
 
+## Latest verified state — 2026-11-14
+
+The production Sites project is active at Version 33. ChatGPT owner-scoped
+capability and run-list calls succeed, and the Sites-to-Modal Proxy Token
+configuration remains present. The public Site URL does not enable anonymous
+execution: the Worker requires authenticated owner identity and exact-plan
+confirmation. A separate signed-in account denial test remains open.
+
+Sites environment revision 35 has `CPU_WORKLOAD_ADMISSION_ENABLED=false`.
+The provider is configured, but no new inference can be submitted while
+admission is closed. The live Site fingerprint is
+`53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`; the
+candidate fingerprint is
+`8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`. Deploy
+the reviewed Modal candidate and verify its authenticated health response and
+effective Sandbox limits before updating the Site fingerprint or reopening
+admission. The latest five Modal-origin runs failed with exit code 2; the
+newest cleanup is confirmed and no result artifact exists. Modal dashboard log
+filters returned no rows for the checked Sandbox and control call.
+
+The latest Modal usage view showed `$0.10` credits used, `$0` charges, a `$1`
+Workspace usage limit, and `$0.90` credits remaining. Modal execution is
+usage-billed: credit eligibility does not make it free, and the `$0.01` Sandbox
+ceiling excludes separately billed control-function calls. No billing setting
+was changed. RunPod/GPU and broader paid execution remain parked.
+
 ## Live release gate refresh — 2026-11-13 13:30 UTC
 
 Production Sites is Version 33 from source commit

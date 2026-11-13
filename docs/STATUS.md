@@ -1,5 +1,32 @@
 # Project status
 
+## Latest hosted state — 2026-11-14
+
+- ChatGPT Sites Version 33 is active at the published URL. The connected owner
+  account can read capabilities and owned run history; the persistent Modal
+  Proxy Token configuration is present. The Site is publicly reachable, while
+  the Worker still applies authenticated owner checks. Each experiment has a
+  separate exact-plan, one-use confirmation.
+- Sites environment revision 35 sets
+  `CPU_WORKLOAD_ADMISSION_ENABLED=false`. Capability reads report the Modal
+  provider configured and the authorization store ready, but execution is
+  unavailable while admission is closed.
+- The Site advertises Modal fingerprint
+  `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`; the
+  current candidate fingerprint is
+  `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`.
+  Candidate hard limits of CPU `(1.0, 1.0)` and memory `(512, 512)` are not
+  live-verified. Five latest Modal-origin attempts failed with
+  `MODAL_WORKLOAD_EXIT_2`; the newest has confirmed cleanup and no artifact.
+- Modal billing is usage-based. The current account view showed `$0.10` in
+  credits used, `$0` in charges, a `$1` Workspace usage limit, and `$0.90` in
+  remaining credits. The `$0.01` Sandbox ceiling excludes control-function
+  charges. No billing setting changed.
+- PR #68 is still Draft. Exact-head CI passed, but repository-wide security
+  coverage, separate-account denial, Modal deployment/fingerprint matching,
+  and successful ChatGPT inference remain open. RunPod/GPU execution remains
+  parked and is not wired as a live Sites tool.
+
 ## Sites Version 33 approval sign-in fix — 2026-11-13
 
 - Production Site Version 33 is live at

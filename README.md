@@ -19,14 +19,16 @@ objective
 
 ## Current status
 
-The ChatGPT account connected to the published Site can read owner-scoped capabilities and experiment history, and the persistent Sites-to-Modal proxy configuration is present. Each experiment still requires a fresh one-use confirmation for its exact plan. Current Modal Sandbox details showed CPU and memory requests without hard limits, so the advertised `$0.01` Sandbox ceiling was not enforced against burst usage; do not treat it as a guaranteed cap until the candidate resource-limit fix is deployed and verified. No successful inference against the current Modal deployment is accepted yet. RunPod/GPU and paid training remain parked.
+The public ChatGPT Site is active as Version 33. The connected owner account can read its capabilities and experiment history; the persistent Sites-to-Modal Proxy Token configuration is present, so provider credentials do not need to be re-entered for each chat. Each experiment still requires a fresh one-use confirmation for its exact plan. As of 2026-11-14, Sites environment revision 35 has `CPU_WORKLOAD_ADMISSION_ENABLED=false`; new inference is blocked while the Modal deployment is reconciled. The Site's configured Modal fingerprint (`53b5d84a…`) does not match the current candidate fingerprint (`8a786eb7…`), and the candidate hard CPU/memory limits have not been verified in a live Sandbox. The latest five Modal-origin runs failed with `MODAL_WORKLOAD_EXIT_2`; the newest run's cleanup was confirmed and no result artifact exists. No successful inference against the current Modal deployment is accepted yet. RunPod/GPU and paid training remain parked.
+
+Modal execution is usage-billed, not inherently free. The latest account view showed `$0.10` in credits used, `$0` in charges, and a `$1` Workspace usage limit; the dashboard showed `$0.90` in credits. Available credits may offset eligible Sandbox usage, but the `$0.01` ceiling covers only Sandbox CPU/memory, not separately billed Modal control-function calls. No billing settings were changed.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Provider configuration and authenticated plan/read tools are connected. New inference acceptance is pending deployment and verification of 1-core / 512-MiB hard limits; the live Sandbox had requests only. Modal control-function charges are separate from the Sandbox estimate. |
-| Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment. The latest Modal attempts failed with workload exit code 2 and confirmed cleanup; older local-Runner successes are historical evidence only. |
+| Registered CPU experiment through ChatGPT | Provider configuration and authenticated plan/read tools are connected. Admission is disabled at Sites environment revision 35 until the candidate Modal fingerprint and 1-core / 512-MiB hard limits are deployed and verified. Modal control-function charges are separate from the Sandbox estimate. |
+| Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment. The latest five Modal attempts failed with workload exit code 2; the newest cleanup is confirmed and has no result artifact. Older local-Runner successes are historical evidence only. |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
@@ -39,20 +41,19 @@ The ChatGPT account connected to the published Site can read owner-scoped capabi
 | Generic external Dockerfile execution | Not enabled |
 | Structured exact human authorization for paid live execution | Partial; RunPod authorization is not wired to Sites Worker admission |
 | Production RunPod authenticated result transport | Blocked pending a verified supported transport |
-| Paid RunPod workflow | Not enabled; Sites admission wiring and authenticated result transport remain incomplete |
+| Paid RunPod workflow | Not enabled; RunPod stays offline-only and parked pending separate authorization, pricing, completion, and cleanup gates |
 | Live paid GPU execution | Disabled / parked |
 
 The current hosted product path is the ChatGPT Sites Worker with D1/R2. The
 Site URL is public, while MCP calls are authenticated and stateful tools bind
 the caller to the owner allowlist. This ChatGPT account successfully read its
 capabilities and owned run history; a separate-account denial remains
-unverified. Sites Version 33 is live at environment revision 34. Modal proxy
-configuration is present, but provider health is deferred until exact-plan
-confirmation and no successful inference against the current Modal deployment
-is accepted. Live Sandbox CPU and memory limits were `None`; the candidate fix
-sets request=limit to 1 CPU and 512 MiB but is not deployed. PR #68 remains an
-open Draft. The Site sign-in fix commit `f49988a` passed all six checks, but the
-PR is not merged.
+unverified. Sites Version 33 is live at environment revision 35 with CPU
+admission disabled. Modal proxy configuration is present, but its live
+fingerprint does not match the current candidate and no successful inference
+against the current Modal deployment is accepted. The candidate sets
+request=limit to 1 CPU and 512 MiB but is not deployed. PR #68 remains an open
+Draft; repository-wide security coverage and cross-account denial are open.
 Historical ChatGPT CPU successes used the retired local Runner and do not
 prove current Modal readiness. The latest Modal attempts failed with exit
 code 2 and confirmed cleanup. The old local Runner and Keychain credentials
