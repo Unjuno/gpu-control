@@ -126,9 +126,9 @@ submission:
 completion_evidence:
   protocol: hmac-sha256-v3
   legacy_v2_compatibility_status: temporary_offline_migration_only
-  implementation_status: blocked_workload_receives_hmac_signing_key
-  security_status: unsafe_for_activation
-  workload_receives_completion_signing_secret: true
+  implementation_status: disabled_awaiting_controller_owned_completion_protocol
+  security_status: workload_signing_secret_not_sent_fail_closed
+  workload_receives_completion_signing_secret: false
   root_owned_signer_redesign_required: true
   provider_v2_exit_code_field_documented: false
   per_run_nonce_required: true
@@ -139,7 +139,6 @@ completion_evidence:
   user_override: forbidden
   system_environment_owner: gpu-control
   system_environment:
-    - GPU_CONTROL_COMPLETION_KEY_B64
     - GPU_CONTROL_COMPLETION_KEY_ID
     - GPU_CONTROL_COMPLETION_NONCE
     - GPU_CONTROL_EXECUTION_NAME

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import json
@@ -77,9 +76,9 @@ class RunPodCompletionLaunch:
 
     The challenge is safe to persist separately. The secret key is intentionally
     excluded from repr/serialization and must be supplied from protected
-    control-plane state. This type is the only supported path for injecting
-    environment variables into a RunPod create request; arbitrary user-provided
-    environment mappings remain outside the trusted provider boundary.
+    control-plane state. Only public correlation metadata may be sent to the Pod.
+    The legacy workload-signed completion protocol is intentionally unusable
+    until a controller-owned evidence protocol replaces it.
     """
 
     challenge: CompletionChallenge
@@ -103,7 +102,6 @@ class RunPodCompletionLaunch:
     def provider_environment(self, plan: ApprovedExecutionPlan) -> dict[str, str]:
         self.validate_against_plan(plan)
         return {
-            "GPU_CONTROL_COMPLETION_KEY_B64": base64.b64encode(self.secret_key).decode("ascii"),
             "GPU_CONTROL_COMPLETION_KEY_ID": self.challenge.key_id,
             "GPU_CONTROL_COMPLETION_NONCE": self.challenge.nonce,
             "GPU_CONTROL_EXECUTION_NAME": self.challenge.execution_name,

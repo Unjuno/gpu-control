@@ -143,9 +143,9 @@ def test_completion_v3_signer_is_blocked_and_transport_is_not_live_verified() ->
     results = policy["results"]
 
     assert completion["protocol"] == "hmac-sha256-v3"
-    assert completion["implementation_status"] == "blocked_workload_receives_hmac_signing_key"
-    assert completion["security_status"] == "unsafe_for_activation"
-    assert completion["workload_receives_completion_signing_secret"] is True
+    assert completion["implementation_status"] == "disabled_awaiting_controller_owned_completion_protocol"
+    assert completion["security_status"] == "workload_signing_secret_not_sent_fail_closed"
+    assert completion["workload_receives_completion_signing_secret"] is False
     assert completion["root_owned_signer_redesign_required"] is True
     assert completion["provider_v2_exit_code_field_documented"] is False
     assert completion["legacy_v2_compatibility_status"] == "temporary_offline_migration_only"

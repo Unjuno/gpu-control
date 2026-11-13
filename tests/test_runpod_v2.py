@@ -98,20 +98,20 @@ def test_create_payload_is_minimal_and_digest_pinned() -> None:
     assert "mounts" not in payload
 
 
-def test_authenticated_create_payload_injects_only_control_plane_completion_env() -> None:
+def test_authenticated_create_payload_never_injects_completion_signing_secret() -> None:
     plan = make_plan()
     completion = make_completion(plan)
     payload = build_create_pod_payload(plan, make_image(plan), completion=completion)
 
     assert payload["name"] == completion.challenge.execution_name
     assert payload["env"] == {
-        "GPU_CONTROL_COMPLETION_KEY_B64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         "GPU_CONTROL_COMPLETION_KEY_ID": "paid-runpod-v2",
         "GPU_CONTROL_COMPLETION_NONCE": "b" * 64,
         "GPU_CONTROL_EXECUTION_NAME": completion.challenge.execution_name,
         "GPU_CONTROL_PLAN_FINGERPRINT": plan.fingerprint(),
         "GPU_CONTROL_IMAGE_DIGEST": DIGEST,
     }
+    assert "GPU_CONTROL_COMPLETION_KEY_B64" not in payload["env"]
     assert "ports" not in payload
     assert "mounts" not in payload
 

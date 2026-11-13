@@ -373,24 +373,24 @@ The repository currently records this canary workload:
 - exact-main full pytest run: `33313993621` — passed
 - exact-main RunPod canary smoke run: `33313993623` — passed
 
-The source CI, root/non-root signer isolation, v3 signed exit-code envelope, current REST v2 adapter contract, current v2 price/DC-stock contract, and central offline volume-transport tests are green. That does **not** mean the control plane is authorized to spend money today.
+The source CI, signer isolation, current REST v2 adapter contract, current v2 price/DC-stock contract, and central offline volume-transport tests have passed in earlier candidate runs. The legacy v3 workload-signing design is now disabled because its signing key had been exposed to the Pod. That does **not** mean the control plane is authorized to spend money today.
 
 ## Durable result transport
 
-The old production-result blocker was the absence of a supported Pod-log API. That specific blocker now has a provider-supported alternative design:
+The Pod-log limitation has a candidate durable-transport implementation, but secure completion acceptance remains blocked:
 
 1. a pre-existing RunPod Network Volume is mounted at trusted path `/outputs` when the Pod is created;
-2. the workload writes `result.json` and root-signed `completion-v3.json` there;
+2. the workload writes `result.json`; legacy workload-signed `completion-v3.json` is not trusted because the old key was exposed;
 3. the Pod may exit and be cleaned up without destroying the Network Volume;
-4. the control plane reads exactly those two bounded objects through RunPod's S3-compatible API;
-5. `completion-v3.json` authenticates the exact result digest **and the root wrapper-observed process exit code**;
-6. only then may an otherwise ambiguous exited workload become `SUCCEEDED` or `FAILED`.
+4. the control plane can read bounded objects through RunPod's S3-compatible API;
+5. RunPod v2's Pod schema has no documented process exit code, and controller-owned signed observation receipts are not implemented;
+6. therefore the current transport must not promote an exited workload to `SUCCEEDED` or `FAILED`.
 
-This transport is implemented and mock-tested, but not yet live-verified. Network Volume creation/resizing is deliberately not automated because it is a persistent billable resource.
+The transport is implemented and mock-tested, but not yet live-verified. Network Volume creation/resizing is deliberately not automated because it is a persistent billable resource.
 
 ## Provider-control and pricing path
 
-The selected RunPod path is now complete at offline/mock level from price selection through result collection:
+The selected RunPod path has offline/mock components from price selection through result collection, but end-to-end result acceptance is gated:
 
 - current GPU price and VRAM come from the fixed-origin REST v2 GPU catalog;
 - exact per-datacenter stock is checked for the Network Volume datacenter;
@@ -398,10 +398,10 @@ The selected RunPod path is now complete at offline/mock level from price select
 - the approved plan carries the exact price/reference/time window;
 - `RunPodV2CurrentAdapter` rechecks that evidence and the Network Volume DC immediately before submission;
 - current REST v2 creates the Pod and cursor-paginated v2 List Pods backs account occupancy/reconciliation;
-- durable Network Volume/S3 result collection authenticates completion v3 after exit;
+- durable Network Volume/S3 collection exists, while secure completion acceptance is disabled pending a controller-owned protocol;
 - cleanup remains explicit and reconciliation-backed.
 
-No live provider call is enabled by these implementations. The remaining provider work is **live verification with real account evidence**, not another speculative API model.
+No live provider call is enabled. Provider live verification must wait until the secure completion protocol is implemented and reviewed; real account evidence alone cannot close that code-level blocker.
 
 ## Why live paid execution is still disabled
 
