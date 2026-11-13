@@ -97,6 +97,8 @@ class SandboxBootstrapTests(unittest.TestCase):
         self.assertIn("fastapi==0.162.2", pins)
         self.assertIn("starlette==1.10.0", pins)
         self.assertIn(".pip_install_from_requirements(str(SITE_ROOT / \"modal\" / \"requirements.txt\"))", app_source)
+        self.assertIn('.add_local_python_source("gpu_control_modal_bootstrap", copy=True)', app_source)
+        self.assertIn('.add_local_dir(str(SITE_ROOT / "workloads"), remote_path=str(REMOTE_SITE_ROOT / "workloads"), copy=True)', app_source)
         self.assertGreaterEqual(requirements.count("--hash=sha256:"), 11)
         self.assertIn('"pip-audit==2.10.1"', project_config)
 

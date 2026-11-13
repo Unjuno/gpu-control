@@ -19,12 +19,18 @@
   Modal showed zero live Sandboxes and zero running control calls; no provider
   compute was started. See
   [`Sites Version 29 production acceptance`](acceptance/2026-11-13-sites-v29-production-deploy.md).
-- PR #68 remains Draft. Its GitHub head is the previously pushed `01dd2a6`;
-  the Site-only deploy commit is separate from GitHub history. Modal's rebuilt
+- PR #68 remains Draft at GitHub head `e107faad4e1697b131232fd7720b5ad21753009f`;
+  all six exact-head checks pass. The Site-only deploy commit is separate from
+  GitHub history. Modal's rebuilt
   OCI image digest and fingerprint still do not match the current candidate,
   and the independent-account browser check, independent PR review, repository
   P0 audit, Modal image readiness, and post-deploy authorized inference remain
   open. Keep admission closed.
+- Recomputed the Modal candidate fingerprint by importing the checked-out
+  `app.py` under its pinned Modal/FastAPI dependencies: current source yields
+  `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`.
+  Earlier current-state notes listed `0fc60d18…`; that value is stale for
+  this exact checkout. Live Sites still advertises `3bf90f4c…`.
 
 ## Build backend dependency pin — 2026-11-13
 
