@@ -1,5 +1,38 @@
 # Project status
 
+## Sites Version 33 approval sign-in fix — 2026-11-13
+
+- Production Site Version 33 is live at
+  `https://gpu-control-sites.unjuno.chatgpt.site`, source commit
+  `c85fdf7da994ab59b8a19bbb42b2998bc9814e69`, deployment
+  `appgdep_6af709c728a08191925d228213edbd03`; MCP is enabled and environment
+  revision 34 is unchanged.
+- The `/authorize` page now links anonymous visitors to the official
+  ChatGPT sign-in route and returns them to the same validated run ID and plan
+  fingerprint. A signed-in but non-allowlisted identity receives 403 instead
+  of a login loop. The POST confirmation stays same-origin and one-use.
+- Site Worker tests passed 36/36; build and artifact validation passed. The
+  ChatGPT `experiment_capabilities` operation currently reports the registered
+  CPU workload available, provider configured, human-authorization storage
+  ready, and admission enabled.
+- An exact bounded plan was prepared (`run_id` `851a10287ace484d8f4fb404cd2d5795`;
+  TinyStories 15M; prompt `Once`; 1 token; seed 61112; 30 seconds; CPU only;
+  Sandbox estimate `$0.0013`, Sandbox ceiling `$0.01`). It expires at
+  `2026-11-13T13:05:50Z`. Browser sign-in was not completed, no owner approval
+  was recorded, and no provider health call or Sandbox was started. A status
+  lookup returned `RUN_NOT_FOUND`, consistent with no submitted run.
+- Control-function costs are outside the Sandbox ceiling. Existing credits
+  may offset eligible compute but are not a guarantee against charges. The
+  previous `$1` Workspace limit was a point-in-time observation and must be
+  rechecked before a future run.
+- The Sites connector can read capabilities in this ChatGPT conversation, but
+  the embedded browser opened a separate OpenAI login page. Complete the
+  account sign-in there, then prepare a fresh plan if this one has expired.
+  PR #68 remains Draft; this Site source commit is in the separate Site source
+  repository and is not yet represented in the GitHub PR candidate.
+
+## Sites Version 32, environment revision 34, and current execution gates — 2026-11-13
+
 ## Sites Version 32, environment revision 34, and current execution gates — 2026-11-13
 
 - Production Site Version 32 is live at

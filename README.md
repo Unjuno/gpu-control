@@ -19,7 +19,7 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and ChatGPT-side experiment preparation**. The ChatGPT Site is published and CPU admission is enabled for one fixed, owner-authorized workload under a $0.01 Sandbox ceiling. ChatGPT can read capabilities and runs; a fresh one-use Site confirmation is required for each plan. Authenticated Modal readiness and a successful inference after the current deployment have not yet been verified. RunPod/GPU and paid training remain parked.
+The project is **usable today for offline validation and ChatGPT-side experiment preparation**. The ChatGPT Site is published and CPU admission is enabled for one fixed, owner-authorized workload under a $0.01 Sandbox ceiling. ChatGPT can read capabilities and runs; a fresh one-use Site confirmation is required for each plan. Site Version 33 fixes the approval page's missing ChatGPT sign-in link, but browser sign-in and post-deploy Modal readiness/inference are still unverified. RunPod/GPU and paid training remain parked.
 
 | Capability | Current state |
 | --- | --- |
@@ -45,11 +45,13 @@ The project is **usable today for offline validation and ChatGPT-side experiment
 The current hosted product path is the ChatGPT Sites Worker with D1/R2. The
 Site access is public, while stateful MCP tools enforce the Sites-authenticated
 user ID against the owner allowlist. Cross-account denial has not been
-independently verified. Sites Version 32 is live at environment revision 34;
+independently verified. Sites Version 33 is live at environment revision 34;
 CPU admission is enabled, with exact-plan one-use owner confirmation and a
 Modal readiness preflight before submission. No successful inference is yet
 accepted. PR #68 remains an open Draft. Each push triggers CI; the preceding
-head `3e31de5` passed all six checks, but the PR is not merged.
+head `7028d01` passed all six checks, but the PR is not merged. Version 33's
+sign-in route was validated locally; a current browser login and plan approval
+are still required to prove the authenticated path.
 Historical ChatGPT CPU successes used the retired local Runner and do not
 prove current Modal readiness. The latest Modal attempts failed with exit
 code 2 and confirmed cleanup. The old local Runner and Keychain credentials
