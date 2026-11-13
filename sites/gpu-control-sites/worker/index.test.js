@@ -815,6 +815,56 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
   }
 });
 
+test("does not persist a successful result from a different Modal image fingerprint", async () => {
+  const runId = "7".repeat(32);
+  const expectedFingerprint = "d".repeat(64);
+  const row = { id: runId, state: "running", created_at: 10, updated_at: 11,
+    result_json: null, failure_code: null, cleanup_state: "pending", cancel_requested: 0,
+    result_artifact_id: null, result_artifact_sha256: null, result_artifact_size: null,
+    lease_id: null, workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control",
+    source_sha: sourceSha, image_digest: imageDigest,
+    parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
+    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "fingerprint-mismatch" };
+  const env = environment({ admission: "true" });
+  env.MODAL_API_URL = modalApiUrl;
+  env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
+  env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = expectedFingerprint;
+  let artifactWrites = 0;
+  env.BUCKET = { put: async () => { artifactWrites++; } };
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
+    async first() {
+      if (sql.includes("FROM runs r JOIN plans p")) return { ...row };
+      throw new Error(`unexpected D1 first query: ${sql}`);
+    },
+    async run() {
+      if (sql.includes("modal_status_check_limits")) return { meta: { changes: 1 } };
+      if (sql.startsWith("UPDATE runs SET lease_id=")) return { meta: { changes: 1 } };
+      if (sql.includes("MODAL_IMAGE_FINGERPRINT_MISMATCH")) {
+        row.state = "failed";
+        row.failure_code = "MODAL_IMAGE_FINGERPRINT_MISMATCH";
+        row.cleanup_state = "confirmed";
+        return { meta: { changes: 1 } };
+      }
+      throw new Error(`unexpected D1 write query: ${sql}`);
+    },
+  }; } });
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => Response.json({ state: "succeeded", cleanup_state: "confirmed",
+      sandbox_id: "sb-mismatched-image", image_fingerprint: "e".repeat(64), result: { status: "passed" } });
+    const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.machine_state.state, "failed");
+    assert.equal(result.machine_state.failure_code, "MODAL_IMAGE_FINGERPRINT_MISMATCH");
+    assert.equal(result.machine_state.cleanup_state, "confirmed");
+    assert.equal(artifactWrites, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("lost Modal submit response is reconciled without creating a duplicate Sandbox", async () => {
   const runId = "9".repeat(32);
   const plan = { id: runId, owner_id: "test-owner", state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 300,
@@ -997,7 +1047,8 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
         assert.match(String(url), new RegExp(`/v1/runs/${runId}/status$`));
         assert.equal(new Headers(init.headers).get("modal-key"), env.MODAL_PROXY_TOKEN_ID);
         providerReads++;
-        return Response.json({ state: "succeeded", cleanup_state: "confirmed", sandbox_id: "sb-terminal", result });
+        return Response.json({ state: "succeeded", cleanup_state: "confirmed", sandbox_id: "sb-terminal",
+          image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT, result });
       };
       const firstResponse = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
       const firstRpc = await firstResponse.json();

@@ -794,6 +794,12 @@ async function synchronizeModalRun(env, runId, ownerId, { submit = false, cancel
       .bind(providerResult.sandbox_id, now, runId, ownerId).run();
   }
   if (providerResult.cleanup_state !== "confirmed") return;
+  if (providerResult.state === "succeeded" &&
+      providerResult.image_fingerprint !== env.MODAL_WORKLOAD_IMAGE_FINGERPRINT) {
+    await env.DB.prepare(`UPDATE runs SET state='failed', failure_code='MODAL_IMAGE_FINGERPRINT_MISMATCH', cleanup_state='confirmed', updated_at=?
+      WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
+    return;
+  }
   if (cancel || row.cancel_requested === 1 || providerResult.state === "cancelled") {
     await env.DB.prepare(`UPDATE runs SET state='cancelled', failure_code='caller_cancelled', cleanup_state='confirmed', updated_at=?
       WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
