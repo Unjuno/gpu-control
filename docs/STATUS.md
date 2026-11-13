@@ -1,5 +1,29 @@
 # Project status
 
+## Current goal recheck — 2026-11-13 05:30 UTC
+
+- PR #68 remains open as Draft at exact head
+  `6a5a98c1721a7b1b0edee6e5032bc847782c13af`. All six exact-head Actions
+  checks passed: Python 3.11, 3.12, 3.13, Sites Worker/D1 contract, Project
+  bridge tests, and trusted reference container. No independent GitHub review
+  is recorded. The latest commit changes documentation only; the last code
+  change remains in the security-scan-reviewed candidate, not an
+  independently approved PR.
+- A fresh Semgrep 1.161.0 `p/security-audit` scan reported one warning at
+  `project_control/runner.py:147`, the documented SHA-1 use for Git blob object
+  ID compatibility with `usedforsecurity=False`.
+- A fresh redacted, worktree-only Gitleaks scan found five
+  `generic-api-key` matches: four `TOKENIZER_SHA256` checksum occurrences in
+  source/generated code and one test-only completion-key fixture. No live
+  credential was verified. This scan did not cover Git history; the earlier
+  full-history scan's 11 reviewed matches is recorded above.
+- The Sites source reconciliation and read-only D1 overview found production
+  Version 28 source drift and missing human-authorization tables. The live
+  submit route remains unsafe to call; admission stays closed. See
+  [`2026-11-13 Sites source reconciliation`](acceptance/2026-11-13-sites-source-reconciliation.md).
+- Repository-wide Codex Deep Scan and independent review remain incomplete.
+  Local scans and green CI are not substitutes for either.
+
 ## Dependency audit and remediation — 2026-11-12 17:31 UTC
 
 - PR #68 is open as Draft. The dependency fix at code head
