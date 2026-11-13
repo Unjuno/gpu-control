@@ -1,14 +1,15 @@
 # Supplemental local security scans — 2026-11-13
 
 These machine scans supplement, but do not replace, the requested independent
-repository-wide Codex Security Deep Scan. They ran against the current tracked
-repository tree on PR #68 head `b22732fd689767ba3401dff91afebdce5b54bf04`.
+repository-wide Codex Security Deep Scan. They ran against the tracked
+repository tree including the Sign-in fix at PR #68 code commit
+`f49988a96e4a65657f67041b90862da6d3aa1319`; later edits were documentation-only.
 
 ## Semgrep
 
 - Version: 1.161.0
 - Command: `semgrep scan --config p/security-audit --metrics=off --json .`
-- Coverage: 276 tracked files, 110 rules, approximately 100% parsed lines;
+- Coverage: 277 tracked files, 110 rules, approximately 100% parsed lines;
   51 files matching `.semgrepignore` were skipped.
 - Result: one WARNING, `python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1`, at `project_control/runner.py:147`.
 - Triage: this code reproduces GitHub's Git blob object ID (`SHA-1("blob " + length + NUL + bytes)`) for source-integrity matching. The call sets `usedforsecurity=False`; nearby comments explicitly state it is not a signature or security token. The finding is an intentional compatibility use, not evidence of a signing/credential weakness. It remains a static analyzer warning.
