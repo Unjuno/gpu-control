@@ -46,6 +46,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0003_runner_cancellation_protocol.sql",
         "0004_sandbox_cost_ceiling.sql",
         "0005_human_plan_authorization.sql",
+        "0006_runpod_account_leases.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -114,7 +115,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         row[0]
         for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
-    assert {"authorization_challenges", "human_authorizations"} <= tables
+    assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events"} <= tables
     db.execute(
         """INSERT INTO authorization_challenges
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",

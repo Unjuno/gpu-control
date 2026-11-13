@@ -10,6 +10,7 @@ assert.equal(manifest.d1, "DB");
 assert.equal(manifest.r2, "BUCKET");
 assert.ok(manifest.capabilities.includes("mcp"));
 assert.ok(statSync(join(root, "server/index.js")).size > 0);
+assert.ok(statSync(join(root, "server/provider_account_lease.js")).size > 0);
 const migrations = readdirSync(join(root, ".openai/drizzle"));
 assert.ok(migrations.some((name) => name.endsWith(".sql")));
 assert.ok(migrations.includes("0000_control_plane.sql"));
@@ -36,4 +37,10 @@ assert.match(humanAuthorizationMigration, /CREATE TABLE authorization_challenges
 assert.match(humanAuthorizationMigration, /CREATE TABLE human_authorizations/);
 assert.match(humanAuthorizationMigration, /plan_id TEXT NOT NULL UNIQUE REFERENCES plans\(id\)/);
 assert.match(humanAuthorizationMigration, /CHECK \(expires_at - authorized_at <= 900\)/);
+assert.ok(migrations.includes("0006_runpod_account_leases.sql"));
+const accountLeaseMigration = readFileSync(join(root, ".openai/drizzle/0006_runpod_account_leases.sql"), "utf8");
+assert.match(accountLeaseMigration, /PRIMARY KEY \(provider, account_scope_sha256\)/);
+assert.match(accountLeaseMigration, /state IN \('reserved', 'submitting', 'uncertain', 'active', 'cleanup_pending', 'released'\)/);
+assert.match(accountLeaseMigration, /provider_account_leases_one_active_per_run/);
+assert.doesNotMatch(accountLeaseMigration, /lease_expires_at/);
 console.log("Site Worker artifact is complete.");
