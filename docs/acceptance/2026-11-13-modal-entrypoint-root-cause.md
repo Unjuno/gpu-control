@@ -39,6 +39,26 @@ diagnostics.
 ## Validation and remaining acceptance
 
 - Focused Modal bootstrap tests and Sites Worker tests passed locally.
+- On 2026-11-13, the candidate workload image was built locally with Docker
+  from the current fixed `CMD` Dockerfile. The resulting local image ID was
+  `sha256:60ea9d29f70def1ad4577021ac51e2b186b8f8d2c6dee7a2d2d848b441fcbda1`;
+  its configured command was `python -I /work/inference.py`, with no image
+  `ENTRYPOINT`, and image user metadata remained `10001:10001`.
+- The exact bootstrap command was then exercised locally from a root-started
+  container with `--network none`, read-only root filesystem, a 1 MiB `/tmp`,
+  one CPU, 512 MiB memory, dropped capabilities except `SETUID`/`SETGID`, and
+  `no-new-privileges`. TinyStories inference completed one token (`Once upon`)
+  in 42 ms, returned `gpu_used=false`, and passed all nine workload checks:
+  source identity, parameter bounds, model digest, inference, non-root UID,
+  no secret environment, no Docker socket, read-only rootfs, and blocked
+  networking. The result checksum was independently recomputed and matched
+  (`a6a6b0533597fe916a1b5f06e27736e0cee3a9cd422f869aebbc02e0428a5816`).
+  The plan fingerprint was synthetic and used only in this local container
+  check; no Sites plan, D1 record, Modal call, or RunPod resource was involved.
+- Docker reported no remaining container for this image after the run. This
+  reproduces the image/command/bootstrap/workload contract locally, but it does
+  not prove Modal's deployed image digest, Sandbox startup behavior, Modal
+  result transport, Sites persistence, or provider cleanup.
 - This correction has not been deployed to Modal or ChatGPT Sites. No Sandbox
   was launched, and production admission remains disabled.
 - The workload OCI digest and Modal image fingerprint must be rebuilt and
