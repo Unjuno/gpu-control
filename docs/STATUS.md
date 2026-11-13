@@ -1,14 +1,13 @@
 # Project status
 
-## Current goal recheck — 2026-11-13 05:42 UTC
+## Current goal recheck — 2026-11-13 05:44 UTC
 
-- PR #68 remains open as Draft at exact head
-  `11f5f1148678092694569b55cfa58de139890ba9`. All six exact-head Actions
-  checks passed: Python 3.11, 3.12, 3.13, Sites Worker/D1 contract, Project
-  bridge tests, and trusted reference container. No independent GitHub review
-  is recorded. The latest commit changes documentation only; the last code
-  change is the SQLite migration replay regression at `a5c9803`, not an
-  independently approved PR.
+- PR #68 remains open as Draft, with no independent GitHub review. Current
+  head `276d87318a2ebbdc8cbebd75bed1cc771e0b4792` changes documentation only;
+  GitHub reports no checks for that path-filtered commit. The last full six-job
+  run at `11f5f1148678092694569b55cfa58de139890ba9` passed Python 3.11, 3.12,
+  3.13, Sites Worker/D1 contract, Project bridge tests, and trusted reference
+  container. The last code change is migration replay test `a5c9803`.
 - A fresh Semgrep 1.161.0 `p/security-audit` scan reported one warning at
   `project_control/runner.py:147`, the documented SHA-1 use for Git blob object
   ID compatibility with `usedforsecurity=False`.
