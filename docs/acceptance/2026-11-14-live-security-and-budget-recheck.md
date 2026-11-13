@@ -55,3 +55,24 @@
   resource limits, and GitHub workflow token scope. No Modal deployment,
   RunPod API call, billing change, or Sandbox start was performed in this
   recheck.
+
+## Follow-up correction — post-deployment state
+
+The earlier capability observation above predates the containment deployment.
+After that observation, `CPU_WORKLOAD_ADMISSION_ENABLED` was set to `false` at
+Sites environment revision 35 and Site Version 33 was redeployed. A fresh call
+from the connected ChatGPT owner account returned
+`admission_enabled=false`, `available=false`, and
+`CPU_WORKLOAD_ADMISSION_DISABLED`; `provider_configured` remains true. The
+persistent Site connection is intact, but experiments are currently blocked.
+
+The Modal Usage Limit page was rechecked: `$0.10` in credits, `$0` in charges,
+and a `$1` Workspace usage limit set by Modal. The page offered adding a
+payment method to raise the limit. No payment or budget setting was changed.
+The limit is a gross usage cap; Modal documents a separate net spend limit, but
+no such control was shown on this Starter page.
+
+The containment and current live status are also recorded in
+`2026-11-14-chatgpt-sites-modal-live-recheck.md`. Exact-head PR #68 CI passed at
+`0e719ebf27adebaf319bb7d684d08889debf045f`. Full candidate security review and
+repository-wide P0 audit remain incomplete; no inference was started.

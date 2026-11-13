@@ -54,9 +54,10 @@
 ## Repository and release state
 
 - PR #68 remains Draft at head
-  `fa5c37d31eff02b4ab82cde0f165ba5e5b628e5b`; all six exact-head GitHub checks
-  passed. The exact two-file image-fingerprint acceptance diff completed a
-  Codex Security diff review with zero findings.
+  `0e719ebf27adebaf319bb7d684d08889debf045f`. Exact-head GitHub Actions runs
+  for `CI` and `Project bridge tests` completed successfully. The exact
+  two-file image-fingerprint acceptance diff completed a Codex Security diff
+  review with zero findings.
 - The repository-wide P0 audit remains partial, PR #68 has no submitted GitHub
   review, and the current candidate has not been deployed to Modal. No claim of
   full security clearance or successful live inference is made.
@@ -73,3 +74,17 @@
    reopening admission or submitting a bounded CPU inference from ChatGPT.
 5. Keep RunPod, GPU, and broader paid execution parked until their independent
    authorization, billing, resource, and cleanup gates are met.
+
+## Follow-up — current ChatGPT and billing check
+
+- A fresh ChatGPT capability call still reports `provider_configured=true`,
+  while `admission_enabled=false` and `available=false`. This confirms the
+  persistent Site/provider connection remains present while new executions are
+  blocked pending the reviewed image/API reconciliation.
+- The Modal Usage Limit page again showed `$0.10` in credits, `$0` in charges,
+  and the `$1` Workspace usage limit set by Modal. It offered “Add a payment
+  method” to raise the limit. No separate net-spend setting was visible, and
+  no billing setting was changed.
+- The exact-head CI workflows above passed; PR #68 has no submitted GitHub
+  review. A full PR security review and the repository-wide P0 audit are still
+  incomplete. No inference or Sandbox was started during this check.
