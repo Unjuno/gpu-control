@@ -50,6 +50,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0007_modal_health_check_limit.sql",
         "0008_modal_plan_health_authorization.sql",
         "0009_modal_health_readiness.sql",
+        "0010_modal_status_check_budget.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -121,7 +122,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         row[0]
         for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
-    assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events", "modal_authorized_health_checks"} <= tables
+    assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events", "modal_authorized_health_checks", "modal_status_check_limits"} <= tables
     db.execute(
         """INSERT INTO modal_authorized_health_checks
         (plan_id, owner_id, fingerprint, checked_at)
@@ -132,6 +133,16 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "SELECT ready FROM modal_authorized_health_checks WHERE plan_id = ?",
         ("plan-existing",),
     ).fetchone() == (0,)
+    db.execute(
+        """INSERT INTO modal_status_check_limits
+        (scope, window_started_at, last_checked_at, call_count)
+        VALUES (?, ?, ?, ?)""",
+        ("workspace", 10, 10, 1),
+    )
+    assert db.execute(
+        "SELECT call_count FROM modal_status_check_limits WHERE scope = ?",
+        ("workspace",),
+    ).fetchone() == (1,)
     try:
         db.execute(
             "UPDATE modal_authorized_health_checks SET ready = 2 WHERE plan_id = ?",

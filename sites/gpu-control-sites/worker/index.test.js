@@ -5,6 +5,7 @@ import worker from "./index.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
+const modalApiUrl = "https://unjuno--gpu-control-sites-control-api.us-east.modal.run";
 const siteOrigin = "https://gpu-control-sites.unjuno.chatgpt.site";
 const healthRunId = "1".repeat(32);
 const healthFingerprint = "c".repeat(64);
@@ -51,7 +52,7 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
 
 function authorizedHealthEnvironment({ admission = "true", alreadyChecked = false, budgetError = false, authorization = true, healthResultChanges = 1 } = {}) {
   const env = environment({ admission });
-  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
   env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
@@ -183,7 +184,7 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
 
 test("Modal health diagnostic requires an exact, unconsumed plan confirmation", async () => {
   const env = authorizedHealthEnvironment({ authorization: false });
-  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
   env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
   let called = false;
@@ -202,7 +203,7 @@ test("Modal health diagnostic requires an exact, unconsumed plan confirmation", 
 
 test("Modal health diagnostic does not contact the provider while admission is closed", async () => {
   const env = authorizedHealthEnvironment({ admission: "false" });
-  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
   env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
   let called = false;
@@ -219,9 +220,77 @@ test("Modal health diagnostic does not contact the provider while admission is c
   }
 });
 
+test("Modal proxy credentials are never sent to an unregistered host", async () => {
+  const env = authorizedHealthEnvironment();
+  env.MODAL_API_URL = "https://attacker.example.test";
+  let called = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.blocking_reason, "MODAL_PROVIDER_NOT_CONFIGURED");
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Modal requests reject redirects before proxy credentials can be forwarded", async () => {
+  const env = authorizedHealthEnvironment();
+  let redirectMode = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    redirectMode = init.redirect;
+    return new Response(null, { status: 302, headers: { location: "https://attacker.example.test/collect" } });
+  };
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(redirectMode, "error");
+    assert.equal(result.blocking_reason, "MODAL_PROVIDER_HEALTH_MISMATCH");
+    assert.equal(result.machine_state.sandbox_started, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Modal status polling fails closed when the shared provider-call budget is exhausted", async () => {
+  const runId = "8".repeat(32);
+  const row = { id: runId, state: "running", created_at: 1, updated_at: 2,
+    result_json: null, failure_code: null, cleanup_state: "pending", cleanup_receipt_json: null,
+    cancel_requested: 0, result_artifact_id: null, result_artifact_sha256: null,
+    result_artifact_size: null, lease_id: "sb-123", workload: "tiny-stories-inference-v1",
+    repository: "Unjuno/gpu-control", source_sha: "b".repeat(40), image_digest: imageDigest,
+    parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
+    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "budget-test" };
+  const env = environment({ admission: "true" });
+  env.MODAL_API_URL = modalApiUrl;
+  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "d".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  env.DB.prepare = (sql) => ({ bind() { return {
+    first: async () => sql.includes("FROM runs r JOIN plans p") ? { ...row } : null,
+    run: async () => sql.includes("modal_status_check_limits") ? { meta: { changes: 0 } } : { meta: { changes: 1 } },
+  }; } });
+  let providerCalls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { providerCalls++; throw new Error("budgeted status call must not reach Modal"); };
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.machine_state.state, "running");
+    assert.equal(result.machine_state.provider_sync_skipped, "MODAL_STATUS_CHECK_RATE_LIMITED");
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Modal health diagnostic is owner-scoped and performs one authenticated GET per confirmed plan", async () => {
   const env = authorizedHealthEnvironment();
-  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
   env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
@@ -230,7 +299,7 @@ test("Modal health diagnostic is owner-scoped and performs one authenticated GET
   let called = false;
   globalThis.fetch = async (url, init) => {
     called = true;
-    assert.equal(url, "https://modal.example.test/v1/health");
+    assert.equal(url, "https://unjuno--gpu-control-sites-control-api.us-east.modal.run/v1/health");
     assert.equal(init.method, "GET");
     assert.equal(init.body, undefined);
     assert.equal(init.headers["Modal-Key"], env.MODAL_PROXY_TOKEN_ID);
@@ -280,7 +349,7 @@ test("Modal health diagnostic is owner-scoped and performs one authenticated GET
 
 test("Modal health diagnostic reports provider auth failure without starting a Sandbox", async () => {
   const env = authorizedHealthEnvironment();
-  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
   env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
@@ -485,7 +554,7 @@ test("Site confirmation binds one exact plan to the authenticated owner and cons
 test("read-only capabilities do not call Modal", async () => {
   const env = environment({ admission: "true" });
   env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";
-  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-" + "t".repeat(16);
   env.MODAL_PROXY_TOKEN_SECRET = "ws-" + "s".repeat(16);
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
@@ -508,7 +577,7 @@ test("read-only capabilities do not call Modal", async () => {
 test("authorized submission still bounds and cancels oversized Modal health responses", async () => {
   const env = environment({ admission: "true" });
   env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";
-  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
   env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
@@ -570,7 +639,7 @@ test("authorized submission still bounds and cancels oversized Modal health resp
 
 test("parallel submits for one confirmed plan reserve at most one billable health call", async () => {
   const env = environment({ admission: "true" });
-  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
   env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
@@ -633,7 +702,7 @@ test("parallel submits for one confirmed plan reserve at most one billable healt
 
 test("capabilities reports configured Modal without a health probe while admission remains disabled", async () => {
   const env = environment();
-  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-" + "t".repeat(16);
   env.MODAL_PROXY_TOKEN_SECRET = "ws-" + "s".repeat(16);
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
@@ -665,7 +734,7 @@ test("capabilities reports configured Modal without a health probe while admissi
 
 test("capabilities avoids Modal cold starts", async () => {
   const env = environment();
-  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
   env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
@@ -693,7 +762,7 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
     parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
     fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "diagnostic-test" };
   const env = environment();
-  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
   env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "d".repeat(64);
@@ -704,6 +773,7 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
       throw new Error(`unexpected D1 first query: ${sql}`);
     },
     async run() {
+      if (sql.includes("modal_status_check_limits")) return { meta: { changes: 1 } };
       if (sql.startsWith("UPDATE runs SET lease_id=")) {
         current.lease_id = values[0];
         return { success: true };
@@ -757,7 +827,7 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   let healthBudgetUsed = false;
   let planHealthUsed = false;
   const env = environment({ admission: "true" });
-  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
   env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "d".repeat(64);
@@ -780,6 +850,7 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
       throw new Error(`unexpected D1 first query: ${sql}`);
     },
     async run() {
+      if (sql.includes("modal_status_check_limits")) return { meta: { changes: 1 } };
       if (sql.includes("UPDATE modal_authorized_health_checks")) return { meta: { changes: 1 } };
       if (sql.includes("modal_health_check_limits")) {
         if (healthBudgetUsed) return { meta: { changes: 0 } };
@@ -836,13 +907,16 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
     assert.equal(submitRpc.result.isError, true, "the lost provider response is reported as an error");
     assert.equal(current.state, "running", "the durable run reservation survives the lost response");
 
+    const originalNow = Date.now;
     for (let attempt = 0; attempt < 2; attempt++) {
+      Date.now = attempt === 0 ? originalNow : () => originalNow() + 4000;
       const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
       const rpc = await response.json();
       const result = JSON.parse(rpc.result.content[0].text);
       assert.equal(rpc.result.isError, false, rpc.result.content[0].text);
       assert.equal(result.machine_state.state, "running");
     }
+    Date.now = originalNow;
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -873,7 +947,7 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
 
   for (const fault of ["r2", "d1", "cancel-race"]) {
     const env = environment({ admission: "true" });
-    env.MODAL_API_URL = "https://modal.invalid";
+    env.MODAL_API_URL = modalApiUrl;
     env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
     env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
     env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "a".repeat(64);
@@ -895,6 +969,7 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
           throw new Error(`unexpected D1 first query: ${sql}`);
         },
         async run() {
+          if (sql.includes("modal_status_check_limits")) return { meta: { changes: 1 } };
           if (sql.startsWith("UPDATE runs SET lease_id=")) {
             current.lease_id = values[0];
             return { success: true };
@@ -937,7 +1012,7 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
         assert.equal(providerReads, 1);
         continue;
       }
-      assert.equal(firstRpc.result.isError, true, `${fault} failure must remain visible`);
+      assert.equal(firstRpc.result.isError, true, `${fault} failure must remain visible: ${JSON.stringify(firstRpc.result)}`);
       assert.equal(current.state, "running", `${fault} failure must not mark an unpersisted result successful`);
 
       const retryResponse = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
@@ -1345,7 +1420,7 @@ test("Modal submission without exact-plan confirmation is blocked before provide
   let providerRequests = 0;
   let dbWrites = 0;
   let authorization = null;
-  env.MODAL_API_URL = "https://modal.invalid";
+  env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
   env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
