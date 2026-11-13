@@ -428,6 +428,6 @@ When documentation and machine state differ, prefer:
 
 1. `policies/repository-state.yaml` for current activation state;
 2. `policies/paid-execution-policy.yaml` for paid-path identity/security requirements;
-3. `policies/runpod-rest-v1-policy.yaml` for the current Pod-control and pricing contract;
-4. `policies/runpod-v2-policy.yaml` for legacy compatibility state and durable-result constraints;
+3. `policies/runpod-v2-policy.yaml` for the current Pod-control and pricing contract;
+4. `policies/runpod-rest-v1-policy.yaml` for legacy offline compatibility state;
 5. tests and current `main` implementation for executable behavior.
