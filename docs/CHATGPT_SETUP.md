@@ -11,11 +11,13 @@ verification. Eight complete result artifacts have been retrieved through
 ChatGPT.
 
 The Worker does not run Docker or model inference. The personal-host Runner
-has been retired. The fixed Modal CPU adapter is deployed; the latest recorded
-ChatGPT capability read passed all provider checks, while admission remained
-disabled. No successful inference against the current Modal deployment has
-been accepted through ChatGPT. RunPod GPU execution remains a separately gated
-future path; paid execution is parked.
+has been retired. The fixed Modal CPU adapter and the Sites Worker with
+exact-plan human authorization are deployed. The current ChatGPT capability
+response reports `provider_configured=true`, `provider_ready=null`,
+`admission_enabled=false`, and `CPU_WORKLOAD_ADMISSION_DISABLED`; live provider
+health is deferred until an authorized submit. No successful inference against
+the current Modal deployment has been accepted through ChatGPT. RunPod GPU
+execution remains a separately gated future path; paid execution is parked.
 
 The legacy FastAPI/PostgreSQL Gateway and its Vercel deployment are archived
 references, not supported deployment choices. Do not configure new Vercel or
@@ -36,14 +38,20 @@ and [`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-g
    control-function charges may apply separately from the Sandbox ceiling.
 4. Prepare only the advertised fixed workload and review its exact source,
    usage estimate, and `$0.01` Sandbox-only ceiling. Modal control-function
-   calls are billed separately. Credits are not a zero-cost guarantee. Submit
-   only after a reviewed production Site release enforces explicit authorization
-   for the exact prepared plan. Current Version 28 returns
-   `approval_required=false`, has no confirmation URL, and has no human
-   authorization check in `experiment_submit`; do not submit from this route.
-   See the [production source reconciliation](acceptance/2026-11-13-sites-source-reconciliation.md).
-   After that gate is verified in production, poll `experiment_status` and
-   retrieve the terminal value with `experiment_result`.
+   calls are billed separately. Credits are not a zero-cost guarantee. Site
+   Version 30 added an owner-authenticated Modal health diagnostic and the
+   exact-plan authorization implementation; Version 31 republishes the same
+   Worker archive. The live D1 overview includes
+   `authorization_challenges`, `human_authorizations`, and
+   `modal_health_check_limits`. However, this ChatGPT connector still exposes
+   the older tool schema without `experiment_provider_health`, and the current
+   production confirmation flow has not been exercised end to end. Admission
+   remains disabled. Do not submit until the connector schema is refreshed, the
+   exact-plan confirmation flow is verified through ChatGPT, and the registered
+   Modal image identity and readiness are reconciled. See the [Version 30
+   acceptance record](acceptance/2026-11-13-sites-v30-modal-health-diagnostic.md)
+   and [current release matrix](RELEASE_MATRIX.md). Once those gates pass, poll
+   `experiment_status` and retrieve the terminal value with `experiment_result`.
 
 The Site and plugin are separate access controls. The Site is public, while
 stateful tools must use ChatGPT's authenticated Sites identity and server-side
@@ -57,27 +65,28 @@ Historical TinyStories 15M CPU inferences through ChatGPT, Sites, D1, and the
 now-retired local Runner produced provenance-checked results and retrievable
 R2 artifacts. They establish that earlier CPU route only. They do not establish
 current Modal inference, general model quality, or GPU execution. The latest
-live capability read reports `provider_ready=true`, `admission_enabled=false`,
-and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. Sites
-Version 28 exposes the aligned `experiment_prepare.max_cost_usd=0.01` schema. The
-production source currently does not enforce exact-plan authorization: prepare
-reports `approval_required=false` and submit lacks the human-authorization
-check. Do not call `experiment_submit` until a reviewed release is deployed and
-the confirmation flow is verified. The live D1 overview currently lists only
-`plans`, `runner_heartbeats`, and `runs`; the authorization tables are absent.
-The source and database reconciliation is documented in
-[`acceptance/2026-11-13-sites-source-reconciliation.md`](acceptance/2026-11-13-sites-source-reconciliation.md).
-The latest authorized one-token Modal run failed with exit code 2 after 247 ms;
-cleanup was confirmed but no result or artifact was produced. The diagnostic
-line marker was absent, and its cause is unknown. Admission is closed at Sites
-environment revision 32. A successful ChatGPT inference and artifact
-verification against the current Modal deployment are still required.
+live capability read reports `provider_configured=true`,
+`provider_ready=null`, `admission_enabled=false`, and
+`CPU_WORKLOAD_ADMISSION_DISABLED`. Site Version 31 is active. Its Worker archive
+contains the exact-plan authorization implementation from the Version 30
+release, and the current D1 overview includes the authorization and health
+cooldown tables. The existing ChatGPT connector has not refreshed to expose
+`experiment_provider_health`, and a fresh ChatGPT-originated prepare,
+confirmation, and health-check sequence has not been accepted against this
+release. Do not submit while admission is disabled or until the Modal image
+identity and provider readiness are reconciled. The latest authorized one-token
+Modal run failed with exit code 2 after 247 ms; cleanup was confirmed but no
+result or artifact was produced. Admission is closed at Sites environment
+revision 32. A successful ChatGPT inference and artifact verification against
+the current Modal deployment are still required.
 
 The former local Runner path is removed and provider admission remains closed.
 Keep paid providers parked. The exact runtime keys and controlled publication steps are
 in [`sites/gpu-control-sites/README.md`](../sites/gpu-control-sites/README.md);
 current gates are in [`RELEASE_MATRIX.md`](RELEASE_MATRIX.md) and
 [`STATUS.md`](STATUS.md).
+The latest live-state evidence is recorded in
+[`acceptance/2026-11-13-sites-modal-live-state-refresh.md`](acceptance/2026-11-13-sites-modal-live-state-refresh.md).
 
 ## Data and resource retirement
 
