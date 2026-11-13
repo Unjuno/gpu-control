@@ -23,6 +23,11 @@
   explicitly keeps admission `false`. Modal secret values were not returned by
   the environment reader. See
   [`2026-11-13 Sites source reconciliation`](acceptance/2026-11-13-sites-source-reconciliation.md).
+- Static scans of the separately fetched deployed Version 28 source completed:
+  Semgrep `p/security-audit` reported 0 findings; redacted Gitleaks reported
+  three `TOKENIZER_SHA256` 64-character hex checksums and no verified provider
+  credential. These scans cover the deployed source snapshot only and do not
+  close the P0 audit.
 - Repository-wide Codex Deep Scan and independent review remain incomplete.
   Local scans and green CI are not substitutes for either.
 

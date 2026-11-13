@@ -41,6 +41,12 @@ whether the credentials are configured. No values were logged or changed.
 - Running `npm test` in the isolated Version 28 source checkout completed with
   22 passed, 0 failed, 0 skipped. These tests describe the older source and do
   not establish the new approval invariant or prove live runtime acceptance.
+- Semgrep 1.161.0 `p/security-audit` on the fetched Version 28 source completed
+  with 0 findings and no scan errors. A redacted Gitleaks working-tree scan
+  found three `generic-api-key` matches; all three are 64-character hex values
+  assigned to `TOKENIZER_SHA256` / `MODAL_TOKENIZER_SHA256` constants. These
+  are fixed integrity checksums, not provider credentials. This narrow static
+  scan is not a substitute for repository P0 review.
 - The current GitHub candidate includes the human-authorization migration and
   approval checks, a Modal bootstrap module and dependency input, and the
   Dockerfile startup fix. Its Worker tests specifically require the exact-plan
