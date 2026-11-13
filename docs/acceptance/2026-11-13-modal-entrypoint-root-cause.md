@@ -72,3 +72,20 @@ diagnostics.
 The change does not establish repository-wide P0 security, ChatGPT browser
 confirmation, Sites identity-header spoof resistance, RunPod GPU execution,
 paid execution safety, or long-term recovery acceptance.
+
+
+## Follow-up live state — 2026-11-13
+
+The Modal API source was deployed to `unjuno/main` from PR #68 head
+`496e28cdb1b257c2a508e56a11fcdb07f6aa8028` at 2026-11-13 18:59 JST. This
+commit includes the `CMD` correction recorded above and deployed API source
+fingerprint `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`.
+The five newest failed Modal-origin runs were created before this deployment;
+they all used the older registered digest
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541` and
+ended with cleanup confirmed. No inference was run after the deployment, so the
+source-level correction is deployed but its live Sandbox effect is unverified.
+The local image ID `sha256:60ea9d29f70def1ad4577021ac51e2b186b8f8d2c6dee7a2d2d848b441fcbda1`
+has not been verified as Modal's deployed OCI digest. Authenticated provider
+health, actual deployed image identity, and a fresh owner-confirmed result plus
+cleanup remain required acceptance evidence.

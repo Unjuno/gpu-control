@@ -1,28 +1,37 @@
 # Current operations: ChatGPT Sites + D1
 
-## Live release gate refresh — 2026-11-13
+## Live release gate refresh — 2026-11-13 13:30 UTC
 
-Production is Sites Version 32 at source commit
-`7aacaac46a0111621d450c89a85fde7ce8cca6a2`, environment revision 34. D1
-contains the exact-plan authorization and Modal health tables. Admission is
-enabled for one fixed CPU workload only after one-use owner confirmation for
-each plan. ChatGPT capabilities and experiment-list calls succeeded from this
-account. No post-deployment Modal inference, authenticated health response, or
-artifact has yet been accepted. The Site points to Modal digest
-`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`;
-the locally rebuilt image ID is `sha256:60ea9d29f70def1ad4577021ac51e2b186b8f8d2c6dee7a2d2d848b441fcbda1` and has not been verified as Modal's deployed OCI digest.
+Production Sites is Version 33 from source commit
+`c85fdf7da994ab59b8a19bbb42b2998bc9814e69`, deployment
+`appgdep_6af709c728a08191925d228213edbd03`, environment revision 34. The Site
+is public at the hosting layer and stores one owner account ID in its MCP
+allowlist. ChatGPT capability and experiment-list calls succeeded from the
+owner account. Admission is enabled for the fixed CPU workload, but provider
+health remains deferred until a plan is authorized and submitted. Cross-account
+denial and trusted identity-header provenance are still open.
 
-Modal's UI shows a `$1` Workspace usage limit, `$0.10` in credit usage,
-`$0` charges, and an option to add a payment method to raise the limit. The
-Sandbox estimate is `$0.0013` with a `$0.01` ceiling; Modal control-function
-charges are separate. No payment method or temporary API token was added.
-Modal's documentation explains that usage budgets apply before credits and
-that net spend limits are separate; keep the Workspace limit unchanged.
+Five newest Modal-origin runs were individually checked. All failed, have
+`cleanup_state=confirmed`, and have no result artifact. They were created
+before the Modal API deployment recorded at 2026-11-13 18:59 JST, which includes
+the Docker `CMD` correction intended to invoke the fixed privilege-dropping
+bootstrap. No post-deployment Modal inference has been accepted. The locally
+rebuilt image ID `sha256:60ea9d29f70def1ad4577021ac51e2b186b8f8d2c6dee7a2d2d848b441fcbda1`
+is not verified as Modal's deployed image; Sites still advertises
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+The Sandbox estimate is `$0.0013` with a `$0.01` Sandbox-only ceiling; Modal
+control-function costs are separate.
 
-PR #68 remains Draft. The preceding head `3e31de5` passed all six CI checks.
-The full repository P0 scan still needs the managed read-only profile;
-cross-account denial and image digest reconciliation remain open. No provider
-run has been started in this refresh.
+The last recorded Modal dashboard snapshot showed a `$1` Workspace usage limit
+and `$0` charges. The current net spend limit was not read in this refresh.
+Modal documents gross usage budgets and net spend limits as separate controls;
+verify the net spend limit before relying on credits to prevent out-of-pocket
+charges. No Modal health call or Sandbox was made during this refresh.
+
+PR #68 remains Draft. The repository-wide P0 audit still requires the managed
+read-only security scan; cross-account denial and image identity reconciliation
+remain open. RunPod has no Sites Worker execution route, and GPU/paid execution
+remain parked. See [Sites Version 33 live refresh](acceptance/2026-11-13-sites-v33-live-refresh.md).
 
 ## Sites migration behavior and recovery
 

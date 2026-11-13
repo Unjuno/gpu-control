@@ -5,114 +5,45 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Deployed Site version: 32, source commit
-  `7aacaac46a0111621d450c89a85fde7ce8cca6a2`; current environment revision 33.
-- Access mode: public Site, with authenticated owner-scoped MCP operations.
-- State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- Current ChatGPT capability evidence (2026-11-13; after Version 32 deploy):
-  owner authorization store ready, exact-plan confirmation required,
-  `admission_enabled=false`, and `available=false` for `modal_cpu` with
-  `CPU_WORKLOAD_ADMISSION_DISABLED`. Provider health is deferred until an
-  authorized submission. The latest bounded run failed with workload exit
-  code 2; cleanup was confirmed. The cost estimate covers Sandbox CPU/memory
-  only and excludes separately billed Modal control functions.
-- MCP access is restricted to the owner IDs listed in the secret runtime
-  variable `GPU_CONTROL_ALLOWED_USER_IDS`; missing or non-listed identities
-  are rejected before D1 or Modal access.
-- Version 29 runs the exact-plan Site confirmation flow and includes D1
-  migrations 0005–0006. A fresh ChatGPT capability read reports
-  `human_authorization_store_ready=true` and
-  `explicit_plan_confirmation_required=true`. It also reports
-  `admission_enabled=false`, `available=false`, and
-  `CPU_WORKLOAD_ADMISSION_DISABLED`; provider health is deferred until an
-  explicitly authorized submission. The live D1 overview lists the
-  `authorization_challenges` and `human_authorizations` tables plus
-  `provider_account_leases` and `provider_account_lease_events`.
-- Version 30 adds an owner-authenticated `experiment_provider_health` tool to
-  test Modal credentials, readiness, and registered image identity without
-  inference or Sandbox creation. Calls may incur separate Modal control
-  function charges and use a D1-backed workspace-wide 60-second cooldown.
-- The health-tool correction binds each probe to `run_id` and
-  `plan_fingerprint` from a prepared plan that the owner already confirmed on
-  the Site. It permits one billed health probe per confirmed plan and avoids
-  provider calls while CPU admission is closed. Migration 0008 records the
-  one-use probe reservation. The correction is locally verified and awaits
-  publication as a new Site version.
+- Site Version 33 is live from source commit
+  `c85fdf7da994ab59b8a19bbb42b2998bc9814e69`; deployment succeeded with
+  environment revision 34. Platform access is public, with an owner account ID
+  allowlist enforced for MCP operations. Cross-account denial and trusted
+  provenance of the platform-injected identity are not independently verified.
+- State and artifacts use Sites D1/R2 bindings `DB` and `BUCKET`. ChatGPT
+  capability and experiment-list calls succeeded from the connected owner
+  account on 2026-11-13. Capabilities report Modal configured, authorization
+  storage ready, and CPU admission enabled. Provider readiness is deferred
+  until an exactly authorized submit.
+- Only `tiny-stories-inference-v1` is exposed: maximum 30 seconds, one
+  in-flight run, estimated Sandbox cost `$0.0013`, and a `$0.01` Sandbox
+  CPU/memory ceiling. Modal control-function charges are separate and are not
+  covered by that per-run ceiling. A one-use confirmation is required for each
+  exact plan.
+- The five most recent Modal-origin runs failed with `MODAL_WORKLOAD_EXIT_2`
+  or `MODAL_WORKLOAD_FAILED`; each reports cleanup confirmed and has no result
+  artifact. They predate the Modal API deployment containing the fixed
+  privilege-dropping bootstrap. A successful inference on the corrected Modal
+  image is not yet accepted. Earlier successful records used the retired local
+  Runner and are not Modal acceptance.
+- The Modal API deployment is recorded from PR #68 head `496e28c`. The current
+  local workload image ID is
+  `sha256:60ea9d29f70def1ad4577021ac51e2b186b8f8d2c6dee7a2d2d848b441fcbda1`,
+  while the Site advertises
+  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+  These identities have not been reconciled, and authenticated provider
+  readiness is unverified. Keep the provider gate open until a fresh exact-plan
+  run proves output provenance and cleanup.
+- The last recorded Modal dashboard snapshot showed a `$1` Workspace usage
+  limit and `$0` charges. The current net spend limit has not been verified.
+  Modal's billing documentation distinguishes a gross usage budget from the
+  net spend limit; the Sandbox ceiling does not cap separately billed control
+  calls.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
-- Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
-  in `main` from PR #68 head `496e28c`. The corrected API image built and
-  deployed, but authenticated health/readiness is unverified; an unauthenticated
-  `/v1/health` request returned 401. The source fingerprint is
-  `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`, while
-  Sites advertises fingerprint `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`.
-  The current OCI digest and authenticated readiness still need verification. Admission remains
-  false and no Sandbox was started. Modal showed a `$1` Workspace limit, `$0.10`
-  usage, `$0` charges and `$1 of $30/mo` free credits. These totals include
-  control/deploy activity and cannot be attributed to Sandbox compute. The
-  temporary deployment token was revoked and its config removed; see
-  [`Modal deployment acceptance`](../../docs/acceptance/2026-11-13-modal-main-deploy.md).
-  The fix that drops Sandbox privileges to UID/GID 10001 and binds that
-  effective command into the image fingerprint is deployed. The four-token run
-  `eacc26ff2ad54cf69a1ee7665325b197` was executed by the retired local Runner.
-  The latest one-token Modal run `e9330c5bb5454f42bb3dabe058091dc0` failed
-  with `MODAL_WORKLOAD_EXIT_2`; Modal dashboard showed Sandbox
-  `sb-01M77ZZRFC1090CXA2W3MHDH7V` failed with code 2 after 247 ms and no logs.
-  Sites recorded cleanup confirmed and no artifact was produced. The bounded
-  preflight line marker was absent, leaving the failed check unknown. The
-  one-run authorization is consumed; do not retry without new authorization
-  and a useful diagnostic change. RunPod remains absent from the Sites Worker
-  route and GPU/paid execution remains parked.
-- A fresh read-only history check found another failed status,
-  `0f2a3ddaa7da40648600bae21ccd9ed1`, created earlier at 11:25 UTC with
-  `MODAL_WORKLOAD_EXIT_2`, confirmed cleanup, and no artifact. Its deployment
-  and authorization provenance remain unknown; it is retained as a separate
-  failed event.
-- Diagnostic follow-up commit `d1dd4fe2bbaf220e24fe1c1f97f958491a3d5674`
-  adds a non-sensitive inference preflight line marker and strict Worker
-  persistence; it is deployed to Modal `unjuno/main`. The marker was absent in
-  the latest run. The temporary Workspace deploy token was revoked and the
-  API-token page showed zero tokens.
-- The deployed ChatGPT tool schema accepts
-  `experiment_prepare.max_cost_usd=0.01`, matching this Worker's usage-billed
-  Sandbox CPU/memory ceiling.
-- The Worker uses a 15-second bounded Modal request timeout to accommodate a
-  measured 6.3-second cold start; this change is deployed in Site Version 28.
-- Vercel and Neon/PostgreSQL are not target runtime dependencies.
-
-Every data-bearing or execution MCP tool must require the Sites-injected user
-ID and enforce D1 ownership. This ChatGPT connection has called the capability
-and experiment-list tools; access from another ChatGPT account/process is not
-yet verified. Anonymous HTTP probes were blocked at the edge and do not verify
-Worker-level authentication. Execution is currently disabled after the one
-explicitly authorized bounded Modal attempt. The `$0.01` ceiling applies to
-Sandbox CPU/memory only.
-Control-function charges are separate and remain governed by the account-level
-Workspace usage limit.
-
-### Version 29: exact-plan browser confirmation
-
-The PR #68 candidate adds `/authorize` to the Sites Worker. `experiment_prepare`
-returns a link showing the exact inference inputs and cost caveat; the signed-in
-owner confirms that exact plan in the Site, and the Worker persists a one-use,
-short-lived D1 authorization. `experiment_submit` checks it before Modal calls
-and consumes it in the D1 reservation batch. The confirmation page is
-same-origin, owner-scoped, CSRF-challenged, and non-cacheable. It records an
-authenticated Site browser form submission; it does not cryptographically
-prove a human operated the browser.
-
-The Worker source is deployed in Site Version 29 and the required D1 tables are
-present. Browser confirmation through an independently authenticated session,
-separate-account denial, current Modal image readiness, and another authorized
-inference remain unverified. Keep admission disabled until those checks and the
-required reviews pass.
-
-PR #68 also changes the Modal workload Dockerfile from an `ENTRYPOINT` to a
-default `CMD`. Modal's Sandbox command overrides `CMD` but does not replace an
-image `ENTRYPOINT`; the previous image could therefore bypass the fixed
-privilege-dropping bootstrap and hit the non-root guard as UID 0. The source correction and API deployment are complete, but authenticated health,
-the workload image digest, and matching Site fingerprint remain unverified.
-No inference was run after Version 29. See
-[`docs/acceptance/2026-11-13-modal-entrypoint-root-cause.md`](../../docs/acceptance/2026-11-13-modal-entrypoint-root-cause.md).
+  RunPod is not connected to the Site Worker; GPU and paid execution remain
+  parked. Vercel and Neon/PostgreSQL are not target runtime dependencies.
+- See [current Site acceptance](../../docs/acceptance/2026-11-13-sites-v33-live-refresh.md)
+  and [Modal deployment acceptance](../../docs/acceptance/2026-11-13-modal-main-deploy.md).
 
 ## Target execution architecture
 
