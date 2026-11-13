@@ -172,6 +172,8 @@ def test_manifest_rejects_oversized_json_before_parsing() -> None:
     policy = load_result_policy()
     with pytest.raises(ResultContractError, match="maximum size"):
         ResultManifest.from_json("x" * (256 * 1024 + 1), policy)
+    with pytest.raises(ResultContractError, match="maximum size"):
+        ResultManifest.from_json("é" * (256 * 1024 // 2 + 1), policy)
 
 
 def test_collected_artifact_per_file_limit_is_enforced() -> None:
