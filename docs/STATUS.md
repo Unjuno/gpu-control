@@ -1,6 +1,6 @@
 # Project status
 
-## Authenticated Modal health diagnostic candidate — 2026-11-13
+## Authenticated Modal health diagnostic and Site publish — 2026-11-13
 
 - Added the owner-allowlisted `experiment_provider_health` MCP operation. It
   makes an authenticated GET to Modal `/v1/health`, compares readiness, source,
@@ -13,9 +13,16 @@
   limiter row without storing user IDs. D1 migration replay passed, Site Worker
   tests passed **32/32**, and Site build plus packaged-artifact validation
   succeeded. `git diff --check` passed.
-- This is still an unpushed/unpublished candidate at this point. Production
-  remains Sites Version 29 with admission disabled and old image identity
-  settings; no health request or Sandbox has been sent from this change.
+- The candidate is on GitHub PR #68 and deployed as Sites Version 30 from
+  Site-source commit `b97c5ceaad1d509c262d66a07015f74bb4e17546`. The deploy
+  succeeded with MCP enabled and environment revision 32. Live D1 now lists
+  `modal_health_check_limits`; live admission remains false and the previously
+  registered digest/fingerprint remain unchanged.
+- The existing ChatGPT GPU Control connector still exposes its prior tool
+  schema in this session, so the new diagnostic has not yet been invoked through
+  ChatGPT. No Modal health call or Sandbox was started from this change.
+- Full deployment evidence and the exact remaining acceptance are recorded in
+  [`Sites Version 30 acceptance`](acceptance/2026-11-13-sites-v30-modal-health-diagnostic.md).
 
 ## Modal candidate deployment update — 2026-11-13
 

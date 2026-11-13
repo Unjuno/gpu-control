@@ -5,8 +5,8 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Deployed Site version: 29, source commit
-  `6144d58acf6de609c8ac42d0b06542e29d89b1ab`; current environment revision 32.
+- Deployed Site version: 30, source commit
+  `b97c5ceaad1d509c262d66a07015f74bb4e17546`; current environment revision 32.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
 - Current ChatGPT capability evidence (2026-11-13; after Version 29 deploy):
@@ -28,11 +28,12 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   explicitly authorized submission. The live D1 overview lists the
   `authorization_challenges` and `human_authorizations` tables plus
   `provider_account_leases` and `provider_account_lease_events`.
-- The current PR candidate adds an owner-authenticated `experiment_provider_health`
-  tool to test Modal credentials, readiness, and registered image identity
-  without inference or Sandbox creation. Calls may incur separate Modal control
-  function charges and use a D1-backed workspace-wide 60-second cooldown. Its
-  D1 migration and tool are not live until the candidate is published.
+- Version 30 adds an owner-authenticated `experiment_provider_health` tool to
+  test Modal credentials, readiness, and registered image identity without
+  inference or Sandbox creation. Calls may incur separate Modal control
+  function charges and use a D1-backed workspace-wide 60-second cooldown. The
+  migration table is live; the existing ChatGPT connector still needs its tool
+  schema refreshed before this new operation can be called from this session.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
 - Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
   in `main` from PR #68 head `496e28c`. The corrected API image built and
