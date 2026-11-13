@@ -30,16 +30,18 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   `provider_account_leases` and `provider_account_lease_events`.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
 - Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
-  in `main`. Current candidate image readiness is not established: the Dockerfile
-  startup correction still needs a rebuilt OCI digest and matching fingerprint
-  deployed to Modal and registered in the Site environment. The earlier deploy
-  used a temporary one-hour Workspace token which was deleted immediately afterward.
-  The Modal Usage page showed a `$1` Workspace usage limit, `$0.04` in credits
-  used, and `$0` in charges at 2026-11-12 12:20 UTC, up from `$0.03` before the
-  run. This total includes control/deploy activity and cannot be attributed to
-  the Sandbox alone. The displayed limit is an account-level ceiling, not a
-  per-run cost guarantee. Official Sandbox list rates imply about `$0.0013` for
-  the maximum 30-second, 1-core, 512-MiB request; credits may offset this usage.
+  in `main` from PR #68 head `496e28c`. The corrected API image built and
+  deployed, but authenticated health/readiness is unverified; an unauthenticated
+  `/v1/health` request returned 401. The source fingerprint is
+  `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`, while
+  Sites still advertises `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`
+  and the old digest `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+  The rebuilt OCI digest has not been verified or registered. Admission remains
+  false and no Sandbox was started. Modal showed a `$1` Workspace limit, `$0.10`
+  usage, `$0` charges and `$1 of $30/mo` free credits. These totals include
+  control/deploy activity and cannot be attributed to Sandbox compute. The
+  temporary deployment token was revoked and its config removed; see
+  [`Modal deployment acceptance`](../../docs/acceptance/2026-11-13-modal-main-deploy.md).
   The fix that drops Sandbox privileges to UID/GID 10001 and binds that
   effective command into the image fingerprint is deployed. The four-token run
   `eacc26ff2ad54cf69a1ee7665325b197` was executed by the retired local Runner.
@@ -98,10 +100,9 @@ required reviews pass.
 PR #68 also changes the Modal workload Dockerfile from an `ENTRYPOINT` to a
 default `CMD`. Modal's Sandbox command overrides `CMD` but does not replace an
 image `ENTRYPOINT`; the previous image could therefore bypass the fixed
-privilege-dropping bootstrap and hit the non-root guard as UID 0. This source
-correction is in the deployed Sites source, but its rebuilt OCI digest and
-image fingerprint have not been deployed to Modal or registered in the Sites
-environment. No inference was run after Version 29. See
+privilege-dropping bootstrap and hit the non-root guard as UID 0. The source correction and API deployment are complete, but authenticated health,
+the workload image digest, and matching Site fingerprint remain unverified.
+No inference was run after Version 29. See
 [`docs/acceptance/2026-11-13-modal-entrypoint-root-cause.md`](../../docs/acceptance/2026-11-13-modal-entrypoint-root-cause.md).
 
 ## Target execution architecture

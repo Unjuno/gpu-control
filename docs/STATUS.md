@@ -1,5 +1,30 @@
 # Project status
 
+## Modal candidate deployment update — 2026-11-13
+
+- PR #68 head `496e28cdb1b257c2a508e56a11fcdb07f6aa8028` is deployed to
+  Modal `unjuno/main`. The first attempt exposed an image build-order error
+  (`add_local_dir` after a non-copy local source); the fix copies the bootstrap
+  into the API image. Full Python verification passed **573 tests, 1 skipped**;
+  `git diff --check` passed. All six exact-head GitHub checks pass.
+- Modal created API image IDs `im-4K01UJNs0MRcjkglisct1w` and
+  `im-Z63nygRSH8lcUALSM2Pfrn`. This is deployment evidence only: unauthenticated
+  `/v1/health` returned HTTP 401, and authenticated health/readiness and
+  inference have not been verified. The imported source fingerprint is
+  `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`;
+  Sites still advertises `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`
+  and digest `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+  No trusted rebuilt OCI digest has been registered, so admission remains
+  disabled and no Sandbox was started.
+- Modal UI showed a `$1` Workspace cap, `$0.10` cycle usage, `$0` charges,
+  `$1 of $30/mo` free credits, and zero live containers/Sandboxes. The temporary
+  Workspace token was revoked; token inventory showed zero API tokens and its
+  temporary config was deleted. During the first UI issuance, the token value
+  appeared in tool output; it was not used and was immediately revoked. The
+  subsequent CLI config had mode `0644`, but its token was also revoked and the
+  config removed. No credential is retained.
+- Details: [`Modal deployment and credential cleanup`](acceptance/2026-11-13-modal-main-deploy.md).
+
 ## Sites production reconciliation — 2026-11-13
 
 - Sites Version 29 is now deployed from the GitHub candidate's synchronized
@@ -19,7 +44,7 @@
   Modal showed zero live Sandboxes and zero running control calls; no provider
   compute was started. See
   [`Sites Version 29 production acceptance`](acceptance/2026-11-13-sites-v29-production-deploy.md).
-- PR #68 remains Draft at GitHub head `e107faad4e1697b131232fd7720b5ad21753009f`;
+- PR #68 remains Draft at GitHub head `496e28cdb1b257c2a508e56a11fcdb07f6aa8028`;
   all six exact-head checks pass. The Site-only deploy commit is separate from
   GitHub history. Modal's rebuilt
   OCI image digest and fingerprint still do not match the current candidate,
