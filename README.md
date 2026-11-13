@@ -19,14 +19,14 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published and a fixed Modal CPU adapter is deployed. The latest recorded ChatGPT capability read passed every Modal readiness check, while admission remained disabled; no successful inference against this deployment has been accepted. Paid execution remains parked.
+The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published with owner-bound plan confirmation and an exact-plan gate on separately billed Modal health checks. CPU admission remains disabled because the current Modal image identity and authenticated readiness have not been verified. No successful inference against the current Modal deployment has been accepted. RunPod/GPU and paid training remain parked.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Not ready: production Version 28 returns `approval_required=false` and no exact-plan confirmation URL; do not submit from this route. Admission is disabled. |
-| Real model inference through ChatGPT | Historical TinyStories 15M CPU runs passed source, result, and cleanup checks. They do not prove current readiness, broad model quality, or GPU capability |
+| Registered CPU experiment through ChatGPT | Not ready: production Site Version 32 requires exact-plan confirmation, but admission is disabled until Modal image identity and authenticated readiness are verified. |
+| Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment. The latest Modal attempts failed with workload exit code 2 and confirmed cleanup; older local-Runner successes are historical evidence only. |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
@@ -42,27 +42,19 @@ The project is **usable today for offline validation and control-plane developme
 | Paid RunPod workflow | Not enabled; Sites admission wiring and authenticated result transport remain incomplete |
 | Live paid GPU execution | Disabled / parked |
 
-The current hosted product path is the public ChatGPT Sites Worker with D1/R2.
-Stateful MCP tools require the authenticated Sites identity and owner-scoped
-queries; provider admission remains disabled. A fresh source reconciliation
-found that deployed Version 28 is backed by a separate Cloudflare artifact Git
-repository, not the public GitHub history. Its Worker returns
-`approval_required=false` and performs Modal health preflight before any
-human-authorization gate. Do not submit through this route. PR #68 contains
-the exact-plan approval and deferred-health fix but remains an unmerged Draft
-and is not deployed. See
-[`docs/acceptance/2026-11-13-sites-source-reconciliation.md`](docs/acceptance/2026-11-13-sites-source-reconciliation.md).
-Historical ChatGPT CPU successes used the retired local Runner; no successful
-inference is accepted for the current Modal deployment. The latest Modal run
-failed with exit code 2 and confirmed cleanup. Another Modal run requires the
-reviewed source to be deployed and a fresh exact-run authorization.
-Access from another ChatGPT
-account/process is not yet proven. Anonymous HTTP probes were blocked at the
-edge (HTTP 403), so they do not independently verify the Worker's public
-authentication behavior. The old local Runner and its Keychain credentials are
-retired. The target compute order is Modal for a small fixed workload, then
-Runpod for separately gated GPU experiments. Vercel and Neon/PostgreSQL are
-not target dependencies. The legacy FastAPI/PostgreSQL Gateway source and
+The current hosted product path is the ChatGPT Sites Worker with D1/R2. The
+Site access policy allows only the owner, and stateful MCP tools enforce the
+Sites-authenticated user ID against the owner allowlist. Cross-account denial
+has not been independently verified. Sites Version 32 applies the exact-plan
+authorization and billed-health gate; admission remains disabled, so this is
+not yet a successful real experiment path. PR #68 remains an open Draft at
+commit `602457d`; its six exact-head checks pass, but it is not merged.
+Historical ChatGPT CPU successes used the retired local Runner and do not
+prove current Modal readiness. The latest Modal attempts failed with exit
+code 2 and confirmed cleanup. The old local Runner and Keychain credentials
+are retired. The target compute order is Modal for a small fixed workload,
+then RunPod for separately gated GPU experiments. Vercel and Neon/PostgreSQL
+are not target dependencies. The legacy FastAPI/PostgreSQL Gateway source and
 runtime dependencies have been removed from the tracked tree; historical
 acceptance evidence remains under `docs/acceptance/` and in Git history.
 

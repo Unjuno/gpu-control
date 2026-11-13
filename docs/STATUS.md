@@ -1,5 +1,55 @@
 # Project status
 
+## Sites Version 32 and current execution gates — 2026-11-13
+
+- Production Site Version 32 is live at
+  `https://gpu-control-sites.unjuno.chatgpt.site` from Site-source commit
+  `7aacaac46a0111621d450c89a85fde7ce8cca6a2`; environment revision 33 and MCP
+  are active. D1 now contains `modal_authorized_health_checks`, the per-plan
+  one-use reservation for separately billed Modal health diagnostics.
+- The Worker requires the exact owner-confirmed `run_id` and plan fingerprint
+  for a standalone Modal health call, checks unexpired unconsumed authorization,
+  requires admission enabled, and reserves both a workspace cooldown and a
+  unique plan row before calling Modal. No health call is made when admission
+  is closed. The exact-plan confirmation remains one-use and expires within
+  10 minutes.
+- ChatGPT capability read reports `provider_configured=true`,
+  `human_authorization_store_ready=true`, and the expected workload
+  fingerprint, but `provider_ready=null` and
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. No current inference is accepted.
+- Modal browser state shows the `gpu-control-sites` app with one inactive CPU
+  control function, zero live function calls, and zero live Sandboxes. The app
+  Details view exposes its resource configuration but not a trusted current
+  OCI digest. Authentication/readiness and digest parity are still unverified.
+- The current ChatGPT connector metadata still exposes the previous empty
+  input schema for the separate provider-health diagnostic. Normal preparation
+  and exact-plan submission remain the primary path; connector schema refresh
+  for the optional diagnostic is unverified.
+- The latest Modal workload attempts remain exit code 2 with cleanup confirmed
+  and no artifact; they predate Version 32. No new attempt was made while
+  admission remained disabled.
+- Modal Usage & Billing currently shows a $1 Workspace usage limit, $0.10 in
+  credits used, $0 in charges, and an “Add payment method” action. This is a
+  snapshot, not a durable no-charge guarantee. Modal documents the Workspace
+  usage limit separately from the net spend limit and describes automatic
+  monthly and incremental billing; see
+  [Modal budgets](https://modal.com/docs/guide/budgets) and
+  [Modal billing](https://modal.com/docs/guide/billing).
+- PR #68 is open and Draft at GitHub commit `602457dbe58a90f8f200e067042c015c4e5d73b9`.
+  All six exact-head CI checks pass. The D1 migration test now includes
+  migration 0008.
+- Security diff review of this change found no source-level candidate
+  vulnerability. Coverage is partial: live Sites identity-header provenance,
+  cross-account denial, provider image/readiness, payment limits, and the
+  connector's health schema remain unverified. Report:
+  `~/.codex/state/plugins/codex-security/scans/gpu-control-pr58-current-candidate/d119bd791f26775b9887c79ec7315db7cda9f16a_20261113T121318Z_e9aj3n3p/report.md`.
+- Next gates: verify the actual registered Modal image identity and authenticated
+  readiness; retain the current $1 Workspace limit and $0.01 Sandbox ceiling;
+  enable CPU admission only after explicit current authorization; then confirm a
+  fresh exact experiment plan and verify result artifact plus cleanup. RunPod
+  GPU and paid training remain parked.
+- Evidence: [Sites Version 32 acceptance](acceptance/2026-11-13-sites-v32-modal-health-authorization.md).
+
 ## ChatGPT Sites and Modal fingerprint refresh — 2026-11-13
 
 - Reconciled the live Sites fingerprint environment key to the fixed Modal
