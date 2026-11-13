@@ -5,11 +5,11 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Deployed Site version: 31, source commit
-  `7be42adca5306a7cd3d7ecd84718af47969dd9b0`; current environment revision 32.
+- Deployed Site version: 32, source commit
+  `7aacaac46a0111621d450c89a85fde7ce8cca6a2`; current environment revision 33.
 - Access mode: public Site, with authenticated owner-scoped MCP operations.
 - State and artifacts: Sites D1 binding `DB` and R2 binding `BUCKET`.
-- Current ChatGPT capability evidence (2026-11-13; after Version 29 deploy):
+- Current ChatGPT capability evidence (2026-11-13; after Version 32 deploy):
   owner authorization store ready, exact-plan confirmation required,
   `admission_enabled=false`, and `available=false` for `modal_cpu` with
   `CPU_WORKLOAD_ADMISSION_DISABLED`. Provider health is deferred until an
@@ -31,18 +31,21 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 - Version 30 adds an owner-authenticated `experiment_provider_health` tool to
   test Modal credentials, readiness, and registered image identity without
   inference or Sandbox creation. Calls may incur separate Modal control
-  function charges and use a D1-backed workspace-wide 60-second cooldown. The
-  migration table is live; the existing ChatGPT connector still needs its tool
-  schema refreshed before this new operation can be called from this session.
+  function charges and use a D1-backed workspace-wide 60-second cooldown.
+- The health-tool correction binds each probe to `run_id` and
+  `plan_fingerprint` from a prepared plan that the owner already confirmed on
+  the Site. It permits one billed health probe per confirmed plan and avoids
+  provider calls while CPU admission is closed. Migration 0008 records the
+  one-use probe reservation. The correction is locally verified and awaits
+  publication as a new Site version.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
 - Modal control service is deployed at `unjuno--gpu-control-sites-control-api`
   in `main` from PR #68 head `496e28c`. The corrected API image built and
   deployed, but authenticated health/readiness is unverified; an unauthenticated
   `/v1/health` request returned 401. The source fingerprint is
   `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`, while
-  Sites still advertises `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`
-  and the old digest `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
-  The rebuilt OCI digest has not been verified or registered. Admission remains
+  Sites advertises fingerprint `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`.
+  The current OCI digest and authenticated readiness still need verification. Admission remains
   false and no Sandbox was started. Modal showed a `$1` Workspace limit, `$0.10`
   usage, `$0` charges and `$1 of $30/mo` free credits. These totals include
   control/deploy activity and cannot be attributed to Sandbox compute. The

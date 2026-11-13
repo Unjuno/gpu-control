@@ -6,6 +6,9 @@ import worker from "./index.js";
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
 const siteOrigin = "https://gpu-control-sites.unjuno.chatgpt.site";
+const healthRunId = "1".repeat(32);
+const healthFingerprint = "c".repeat(64);
+const healthArgs = { run_id: healthRunId, plan_fingerprint: healthFingerprint };
 
 function environment({ heartbeatAt, admission = "false", heartbeatDigest = imageDigest, heartbeatSha = sourceSha, cancellationProtocol = 1 } = {}) {
   const healthLimit = new Map();
@@ -44,6 +47,38 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
       },
     },
   };
+}
+
+function authorizedHealthEnvironment({ admission = "true", alreadyChecked = false, budgetError = false, authorization = true } = {}) {
+  const env = environment({ admission });
+  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  let lastChecked = null;
+  const checkedPlans = new Set(alreadyChecked ? [healthRunId] : []);
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
+    first: async () => sql.includes("FROM plans p JOIN human_authorizations a") && authorization &&
+      values[0] === healthRunId && values[1] === "test-owner" && values[2] === healthFingerprint
+      ? { id: healthRunId } : null,
+    async run() {
+      if (sql.includes("modal_health_check_limits")) {
+        if (budgetError) throw new Error("D1 health budget unavailable");
+        const [now, threshold] = values;
+        if (lastChecked !== null && lastChecked > threshold) return { meta: { changes: 0 } };
+        lastChecked = now;
+        return { meta: { changes: 1 } };
+      }
+      if (sql.includes("modal_authorized_health_checks")) {
+        if (checkedPlans.has(healthRunId)) return { meta: { changes: 0 } };
+        checkedPlans.add(healthRunId);
+        return { meta: { changes: 1 } };
+      }
+      throw new Error("unexpected health query");
+    },
+  }; } });
+  return env;
 }
 
 function canonicalJson(value) {
@@ -111,6 +146,8 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   const rpc = await response.json();
   assert.equal(response.status, 200);
   const tools = Object.fromEntries(rpc.result.tools.map((item) => [item.name, item.annotations]));
+  const healthTool = rpc.result.tools.find((item) => item.name === "experiment_provider_health");
+  assert.deepEqual(healthTool.inputSchema.required, ["run_id", "plan_fingerprint"]);
 
   for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list"]) {
     assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);
@@ -138,8 +175,46 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   });
 });
 
-test("Modal health diagnostic is owner-scoped and performs only an authenticated GET", async () => {
-  const env = environment();
+test("Modal health diagnostic requires an exact, unconsumed plan confirmation", async () => {
+  const env = authorizedHealthEnvironment({ authorization: false });
+  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
+  let called = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.blocking_reason, "HUMAN_AUTHORIZATION_REQUIRED");
+    assert.equal(result.machine_state.sandbox_started, false);
+    assert.equal(called, false, "health must not call Modal before exact-plan confirmation");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Modal health diagnostic does not contact the provider while admission is closed", async () => {
+  const env = authorizedHealthEnvironment({ admission: "false" });
+  env.MODAL_API_URL = "https://modal.example.test";
+  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
+  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
+  let called = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.blocking_reason, "CPU_WORKLOAD_ADMISSION_DISABLED");
+    assert.equal(result.machine_state.sandbox_started, false);
+    assert.equal(called, false, "closed admission must avoid separately billed Modal health calls");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Modal health diagnostic is owner-scoped and performs one authenticated GET per confirmed plan", async () => {
+  const env = authorizedHealthEnvironment();
   env.MODAL_API_URL = "https://modal.example.test";
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
   env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
@@ -161,12 +236,12 @@ test("Modal health diagnostic is owner-scoped and performs only an authenticated
     }), { status: 200, headers: { "content-type": "application/json" } });
   };
   try {
-    const denied = await toolCall(env, "other-owner", "experiment_provider_health", {});
+    const denied = await toolCall(env, "other-owner", "experiment_provider_health", healthArgs);
     const deniedValue = JSON.parse((await denied.json()).result.content[0].text);
     assert.deepEqual(deniedValue, { error: "SITE_USER_NOT_AUTHORIZED" });
     assert.equal(called, false, "unauthorized caller must not reach Modal");
 
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", {});
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
     const result = JSON.parse((await response.json()).result.content[0].text);
     assert.equal(result.status, "ok");
     assert.equal(result.machine_state.ready, true);
@@ -176,17 +251,28 @@ test("Modal health diagnostic is owner-scoped and performs only an authenticated
     assert.equal(called, true);
     assert.equal(JSON.stringify(result).includes(env.MODAL_PROXY_TOKEN_SECRET), false);
 
-    const limitedResponse = await toolCall(env, "test-owner", "experiment_provider_health", {});
+    const limitedResponse = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
     const limited = JSON.parse((await limitedResponse.json()).result.content[0].text);
     assert.equal(limited.blocking_reason, "MODAL_HEALTH_CHECK_RATE_LIMITED");
     assert.equal(called, true, "rate limited repeat must not call Modal");
+
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 61000;
+    try {
+      const duplicateResponse = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
+      const duplicate = JSON.parse((await duplicateResponse.json()).result.content[0].text);
+      assert.equal(duplicate.blocking_reason, "MODAL_PLAN_HEALTH_ALREADY_CHECKED");
+      assert.equal(called, true, "a confirmed plan authorizes at most one billed health call");
+    } finally {
+      Date.now = originalNow;
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("Modal health diagnostic reports auth/config failure without starting a Sandbox", async () => {
-  const env = environment();
+test("Modal health diagnostic reports provider auth failure without starting a Sandbox", async () => {
+  const env = authorizedHealthEnvironment();
   env.MODAL_API_URL = "https://modal.example.test";
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
   env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
@@ -195,7 +281,7 @@ test("Modal health diagnostic reports auth/config failure without starting a San
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("unauthorized", { status: 401 });
   try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", {});
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
     const result = JSON.parse((await response.json()).result.content[0].text);
     assert.equal(result.status, "blocked");
     assert.equal(result.machine_state.ready, false);
@@ -208,24 +294,32 @@ test("Modal health diagnostic reports auth/config failure without starting a San
 });
 
 test("Modal health diagnostic fails closed when the global call budget cannot be reserved", async () => {
-  const env = environment();
-  env.MODAL_API_URL = "https://modal.example.test";
-  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
-  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
-  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
+  const env = authorizedHealthEnvironment({ budgetError: true });
   env.BUCKET = { put: async () => {} };
-  env.DB.prepare = (sql) => ({
-    bind() { return { run: async () => { if (sql.includes("modal_health_check_limits")) throw new Error("D1 unavailable"); } }; },
-  });
   const originalFetch = globalThis.fetch;
   let called = false;
   globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
   try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", {});
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
     const result = JSON.parse((await response.json()).result.content[0].text);
     assert.equal(result.blocking_reason, "MODAL_HEALTH_CHECK_LIMIT_UNAVAILABLE");
     assert.equal(result.machine_state.sandbox_started, false);
     assert.equal(called, false, "D1 budget reservation failure must prevent Modal access");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Modal health diagnostic requires the exact confirmed plan identity", async () => {
+  const env = authorizedHealthEnvironment();
+  let called = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
+  try {
+    const invalid = await toolCall(env, "test-owner", "experiment_provider_health", { ...healthArgs, plan_fingerprint: "d".repeat(64) });
+    const result = JSON.parse((await invalid.json()).result.content[0].text);
+    assert.equal(result.blocking_reason, "HUMAN_AUTHORIZATION_REQUIRED");
+    assert.equal(called, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
