@@ -1,5 +1,23 @@
 # Project status
 
+## ChatGPT Sites and Modal fingerprint refresh — 2026-11-13
+
+- Reconciled the live Sites fingerprint environment key to the fixed Modal
+  workload fingerprint and redeployed existing Site Version 31. Sites
+  environment revision 33 is active; MCP remains enabled and admission remains
+  `false`.
+- ChatGPT capabilities now return the matching fingerprint, but still report
+  `provider_ready=null`, `CPU_WORKLOAD_ADMISSION_DISABLED`, and
+  `paid_execution=parked`. No provider health request or new Sandbox was
+  started during this refresh.
+- The two newest owned Modal Sandbox runs remain failed with
+  `MODAL_WORKLOAD_EXIT_2`; cleanup is confirmed and neither produced an
+  artifact. They predate the current fingerprint refresh and do not validate
+  the refreshed path. Modal currently shows zero concurrent Sandboxes.
+- Current Modal Usage Limit snapshot: `$1` Workspace usage limit, `$0.10`
+  credit usage, `$0` charges. Recheck before any run. See
+  [`ChatGPT Sites and Modal fingerprint refresh`](acceptance/2026-11-13-chatgpt-sites-modal-fingerprint-refresh.md).
+
 ## Authenticated Modal health diagnostic and Site publish — 2026-11-13
 
 - Added the owner-allowlisted `experiment_provider_health` MCP operation. It
