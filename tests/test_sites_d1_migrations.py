@@ -49,6 +49,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0006_runpod_account_leases.sql",
         "0007_modal_health_check_limit.sql",
         "0008_modal_plan_health_authorization.sql",
+        "0009_modal_health_readiness.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -121,7 +122,25 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
     assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events", "modal_authorized_health_checks"} <= tables
-    db.execute("INSERT INTO modal_authorized_health_checks VALUES (?, ?, ?, ?)", ("plan-existing", "owner-1", "a" * 64, 6))
+    db.execute(
+        """INSERT INTO modal_authorized_health_checks
+        (plan_id, owner_id, fingerprint, checked_at)
+        VALUES (?, ?, ?, ?)""",
+        ("plan-existing", "owner-1", "a" * 64, 6),
+    )
+    assert db.execute(
+        "SELECT ready FROM modal_authorized_health_checks WHERE plan_id = ?",
+        ("plan-existing",),
+    ).fetchone() == (0,)
+    try:
+        db.execute(
+            "UPDATE modal_authorized_health_checks SET ready = 2 WHERE plan_id = ?",
+            ("plan-existing",),
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        raise AssertionError("health readiness must reject values outside 0 and 1")
     db.execute(
         """INSERT INTO authorization_challenges
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",

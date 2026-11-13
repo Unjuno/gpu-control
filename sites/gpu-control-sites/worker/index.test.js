@@ -49,7 +49,7 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
   };
 }
 
-function authorizedHealthEnvironment({ admission = "true", alreadyChecked = false, budgetError = false, authorization = true } = {}) {
+function authorizedHealthEnvironment({ admission = "true", alreadyChecked = false, budgetError = false, authorization = true, healthResultChanges = 1 } = {}) {
   const env = environment({ admission });
   env.MODAL_API_URL = "https://modal.example.test";
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
@@ -57,12 +57,17 @@ function authorizedHealthEnvironment({ admission = "true", alreadyChecked = fals
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
   env.BUCKET = { put: async () => {} };
   let lastChecked = null;
+  let planHealthReady = null;
   const checkedPlans = new Set(alreadyChecked ? [healthRunId] : []);
   env.DB.prepare = (sql) => ({ bind(...values) { return {
     first: async () => sql.includes("FROM plans p JOIN human_authorizations a") && authorization &&
       values[0] === healthRunId && values[1] === "test-owner" && values[2] === healthFingerprint
       ? { id: healthRunId } : null,
     async run() {
+      if (sql.includes("UPDATE modal_authorized_health_checks")) {
+        planHealthReady = values[0];
+        return { meta: { changes: healthResultChanges } };
+      }
       if (sql.includes("modal_health_check_limits")) {
         if (budgetError) throw new Error("D1 health budget unavailable");
         const [now, threshold] = values;
@@ -78,6 +83,7 @@ function authorizedHealthEnvironment({ admission = "true", alreadyChecked = fals
       throw new Error("unexpected health query");
     },
   }; } });
+  env.healthReadyForTest = () => planHealthReady;
   return env;
 }
 
@@ -248,6 +254,7 @@ test("Modal health diagnostic is owner-scoped and performs one authenticated GET
     assert.equal(result.machine_state.sandbox_started, false);
     assert.equal(result.machine_state.inference_started, false);
     assert.equal(result.machine_state.control_function_cost_included_in_sandbox_ceiling, false);
+    assert.equal(env.healthReadyForTest(), 1, "a successful health check is persisted for submit to reuse");
     assert.equal(called, true);
     assert.equal(JSON.stringify(result).includes(env.MODAL_PROXY_TOKEN_SECRET), false);
 
@@ -288,6 +295,24 @@ test("Modal health diagnostic reports provider auth failure without starting a S
     assert.equal(result.machine_state.checks.request_succeeded, false);
     assert.equal(result.machine_state.sandbox_started, false);
     assert.equal(result.machine_state.inference_started, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Modal health diagnostic fails closed when the reserved health row cannot be updated", async () => {
+  const env = authorizedHealthEnvironment({ healthResultChanges: 0 });
+  env.BUCKET = { put: async () => {} };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
+    source_sha: sourceSha, registered_image_digest: imageDigest,
+    image_fingerprint: "c".repeat(64), max_runtime_seconds: 30 });
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blocking_reason, "MODAL_HEALTH_RESULT_PERSISTENCE_FAILED");
+    assert.equal(result.machine_state.sandbox_started, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -487,31 +512,54 @@ test("authorized submission still bounds and cancels oversized Modal health resp
   env.BUCKET = { put: async () => {} };
   const fingerprint = "e".repeat(64);
   const runId = "c".repeat(32);
-  env.DB.prepare = (sql) => ({ bind() { return { first: async () => {
+  let healthBudgetUsed = false;
+  let planHealthUsed = false;
+  env.DB.prepare = (sql) => ({ bind() { return {
+    first: async () => {
     if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return null;
     if (sql.includes("FROM human_authorizations")) return { id: "a".repeat(32), fingerprint,
       expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
     return null;
-  } }; } });
+    },
+    async run() {
+      if (sql.includes("modal_health_check_limits")) {
+        if (healthBudgetUsed) return { meta: { changes: 0 } };
+        healthBudgetUsed = true;
+        return { meta: { changes: 1 } };
+      }
+      if (sql.includes("modal_authorized_health_checks")) {
+        if (planHealthUsed) return { meta: { changes: 0 } };
+        planHealthUsed = true;
+        return { meta: { changes: 1 } };
+      }
+      return { meta: { changes: 1 } };
+    },
+  }; } });
   let batchCalls = 0;
   env.DB.batch = async () => { batchCalls++; throw new Error("unhealthy provider must not reserve a run"); };
   const originalFetch = globalThis.fetch;
   let cancelCalls = 0;
+  let healthCalls = 0;
   try {
-    globalThis.fetch = async () => new Response(new ReadableStream({
+    globalThis.fetch = async () => { healthCalls++; return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode("x".repeat(4096)));
         controller.enqueue(new TextEncoder().encode("y".repeat(4097)));
       },
       cancel() { cancelCalls++; },
-    }));
+    })); };
     const response = await toolCall(env, "test-owner", "experiment_submit", { run_id: runId, plan_fingerprint: fingerprint });
     const rpc = await response.json();
     const result = JSON.parse(rpc.result.content[0].text);
     assert.equal(rpc.result.isError, false);
     assert.equal(result.status, "blocked");
     assert.equal(cancelCalls, 1);
+    assert.equal(healthCalls, 1);
     assert.equal(batchCalls, 0);
+    const retryResponse = await toolCall(env, "test-owner", "experiment_submit", { run_id: runId, plan_fingerprint: fingerprint });
+    const retry = JSON.parse((await retryResponse.json()).result.content[0].text);
+    assert.equal(retry.blocking_reason, "MODAL_HEALTH_CHECK_RATE_LIMITED");
+    assert.equal(healthCalls, 1, "a failed health response cannot be retried within the workspace budget");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -636,6 +684,8 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   let current = null;
   const authorization = { id: "d".repeat(32), fingerprint: plan.fingerprint,
     expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
+  let healthBudgetUsed = false;
+  let planHealthUsed = false;
   const env = environment({ admission: "true" });
   env.MODAL_API_URL = "https://modal.invalid";
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
@@ -653,12 +703,24 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   env.DB.prepare = (sql) => ({ bind(...values) { return {
     async first() {
       if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return current ? { id: current.id, state: current.state, created_at: current.created_at } : null;
+      if (sql.includes("SELECT ready FROM modal_authorized_health_checks")) return { ready: 1 };
       if (sql.includes("FROM human_authorizations")) return { ...authorization };
       if (sql.includes("FROM runs r JOIN plans p")) return current ? { ...plan, ...current } : null;
       if (sql.startsWith("SELECT state, created_at, updated_at, cleanup_state, failure_code FROM runs")) return current;
       throw new Error(`unexpected D1 first query: ${sql}`);
     },
     async run() {
+      if (sql.includes("UPDATE modal_authorized_health_checks")) return { meta: { changes: 1 } };
+      if (sql.includes("modal_health_check_limits")) {
+        if (healthBudgetUsed) return { meta: { changes: 0 } };
+        healthBudgetUsed = true;
+        return { meta: { changes: 1 } };
+      }
+      if (sql.includes("modal_authorized_health_checks")) {
+        if (planHealthUsed) return { meta: { changes: 0 } };
+        planHealthUsed = true;
+        return { meta: { changes: 1 } };
+      }
       if (sql.startsWith("UPDATE runs SET state='running'")) {
         current.state = "running";
         current.updated_at = values[1];
@@ -675,10 +737,12 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   const originalFetch = globalThis.fetch;
   let statusChecks = 0;
   let submitCalls = 0;
+  let healthChecks = 0;
   try {
     globalThis.fetch = async (url) => {
       const requestUrl = String(url);
       if (requestUrl.endsWith("/v1/health")) {
+        healthChecks++;
         return Response.json({ ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
           source_sha: sourceSha, registered_image_digest: imageDigest,
           image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT, max_runtime_seconds: 30 });
@@ -714,6 +778,7 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   }
   assert.equal(statusChecks, 2, "repeated status checks reconcile the same reserved run");
   assert.equal(submitCalls, 1, "a lost submit response is never blindly retried");
+  assert.equal(healthChecks, 0, "submit reuses a successful one-use health result instead of billing a duplicate check");
   assert.equal(current.state, "running", "the reconciled Sandbox retains the occupied slot");
   assert.equal(current.lease_id, "sb-existing", "the later provider lookup reconnects the original Sandbox");
 });

@@ -51,4 +51,7 @@ assert.ok(migrations.includes("0008_modal_plan_health_authorization.sql"));
 const planHealthMigration = readFileSync(join(root, ".openai/drizzle/0008_modal_plan_health_authorization.sql"), "utf8");
 assert.match(planHealthMigration, /plan_id TEXT PRIMARY KEY REFERENCES plans\(id\)/);
 assert.match(planHealthMigration, /CREATE INDEX modal_authorized_health_checks_owner_checked/);
+assert.ok(migrations.includes("0009_modal_health_readiness.sql"));
+const healthReadinessMigration = readFileSync(join(root, ".openai/drizzle/0009_modal_health_readiness.sql"), "utf8");
+assert.match(healthReadinessMigration, /ADD COLUMN ready INTEGER NOT NULL DEFAULT 0 CHECK \(ready IN \(0, 1\)\)/);
 console.log("Site Worker artifact is complete.");
