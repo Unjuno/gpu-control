@@ -5,6 +5,7 @@ import worker from "./index.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
+const siteOrigin = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 function environment({ heartbeatAt, admission = "false", heartbeatDigest = imageDigest, heartbeatSha = sourceSha, cancellationProtocol = 1 } = {}) {
   const heartbeat = heartbeatAt === undefined ? null : {
@@ -181,7 +182,7 @@ test("Site confirmation binds one exact plan to the authenticated owner and cons
     return [{ meta: { changes: 1 } }, { meta: { changes: 1 } }];
   };
 
-  const url = `https://site.invalid/authorize?run_id=${runId}&plan_fingerprint=${fingerprint}`;
+  const url = `${siteOrigin}/authorize?run_id=${runId}&plan_fingerprint=${fingerprint}`;
   const originalPrepare = env.DB.prepare;
   env.DB.prepare = () => { throw new Error("non-owner confirmation request reached D1"); };
   const nonOwner = await worker.fetch(new Request(url, { headers: { "oai-authenticated-user-id": "other-user" } }), env);
@@ -197,24 +198,31 @@ test("Site confirmation binds one exact plan to the authenticated owner and cons
   assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
   const token = html.match(/name="challenge" value="([0-9a-f]{64})"/)[1];
   const formBody = new URLSearchParams({ run_id: runId, plan_fingerprint: fingerprint, challenge: token, confirm: "yes" });
-  const crossSite = await worker.fetch(new Request("https://site.invalid/authorize", {
+  const crossSite = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
     method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: "https://attacker.invalid",
       "sec-fetch-site": "cross-site", "content-type": "application/x-www-form-urlencoded" }, body: formBody,
   }), env);
   assert.equal(crossSite.status, 403);
   assert.equal(authorizations.size, 0);
 
+  const wrongOrigin = await worker.fetch(new Request("https://site.invalid/authorize", {
+    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: "https://site.invalid",
+      "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded" }, body: formBody,
+  }), env);
+  assert.equal(wrongOrigin.status, 403);
+  assert.equal(authorizations.size, 0);
+
   const duplicateBody = new URLSearchParams(formBody);
   duplicateBody.append("confirm", "no");
-  const duplicate = await worker.fetch(new Request("https://site.invalid/authorize", {
-    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: "https://site.invalid",
+  const duplicate = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
+    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: siteOrigin,
       "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded" }, body: duplicateBody,
   }), env);
   assert.equal(duplicate.status, 400);
   assert.equal(authorizations.size, 0);
 
-  const approved = await worker.fetch(new Request("https://site.invalid/authorize", {
-    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: "https://site.invalid",
+  const approved = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
+    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: siteOrigin,
       "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded" }, body: formBody,
   }), env);
   assert.equal(approved.status, 200);
@@ -225,8 +233,8 @@ test("Site confirmation binds one exact plan to the authenticated owner and cons
   assert.equal(authorization.expires_at - authorization.authorized_at, 300);
   assert.equal(authorization.consumed_at, null);
 
-  const replay = await worker.fetch(new Request("https://site.invalid/authorize", {
-    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: "https://site.invalid",
+  const replay = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
+    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: siteOrigin,
       "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded" }, body: formBody,
   }), env);
   assert.equal(replay.status, 409);
@@ -928,6 +936,7 @@ test("prepare idempotency keys are isolated by Site owner", async () => {
   assert.equal(first.state, "prepared");
   assert.equal(first.approval_required, true);
   assert.equal(new URL(first.authorization_url).pathname, "/authorize");
+  assert.equal(new URL(first.authorization_url).origin, siteOrigin);
   assert.equal(second.state, "prepared");
   assert.equal(first.estimated_sandbox_cost_usd, "0.0005");
   assert.equal(first.max_sandbox_cost_usd, "0.01");

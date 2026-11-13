@@ -20,6 +20,7 @@ const MODAL_MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef62
 const MODAL_MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a";
 const MODAL_TOKENIZER_SHA256 = "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361";
 const HUMAN_AUTHORIZATION_TTL_SECONDS = 600;
+const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 const schemas = {
   experiment_capabilities: { type: "object", properties: {}, additionalProperties: false },
@@ -173,8 +174,8 @@ function htmlPage(title, content, status = 200) {
   } });
 }
 
-function authorizationUrl(request, runId, fingerprint) {
-  const url = new URL("/authorize", request.url);
+function authorizationUrl(_request, runId, fingerprint) {
+  const url = new URL("/authorize", SITE_PUBLIC_ORIGIN);
   url.searchParams.set("run_id", runId);
   url.searchParams.set("plan_fingerprint", fingerprint);
   return url.toString();
@@ -214,7 +215,7 @@ async function renderAuthorizationPage(request, env, owner) {
     .bind(challengeId, owner, runId, fingerprint, await sha256(token), now, challengeExpiry).run();
   let parameters;
   try { parameters = JSON.parse(plan.parameters_json); } catch { return htmlPage("planの形式が無効です", "<p>チャットで新しいplanを準備してください。</p>", 500); }
-  const action = new URL("/authorize", request.url).toString();
+  const action = new URL("/authorize", SITE_PUBLIC_ORIGIN).toString();
   const content = `<p>以下の内容で登録済みのCPU推論を1回実行する承認です。GPUは使いません。</p><dl>
     <dt>Workload</dt><dd>${escapeHtml(plan.workload)}</dd>
     <dt>Repository / commit</dt><dd>${escapeHtml(plan.repository)}<br><code>${escapeHtml(plan.source_sha)}</code></dd>
@@ -242,7 +243,7 @@ async function handleAuthorizationRequest(request, env) {
   const url = new URL(request.url);
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
-  if (origin !== url.origin || (fetchSite && fetchSite !== "same-origin") ||
+  if (url.origin !== SITE_PUBLIC_ORIGIN || origin !== SITE_PUBLIC_ORIGIN || (fetchSite && fetchSite !== "same-origin") ||
       !request.headers.get("content-type")?.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
     return htmlPage("リクエストを確認できません", "<p>Siteの確認ページから操作してください。</p>", 403);
   }
