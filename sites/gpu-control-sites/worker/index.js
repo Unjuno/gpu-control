@@ -187,6 +187,31 @@ function authorizationUrl(_request, runId, fingerprint) {
   return url.toString();
 }
 
+function chatGPTSignInPath(returnTo) {
+  let safeReturnTo = "/";
+  if (typeof returnTo === "string" && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
+    try {
+      const parsed = new URL(returnTo, "https://app.local");
+      if (parsed.origin === "https://app.local" &&
+          !["/signin-with-chatgpt", "/signout-with-chatgpt", "/callback"].includes(parsed.pathname)) {
+        safeReturnTo = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    } catch { /* Fall back to the Site root for malformed return paths. */ }
+  }
+  return `/signin-with-chatgpt?return_to=${encodeURIComponent(safeReturnTo)}`;
+}
+
+function authorizationReturnPath(request) {
+  const url = new URL(request.url);
+  const runId = url.searchParams.get("run_id") || "";
+  const fingerprint = url.searchParams.get("plan_fingerprint") || "";
+  if (!/^[0-9a-f]{32}$/.test(runId) || !/^[0-9a-f]{64}$/.test(fingerprint)) return "/";
+  const returnTo = new URL("/authorize", SITE_PUBLIC_ORIGIN);
+  returnTo.searchParams.set("run_id", runId);
+  returnTo.searchParams.set("plan_fingerprint", fingerprint);
+  return `${returnTo.pathname}${returnTo.search}`;
+}
+
 async function renderAuthorizationPage(request, env, owner) {
   const url = new URL(request.url);
   const runId = url.searchParams.get("run_id") || "";
@@ -221,7 +246,7 @@ async function renderAuthorizationPage(request, env, owner) {
     .bind(challengeId, owner, runId, fingerprint, await sha256(token), now, challengeExpiry).run();
   let parameters;
   try { parameters = JSON.parse(plan.parameters_json); } catch { return htmlPage("planの形式が無効です", "<p>チャットで新しいplanを準備してください。</p>", 500); }
-  const action = new URL("/authorize", SITE_PUBLIC_ORIGIN).toString();
+  const action = authorizationUrl(request, runId, fingerprint);
   const content = `<p>以下の内容で登録済みのCPU推論を1回実行する承認です。GPUは使いません。</p><dl>
     <dt>Workload</dt><dd>${escapeHtml(plan.workload)}</dd>
     <dt>Repository / commit</dt><dd>${escapeHtml(plan.repository)}<br><code>${escapeHtml(plan.source_sha)}</code></dd>
@@ -241,8 +266,14 @@ async function renderAuthorizationPage(request, env, owner) {
 }
 
 async function handleAuthorizationRequest(request, env) {
+  const authenticatedUserId = request.headers.get("oai-authenticated-user-id");
   const owner = userId(request, env);
-  if (!owner) return htmlPage("ChatGPT Sitesへのサインインが必要です", "<p>許可されたGPU ControlアカウントでSiteを開き直してください。</p>", 401);
+  if (!authenticatedUserId) {
+    const signInPath = chatGPTSignInPath(authorizationReturnPath(request));
+    return htmlPage("ChatGPT Sitesへのサインインが必要です",
+      `<p>あなたのChatGPTアカウントでサインインして、このplanの確認に戻ってください。</p><p><a href="${escapeHtml(signInPath)}" target="_top" rel="noreferrer">ChatGPTでサインイン</a></p>`, 401);
+  }
+  if (!owner) return htmlPage("このアカウントは許可されていません", "<p>GPU Controlを許可したChatGPTアカウントで開いてください。</p>", 403);
   if (!env.DB) return htmlPage("データベースを利用できません", "<p>このSiteでは承認を記録できません。</p>", 503);
   if (request.method === "GET") return renderAuthorizationPage(request, env, owner);
   if (request.method !== "POST") return htmlPage("Method Not Allowed", "<p>この操作にはGETまたはPOSTを使用してください。</p>", 405);

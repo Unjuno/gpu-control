@@ -392,8 +392,14 @@ test("Site confirmation binds one exact plan to the authenticated owner and cons
   const url = `${siteOrigin}/authorize?run_id=${runId}&plan_fingerprint=${fingerprint}`;
   const originalPrepare = env.DB.prepare;
   env.DB.prepare = () => { throw new Error("non-owner confirmation request reached D1"); };
+  const anonymous = await worker.fetch(new Request(url), env);
+  const anonymousHtml = await anonymous.text();
+  assert.equal(anonymous.status, 401);
+  assert.match(anonymousHtml, /target="_top"/);
+  assert.match(anonymousHtml, new RegExp(encodeURIComponent(`/authorize?run_id=${runId}&plan_fingerprint=${fingerprint}`)));
+  assert.match(anonymousHtml, /ChatGPTでサインイン/);
   const nonOwner = await worker.fetch(new Request(url, { headers: { "oai-authenticated-user-id": "other-user" } }), env);
-  assert.equal(nonOwner.status, 401);
+  assert.equal(nonOwner.status, 403);
   env.DB.prepare = originalPrepare;
   const page = await worker.fetch(new Request(url, { headers: { "oai-authenticated-user-id": "test-owner" } }), env);
   const html = await page.text();

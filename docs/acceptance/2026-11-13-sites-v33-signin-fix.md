@@ -53,7 +53,9 @@ its return path. The in-app browser then reached `https://auth.openai.com/log-in
 which means a browser sign-in was required. The user did not complete that sign-in
 during this check. No approval was recorded, no provider health call was made,
 and no Modal Sandbox was started. A status lookup returned `RUN_NOT_FOUND`;
-this is consistent with the prepared plan not having been submitted.
+this is consistent with the prepared plan not having been submitted. The Worker
+source and regression test are mirrored in the GitHub PR branch; production
+publication still reads the separate Sites source repository.
 
 ## Remaining acceptance
 

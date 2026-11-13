@@ -29,8 +29,9 @@
   the embedded browser opened a separate OpenAI login page. Complete the
   account sign-in there, then prepare a fresh plan if this one has expired.
   PR #68 is Draft, current head `b22732fd689767ba3401dff91afebdce5b54bf04`,
-  with all six checks passing. The PR contains the Site deployment evidence;
-  Site Worker source itself is maintained in the separate Site source repo.
+  with all six checks passing. The PR now mirrors the Site Worker source and
+  regression test; production publication still uses the separate Sites source
+  repository.
 - Supplemental local security scans: Semgrep 1.161.0 scanned 276 tracked files
   with 110 rules and reported one SHA-1 compatibility warning at
   `project_control/runner.py:147`; the code reproduces GitHub Git-blob IDs with
