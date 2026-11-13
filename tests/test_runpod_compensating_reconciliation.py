@@ -12,6 +12,7 @@ from gpu_control.providers.runpod_occupancy import build_account_occupancy_evide
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
 from gpu_control.providers.runpod_reconciliation import build_pod_inventory_evidence
 from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodV2Error
+from conftest import issue_live_permit_for_plan
 
 
 NOW = datetime(2026, 8, 28, 1, 30, tzinfo=timezone.utc)
@@ -58,17 +59,7 @@ def plan() -> ApprovedExecutionPlan:
 
 
 def permit(value: ApprovedExecutionPlan) -> LiveExecutionPermit:
-    return LiveExecutionPermit(
-        plan_fingerprint=value.fingerprint(),
-        actor="Unjuno",
-        decision_record_id="decision-compensating",
-        human_authorization_id="auth-compensating",
-        human_authorization_reference=value.authorization_reference,
-        paid_authorization_reference="github-actions:compensating",
-        repository_security_reference="github:main-protection:sha256:" + "d" * 64,
-        control_plane_sha="e" * 40,
-        valid_until_utc="2026-08-28T01:40:00Z",
-    )
+    return issue_live_permit_for_plan(value, valid_until_utc="2026-08-28T01:40:00Z")
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -97,7 +88,7 @@ class Client:
         self.create_calls = 0
         self.terminate_calls: list[str] = []
 
-    def create_pod(self, payload):  # type: ignore[no-untyped-def]
+    def create_pod(self, payload, **kwargs):  # type: ignore[no-untyped-def]
         self.create_calls += 1
         return invalid_create_response(self.value)
 

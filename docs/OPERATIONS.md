@@ -34,6 +34,27 @@ read-only security scan; cross-account denial and image identity reconciliation
 remain open. RunPod has no Sites Worker execution route, and GPU/paid execution
 remain parked. See [Sites Version 33 live refresh](acceptance/2026-11-13-sites-v33-live-refresh.md).
 
+## Modal Sandbox resource-limit correction — 2026-11-14
+
+The live Modal Sandbox details page showed CPU limit `None` and memory limit
+`None`. In the deployed source, `cpu=1` and `memory=512` specified requests,
+not hard limits; therefore the previously advertised `$0.01` per-run Sandbox
+ceiling was not enforced against burst usage. Modal bills the greater of request
+and actual usage. Current candidate source now uses CPU `(1.0, 1.0)` and memory
+`(512, 512)` request/limit tuples. CPU at the limit is throttled; a Sandbox that
+exceeds the memory limit can be OOM-terminated and the run fails. The candidate
+fingerprint is `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`;
+the deployed/Site value remains `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`.
+No deploy or provider call was made for this source change.
+
+Before the new bound is treated as live, deploy the Modal API from the candidate
+source with the documented Modal Python SDK 1.6.3 tuple API, verify authenticated
+health reports the candidate fingerprint, then update Sites'
+`MODAL_WORKLOAD_IMAGE_FINGERPRINT` and publish the matching Worker. A future
+exact-plan Sandbox acceptance must confirm CPU limit 1, memory limit 512 MiB,
+the expected OOM/throttle semantics, and cleanup. Health alone does not prove
+the UI's effective Sandbox limits.
+
 ## Sites migration behavior and recovery
 
 Sites applies hosted D1 migrations before uploading the Worker. A deployment

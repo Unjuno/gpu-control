@@ -10,12 +10,17 @@ Modal token, Sites token, bearer token, or provider credential.
 the copied inference program and C source match the previously registered
 GitHub workload source. The API uses deterministic Sandbox names so an
 ambiguous retry attaches to the original running or recently terminated
-Sandbox instead of starting replacement compute. A Sandbox is limited to one
-CPU, 512 MiB, blocked outbound networking, and at most 30 seconds.
+Sandbox instead of starting replacement compute. A Sandbox requests and is
+hard-limited to 1 physical CPU core and 512 MiB, with blocked outbound
+networking and at most 30 seconds of runtime. The resource tuple is included in
+the workload image fingerprint. CPU usage at the limit is throttled; exceeding
+the memory limit can OOM-terminate the Sandbox and fail the run.
 
 ## Deploy requirements
 
-- Modal Python SDK 1.6.3.
+- Modal Python SDK 1.6.3. The fixed API uses the documented
+  `Sandbox.create(cpu=(request, limit), memory=(request_mib, limit_mib))`
+  resource tuple form; see the [Python Sandbox reference](https://modal.com/docs/sdk/py/latest/Sandbox).
 - The API image installs the hash-locked dependency set in `requirements.txt`.
   Update top-level constraints in `requirements.in`, regenerate the lock with
   `uv pip compile --generate-hashes --output-file requirements.txt

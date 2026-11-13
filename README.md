@@ -19,13 +19,13 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and ChatGPT-side experiment preparation**. The ChatGPT Site is published and CPU admission is enabled for one fixed, owner-authorized workload under a $0.01 Sandbox ceiling. ChatGPT can read capabilities and runs; a fresh one-use Site confirmation is required for each plan. Site Version 33 fixes the approval page's missing ChatGPT sign-in link, but browser sign-in and post-deploy Modal readiness/inference are still unverified. RunPod/GPU and paid training remain parked.
+The ChatGPT account connected to the published Site can read owner-scoped capabilities and experiment history, and the persistent Sites-to-Modal proxy configuration is present. Each experiment still requires a fresh one-use confirmation for its exact plan. Current Modal Sandbox details showed CPU and memory requests without hard limits, so the advertised `$0.01` Sandbox ceiling was not enforced against burst usage; do not treat it as a guaranteed cap until the candidate resource-limit fix is deployed and verified. No successful inference against the current Modal deployment is accepted yet. RunPod/GPU and paid training remain parked.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Available for the fixed TinyStories workload after exact-plan owner confirmation; 30 seconds, one in flight, estimated Sandbox cost $0.0013, Sandbox ceiling $0.01. Modal control-function charges are separate. |
+| Registered CPU experiment through ChatGPT | Provider configuration and authenticated plan/read tools are connected. New inference acceptance is pending deployment and verification of 1-core / 512-MiB hard limits; the live Sandbox had requests only. Modal control-function charges are separate from the Sandbox estimate. |
 | Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment. The latest Modal attempts failed with workload exit code 2 and confirmed cleanup; older local-Runner successes are historical evidence only. |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
@@ -43,15 +43,16 @@ The project is **usable today for offline validation and ChatGPT-side experiment
 | Live paid GPU execution | Disabled / parked |
 
 The current hosted product path is the ChatGPT Sites Worker with D1/R2. The
-Site access is public, while stateful MCP tools enforce the Sites-authenticated
-user ID against the owner allowlist. Cross-account denial has not been
-independently verified. Sites Version 33 is live at environment revision 34;
-CPU admission is enabled, with exact-plan one-use owner confirmation and a
-Modal readiness preflight before submission. No successful inference is yet
-accepted. PR #68 remains an open Draft. The Site sign-in fix commit `f49988a`
-passed all six checks, but the PR is not merged. Version 33's
-sign-in route was validated locally; a current browser login and plan approval
-are still required to prove the authenticated path.
+Site URL is public, while MCP calls are authenticated and stateful tools bind
+the caller to the owner allowlist. This ChatGPT account successfully read its
+capabilities and owned run history; a separate-account denial remains
+unverified. Sites Version 33 is live at environment revision 34. Modal proxy
+configuration is present, but provider health is deferred until exact-plan
+confirmation and no successful inference against the current Modal deployment
+is accepted. Live Sandbox CPU and memory limits were `None`; the candidate fix
+sets request=limit to 1 CPU and 512 MiB but is not deployed. PR #68 remains an
+open Draft. The Site sign-in fix commit `f49988a` passed all six checks, but the
+PR is not merged.
 Historical ChatGPT CPU successes used the retired local Runner and do not
 prove current Modal readiness. The latest Modal attempts failed with exit
 code 2 and confirmed cleanup. The old local Runner and Keychain credentials

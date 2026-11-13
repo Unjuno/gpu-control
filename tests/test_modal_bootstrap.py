@@ -85,6 +85,19 @@ class SandboxBootstrapTests(unittest.TestCase):
         self.assertIn('"image_cmd": ["python", "-I", "/work/inference.py"]', app_source)
         self.assertIn('"sandbox_command": list(SANDBOX_ENTRYPOINT)', app_source)
 
+    def test_sandbox_hard_resource_limits_are_equal_to_requests_and_fingerprinted(self) -> None:
+        app_source = (MODAL_DIR / "app.py").read_text(encoding="utf-8")
+        self.assertIn("SANDBOX_CPU_REQUEST = 1.0", app_source)
+        self.assertIn("SANDBOX_CPU_LIMIT = 1.0", app_source)
+        self.assertIn("SANDBOX_MEMORY_REQUEST_MIB = 512", app_source)
+        self.assertIn("SANDBOX_MEMORY_LIMIT_MIB = 512", app_source)
+        self.assertIn("cpu=(SANDBOX_CPU_REQUEST, SANDBOX_CPU_LIMIT)", app_source)
+        self.assertIn("memory=(SANDBOX_MEMORY_REQUEST_MIB, SANDBOX_MEMORY_LIMIT_MIB)", app_source)
+        self.assertIn('"cpu_request": SANDBOX_CPU_REQUEST', app_source)
+        self.assertIn('"cpu_limit": SANDBOX_CPU_LIMIT', app_source)
+        self.assertIn('"memory_request_mib": SANDBOX_MEMORY_REQUEST_MIB', app_source)
+        self.assertIn('"memory_limit_mib": SANDBOX_MEMORY_LIMIT_MIB', app_source)
+
     def test_modal_api_image_uses_hash_locked_framework_dependencies(self) -> None:
         requirements = (MODAL_DIR / "requirements.txt").read_text(encoding="utf-8")
         requirements_input = (MODAL_DIR / "requirements.in").read_text(encoding="utf-8")

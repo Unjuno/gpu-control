@@ -8,8 +8,10 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request
 
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
+from ..human_authorization import LiveExecutionPermit
 from ..http_security import open_no_redirect, read_bounded
 from .runpod_network_volume import RunPodNetworkVolumeEvidence
+from .runpod_live_gate import require_runpod_live_allocation_enabled, validate_runpod_create_authorization
 from .runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2Error
 
 
@@ -252,9 +254,19 @@ class RunPodV1HttpClient:
         *,
         expected_status: int,
         body: Mapping[str, Any] | None = None,
+        plan: ApprovedExecutionPlan | None = None,
+        live_permit: LiveExecutionPermit | None = None,
     ) -> object | None:
         if not isinstance(path, str) or not path.startswith("/") or path.startswith("//"):
             raise RunPodV2Error("RunPod API path must be an absolute single-origin path")
+        if method.upper() == "POST" and path.split("?", 1)[0] == "/pods":
+            require_runpod_live_allocation_enabled()
+            if plan is None or live_permit is None:
+                raise RunPodV2Error("RunPod create requires an approved plan and issued live permit")
+            try:
+                validate_runpod_create_authorization(plan, live_permit)
+            except ValueError as exc:
+                raise RunPodV2Error(str(exc)) from exc
         data = None
         headers = {
             "Accept": "application/json",
@@ -302,10 +314,30 @@ class RunPodV1HttpClient:
         raw = self._request("GET", "/pods", expected_status=200)
         return normalize_v1_inventory(raw)
 
-    def create_pod(self, payload: Mapping[str, Any]) -> dict[str, object]:
+    def create_pod(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        plan: ApprovedExecutionPlan | None = None,
+        live_permit: LiveExecutionPermit | None = None,
+    ) -> dict[str, object]:
+        require_runpod_live_allocation_enabled()
+        if plan is None or live_permit is None:
+            raise RunPodV2Error("RunPod create requires an approved plan and issued live permit")
+        try:
+            validate_runpod_create_authorization(plan, live_permit)
+        except ValueError as exc:
+            raise RunPodV2Error(str(exc)) from exc
         if not isinstance(payload, Mapping):
             raise RunPodV2Error("RunPod REST v1 create payload must be a mapping")
-        result = self._request("POST", "/pods", expected_status=201, body=payload)
+        result = self._request(
+            "POST",
+            "/pods",
+            expected_status=201,
+            body=payload,
+            plan=plan,
+            live_permit=live_permit,
+        )
         raw = _require_mapping(result, "RunPod REST v1 create response")
         normalized = normalize_v1_pod(
             raw,

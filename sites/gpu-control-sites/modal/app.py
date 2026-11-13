@@ -27,6 +27,10 @@ MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories
 MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a"
 TOKENIZER_SHA256 = "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361"
 MAX_RUNTIME_SECONDS = 30
+SANDBOX_CPU_REQUEST = 1.0
+SANDBOX_CPU_LIMIT = 1.0
+SANDBOX_MEMORY_REQUEST_MIB = 512
+SANDBOX_MEMORY_LIMIT_MIB = 512
 MAX_STDOUT_BYTES = 4096
 MAX_STDERR_BYTES = 2048
 RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -83,7 +87,14 @@ def workload_image_fingerprint() -> str:
         "preflight_exit_code_map": {
             str(code): diagnostic for code, diagnostic in sorted(preflight_exit_code_map().items())
         },
-        "sandbox": {"cpu": 1, "memory_mib": 512, "network": "blocked", "max_runtime_seconds": MAX_RUNTIME_SECONDS},
+        "sandbox": {
+            "cpu_request": SANDBOX_CPU_REQUEST,
+            "cpu_limit": SANDBOX_CPU_LIMIT,
+            "memory_request_mib": SANDBOX_MEMORY_REQUEST_MIB,
+            "memory_limit_mib": SANDBOX_MEMORY_LIMIT_MIB,
+            "network": "blocked",
+            "max_runtime_seconds": MAX_RUNTIME_SECONDS,
+        },
     }
     return _sha256(_canonical(manifest))
 
@@ -249,8 +260,8 @@ async def submit(run_id: str, request: Request):
             image=workload_image,
             name=_sandbox_name(run_id),
             timeout=payload["runtime_seconds"],
-            cpu=1,
-            memory=512,
+            cpu=(SANDBOX_CPU_REQUEST, SANDBOX_CPU_LIMIT),
+            memory=(SANDBOX_MEMORY_REQUEST_MIB, SANDBOX_MEMORY_LIMIT_MIB),
             block_network=True,
             env={
                 "GPU_CONTROL_RUN_ID": run_id,

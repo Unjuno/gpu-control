@@ -20,6 +20,7 @@ from gpu_control.providers.runpod_v1_adapter import (
 )
 from gpu_control.providers.runpod_v2 import PublishedImageEvidence
 from gpu_control.validation import WorkloadRequest
+from conftest import issue_live_permit_for_plan
 
 
 NOW = datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc)
@@ -100,17 +101,7 @@ def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
 
 
 def permit(value: ApprovedExecutionPlan) -> LiveExecutionPermit:
-    return LiveExecutionPermit(
-        plan_fingerprint=value.fingerprint(),
-        actor="Unjuno",
-        decision_record_id="decision-test",
-        human_authorization_id="auth-test",
-        human_authorization_reference=value.authorization_reference,
-        paid_authorization_reference="github-actions:test",
-        repository_security_reference="github:main-protection:sha256:" + "b" * 64,
-        control_plane_sha="c" * 40,
-        valid_until_utc="2026-09-01T09:10:00Z",
-    )
+    return issue_live_permit_for_plan(value, valid_until_utc="2026-09-01T09:10:00Z")
 
 
 class FakeV1Client:
@@ -125,7 +116,7 @@ class FakeV1Client:
     def list_pods(self):  # type: ignore[no-untyped-def]
         return self.list_responses.pop(0)
 
-    def create_pod(self, payload):  # type: ignore[no-untyped-def]
+    def create_pod(self, payload, **kwargs):  # type: ignore[no-untyped-def]
         self.create_payloads.append(dict(payload))
         return {
             "id": "pod-123",
@@ -246,7 +237,10 @@ def test_v1_live_permit_is_rechecked_immediately_before_create(monkeypatch: pyte
     client = FakeV1Client(value)
     now = [NOW + timedelta(seconds=1)]
     runpod = adapter(value, client, lambda: now[0])
-    short_permit = replace(runpod.live_permit, valid_until_utc=(NOW + timedelta(seconds=30)).isoformat())
+    short_permit = issue_live_permit_for_plan(
+        value,
+        valid_until_utc=(NOW + timedelta(seconds=30)).isoformat(),
+    )
     runpod = replace(runpod, live_permit=short_permit, clock=lambda: now[0])
     original_builder = runpod_v1_adapter_module.build_create_pod_payload_v1
 

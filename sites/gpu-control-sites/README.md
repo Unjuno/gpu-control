@@ -16,10 +16,20 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   storage ready, and CPU admission enabled. Provider readiness is deferred
   until an exactly authorized submit.
 - Only `tiny-stories-inference-v1` is exposed: maximum 30 seconds, one
-  in-flight run, estimated Sandbox cost `$0.0013`, and a `$0.01` Sandbox
-  CPU/memory ceiling. Modal control-function charges are separate and are not
-  covered by that per-run ceiling. A one-use confirmation is required for each
-  exact plan.
+  in-flight run, estimated Sandbox cost `$0.0013`, and a declared `$0.01`
+  per-run Sandbox CPU/memory ceiling. The currently deployed Sandbox had CPU
+  and memory limits displayed as `None`; its `cpu=1` and `memory=512` values
+  were requests, so bursting could exceed that declared dollar ceiling. Current
+  candidate source now sets request=limit to 1 physical CPU core and 512 MiB,
+  fingerprints both limits, and documents CPU throttling and memory OOM failure.
+  Its expected fingerprint is
+  `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`; the
+  currently advertised/deployed value remains
+  `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`. This
+  source change is not live until the Modal app and matching Site fingerprint
+  are deployed and verified. Modal control-function charges remain outside the
+  per-run Sandbox ceiling. A one-use confirmation is required for each exact
+  plan.
 - The five most recent Modal-origin runs failed with `MODAL_WORKLOAD_EXIT_2`
   or `MODAL_WORKLOAD_FAILED`; each reports cleanup confirmed and has no result
   artifact. They predate the Modal API deployment containing the fixed

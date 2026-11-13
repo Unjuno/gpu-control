@@ -21,6 +21,7 @@ from gpu_control.providers.runpod_reconciliation import (
     reconcile_ambiguous_create,
 )
 from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2Error
+from conftest import issue_live_permit_for_plan
 
 
 DIGEST = "sha256:" + "a" * 64
@@ -68,17 +69,7 @@ def plan() -> ApprovedExecutionPlan:
 
 
 def permit(value: ApprovedExecutionPlan) -> LiveExecutionPermit:
-    return LiveExecutionPermit(
-        plan_fingerprint=value.fingerprint(),
-        actor="Unjuno",
-        decision_record_id="decision-reconciliation",
-        human_authorization_id="auth-reconciliation",
-        human_authorization_reference=value.authorization_reference,
-        paid_authorization_reference="github-actions:reconciliation",
-        repository_security_reference="github:main-protection:sha256:" + "d" * 64,
-        control_plane_sha="e" * 40,
-        valid_until_utc="2026-08-28T01:10:00Z",
-    )
+    return issue_live_permit_for_plan(value, valid_until_utc="2026-08-28T01:10:00Z")
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -216,7 +207,7 @@ class FakeClient:
         self.get_response = pod_payload(value, launch)
         self.terminate_error: Exception | None = None
 
-    def create_pod(self, payload):  # type: ignore[no-untyped-def]
+    def create_pod(self, payload, **kwargs):  # type: ignore[no-untyped-def]
         self.create_calls += 1
         assert payload["name"] == self.expected_create_name
         if self.create_error is not None:
