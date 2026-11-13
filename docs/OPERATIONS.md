@@ -1,5 +1,42 @@
 # Current operations: ChatGPT Sites + D1
 
+## Live release gate refresh — 2026-11-13
+
+Production is still Sites Version 28 at source commit
+`237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 32. A
+read-only D1 overview lists `plans`, `runs`, and `runner_heartbeats`; the
+human-authorization tables are absent. Runtime configuration confirms
+`CPU_WORKLOAD_ADMISSION_ENABLED=false`. Do not call the current production
+`experiment_submit` route: its source lacks plan authorization and performs a
+Modal health request before admission checks. Modal secret values were not
+returned by the environment reader and remain unverified.
+
+PR #68 is Draft at `a5c9803a1a0fc34e38c807b3d577e9e418a23b95`; all six
+exact-head checks passed, including the Sites Worker/D1 artifact contract and
+the root Python suite. A new in-memory SQLite replay test applies migrations
+0000–0005 to synthetic pre-existing records and verifies old plan/run/heartbeat
+preservation, authorization table creation, and foreign-key integrity. It
+passes as part of `uv run --locked pytest` (573 passed, 1 skipped); it does not
+prove the live D1 mutation. No production migration, Site deployment, or
+provider execution occurred in this refresh. Detailed reconciliation:
+[`Sites production source reconciliation`](acceptance/2026-11-13-sites-source-reconciliation.md).
+
+## Sites migration behavior and recovery
+
+Sites applies hosted D1 migrations before uploading the Worker. A deployment
+that fails after migration may leave D1 at the new schema while the prior Worker
+continues serving. Migration `0005_human_plan_authorization.sql` only creates
+the challenge/authorization tables and their index; it does not rewrite or
+delete existing data. The previous Worker can ignore those additive tables,
+but a release must still inspect both deployment status and the live schema.
+
+Keep applied migration SQL immutable. After a failed or interrupted publish,
+first inspect deployment state and the D1 table overview. If `0005` is already
+applied, continue with the matching Worker source; do not manually re-run the
+SQL, drop the new tables, or revert the schema. If migration state is uncertain,
+resolve it through the Sites deployment and schema evidence before any new
+publish. Preserve all existing D1 rows and R2 objects.
+
 ## Latest operational state — 2026-11-12 13:46 UTC
 
 Production Sites is Version 28, source commit
