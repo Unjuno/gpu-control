@@ -1,13 +1,13 @@
 # Project status
 
-## Current goal recheck — 2026-11-13 05:30 UTC
+## Current goal recheck — 2026-11-13 05:42 UTC
 
 - PR #68 remains open as Draft at exact head
-  `6a5a98c1721a7b1b0edee6e5032bc847782c13af`. All six exact-head Actions
+  `11f5f1148678092694569b55cfa58de139890ba9`. All six exact-head Actions
   checks passed: Python 3.11, 3.12, 3.13, Sites Worker/D1 contract, Project
   bridge tests, and trusted reference container. No independent GitHub review
   is recorded. The latest commit changes documentation only; the last code
-  change remains in the security-scan-reviewed candidate, not an
+  change is the SQLite migration replay regression at `a5c9803`, not an
   independently approved PR.
 - A fresh Semgrep 1.161.0 `p/security-audit` scan reported one warning at
   `project_control/runner.py:147`, the documented SHA-1 use for Git blob object
@@ -31,6 +31,10 @@
 - Added a SQLite replay regression covering migrations 0000–0005 and synthetic
   existing D1 rows; `uv run --locked pytest` passes 573 tests with 1 skipped.
   This proves migration compatibility on local SQLite, not on live D1.
+- Sites applies hosted D1 migrations before Worker upload; failed deployments
+  may leave the schema advanced. Migration 0005 is additive, and the runbook
+  now requires deployment/schema reconciliation before retry instead of manual
+  reapplication or rollback.
 - Repository-wide Codex Deep Scan and independent review remain incomplete.
   Local scans and green CI are not substitutes for either.
 

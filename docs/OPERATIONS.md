@@ -11,7 +11,7 @@ human-authorization tables are absent. Runtime configuration confirms
 Modal health request before admission checks. Modal secret values were not
 returned by the environment reader and remain unverified.
 
-PR #68 is Draft at `a5c9803a1a0fc34e38c807b3d577e9e418a23b95`; all six
+PR #68 is Draft at `11f5f1148678092694569b55cfa58de139890ba9`; all six
 exact-head checks passed, including the Sites Worker/D1 artifact contract and
 the root Python suite. A new in-memory SQLite replay test applies migrations
 0000–0005 to synthetic pre-existing records and verifies old plan/run/heartbeat
