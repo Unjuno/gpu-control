@@ -320,6 +320,19 @@ def test_http_client_uses_fixed_origin_bearer_auth_and_v2_paths() -> None:
     assert stop_body == {"action": "stop"}
 
 
+def test_http_client_rejects_queued_pod_response_when_queue_is_not_requested() -> None:
+    def opener(request, timeout):  # type: ignore[no-untyped-def]
+        assert request.full_url == f"{RUNPOD_V2_BASE_URL}/pods"
+        assert request.get_method() == "POST"
+        body = json.loads(request.data.decode("utf-8"))
+        assert "queue" not in body
+        return FakeResponse(202, {"id": "queued-pod", "status": "QUEUED"})
+
+    client = RunPodV2HttpClient("secret-token", opener=opener)
+    with pytest.raises(RunPodV2Error, match="unexpected HTTP status 202"):
+        client.create_pod({"name": "test"})
+
+
 def test_http_errors_do_not_leak_api_key() -> None:
     body = io.BytesIO(json.dumps({"detail": "access denied"}).encode("utf-8"))
 

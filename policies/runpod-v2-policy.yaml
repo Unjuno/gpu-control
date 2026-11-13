@@ -11,7 +11,7 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-11-12T10:00:00Z
+  audited_at_utc: 2026-11-13T04:10:00Z
   implementation_contract: rest_v2_openapi_reviewed_offline
   implementation_matches_current_official_rest_contract: true
   current_official_rest_version_observed: v2
@@ -19,6 +19,12 @@ api_contract_audit:
   deprecated_rest_v1_retirement_date: "2026-11-15"
   current_official_openapi_endpoint: https://api.runpod.io/v2/openapi.json
   current_official_create_pod_endpoint: POST /pods
+  current_official_create_pod_immediate_status: 201
+  current_official_create_pod_queued_status: 202
+  current_official_create_pod_202_requires_queue_option: true
+  implementation_pod_queue_enabled: false
+  implementation_create_pod_expected_status: 201
+  implementation_rejects_unrequested_queued_pod_response: true
   current_official_list_pods_endpoint: GET /pods
   current_official_list_pods_response_shape: cursor_paginated_object_with_pods_array
   current_official_delete_pod_endpoint: DELETE /pods/{id}
@@ -66,7 +72,7 @@ api_contract_audit:
   network_volume_attach_contract_repository: runpod/runpodctl
   network_volume_attach_contract_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
   network_volume_attach_contract_path: cmd/pod/create.go
-  note: Official API v2 documentation and OpenAPI were rechecked on 2026-11-12. The v2 client follows cursor-paginated GET /pods, uses the v2 GPU catalog for price and exact datacenter availability, and binds Network Volume mounts through mounts.network plus trusted dataCenterIds. Full provider behavior, result transport, cleanup, and live account evidence remain unverified. Pod-log streaming is not the result path. All live calls remain disabled.
+  note: Official API v2 documentation and OpenAPI were rechecked on 2026-11-13. The bounded v2 client follows cursor-paginated GET /pods, uses the v2 GPU catalog for price and exact datacenter availability, and binds Network Volume mounts through mounts.network plus trusted dataCenterIds. It does not request queueing and rejects HTTP 202; adding queued Pods requires a separate queued-resource lifecycle and cancellation implementation. Full provider behavior, result transport, cleanup, and live account evidence remain unverified. Pod-log streaming is not the result path. All live calls remain disabled.
 
 submission:
   approved_plan_required: true

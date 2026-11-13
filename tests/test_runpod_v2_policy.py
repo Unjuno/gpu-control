@@ -37,6 +37,12 @@ def test_current_api_audit_records_v2_contract_and_offline_acceptance_boundary()
     assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
     assert audit["deprecated_rest_v1_retirement_date"] == "2026-11-15"
     assert audit["current_official_create_pod_endpoint"] == "POST /pods"
+    assert audit["current_official_create_pod_immediate_status"] == 201
+    assert audit["current_official_create_pod_queued_status"] == 202
+    assert audit["current_official_create_pod_202_requires_queue_option"] is True
+    assert audit["implementation_pod_queue_enabled"] is False
+    assert audit["implementation_create_pod_expected_status"] == 201
+    assert audit["implementation_rejects_unrequested_queued_pod_response"] is True
     assert audit["current_official_list_pods_endpoint"] == "GET /pods"
     assert audit["current_official_list_pods_response_shape"] == "cursor_paginated_object_with_pods_array"
     assert audit["current_official_delete_pod_endpoint"] == "DELETE /pods/{id}"
