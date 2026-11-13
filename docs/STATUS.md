@@ -1,5 +1,15 @@
 # Project status
 
+## Build backend dependency pin — 2026-11-13
+
+- PEP 517 requirements now pin setuptools and wheel, and `build-constraints.txt`
+  pins and hashes their build dependencies. CI verifies the build before
+  syncing the locked environment. Local verification on uv 0.11.17 passed:
+  `uv lock --offline`, hash-checked `uv build`, locked offline sync, and the
+  complete Python suite (**573 passed, 1 skipped**). Exact-head CI with the
+  repository-pinned uv 0.10.0 and an independent patch review remain pending.
+- See [`build backend lock acceptance`](acceptance/2026-11-13-build-backend-lock.md).
+
 ## Current goal recheck — 2026-11-13 05:46 UTC
 
 - PR #68 remains open as Draft, with no independent GitHub review. Current

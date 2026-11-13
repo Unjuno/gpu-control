@@ -38,6 +38,9 @@ jobs:
         with:
           version: "0.10.0"
 
+      - name: Verify locked PEP 517 build dependencies
+        run: uv build --build-constraints build-constraints.txt --require-hashes
+
       - name: Sync locked environment
         run: uv sync --locked --extra dev
 
