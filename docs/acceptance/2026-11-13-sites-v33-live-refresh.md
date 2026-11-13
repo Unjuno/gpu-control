@@ -58,10 +58,13 @@ Runner and do not establish Modal inference acceptance.
 - This refresh did not invoke provider health or submit a run. No new Sandbox
   was created. A fresh post-deployment owner-confirmed inference is still
   needed after image identity and spend controls are reconciled.
-- The last recorded Modal dashboard snapshot showed a `$1` Workspace usage
-  limit and `$0` charges. The current net spend limit was not read in this
-  refresh. Modal documents that Workspace usage budgets and net spend limits
-  are separate: <https://modal.com/docs/guide/budgets> and
+- Modal's Usage limit page was inspected in the logged-in workspace on
+  2026-11-13. It displayed `$0.10 in credits • $0 in charges`, `$0.10 / $1`,
+  and `Usage limit: Set by Modal ... $1`; it offered `Add payment method` to
+  raise the limit. This is the currently displayed Workspace usage limit.
+  The page did not expose a separate net spend limit field, so a distinct
+  out-of-pocket spend limit remains unverified. Modal documents these as
+  separate controls: <https://modal.com/docs/guide/budgets> and
   <https://modal.com/docs/guide/billing>.
 - The Site is public at the hosting layer but applies an owner ID allowlist in
   MCP operations. This observation does not complete the P0 audit: independent

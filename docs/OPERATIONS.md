@@ -22,11 +22,12 @@ is not verified as Modal's deployed image; Sites still advertises
 The Sandbox estimate is `$0.0013` with a `$0.01` Sandbox-only ceiling; Modal
 control-function costs are separate.
 
-The last recorded Modal dashboard snapshot showed a `$1` Workspace usage limit
-and `$0` charges. The current net spend limit was not read in this refresh.
-Modal documents gross usage budgets and net spend limits as separate controls;
-verify the net spend limit before relying on credits to prevent out-of-pocket
-charges. No Modal health call or Sandbox was made during this refresh.
+The logged-in Modal Usage limit page displayed `$0.10 in credits • $0 in
+charges`, `$0.10 / $1`, and a `$1` Workspace usage limit set by Modal; adding a
+payment method is offered to raise that limit. The page did not expose a
+separate net spend limit field, so a distinct out-of-pocket cap remains
+unverified. Modal documents gross usage budgets and net spend limits as
+separate controls. No Modal health call or Sandbox was made during this refresh.
 
 PR #68 remains Draft. The repository-wide P0 audit still requires the managed
 read-only security scan; cross-account denial and image identity reconciliation

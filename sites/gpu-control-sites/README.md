@@ -34,11 +34,13 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   These identities have not been reconciled, and authenticated provider
   readiness is unverified. Keep the provider gate open until a fresh exact-plan
   run proves output provenance and cleanup.
-- The last recorded Modal dashboard snapshot showed a `$1` Workspace usage
-  limit and `$0` charges. The current net spend limit has not been verified.
-  Modal's billing documentation distinguishes a gross usage budget from the
-  net spend limit; the Sandbox ceiling does not cap separately billed control
-  calls.
+- Modal's logged-in Usage limit page showed `$0.10 in credits • $0 in
+  charges`, `$0.10 / $1`, a `$1` Workspace usage limit set by Modal, and an
+  option to add a payment method to raise it. The page did not expose a
+  separate net spend limit field; a distinct out-of-pocket spend limit remains
+  unverified. Modal documents gross usage budgets and net spend limits as
+  separate controls; the per-run Sandbox ceiling does not cap separately billed
+  control calls.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
   RunPod is not connected to the Site Worker; GPU and paid execution remain
   parked. Vercel and Neon/PostgreSQL are not target runtime dependencies.
