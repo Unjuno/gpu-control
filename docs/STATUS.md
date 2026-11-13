@@ -19,7 +19,9 @@
   full-history scan's 11 reviewed matches is recorded above.
 - The Sites source reconciliation and read-only D1 overview found production
   Version 28 source drift and missing human-authorization tables. The live
-  submit route remains unsafe to call; admission stays closed. See
+  submit route remains unsafe to call; production environment revision 32
+  explicitly keeps admission `false`. Modal secret values were not returned by
+  the environment reader. See
   [`2026-11-13 Sites source reconciliation`](acceptance/2026-11-13-sites-source-reconciliation.md).
 - Repository-wide Codex Deep Scan and independent review remain incomplete.
   Local scans and green CI are not substitutes for either.

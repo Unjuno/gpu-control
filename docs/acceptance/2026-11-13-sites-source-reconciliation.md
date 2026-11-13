@@ -9,6 +9,12 @@ and its HEAD was `237c0bed24277cf7c808f8c0e9946c71d517288c`. No remote source
 write, version save, deployment, D1 migration, or provider call was performed.
 The temporary source credential was passed only through helper stdin.
 
+A separate read of production runtime settings reported revision 32, last
+updated `2026-11-12T13:45:33.497536Z`, and
+`CPU_WORKLOAD_ADMISSION_ENABLED=false`. Modal proxy credential entries are
+marked secret and their values were returned as `null`; this does not establish
+whether the credentials are configured. No values were logged or changed.
+
 ## Findings
 
 - The source commit exists in the Cloudflare artifact Git repository bound to
@@ -21,6 +27,9 @@ The temporary source credential was passed only through helper stdin.
   has no human-authorization check at all. The live ChatGPT prepare response
   observed earlier in the day has the same behavior. Do not use this production
   submit route until exact-plan approval and preflight billing behavior are fixed.
+- Production admission is currently closed at environment revision 32. Modal
+  secret values remain unverified because the environment reader returned them
+  as `null`.
 - Version 28's source tree does not contain
   `drizzle/0005_human_plan_authorization.sql`,
   `modal/gpu_control_modal_bootstrap.py`, or
