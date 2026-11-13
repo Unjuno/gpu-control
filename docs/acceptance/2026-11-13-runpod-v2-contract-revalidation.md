@@ -49,6 +49,26 @@ RunPod account, current resource availability or price, image pull, completion
 secret injection, result collection, account-wide occupancy, cleanup, or GPU
 execution. RunPod remains disabled and parked pending those separate gates.
 
+## Completion signer security blocker — 2026-11-13
+
+Source review found that `RunPodCompletionLaunch.provider_environment()` puts
+`GPU_CONTROL_COMPLETION_KEY_B64` into the Pod's environment
+(`src/gpu_control/providers/runpod_v2.py`). Code running inside that Pod can
+read the HMAC key and forge the completion-v3 evidence that the controller
+later verifies. The current design therefore does not provide an independent
+workload completion signature. This is a confirmed design flaw in the dormant
+adapter, not evidence of an active production exploit: RunPod live calls and
+completion collection remain disabled.
+
+The current official [REST v2 OpenAPI document](https://api.runpod.io/v2/openapi.json)
+defines `GET /pods/{podId}` as returning a `Pod` schema, but contains no
+`exitCode` or `exit_code` property. Do not replace the exposed HMAC key with
+controller-side signing that repeats a workload-supplied exit-code claim. A
+replacement must keep signing material outside the Pod, bind the exact
+provider job and result bytes, and state clearly which terminal facts are
+observed from RunPod versus reported by the workload. Independently review
+that boundary before enabling RunPod.
+
 ## Official references
 
 - [RunPod API v2 create a Pod](https://docs.runpod.io/api-reference-v2/pods/create-a-pod)

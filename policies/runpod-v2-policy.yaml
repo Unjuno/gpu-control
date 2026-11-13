@@ -126,7 +126,11 @@ submission:
 completion_evidence:
   protocol: hmac-sha256-v3
   legacy_v2_compatibility_status: temporary_offline_migration_only
-  implementation_status: v3_signed_exit_code_and_volume_transport_offline_mock_tested
+  implementation_status: blocked_workload_receives_hmac_signing_key
+  security_status: unsafe_for_activation
+  workload_receives_completion_signing_secret: true
+  root_owned_signer_redesign_required: true
+  provider_v2_exit_code_field_documented: false
   per_run_nonce_required: true
   pre_create_execution_name_required: true
   minimum_secret_bytes: 32

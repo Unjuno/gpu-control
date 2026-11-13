@@ -136,13 +136,18 @@ def test_submission_is_bound_to_permit_plan_image_gpu_cloud_price_volume_and_rec
     assert submission["compensating_termination_failure_is_visible"] is True
 
 
-def test_completion_v3_and_volume_transport_are_implemented_but_not_live_verified() -> None:
+def test_completion_v3_signer_is_blocked_and_transport_is_not_live_verified() -> None:
     policy = load_policy()
     completion = policy["completion_evidence"]
     transport = policy["network_volume_results"]
     results = policy["results"]
 
     assert completion["protocol"] == "hmac-sha256-v3"
+    assert completion["implementation_status"] == "blocked_workload_receives_hmac_signing_key"
+    assert completion["security_status"] == "unsafe_for_activation"
+    assert completion["workload_receives_completion_signing_secret"] is True
+    assert completion["root_owned_signer_redesign_required"] is True
+    assert completion["provider_v2_exit_code_field_documented"] is False
     assert completion["legacy_v2_compatibility_status"] == "temporary_offline_migration_only"
     assert completion["provider_job_id_binding"] == "submission_receipt_and_provider_specific_collection_transport"
     assert completion["max_marker_bytes"] == 16384
