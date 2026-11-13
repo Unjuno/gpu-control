@@ -34,8 +34,13 @@ and [`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-g
 4. Prepare only the advertised fixed workload and review its exact source,
    usage estimate, and `$0.01` Sandbox-only ceiling. Modal control-function
    calls are billed separately. Credits are not a zero-cost guarantee. Submit
-   only with explicit authorization for the exact prepared plan. Poll
-   `experiment_status` and retrieve the terminal value with `experiment_result`.
+   only after a reviewed production Site release enforces explicit authorization
+   for the exact prepared plan. Current Version 28 returns
+   `approval_required=false`, has no confirmation URL, and has no human
+   authorization check in `experiment_submit`; do not submit from this route.
+   See the [production source reconciliation](acceptance/2026-11-13-sites-source-reconciliation.md).
+   After that gate is verified in production, poll `experiment_status` and
+   retrieve the terminal value with `experiment_result`.
 
 The Site and plugin are separate access controls. The Site is public, while
 stateful tools must use ChatGPT's authenticated Sites identity and server-side
@@ -52,7 +57,14 @@ current Modal inference, general model quality, or GPU execution. The latest
 live capability read reports `provider_ready=true`, `admission_enabled=false`,
 and `available=false` with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. Sites
 Version 28 exposes the aligned `experiment_prepare.max_cost_usd=0.01` schema. The
-latest authorized one-token Modal run failed with exit code 2 after 247 ms;
+production source currently does not enforce exact-plan authorization: prepare
+reports `approval_required=false` and submit lacks the human-authorization
+check. Do not call `experiment_submit` until a reviewed release is deployed and
+the confirmation flow is verified. The live D1 overview currently lists only
+`plans`, `runner_heartbeats`, and `runs`; the authorization tables are absent.
+The source and database reconciliation is documented in
+[`acceptance/2026-11-13-sites-source-reconciliation.md`](acceptance/2026-11-13-sites-source-reconciliation.md).
+The latest authorized one-token Modal run failed with exit code 2 after 247 ms;
 cleanup was confirmed but no result or artifact was produced. The diagnostic
 line marker was absent, and its cause is unknown. Admission is closed at Sites
 environment revision 32. A successful ChatGPT inference and artifact

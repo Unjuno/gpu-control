@@ -25,7 +25,10 @@ The temporary source credential was passed only through helper stdin.
   `drizzle/0005_human_plan_authorization.sql`,
   `modal/gpu_control_modal_bootstrap.py`, or
   `modal/requirements.in`; its TinyStories Dockerfile still uses the older
-  entrypoint contract. The production database's table state was not inspected.
+  entrypoint contract. The read-only D1 overview returned only `plans`,
+  `runner_heartbeats`, and `runs`; the migration's `authorization_challenges`
+  and `human_authorizations` tables are absent. No rows were read or changed.
+  Preserve all existing tables and records during migration.
 - Running `npm test` in the isolated Version 28 source checkout completed with
   22 passed, 0 failed, 0 skipped. These tests describe the older source and do
   not establish the new approval invariant or prove live runtime acceptance.
