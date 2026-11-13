@@ -13,7 +13,7 @@ part of the target runtime.
 The Site is the ChatGPT-facing interface and policy boundary. It does not itself
 provide model compute. Compute remains an explicitly configured provider.
 
-## Live baseline — refreshed 2026-11-12
+## Live baseline — refreshed 2026-11-13
 
 - The public Site `gpu-control-sites` is active at
   `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 28,
@@ -51,8 +51,14 @@ also created an expiring plan, but the production tool response returned
 `approval_required=false` and no confirmation URL. The current PR #68 Worker
 source requires exact-plan approval, so the live Site does not yet provide the
 required confirmation flow. The plan was not submitted; provider admission
-remains closed. Full evidence is in
+remains closed. A fresh read-only source checkout confirms Version 28 is bound
+to a separate Cloudflare artifact Git repository at commit `237c0bed…`; that
+source lacks the exact-plan approval migration and currently triggers Modal
+health before any authorization check. Its Worker suite passes 22 tests but
+covers this older behavior. The complete comparison and verification limits
+are recorded in
 [`acceptance/2026-11-13-live-chatgpt-mcp-recheck.md`](acceptance/2026-11-13-live-chatgpt-mcp-recheck.md).
+See also [`acceptance/2026-11-13-sites-source-reconciliation.md`](acceptance/2026-11-13-sites-source-reconciliation.md).
 
 ## Target boundaries
 

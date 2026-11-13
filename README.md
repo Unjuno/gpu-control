@@ -25,7 +25,7 @@ The project is **usable today for offline validation and control-plane developme
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Modal health passed and the refreshed ChatGPT prepare schema accepts the `$0.01` Sandbox-only ceiling; admission is disabled and a new inference remains unverified |
+| Registered CPU experiment through ChatGPT | Not ready: production Version 28 returns `approval_required=false` and no exact-plan confirmation URL; do not submit from this route. Admission is disabled. |
 | Real model inference through ChatGPT | Historical TinyStories 15M CPU runs passed source, result, and cleanup checks. They do not prove current readiness, broad model quality, or GPU capability |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
@@ -44,17 +44,18 @@ The project is **usable today for offline validation and control-plane developme
 
 The current hosted product path is the public ChatGPT Sites Worker with D1/R2.
 Stateful MCP tools require the authenticated Sites identity and owner-scoped
-queries; provider admission remains disabled. The current Site Worker source
-allows only the configured owner and has a fixed Modal CPU adapter. A local
-regression suite covers its owner boundary and provider-token parsing. The
-latest production capability read reported Modal ready but unavailable for
-execution because admission is disabled. Historical ChatGPT CPU successes used
-the retired local Runner; no successful inference is accepted for the current
-Modal deployment. Sites Version 28 refreshed the ChatGPT prepare schema to the
-Worker's `$0.01` Sandbox-only ceiling. The latest Modal run failed with exit
-code 2 and confirmed cleanup. PR #68 contains a diagnostic candidate, but it
-has not been deployed; deployment and another exact-run authorization are
-required before another Modal Sandbox.
+queries; provider admission remains disabled. A fresh source reconciliation
+found that deployed Version 28 is backed by a separate Cloudflare artifact Git
+repository, not the public GitHub history. Its Worker returns
+`approval_required=false` and performs Modal health preflight before any
+human-authorization gate. Do not submit through this route. PR #68 contains
+the exact-plan approval and deferred-health fix but remains an unmerged Draft
+and is not deployed. See
+[`docs/acceptance/2026-11-13-sites-source-reconciliation.md`](docs/acceptance/2026-11-13-sites-source-reconciliation.md).
+Historical ChatGPT CPU successes used the retired local Runner; no successful
+inference is accepted for the current Modal deployment. The latest Modal run
+failed with exit code 2 and confirmed cleanup. Another Modal run requires the
+reviewed source to be deployed and a fresh exact-run authorization.
 Access from another ChatGPT
 account/process is not yet proven. Anonymous HTTP probes were blocked at the
 edge (HTTP 403), so they do not independently verify the Worker's public
