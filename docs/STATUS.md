@@ -1,5 +1,17 @@
 # Project status
 
+## Follow-up status — 2026-11-15 02:55 JST
+
+- Deployed candidate `3eb2ab5d218b06c2559fd22088e1a4763fc78521` to Modal
+  `unjuno/main` (`gpu-control-sites`). The CLI reported `control_api` deployed
+  in 3.268 seconds. No Sandbox, health request, or inference was started.
+- The one-hour Workspace API token was deleted immediately after the deploy;
+  a fresh Modal token-list page showed **0 tokens**. Modal Usage before deploy
+  was `$0.10` credits, `$0` charges, with the `$1` Workspace limit unchanged.
+- Admission remains closed. This deploy does not establish post-deploy health
+  or successful ChatGPT-to-Modal inference. See the
+  [redeploy acceptance record](acceptance/2026-11-15-modal-main-redeploy.md).
+
 ## Follow-up status — 2026-11-15 02:39 JST
 
 - The first follow-up docs commit `cc1ee922` exposed one timing-sensitive
