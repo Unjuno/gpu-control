@@ -1,5 +1,20 @@
 # Project status
 
+## Sites Version 35 native plan preparation — 2026-11-15
+
+- A fresh goal turn loaded Version 35's updated `experiment_submit` schema,
+  including the exact `approved_plan` fields and destructive-write contract.
+  The authenticated owner capability call succeeded with Modal configured,
+  admission enabled, and the documented CPU, memory, runtime and Sandbox cost
+  bounds.
+- `experiment_prepare` created a bounded TinyStories one-token plan entirely
+  inside ChatGPT, without the separate browser login. The user was away, so the
+  exact destructive-write confirmation was not performed and the plan was not
+  submitted. No provider health request, Sandbox, RunPod call, GPU allocation,
+  or new provider spend occurred.
+- A future execution must prepare a fresh plan because this authorization
+  window is only 600 seconds. Evidence: [Version 35 native plan preparation](acceptance/2026-11-15-sites-v35-native-plan-prepare.md).
+
 ## P0 audit and Sites Version 35 — 2026-11-15 08:00 JST
 
 - The repository-wide Codex Security Standard scan completed and sealed at
@@ -28,9 +43,9 @@
   Site owner, avoiding the separate browser sign-in in the intended chat flow.
 - Sites Version 35 now publishes this contract from Site source `0eb4fe4`.
   Hosted D1 includes migration `0011`; no health request or Sandbox was started
-  during publication. The current conversation still caches the Version 34
-  tool schema, so a fresh conversation must verify the destructive
-  confirmation UI before the first live run.
+  during publication. The publishing conversation cached the Version 34 tool
+  schema. A later goal turn loaded Version 35 and prepared a plan; the
+  destructive confirmation UI remains unverified before the first live run.
 - The Site's platform-injected owner identity provenance and authenticated
   cross-account denial remain unverified. Publication does not satisfy those
   runtime gates: the exact ChatGPT tool confirmation UI and a bounded

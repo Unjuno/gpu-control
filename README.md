@@ -66,8 +66,9 @@ a plan and read its capabilities; a separate-account denial and authenticated
 identity-header spoof resistance and deployed-source parity remain
 unverified. Sites Version 35 is live at environment revision 39 with CPU
 admission enabled. It adds a ChatGPT-native destructive write whose arguments
-repeat the exact approved plan; a fresh ChatGPT conversation must load that
-schema and verify the host confirmation UI. Each run still requires one-use
+repeat the exact approved plan. A fresh goal turn loaded that schema and
+prepared an owner-bound plan; the host confirmation UI and submit remain
+unverified. Each run still requires one-use
 exact-plan confirmation. No provider health request or Sandbox run has started
 through Version 35.
 The Modal candidate is deployed to `unjuno/main`;

@@ -49,8 +49,9 @@ plan (at most 10 minutes), permits one run, and is consumed in the same D1 batch
 that reserves that run. A separate browser login is not part of this intended
 ChatGPT flow.
 
-The current conversation cached Version 34's tool schema before publication;
-a fresh conversation must load and verify Version 35's destructive write UI.
+The publishing conversation cached Version 34's tool schema. A later goal turn
+loaded Version 35 and prepared an exact plan; the destructive write UI and
+submit remain unverified.
 The ChatGPT host's write confirmation is a user-facing approval surface, not a
 cryptographic attestation that a human operated the UI. MCP annotations do not
 replace the Worker's owner authorization, exact-plan validation, short expiry,

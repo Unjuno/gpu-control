@@ -10,10 +10,11 @@ test remains open.
 
 The candidate Modal app is deployed to `unjuno/main` with fingerprint
 `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`.
-`CPU_WORKLOAD_ADMISSION_ENABLED=true`. Version 35 adds exact-plan
-ChatGPT-native write confirmation, but a fresh conversation has not yet loaded
-and exercised that schema. No provider health call or Sandbox was submitted
-through Version 35. The candidate's hard limits are 1 CPU and 512 MiB, but
+`CPU_WORKLOAD_ADMISSION_ENABLED=true`. A fresh goal turn loaded Version 35's
+exact-plan ChatGPT-native write schema and prepared an owner-bound plan without
+a separate browser login. The destructive confirmation and submit remain
+unverified. No provider health call or Sandbox was submitted through Version
+35. The candidate's hard limits are 1 CPU and 512 MiB, but
 provider-side Sandbox limits and the post-deploy health response have not yet
 been verified.
 The latest historical Modal-origin runs failed with exit code 2; no

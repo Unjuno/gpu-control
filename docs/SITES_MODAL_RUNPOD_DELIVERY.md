@@ -20,8 +20,9 @@ provide model compute. Compute remains an explicitly configured provider.
   read capabilities and owner-scoped history. Current capabilities report the
   Modal CPU workload configured and admission enabled, but provider health is
   deferred until exact owner confirmation of a fresh plan. Version 35 publishes
-  the ChatGPT-native destructive write contract; a fresh conversation must load
-  and verify it before the first live run.
+  the ChatGPT-native destructive write contract. A fresh goal turn loaded the
+  schema and prepared a plan without a browser login; the destructive
+  confirmation and submit remain unverified before the first live run.
 - The current Sites capabilities response registers fingerprint
   `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5` and
   image digest
@@ -38,8 +39,8 @@ provide model compute. Compute remains an explicitly configured provider.
   calls. The user authorized up to `$1` total project testing usage; check the
   live Workspace limit before a provider call and do not add a payment method.
 - The fixed Modal candidate is deployed to `unjuno/main`; its temporary
-  deployment token was revoked. Do not start another Sandbox until a fresh
-  ChatGPT conversation confirms the exact Version 35 plan and the deployed
+  deployment token was revoked. Do not start another Sandbox until ChatGPT
+  confirms a fresh exact Version 35 plan and the deployed
   fingerprint, digest, and actual hard resource limits are reconciled.
   RunPod/GPU remains parked.
 
