@@ -139,6 +139,10 @@ test("RunPod account lease is idempotent, serialized, fenced, and held through c
       accountScopeSha256: SCOPE_HASH, leaseToken: second.lease_token, generation: 2, revision: 1,
       toState: "submitting", evidenceType: "create_intent_persisted", evidenceSha256: CHALLENGE_B, now: 34,
     });
+    await assert.rejects(transitionProviderAccountLease(db, {
+      accountScopeSha256: SCOPE_HASH, leaseToken: second.lease_token, generation: 2, revision: submitting.revision,
+      toState: "released", evidenceType: "provider_create_not_started", evidenceSha256: EVIDENCE, now: 35,
+    }), (error) => error instanceof ProviderAccountLeaseError && error.code === "PROVIDER_ACCOUNT_LEASE_TRANSITION_DENIED");
     await assert.rejects(Promise.resolve().then(() => raw.prepare(`UPDATE provider_account_lease_events
       SET evidence_type='rewritten' WHERE account_scope_sha256=?`).run(SCOPE_HASH)), /append-only/);
     await assert.rejects(Promise.resolve().then(() => raw.prepare(`DELETE FROM provider_account_lease_events

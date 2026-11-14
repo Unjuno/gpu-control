@@ -3,7 +3,7 @@ const PROVIDER_JOB_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const LEASE_STATES = new Set(["reserved", "submitting", "uncertain", "active", "cleanup_pending", "released"]);
 const TRANSITIONS = {
   reserved: new Set(["submitting", "released"]),
-  submitting: new Set(["active", "uncertain", "released"]),
+  submitting: new Set(["active", "uncertain"]),
   uncertain: new Set(["active", "cleanup_pending"]),
   active: new Set(["cleanup_pending"]),
   cleanup_pending: new Set(["released"]),
@@ -153,7 +153,7 @@ function validateTransition(from, to, input) {
     throw new ProviderAccountLeaseError("UNEXPECTED_PROVIDER_JOB_ID");
   }
   if (to === "released") {
-    const expectedEvidence = from === "reserved" || from === "submitting" ? "provider_create_not_started" :
+    const expectedEvidence = from === "reserved" ? "provider_create_not_started" :
       from === "cleanup_pending" ? "pod_termination_confirmed" : null;
     if (!expectedEvidence || input.evidenceType !== expectedEvidence) {
       throw new ProviderAccountLeaseError("PROVIDER_ACCOUNT_LEASE_RELEASE_EVIDENCE_REQUIRED");
@@ -194,7 +194,7 @@ export async function transitionProviderAccountLease(db, input) {
       WHERE provider='runpod' AND account_scope_sha256=? AND lease_token=? AND generation=?
         AND revision=? AND state=?
         AND (? <> 'released' OR (
-          (? IN ('reserved', 'submitting') AND ? = 'provider_create_not_started') OR
+          (? = 'reserved' AND ? = 'provider_create_not_started') OR
           (? = 'cleanup_pending' AND ? = 'pod_termination_confirmed' AND EXISTS (
             SELECT 1 FROM runs r WHERE r.id=provider_account_leases.run_id
               AND r.owner_id=provider_account_leases.owner_id
