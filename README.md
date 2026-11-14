@@ -64,14 +64,18 @@ Site URL is public, while MCP calls are authenticated and stateful tools bind
 the caller to the owner allowlist. This ChatGPT account successfully prepared
 a plan and read its capabilities; a separate-account denial and authenticated
 identity-header spoof resistance and deployed-source parity remain
-unverified. Sites Version 34 is live at environment revision 39 with CPU
-admission enabled. Each run still requires
-one-use exact-plan confirmation, and the current browser flow requires ChatGPT
-sign-in. No provider health request or Sandbox run has started for that flow.
+unverified. Sites Version 35 is live at environment revision 39 with CPU
+admission enabled. It adds a ChatGPT-native destructive write whose arguments
+repeat the exact approved plan; a fresh ChatGPT conversation must load that
+schema and verify the host confirmation UI. Each run still requires one-use
+exact-plan confirmation. No provider health request or Sandbox run has started
+through Version 35.
 The Modal candidate is deployed to `unjuno/main`;
 provider health, effective Sandbox limits, successful inference, artifact
-digest, and cleanup are not yet verified. PR #68 remains an open
-Draft; repository-wide security coverage and cross-account denial are open.
+digest, and cleanup are not yet verified. PR #68 remains an open Draft. The
+repository-wide source security scan passed at revision `26c1def` with zero
+source-backed findings; live identity provenance, cross-account denial and
+provider behavior remain separate runtime gates.
 Historical ChatGPT CPU successes used the retired local Runner and do not
 prove current Modal readiness. The latest Modal attempts failed with exit
 code 2 and confirmed cleanup. The old local Runner and Keychain credentials

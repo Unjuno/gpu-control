@@ -20,19 +20,21 @@
   request or new spend occurred during this publication checkpoint. Evidence:
   [P0 scan and Sites Version 35](acceptance/2026-11-15-p0-scan-and-sites-v35.md).
 
-## ChatGPT-native approval candidate — 2026-11-15
+## ChatGPT-native approval publication — 2026-11-15
 
 - The active PR #68 branch changes the CPU execution flow so `experiment_submit`
   carries the exact plan fields and is marked as a destructive MCP action. Its
   invocation records a short-lived, one-use authorization for the authenticated
   Site owner, avoiding the separate browser sign-in in the intended chat flow.
-- The live Site remains Version 34 and still requires the browser confirmation
-  page. The branch change has not been published, and no health request or
-  Sandbox was started for it.
+- Sites Version 35 now publishes this contract from Site source `0eb4fe4`.
+  Hosted D1 includes migration `0011`; no health request or Sandbox was started
+  during publication. The current conversation still caches the Version 34
+  tool schema, so a fresh conversation must verify the destructive
+  confirmation UI before the first live run.
 - The Site's platform-injected owner identity provenance and authenticated
-  cross-account denial remain unverified. The in-chat approval candidate must
-  stay unpublished until those checks, the D1 migration, exact ChatGPT tool
-  confirmation UI, and a bounded end-to-end result/cleanup are verified.
+  cross-account denial remain unverified. Publication does not satisfy those
+  runtime gates: the exact ChatGPT tool confirmation UI and a bounded
+  end-to-end result/cleanup still require live verification.
 
 ## Live recheck — 2026-11-15 05:17 JST
 

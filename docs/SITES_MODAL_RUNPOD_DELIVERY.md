@@ -15,12 +15,13 @@ provide model compute. Compute remains an explicitly configured provider.
 
 ## Current live state — refreshed 2026-11-15
 
-- ChatGPT Site Version 34 remains active at the published URL with public
+- ChatGPT Site Version 35 is active at the published URL with public
   audience and an owner-only MCP allowlist. The connected owner account can
   read capabilities and owner-scoped history. Current capabilities report the
   Modal CPU workload configured and admission enabled, but provider health is
-  deferred until exact owner confirmation of a fresh plan. The confirmation
-  page requires ChatGPT sign-in.
+  deferred until exact owner confirmation of a fresh plan. Version 35 publishes
+  the ChatGPT-native destructive write contract; a fresh conversation must load
+  and verify it before the first live run.
 - The current Sites capabilities response registers fingerprint
   `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5` and
   image digest
@@ -36,11 +37,11 @@ provide model compute. Compute remains an explicitly configured provider.
   eligible usage. The `$0.01` Sandbox ceiling does not include control-function
   calls. The user authorized up to `$1` total project testing usage; check the
   live Workspace limit before a provider call and do not add a payment method.
-- The short-lived Workspace API token inventory is empty. A fresh temporary
-  token, deployment to `unjuno/main`, and immediate revocation are still needed
-  to deploy the candidate. Do not reopen admission or start another Sandbox
-  until the deployed fingerprint, digest, and actual hard resource limits are
-  reconciled. RunPod/GPU remains parked.
+- The fixed Modal candidate is deployed to `unjuno/main`; its temporary
+  deployment token was revoked. Do not start another Sandbox until a fresh
+  ChatGPT conversation confirms the exact Version 35 plan and the deployed
+  fingerprint, digest, and actual hard resource limits are reconciled.
+  RunPod/GPU remains parked.
 
 ## Historical baseline — refreshed 2026-11-13
 

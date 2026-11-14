@@ -1,19 +1,21 @@
 # Current operations: ChatGPT Sites + D1
 
-## Latest verified state — 2026-11-14
+## Latest verified state — 2026-11-15
 
-The production Sites project is active at Version 34 from source commit
-`18339d5106ff148d0ec4b3acf8da64791b69d54f`, environment revision 37. The Site
+The production Sites project is active at Version 35 from source commit
+`0eb4fe4ba7dcdc6035af4bdc89f8751b40716538`, environment revision 39. The Site
 URL is public, but MCP state and run operations require authenticated owner
 identity and exact-plan confirmation. A separate signed-in account denial
 test remains open.
 
 The candidate Modal app is deployed to `unjuno/main` with fingerprint
 `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`.
-`CPU_WORKLOAD_ADMISSION_ENABLED=false` at environment revision 38. A bounded
-plan expired before owner sign-in, so no provider health call or Sandbox was
-submitted. The candidate's hard limits are 1 CPU and 512 MiB, but provider-side
-Sandbox limits and the post-deploy health response have not yet been verified.
+`CPU_WORKLOAD_ADMISSION_ENABLED=true`. Version 35 adds exact-plan
+ChatGPT-native write confirmation, but a fresh conversation has not yet loaded
+and exercised that schema. No provider health call or Sandbox was submitted
+through Version 35. The candidate's hard limits are 1 CPU and 512 MiB, but
+provider-side Sandbox limits and the post-deploy health response have not yet
+been verified.
 The latest historical Modal-origin runs failed with exit code 2; no
 current-candidate inference has completed.
 

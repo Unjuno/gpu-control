@@ -32,14 +32,14 @@ The RunPod adapter now requires that permit and revalidates its exact plan bindi
 ## Sites CPU confirmation paths
 
 The fixed Modal CPU inference has two owner-authenticated approval surfaces.
-The deployed Site Version 34 currently uses the browser path: `experiment_prepare`
+The browser path remains available: `experiment_prepare`
 returns a Site URL showing workload, repository commit, prompt, token limit,
 seed, runtime, Sandbox ceiling, and the separate Modal control-function cost
 caveat. The owner opens it while signed in and submits a same-origin form. The
 Worker stores a challenge hash and an owner-, plan-fingerprint-, and expiry-
 bound authorization in D1.
 
-The current PR candidate adds a ChatGPT-native path. `experiment_prepare`
+Deployed Site Version 35 adds a ChatGPT-native path. `experiment_prepare`
 returns the same exact plan fields in its structured result. `experiment_submit`
 is marked as a destructive MCP write and its confirmed tool call must repeat
 the plan fields; the Worker compares each field with the current owner-bound
@@ -49,6 +49,8 @@ plan (at most 10 minutes), permits one run, and is consumed in the same D1 batch
 that reserves that run. A separate browser login is not part of this intended
 ChatGPT flow.
 
+The current conversation cached Version 34's tool schema before publication;
+a fresh conversation must load and verify Version 35's destructive write UI.
 The ChatGPT host's write confirmation is a user-facing approval surface, not a
 cryptographic attestation that a human operated the UI. MCP annotations do not
 replace the Worker's owner authorization, exact-plan validation, short expiry,
@@ -58,7 +60,7 @@ ChatGPT client or an untrusted identity header. The repository-wide structured
 evidence format above still governs the protected RunPod/GPU path. The candidate
 is not live acceptance: verify the actual ChatGPT confirmation UI, trusted
 identity-header provenance, cross-account denial, D1 migration, provider
-result, and cleanup before publishing or spending compute.
+result, and cleanup before accepting or expanding compute.
 
 ## Why exact plan binding matters
 
