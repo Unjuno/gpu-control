@@ -1,6 +1,8 @@
 """Build the fixed Modal Sandbox bootstrap command."""
 from __future__ import annotations
 
+import json
+
 PREFLIGHT_EXIT_CODE_BASE = 64
 PREFLIGHT_FAILURE_LINES = (43, 47, 56, 58, 62, 69, 72, 76)
 
@@ -24,6 +26,20 @@ def normalize_exit_code(exit_code: int | None) -> tuple[int | None, str | None]:
     """Preserve existing exit-2 semantics while adding a bounded reason code."""
     diagnostic_code = diagnostic_code_for_exit(exit_code)
     return (2, diagnostic_code) if diagnostic_code else (exit_code, None)
+
+
+def parse_workload_result(stdout: str, truncated: bool) -> dict | None:
+    """Parse only the final JSON object; malformed output is a failed result."""
+    if truncated:
+        return None
+    lines = [line for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+    try:
+        result = json.loads(lines[-1])
+    except ValueError:
+        return None
+    return result if isinstance(result, dict) else None
 
 
 def sandbox_entrypoint(

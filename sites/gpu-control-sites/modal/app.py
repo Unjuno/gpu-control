@@ -16,7 +16,7 @@ from typing import Any
 import modal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from gpu_control_modal_bootstrap import normalize_exit_code, preflight_exit_code_map, sandbox_entrypoint
+from gpu_control_modal_bootstrap import normalize_exit_code, parse_workload_result, preflight_exit_code_map, sandbox_entrypoint
 
 APP_NAME = "gpu-control-sites"
 REPOSITORY = "Unjuno/gpu-control"
@@ -192,29 +192,43 @@ def _bounded_stream(stream, maximum: int) -> tuple[str, bool]:
 
 
 def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    raw_exit_code = sandbox.poll()
+    try:
+        raw_exit_code = sandbox.poll()
+    except Exception:
+        raw_exit_code = -1
+        capture_failed = True
+    else:
+        capture_failed = False
     if raw_exit_code is None:
         return {"state": "running", "sandbox_id": sandbox.object_id,
                 "cleanup_state": "pending", "image_id": workload_image.object_id}
     exit_code, diagnostic_code = normalize_exit_code(raw_exit_code)
-    stdout, stdout_truncated = _bounded_stream(sandbox.stdout, MAX_STDOUT_BYTES)
-    stderr, stderr_truncated = _bounded_stream(sandbox.stderr, MAX_STDERR_BYTES)
+    stdout = stderr = ""
+    stdout_truncated = stderr_truncated = False
+    result = None
     try:
-        lines = [line for line in stdout.splitlines() if line.strip()]
-        result = json.loads(lines[-1]) if lines and not stdout_truncated else None
-    except (ValueError, IndexError):
-        result = None
-    if result is not None and (
-        result.get("run_id") != run_id or
-        result.get("source_sha") != WORKLOAD_SOURCE_SHA or
-        result.get("plan_fingerprint") != payload["plan_fingerprint"] or
-        result.get("check") != WORKLOAD or
-        result.get("status") != "passed"
-    ):
+        stdout, stdout_truncated = _bounded_stream(sandbox.stdout, MAX_STDOUT_BYTES)
+        stderr, stderr_truncated = _bounded_stream(sandbox.stderr, MAX_STDERR_BYTES)
+        result = parse_workload_result(stdout, stdout_truncated)
+        if result is not None and (
+            result.get("run_id") != run_id or
+            result.get("source_sha") != WORKLOAD_SOURCE_SHA or
+            result.get("plan_fingerprint") != payload["plan_fingerprint"] or
+            result.get("check") != WORKLOAD or
+            result.get("status") != "passed"
+        ):
+            result = None
+    except Exception:
+        # A broken output stream or malformed result must not bypass Sandbox cleanup.
+        capture_failed = True
         result = None
     diagnostic_match = re.search(r"^GPU_CONTROL_PREFLIGHT_RETURN_LINE=([1-9][0-9]{0,3})$", stderr, re.MULTILINE) if exit_code == 2 else None
     system_exit_match = re.search(r"^GPU_CONTROL_SANDBOX_SYSTEM_EXIT=2$", stderr, re.MULTILINE) if exit_code == 2 else None
-    sandbox_id = sandbox.object_id
+    try:
+        sandbox_id = sandbox.object_id
+    except Exception:
+        sandbox_id = None
+        capture_failed = True
     try:
         sandbox.terminate(wait=True)
         cleanup_state = "confirmed"
@@ -232,7 +246,7 @@ def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "image_fingerprint": WORKLOAD_IMAGE_FINGERPRINT,
         "result": result,
         "stderr": stderr,
-        "diagnostic_code": diagnostic_code or (
+        "diagnostic_code": "CAPTURE_FAILED" if capture_failed else diagnostic_code or (
             f"PREFLIGHT_RETURN_LINE_{diagnostic_match.group(1)}" if diagnostic_match else
             "PREFLIGHT_SYSTEM_EXIT_2" if system_exit_match else None
         ),

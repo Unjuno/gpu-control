@@ -53,6 +53,14 @@ class SandboxBootstrapTests(unittest.TestCase):
         lines = workload.splitlines()
         self.assertTrue(all(lines[line - 1].strip() == "return 2" for line in expected))
 
+    def test_workload_result_requires_a_complete_json_object(self) -> None:
+        parse = modal_bootstrap.parse_workload_result
+        self.assertEqual(parse('{"status":"passed"}', False), {"status": "passed"})
+        for output in ("[]", "null", '"text"', "not-json", ""):
+            with self.subTest(output=output):
+                self.assertIsNone(parse(output, False))
+        self.assertIsNone(parse('{"status":"passed"}', True))
+
     def test_real_inference_missing_identity_emits_bounded_guard_diagnostic(self) -> None:
         inference = MODAL_DIR.parent / "workloads" / "tiny_stories_inference" / "inference.py"
         command = sandbox_entrypoint(str(inference), drop_privileges=False)
