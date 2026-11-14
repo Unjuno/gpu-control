@@ -540,7 +540,8 @@ test("Site confirmation binds one exact plan to the authenticated owner and cons
   const authorization = authorizations.get(runId);
   assert.equal(authorization.owner_id, "test-owner");
   assert.equal(authorization.fingerprint, fingerprint);
-  assert.equal(authorization.expires_at - authorization.authorized_at, 300);
+  assert.equal(authorization.expires_at, plan.expires_at);
+  assert.ok(authorization.expires_at > authorization.authorized_at);
   assert.equal(authorization.consumed_at, null);
 
   const replay = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
