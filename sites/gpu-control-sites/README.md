@@ -5,10 +5,10 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
-- Site Version 33 is live from source commit
-  `c85fdf7da994ab59b8a19bbb42b2998bc9814e69`; its latest published environment
-  revision is 36. Platform access is public, with an owner account ID
-  allowlist enforced for MCP operations. Cross-account denial and trusted
+- Site Version 34 is live from source commit
+  `18339d5106ff148d0ec4b3acf8da64791b69d54f`; its published environment
+  revision is 38 and deployment succeeded. Platform access is public, with an
+  owner account ID allowlist enforced for MCP operations. Cross-account denial and trusted
   provenance of the platform-injected identity are not independently verified.
 - State and artifacts use Sites D1/R2 bindings `DB` and `BUCKET`. ChatGPT
   capability and experiment-list calls succeeded from the connected owner
@@ -35,21 +35,25 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   successful inference on the current Modal deployment is not yet accepted.
   Earlier successful records used the retired local Runner and are not Modal
   acceptance.
-- The Modal API deployment is recorded from PR #68 head `496e28c`. The current
-  local workload image ID is
-  `sha256:60ea9d29f70def1ad4577021ac51e2b186b8f8d2c6dee7a2d2d848b441fcbda1`,
-  while the Site advertises
-  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
-  These identities have not been reconciled, and authenticated provider
-  readiness is unverified. Keep CPU admission closed until a fresh exact-plan
-  run proves output provenance and cleanup.
-- Modal Usage currently shows `$0.10` total for the November billing cycle.
-  The Workspace API-token list shows zero active tokens after the temporary
-  deploy token was revoked. The `$1` Workspace usage limit was observed
-  previously and must be rechecked before a provider call. The user's `$1`
-  project testing authorization is aggregate, not per run. A separate
-  out-of-pocket spend limit remains unverified; the per-run Sandbox ceiling
-  does not cap separately billed control calls.
+- The Modal `main` app was redeployed from PR #68 candidate
+  `6c2260d75232b30e440ca0b8eb635bfe58f12779`; the deployment completed
+  successfully without starting a Sandbox. The control function currently has
+  zero live containers and zero running calls. Its displayed limits are 1 CPU
+  request with default CPU limit, 512 MiB memory request with no memory limit,
+  and a 60-second timeout. These control-function settings and charges are
+  separate from the hard-limited Sandbox workload.
+- The Modal Workspace usage limit is `$1`. Account-specific usage and balance
+  details are intentionally omitted from this public repository. The
+  Workspace API-token list shows zero active tokens after the temporary deploy
+  token was revoked. The user's `$1`
+  testing authorization is aggregate, not per run. Control-function charges
+  count toward the Workspace limit but are not included in the Sandbox
+  estimate. Keep the Workspace hard limit in place.
+- The current owner prepared a fresh exact CPU plan, but its confirmation page
+  required a ChatGPT sign-in in the browser. No health call or Sandbox request
+  was issued from that plan; its one-use confirmation expires after 600
+  seconds. CPU admission remains disabled. Reprepare only after the owner has
+  signed into the Site, then use a fresh exact-plan confirmation.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
   RunPod is not connected to the Site Worker; GPU and paid execution remain
   parked. Vercel and Neon/PostgreSQL are not target runtime dependencies.
