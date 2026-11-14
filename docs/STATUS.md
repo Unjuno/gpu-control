@@ -14,6 +14,27 @@
 - The live Modal spend/admission snapshot and P0 scan blocker are unchanged
   from the [02:33 JST recheck](acceptance/2026-11-15-budget-and-local-regression-recheck.md).
 
+## Follow-up status — 2026-11-15 02:49 JST
+
+- Local Gitleaks 8.30.1 scanned the current checkout and Git history with
+  findings fully redacted: **5** current-tree matches and **12** history
+  matches across 1,150 commits. Review of the matched contexts identified
+  pinned TinyStories tokenizer digests and test/idempotency/attack-probe
+  literals; no current provider credential was identified. This is a secret
+  pattern check, not the repository-wide P0 review.
+- GitHub API and the logged-in repository settings page show secret scanning
+  and push protection enabled, but the dependency graph and Dependabot alerts
+  disabled. Code Scanning has no analysis. Main protection enforces admins,
+  requires one approval and last-push approval, and requires all six current CI
+  checks. A request to enable only the dependency graph and Dependabot alerts
+  is pending; security update PRs were excluded. No setting was changed.
+- Daybreak is connected, but its scan status reports unavailable because
+  credits are exhausted, and none of its listed environments contains
+  `Unjuno/gpu-control`. No Daybreak scan was launched. Its results do not
+  replace the required Codex Deep Scan, which remains blocked by the managed
+  read-only filesystem profile requirement.
+- Detailed evidence: [security and provider status recheck](acceptance/2026-11-15-security-and-provider-status-recheck.md).
+
 ## Follow-up status — 2026-11-15 02:33 JST
 
 - Rechecked the Modal Workspace Usage Limit page in the logged-in browser:
