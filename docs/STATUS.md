@@ -1,5 +1,36 @@
 # Project status
 
+## Live recheck — 2026-11-15 05:17 JST
+
+- Sites Version 34 is active with `access_mode=public`, one owner account on
+  the MCP allowlist, and no external viewers. ChatGPT capabilities currently
+  report the fixed Modal CPU workload configured, admission enabled, and
+  provider health deferred until exact-plan owner confirmation. The plan page
+  requires ChatGPT sign-in.
+- The five Modal failures in the run history were all created on 2026-11-12,
+  before the 2026-11-13 Docker `CMD` correction was deployed. The source-level
+  explanation is that the old image `ENTRYPOINT` bypassed the fixed bootstrap;
+  this is not live-confirmed. No post-correction Modal inference is recorded.
+  The newest historical failure has confirmed cleanup but no result artifact,
+  and its Modal log query returned no logs.
+- The current registered fingerprint is
+  `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`; the
+  capability response also reports image digest
+  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+  These registry values do not independently attest the running Modal image.
+- Modal billing was checked read-only before deciding not to start another
+  provider operation. No budget, payment method, credential, environment
+  setting, or provider resource was changed. Control-function charges are not
+  included in the per-Sandbox estimate.
+- PR #68 head `5b48ba7bd6cfaaf2c361ed0aec909079c2bfb3da` has passing CI and
+  Project bridge workflows. The documentation-only diff security scan found
+  no issue in changed lines. The separate whole-repository Standard scan is
+  still partial, and older public acceptance snapshots and Git history retain
+  account-specific billing observations.
+- RunPod remains offline-only. No new Sandbox, RunPod call, GPU allocation, or
+  training was started during this recheck. A new run still requires owner
+  sign-in and confirmation of its exact plan.
+
 ## Follow-up status — 2026-11-15 03:29 JST
 
 - Sites Version 34 reports source commit

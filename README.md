@@ -22,16 +22,19 @@ objective
 The registered workload source SHA `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`
 resolves in the public `Unjuno/gpu-control` repository. This proves the pinned
 source exists, but not that the deployed Modal function and image match the
-current candidate. ChatGPT MCP capabilities and experiment preparation are
-connected to the owner account. CPU admission is enabled, while each run still
-requires one-use confirmation of its exact plan. The confirmation page requires
-the owner to sign in to ChatGPT. Five recent Modal-origin attempts failed with
-`MODAL_WORKLOAD_EXIT_2`; the latest run's cleanup was confirmed, but it produced
-no result artifact and Modal showed no Sandbox logs. The current Modal fingerprint is
+current candidate. ChatGPT MCP capabilities report the Modal CPU workload
+configured and admission enabled; each run still requires one-use confirmation
+of its exact plan. The confirmation page requires owner ChatGPT sign-in. The
+five recorded Modal failures all occurred on November 12, before the November
+13 Docker `CMD` correction was deployed. Source analysis attributes the old
+exit-2 failures to the image `ENTRYPOINT` bypassing the privilege-dropping
+bootstrap. No post-correction Sandbox run has verified that fix. The current
+registered Modal fingerprint is
 `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`. The fixed
 workload requests and hard-limits CPU to 1 core and memory to 512 MiB for at
 most 30 seconds. A successful ChatGPT-to-Modal result, provider-side limits,
-and cleanup are not yet verified. RunPod/GPU and paid training remain parked.
+and cleanup after the correction are not yet verified. RunPod/GPU and paid
+training remain parked.
 
 Modal execution is usage-billed, not inherently free. Public Starter pricing does not establish this Workspace's credit balance, usage limit, or out-of-pocket exposure. The authorized project testing budget is `$1` cumulative through completion, not `$1` per run. The provider is still classified as paid and credit-eligible. The `$0.01` ceiling covers only Sandbox CPU/memory, not separately billed Modal control-function calls. Check current account billing in Modal before any provider call. See [Modal pricing](https://modal.com/pricing) and [Modal budgets](https://modal.com/docs/guide/budgets).
 
@@ -39,7 +42,7 @@ Modal execution is usage-billed, not inherently free. Public Starter pricing doe
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Provider configuration and authenticated plan/read tools are connected. Admission is enabled. Exact-plan owner confirmation is required before each run; the confirmation page requires ChatGPT sign-in. Five recent Modal-origin attempts failed with `MODAL_WORKLOAD_EXIT_2`; latest cleanup is confirmed, with no result artifact. Modal control-function charges are separate from the Sandbox estimate. |
+| Registered CPU experiment through ChatGPT | Provider configuration and authenticated plan/read tools are connected. Admission is enabled. Exact-plan owner confirmation is required before each run; the confirmation page requires ChatGPT sign-in. Five recorded failures predate the Docker `CMD` correction; no post-correction run has verified the fix. Modal control-function charges are separate from the Sandbox estimate. |
 | Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment yet. Older local-Runner successes and failed Modal runs are historical evidence only. The current exact plan must complete with verified artifact digest and cleanup before CPU acceptance. |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |

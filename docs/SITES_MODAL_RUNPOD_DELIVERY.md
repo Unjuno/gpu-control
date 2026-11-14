@@ -13,20 +13,24 @@ part of the target runtime.
 The Site is the ChatGPT-facing interface and policy boundary. It does not itself
 provide model compute. Compute remains an explicitly configured provider.
 
-## Current live state — refreshed 2026-11-14
+## Current live state — refreshed 2026-11-15
 
-- ChatGPT Site Version 33 remains active at the published URL. The connected
-  owner account can read capabilities and owner-scoped history; Modal is
-  configured, but the Site now reports `CPU_WORKLOAD_ADMISSION_DISABLED`,
-  `available=false`, and `admission_enabled=false` at environment revision 35.
-- The current Site fingerprint is
-  `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`; the
-  candidate image/API fingerprint is
-  `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`. They do
-  not match. The candidate resource limits and image digest have not been
-  verified on the deployed Modal app. Five newest Modal-origin runs failed with
-  `MODAL_WORKLOAD_EXIT_2`; cleanup is confirmed for the newest run and no result
-  artifact exists.
+- ChatGPT Site Version 34 remains active at the published URL with public
+  audience and an owner-only MCP allowlist. The connected owner account can
+  read capabilities and owner-scoped history. Current capabilities report the
+  Modal CPU workload configured and admission enabled, but provider health is
+  deferred until exact owner confirmation of a fresh plan. The confirmation
+  page requires ChatGPT sign-in.
+- The current Sites capabilities response registers fingerprint
+  `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5` and
+  image digest
+  `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+  These response values do not attest the running Modal image or its actual
+  hard limits; provider health remains deferred until plan confirmation. The five recorded
+  Modal-origin runs failed on November 12 before the November 13 Docker `CMD`
+  correction was deployed. Source analysis points to the older image
+  `ENTRYPOINT` bypassing the privilege-dropping bootstrap; no post-correction
+  Sandbox run has verified the fix.
 - Public Starter pricing does not reveal this Workspace's account balance,
   usage, or limits. Treat Modal as paid and usage-billed; credits may offset
   eligible usage. The `$0.01` Sandbox ceiling does not include control-function
