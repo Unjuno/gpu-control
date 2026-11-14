@@ -41,7 +41,7 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   while the Site advertises
   `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
   These identities have not been reconciled, and authenticated provider
-  readiness is unverified. Keep the provider gate open until a fresh exact-plan
+  readiness is unverified. Keep CPU admission closed until a fresh exact-plan
   run proves output provenance and cleanup.
 - Modal Usage currently shows `$0.10` total for the November billing cycle.
   The Workspace API-token list shows zero active tokens after the temporary

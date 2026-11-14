@@ -9,7 +9,7 @@
   and fingerprint `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`.
   Capability reads report admission disabled. No post-deployment health call or
   inference has been accepted.
-- Modal Usage showed `$0.10` total for the November billing cycle. The Workspace
+- Modal Usage last showed `$0.10` total for the November billing cycle. The Workspace
   usage limit was previously observed at `$1`; recheck both usage and the limit
   before any provider call. The user's authorization is `$1` aggregate for this
   project's testing, not `$1` per execution. Modal control-function usage counts
@@ -47,13 +47,17 @@ logs, so its cause is not established. Do not change the workload based only on
 that failure. A fresh health check and one exact-plan Modal inference are still
 needed against the current deployment.
 
-The Site confirmation link currently redirects to OpenAI sign-in. The old exact
-plan expired before confirmation. After owner sign-in, create a fresh plan and
-confirm its displayed fingerprint and cost on the Site; then check provider
-health and run the single bounded inference. Recheck the `$1` aggregate budget
-before calling the provider. Keep admission closed except for that authorized
-acceptance step, and verify result provenance and cleanup afterward.
+The Site confirmation link redirects to OpenAI sign-in because the current
+browser session is not authenticated to the Site. A fresh exact plan was
+prepared, but expired before confirmation; no health call or Sandbox request
+was made. After owner sign-in, create another fresh plan and confirm its exact
+fingerprint and cost on the Site. The official Modal pricing page was checked
+again on November 14; the 30-second, 1-core, 512-MiB Sandbox estimate remains
+about `$0.0013`, while control-function charges are separate. Recheck Workspace
+usage and its `$1` limit before any provider call. Keep admission closed until
+the authorized acceptance step, then verify result provenance and cleanup.
 
-The repository-wide Codex Security review remains incomplete at 34 of 335
-coverage rows, with no report. No security clearance is claimed. RunPod and GPU
-execution remain parked and unconnected to the Site Worker.
+The repository-wide Codex Security review is still incomplete at 45 of 335
+files. Its draft has zero confirmed findings so far, but is partial and has no
+final report; this is not security clearance. RunPod and GPU execution remain
+parked and unconnected to the Site Worker.
