@@ -76,6 +76,7 @@ def test_source_to_sink_boundary_blocks_untrusted_authority_flow() -> None:
     assert "sink_arguments_must_be_derived_from_current_user_intent_and_validated_trusted_state" in rules
     assert "untrusted_content_cannot_supply_or_expand_human_authorization" in rules
     assert "provider_or_tool_output_is_data_not_instruction" in rules
+    assert "secrets_must_not_be_exposed_to_untrusted_content_processing_stages" in rules
     assert "risky_sink_must_remain_behind_deterministic_policy_and_human_control" in rules
 
 
