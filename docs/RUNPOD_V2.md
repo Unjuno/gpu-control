@@ -12,11 +12,11 @@ The implementation in `src/gpu_control/providers/runpod_v2.py` is **not wired to
 
 Official references used for this boundary include RunPod's public v2 documentation and the official `runpod/runpod-mcp` repository, whose v2 migration tests track differences between the development and production API surfaces.
 
-## Current production-log limitation
+## Production log contract and current verification limit
 
 The production v2 API and the Pod container-log operation must be treated as separate contracts.
 
-As of the 2026-08-27 UTC audit, the exact upstream evidence is pinned to:
+An earlier 2026-08-27 audit pinned this upstream evidence:
 
 ```text
 repository  runpod/runpod-mcp
@@ -26,17 +26,17 @@ section     K — Dev-only tools, currently DISABLED (not registered)
 URL         https://github.com/runpod/runpod-mcp/blob/465872464c4f157a2e87afcd855c60a607954c26/test.md
 ```
 
-That pinned official RunPod validation records:
+That source records the following for the official MCP project's tool surface:
 
 - production REST v2 is live at `https://api.runpod.io/v2`;
 - the Pod log stream operation `GET /v2/pods/{id}/logs` is present on the development v2 surface;
-- the same operation is intentionally disabled in the official MCP production tool surface because production currently returns HTTP 422 `path not found`;
+- that project's MCP production tool was intentionally disabled because its test observed HTTP 422 `path not found`;
 - the official tool is to be re-enabled only when the production operation ships.
 
-Therefore `gpu-control` may implement and test bounded marker parsing and completion authentication **offline**, but it must not treat Pod log SSE as a supported production result-collection transport. A future live path needs either:
+That MCP-specific observation is not proof that the RunPod REST endpoint itself is unavailable. A fresh unauthenticated read of RunPod's current official OpenAPI on 2026-11-14 documents `GET /v2/pods/{id}/logs` with a `200 text/event-stream` response; the current API docs list the same operation. The exact account-level production behavior is still unverified because no authenticated request was made. `gpu-control` continues to keep live Pod-log collection disabled until that verification, bounded stream handling, and authenticated completion evidence are in place. A live result path needs:
 
-1. fresh evidence that RunPod has shipped the production Pod-log operation and the exact contract has been revalidated; or
-2. a different provider-supported authenticated result transport that preserves the same isolation, boundedness, correlation, and cleanup requirements.
+1. an authorized, bounded read-only production check of the exact SSE endpoint; and
+2. a provider-supported authenticated result transport that preserves isolation, boundedness, run correlation, completion integrity, and cleanup requirements. The documented SSE endpoint may be evaluated for this role after the separate completion-integrity design is resolved.
 
 Opening SSH, a public service port, unrestricted runtime networking, or an unverified volume-transfer path merely to bypass this limitation is not an acceptable implicit fallback.
 

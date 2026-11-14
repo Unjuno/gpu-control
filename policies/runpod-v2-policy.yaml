@@ -11,7 +11,7 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-11-13T04:10:00Z
+  audited_at_utc: 2026-11-14T17:01:11Z
   implementation_contract: rest_v2_openapi_reviewed_offline
   implementation_matches_current_official_rest_contract: true
   current_official_rest_version_observed: v2
@@ -58,6 +58,15 @@ api_contract_audit:
   pod_container_log_sse_prod_verified: false
   pod_container_log_sse_prod_failure: null
   pod_container_log_sse_live_collection_allowed: false
+  pod_container_log_sse_current_official_openapi_path: /v2/pods/{id}/logs
+  pod_container_log_sse_current_official_openapi_method: GET
+  pod_container_log_sse_current_official_openapi_status: 200
+  pod_container_log_sse_current_official_openapi_media_type: text/event-stream
+  pod_container_log_sse_current_official_openapi_schema_version: 2.0.0
+  pod_container_log_sse_current_official_openapi_checked_at_utc: 2026-11-14T17:01:11Z
+  pod_container_log_sse_current_official_openapi_url: https://api.runpod.io/v2/openapi.json
+  pod_container_log_sse_current_official_docs_url: https://docs.runpod.io/api-reference-v2/pods/stream-pod-logs
+  pod_container_log_sse_previous_mcp_disabled_evidence_is_api_availability_proof: false
   pod_container_log_sse_evidence_repository: runpod/runpod-mcp
   pod_container_log_sse_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
   pod_container_log_sse_evidence_path: test.md
@@ -72,7 +81,7 @@ api_contract_audit:
   network_volume_attach_contract_repository: runpod/runpodctl
   network_volume_attach_contract_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
   network_volume_attach_contract_path: cmd/pod/create.go
-  note: Official API v2 documentation and OpenAPI were rechecked on 2026-11-13. The bounded v2 client follows cursor-paginated GET /pods, uses the v2 GPU catalog for price and exact datacenter availability, and binds Network Volume mounts through mounts.network plus trusted dataCenterIds. It does not request queueing and rejects HTTP 202; adding queued Pods requires a separate queued-resource lifecycle and cancellation implementation. Full provider behavior, result transport, cleanup, and live account evidence remain unverified. Pod-log streaming is not the result path. All live calls remain disabled.
+  note: Official API v2 documentation and OpenAPI were rechecked on 2026-11-14. The bounded v2 client follows cursor-paginated GET /pods, uses the v2 GPU catalog for price and exact datacenter availability, and binds Network Volume mounts through mounts.network plus trusted dataCenterIds. It does not request queueing and rejects HTTP 202; adding queued Pods requires a separate queued-resource lifecycle and cancellation implementation. The current official OpenAPI documents GET /pods/{id}/logs as a 200 text/event-stream response; an older runpod-mcp disabled-tool note is not proof that the production REST endpoint is unavailable. The endpoint has not been live-verified with this account, and SSE is not enabled as a result transport. Full provider behavior, result integrity, cleanup, and live account evidence remain unverified. All live calls remain disabled.
 
 submission:
   approved_plan_required: true
@@ -285,7 +294,7 @@ forbidden:
   - treating_exited_as_success_without_v3_signed_exit_code
   - treating_unknown_provider_status_as_success
   - collecting_results_without_authenticated_completion_evidence
-  - collecting_live_results_through_unavailable_prod_pod_log_sse
+  - collecting_live_results_through_unverified_prod_pod_log_sse
   - treating_dev_only_provider_operation_as_production_contract
   - arbitrary_network_volume_id_from_workload
   - user_controlled_volume_mount_path

@@ -71,6 +71,10 @@ def test_current_api_audit_records_v2_contract_and_offline_acceptance_boundary()
     assert audit["pod_container_log_sse_prod_verified"] is False
     assert audit["pod_container_log_sse_prod_failure"] is None
     assert audit["pod_container_log_sse_live_collection_allowed"] is False
+    assert audit["pod_container_log_sse_current_official_openapi_path"] == "/v2/pods/{id}/logs"
+    assert audit["pod_container_log_sse_current_official_openapi_status"] == 200
+    assert audit["pod_container_log_sse_current_official_openapi_media_type"] == "text/event-stream"
+    assert audit["pod_container_log_sse_previous_mcp_disabled_evidence_is_api_availability_proof"] is False
 
     upstream_sha = "465872464c4f157a2e87afcd855c60a607954c26"
     assert audit["legacy_v2_list_pods_evidence_repository"] == "runpod/runpod-mcp"
@@ -270,7 +274,7 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
         "treating_exited_as_success_without_v3_signed_exit_code",
         "treating_unknown_provider_status_as_success",
         "collecting_results_without_authenticated_completion_evidence",
-        "collecting_live_results_through_unavailable_prod_pod_log_sse",
+        "collecting_live_results_through_unverified_prod_pod_log_sse",
         "treating_dev_only_provider_operation_as_production_contract",
         "arbitrary_network_volume_id_from_workload",
         "user_controlled_volume_mount_path",

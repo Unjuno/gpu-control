@@ -75,3 +75,19 @@ that boundary before enabling RunPod.
 - [RunPod API v2 list GPU types](https://docs.runpod.io/api-reference-v2/catalog/list-gpu-types)
 - [RunPod API v2 migration from v1](https://docs.runpod.io/api-reference-v2/migrate-from-v1)
 - [RunPod API v2 OpenAPI](https://api.runpod.io/v2/openapi.json)
+
+## Fresh official OpenAPI check — 2026-11-14 17:01 UTC
+
+A fresh unauthenticated read of the current official OpenAPI document reports
+REST API version `2.0.0` at `https://api.runpod.io` and includes
+`GET /v2/pods/{id}/logs`, with a `200 text/event-stream` response. The current
+official documentation also lists the Stream pod logs operation and its
+bounded `tail` parameter. This corrects the earlier inference from the
+`runpod/runpod-mcp` repository's disabled MCP tool: that project-specific note
+does not establish that RunPod's production REST endpoint is unavailable.
+
+This is only an official contract/documentation observation. No RunPod API key,
+authenticated request, Pod, GPU, Network Volume, or billing operation was used.
+The endpoint remains unverified against this account, and SSE has not been
+enabled as a result transport. The independent completion-integrity and
+cleanup gates still block live execution.
