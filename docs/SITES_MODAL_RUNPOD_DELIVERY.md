@@ -13,7 +13,35 @@ part of the target runtime.
 The Site is the ChatGPT-facing interface and policy boundary. It does not itself
 provide model compute. Compute remains an explicitly configured provider.
 
-## Live baseline — refreshed 2026-11-13
+## Current live state — refreshed 2026-11-14
+
+- ChatGPT Site Version 33 remains active at the published URL. The connected
+  owner account can read capabilities and owner-scoped history; Modal is
+  configured, but the Site now reports `CPU_WORKLOAD_ADMISSION_DISABLED`,
+  `available=false`, and `admission_enabled=false` at environment revision 35.
+- The current Site fingerprint is
+  `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`; the
+  candidate image/API fingerprint is
+  `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`. They do
+  not match. The candidate resource limits and image digest have not been
+  verified on the deployed Modal app. Five newest Modal-origin runs failed with
+  `MODAL_WORKLOAD_EXIT_2`; cleanup is confirmed for the newest run and no result
+  artifact exists.
+- The current Modal Credits page says the Starter Workspace includes `$1` in
+  credits each month. Usage & Billing reports `$0.10` in credits used, `$0` in
+  charges, and a `$1` Workspace usage limit. Treat the provider as paid and
+  usage-billed; credits may offset eligible usage. The `$0.01` Sandbox ceiling
+  does not include control-function calls. The user authorized up to `$1` total
+  project testing usage; preserve the current Workspace cap and do not add a
+  payment method. The observed `$0.10` is already consumed in this billing
+  period, leaving at most `$0.90` under that cap before any newly incurred usage.
+- The short-lived Workspace API token inventory is empty. A fresh temporary
+  token, deployment to `unjuno/main`, and immediate revocation are still needed
+  to deploy the candidate. Do not reopen admission or start another Sandbox
+  until the deployed fingerprint, digest, and actual hard resource limits are
+  reconciled. RunPod/GPU remains parked.
+
+## Historical baseline — refreshed 2026-11-13
 
 - The public Site `gpu-control-sites` is active at
   `https://gpu-control-sites.unjuno.chatgpt.site`, with deployed Version 28,
