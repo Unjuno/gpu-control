@@ -17,12 +17,11 @@ Sandbox limits and the post-deploy health response have not yet been verified.
 The latest historical Modal-origin runs failed with exit code 2; no
 current-candidate inference has completed.
 
-The latest Modal usage view showed `$0.10` of `$1` usage (credits), `$0` in
-charges, and a `$1` Workspace usage limit. Modal execution is usage-billed:
-credit eligibility does not make it free, and the `$0.01` Sandbox ceiling
-excludes separately billed control-function calls. No payment method or
-Workspace limit was changed. RunPod/GPU and broader paid execution remain
-parked.
+Current Modal balance, usage, and Workspace limits are account-specific and are
+not published here. Modal execution is usage-billed: credit eligibility does
+not make it free, and the `$0.01` Sandbox ceiling excludes separately billed
+control-function calls. Check current account billing before any provider call.
+RunPod/GPU and broader paid execution remain parked.
 
 ## Live release gate refresh — 2026-11-13 13:30 UTC
 
@@ -46,12 +45,11 @@ is not verified as Modal's deployed image; Sites still advertises
 The Sandbox estimate is `$0.0013` with a `$0.01` Sandbox-only ceiling; Modal
 control-function costs are separate.
 
-The logged-in Modal Usage limit page displayed `$0.10 in credits • $0 in
-charges`, `$0.10 / $1`, and a `$1` Workspace usage limit set by Modal; adding a
-payment method is offered to raise that limit. The page did not expose a
-separate net spend limit field, so a distinct out-of-pocket cap remains
-unverified. Modal documents gross usage budgets and net spend limits as
-separate controls. No Modal health call or Sandbox was made during this refresh.
+The logged-in Modal Usage limit page showed a configured Workspace limit and
+offered a payment method to raise it. The page did not expose a separate net
+spend limit field, so a distinct out-of-pocket cap remains unverified. Modal
+documents gross usage budgets and net spend limits as separate controls. No
+Modal health call or Sandbox was made during this refresh.
 
 PR #68 remains Draft. The repository-wide P0 audit still requires the managed
 read-only security scan; cross-account denial and image identity reconciliation

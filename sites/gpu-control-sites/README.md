@@ -44,8 +44,8 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   request with default CPU limit, 512 MiB memory request with no memory limit,
   and a 60-second timeout. These control-function settings and charges are
   separate from the hard-limited Sandbox workload.
-- The Modal Workspace usage limit is `$1`. Account-specific usage and balance
-  details are intentionally omitted from this public repository. The
+- Account-specific usage and balance details are intentionally omitted from
+  this public repository. Check current provider limits before execution. The
   Workspace API-token list shows zero active tokens after the temporary deploy
   token was revoked. The user's `$1`
   testing authorization is aggregate, not per run. Control-function charges
