@@ -46,3 +46,31 @@ shows no recent activity; revocation has not been verified. Do not interpret
 the earlier “zero active tokens” snapshot as the current state. No secret value
 was recovered or used. Current budget and candidate state are recorded in
 `2026-11-14-modal-capture-hardening.md`.
+
+## Candidate redeploy and Site gate follow-up — 2026-11-14 13:55 UTC
+
+- Current PR head `6a024f5b584e85efa93cf6df3cd0fa827f833bc2` passed all six
+  exact-head checks. Modal `gpu-control-sites` was deployed to `unjuno/main`
+  from that candidate using a one-hour Workspace token held only in ephemeral
+  process environment variables; CLI exit code was 0. No Sandbox was started.
+- The current Site source candidate was reconciled with its remote source
+  history and published as Version 34 from commit
+  `18339d5106ff148d0ec4b3acf8da64791b69d54f`. Deployment succeeded at
+  `https://gpu-control-sites.unjuno.chatgpt.site` with environment revision 37.
+  The live `experiment_capabilities` call reported `available=true`, a matching
+  image fingerprint, one-use exact-plan approval, and 1-core / 512-MiB limits.
+- Modal Usage showed `$0.10 / $1` usage (credits), `$0` in charges, and a `$1`
+  Workspace limit. One bounded plan was prepared (TinyStories 15M, prompt
+  `Once`, 1 token, seed 61112, 30 seconds, CPU only, estimate `$0.0013`, ceiling
+  `$0.01`). Its Site authorization redirected to OpenAI sign-in. No owner login
+  or approval occurred before expiry, and the plan was not submitted. The
+  owner-scoped run list did not show it; a direct status request returned
+  `INVALID_ARGUMENT` after expiry.
+- To avoid leaving production admission open without owner approval, the Site
+  gate was set back to false and Version 34 redeployed successfully at
+  environment revision 38. No health request or Sandbox inference occurred.
+  Reopen only after the owner completes sign-in and a fresh exact plan is ready.
+- The API-token page still lists the newly created one-hour token and an older
+  same-name token; revocation of the new token is awaiting action-time
+  confirmation. No token value is included here. Repository-wide security
+  review remains incomplete; this deployment does not constitute P0 clearance.

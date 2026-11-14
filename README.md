@@ -19,7 +19,7 @@ objective
 
 ## Current status
 
-The public ChatGPT Site is active as Version 33. The connected owner account can read its capabilities and experiment history; the persistent Sites-to-Modal Proxy Token configuration is present, so provider credentials do not need to be re-entered for each chat. Each experiment still requires a fresh one-use confirmation for its exact plan. As of 2026-11-14, Sites environment revision 35 has `CPU_WORKLOAD_ADMISSION_ENABLED=false`; new inference is blocked while the Modal deployment is reconciled. The Site's configured Modal fingerprint (`53b5d84a…`) does not match the current candidate fingerprint (`8a786eb7…`), and the candidate hard CPU/memory limits have not been verified in a live Sandbox. The latest five Modal-origin runs failed with `MODAL_WORKLOAD_EXIT_2`; the newest run's cleanup was confirmed and no result artifact exists. No successful inference against the current Modal deployment is accepted yet. RunPod/GPU and paid training remain parked.
+The public ChatGPT Site is active as Version 34 from source commit `18339d5106ff148d0ec4b3acf8da64791b69d54f`, environment revision 38. ChatGPT MCP capabilities are connected to the owner account. A one-use plan confirmation is required for every experiment. The CPU admission gate is closed while the owner completes ChatGPT sign-in; the prepared plan expired without confirmation or submission. The current Modal fingerprint is `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`. The fixed workload requests and hard-limits CPU to 1 core and memory to 512 MiB for at most 30 seconds. A current ChatGPT-to-Modal result, provider-side limits, and cleanup are not yet verified. RunPod/GPU and paid training remain parked.
 
 Modal execution is usage-billed, not inherently free. Modal's general Starter pricing advertises `$30` of monthly compute, but this Workspace's account-specific dashboard currently says only `$1` of `$30/mo` is available and the Credits tab says `$1` monthly. Usage & Billing shows `$0.10` in credits used, `$0` in charges, and a `$1` Workspace usage limit; at most `$0.90` of usage headroom remains under that cap. The provider is still classified as paid and credit-eligible. The `$0.01` ceiling covers only Sandbox CPU/memory, not separately billed Modal control-function calls. No billing settings were changed. See [Modal pricing](https://modal.com/pricing) and [Modal budgets](https://modal.com/docs/guide/budgets).
 
@@ -27,8 +27,8 @@ Modal execution is usage-billed, not inherently free. Modal's general Starter pr
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Provider configuration and authenticated plan/read tools are connected. Admission is disabled at Sites environment revision 35 until the candidate Modal fingerprint and 1-core / 512-MiB hard limits are deployed and verified. Modal control-function charges are separate from the Sandbox estimate. |
-| Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment. The latest five Modal attempts failed with workload exit code 2; the newest cleanup is confirmed and has no result artifact. Older local-Runner successes are historical evidence only. |
+| Registered CPU experiment through ChatGPT | Provider configuration and authenticated plan/read tools are connected. Admission is closed at Sites environment revision 38 while awaiting owner sign-in. The prepared plan expired without confirmation or submission. Modal control-function charges are separate from the Sandbox estimate. |
+| Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment yet. Older local-Runner successes and failed Modal runs are historical evidence only. The current exact plan must complete with verified artifact digest and cleanup before CPU acceptance. |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
@@ -48,11 +48,10 @@ The current hosted product path is the ChatGPT Sites Worker with D1/R2. The
 Site URL is public, while MCP calls are authenticated and stateful tools bind
 the caller to the owner allowlist. This ChatGPT account successfully read its
 capabilities and owned run history; a separate-account denial remains
-unverified. Sites Version 33 is live at environment revision 35 with CPU
-admission disabled. Modal proxy configuration is present, but its live
-fingerprint does not match the current candidate and no successful inference
-against the current Modal deployment is accepted. The candidate sets
-request=limit to 1 CPU and 512 MiB but is not deployed. PR #68 remains an open
+unverified. Sites Version 34 is live at environment revision 38 with CPU
+admission closed. The current Modal candidate is deployed to `unjuno/main`;
+provider health, effective Sandbox limits, successful inference, artifact
+digest, and cleanup are not yet verified. PR #68 remains an open
 Draft; repository-wide security coverage and cross-account denial are open.
 Historical ChatGPT CPU successes used the retired local Runner and do not
 prove current Modal readiness. The latest Modal attempts failed with exit

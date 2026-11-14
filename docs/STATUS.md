@@ -1,10 +1,10 @@
 # Project status
 
-## Follow-up status — 2026-11-14 22:26 JST
+## Follow-up status — 2026-11-14 22:50 JST
 
-- Current candidate is PR #68 head `bc1035df4a72d12b8347f549bf30b970ebdf48d6`.
-  All six exact-head GitHub checks passed. Local Python suite: 588 passed,
-  1 skipped; Sites Worker/D1 suite: 42 passed. The branch is clean and pushed.
+- Current candidate is PR #68 head `6a024f5b584e85efa93cf6df3cd0fa827f833bc2`.
+  All six exact-head GitHub checks pass. Local Python suite: 588 passed,
+  1 skipped; Sites Worker/D1 suite: 43 passed. The branch is clean and pushed.
 - Independent review found two concrete reliability issues, both fixed in this
   candidate: RunPod account leases could be released while provider creation
   was ambiguous (`5a7f0aa`), and malformed Modal output/stream errors could
@@ -14,22 +14,26 @@
   single execution slot forever if the Sandbox stayed missing. The candidate
   now retains the slot through a 300-second post-lease grace and releases it
   only after a fresh authenticated Modal 404, with a conditional D1 update and
-  cleanup evidence. Sites Worker tests pass 43/43; build and artifact
-  validation pass. It is not yet deployed.
-- These changes have not been deployed to the live Site or Modal app. Sites
-  remains Version 33, environment revision 36, and
-  `CPU_WORKLOAD_ADMISSION_ENABLED=false`; ChatGPT capabilities report
-  `CPU_WORKLOAD_ADMISSION_DISABLED`. No health call or Sandbox inference was
-  started for this candidate.
+  cleanup evidence. This code is live in Sites Version 34.
+- The Modal app was redeployed to `unjuno/main` from candidate `6a024f5`.
+  Sites Version 34 is live at source commit `18339d5106ff148d0ec4b3acf8da64791b69d54f`,
+  environment revision 38. `CPU_WORKLOAD_ADMISSION_ENABLED=false` after a
+  prepared plan expired without owner sign-in. ChatGPT capabilities were
+  verified available at revision 37 with owner-bound, one-use plan confirmation
+  and configured 1-core / 512-MiB limits. No inference has been submitted.
 - The Modal dashboard shows `$0.10` in credits, `$0` in charges, and a `$1`
   Workspace usage limit. The project test authorization is `$1` aggregate
   through completion; the `$0.01` Sandbox ceiling excludes control-function
   charges.
-- Correction to the earlier token snapshot: an unused one-hour Workspace API
-  token was created after that zero-token observation and did not get used for
-  deployment. The API-token UI still lists it after its displayed expiry, with
-  no recent activity. Revocation is not yet confirmed. No token secret was
-  retrieved or used.
+- A one-hour Workspace API token was used only through ephemeral process
+  environment variables for the Modal deploy; it was not written to local
+  Modal config or the repository. Its revocation is awaiting the required
+  action-time confirmation. The earlier same-name token also remains listed;
+  neither secret is exposed in this record.
+- Modal dashboard after deploy: `$0.10` of `$1` usage (shown as credits), `$0`
+  charges, and a `$1` Workspace cap. The prepared plan expired while the Site
+  confirmation redirected to OpenAI sign-in; the gate is closed. No health
+  check or Sandbox execution occurred. Owner sign-in must precede a fresh plan.
 - Repository-wide Codex Security scan remains partial at 45/335 files, without
   a final report. Independent Sites review found no actionable issue in the
   inspected paths, but separately authenticated account isolation and trusted
