@@ -13,7 +13,10 @@
   submitted. No provider health request, Sandbox, RunPod call, GPU allocation,
   or new provider spend occurred.
 - A future execution must prepare a fresh plan because this authorization
-  window is only 600 seconds. Evidence: [Version 35 native plan preparation](acceptance/2026-11-15-sites-v35-native-plan-prepare.md).
+  window is only 600 seconds. After the plan expired, owner-authenticated
+  status returned `RUN_NOT_FOUND` and the run list contained no matching ID,
+  confirming that prepare alone created no execution record or provider job.
+  Evidence: [Version 35 native plan preparation](acceptance/2026-11-15-sites-v35-native-plan-prepare.md).
 
 ## P0 audit and Sites Version 35 — 2026-11-15 08:00 JST
 

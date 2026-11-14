@@ -59,6 +59,16 @@ occurred. If this 600-second plan expires before confirmation, a later
 execution must prepare a fresh plan and obtain a new exact confirmation; an
 expired plan is not reusable.
 
+## Unconfirmed-plan expiry check
+
+After the recorded `expires_at` timestamp passed, an owner-authenticated
+`experiment_status` read for the prepared run ID returned `RUN_NOT_FOUND`.
+The owner-scoped latest-run list also did not contain that ID. This is the
+expected fail-closed distinction between a prepared plan and an execution:
+without the destructive-write confirmation and `experiment_submit`, no run
+record or provider job was created. Neither read requested provider health or
+created a Sandbox.
+
 ## Remaining acceptance
 
 A fresh owner-confirmed plan must still complete through submit, provider
