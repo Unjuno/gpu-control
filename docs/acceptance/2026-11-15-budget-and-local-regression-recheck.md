@@ -32,6 +32,15 @@
   forbidden-secret environment list and a negative regression test. This is a
   scoped source check, not the requested repository-wide P0 audit.
 
+## Exact-head CI and PR state
+
+- PR #68 remains open and Draft, with no submitted independent review.
+- For commit `8cb4ea87e9157272aa77391d467fbc078a1dfa87`, exact-head GitHub
+  Actions completed successfully: Python 3.11, Python 3.12, Python 3.13,
+  Trusted reference container, Sites Worker and D1 contract, and Project bridge
+  tests. This passing CI does not replace the incomplete repository-wide P0
+  Deep Scan or live provider acceptance.
+
 ## Security audit blocker
 
 The repository-wide Codex Deep Scan did not start. The exact coordinator error

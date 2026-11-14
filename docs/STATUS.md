@@ -26,6 +26,10 @@
   provide a managed filesystem permission profile.` No scan artifacts or
   security clearance were produced. See
   [the live budget and local regression recheck](acceptance/2026-11-15-budget-and-local-regression-recheck.md).
+- PR #68 remains open and Draft at this update. Exact-head GitHub Actions for
+  commit `8cb4ea87e9157272aa77391d467fbc078a1dfa87` completed successfully:
+  Python 3.11/3.12/3.13, Trusted reference container, Sites Worker and D1
+  contract, and Project bridge tests. No PR review has been submitted.
 
 ## Follow-up status — 2026-11-15
 
