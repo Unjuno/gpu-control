@@ -10,7 +10,8 @@
 
 ## Spend checkpoint
 
-- Modal Usage page currently reports total Workspace usage of `$0.10` for the November billing cycle. Earlier account UI showed the Workspace usage limit at `$1`; no payment method was added. The overall authorized project test budget remains `$1` aggregate through completion, not `$1 per run. Keep the Workspace cap at `$1` and recheck usage before further provider calls.
+- Modal Usage page currently reports total Workspace usage of `$0.10` for the November billing cycle. Earlier account UI showed the Workspace usage limit at `$1`; no payment method was added. The overall authorized project test budget remains `$1` aggregate through completion, not `$1 per run`. Keep the Workspace cap at `$1` and recheck usage before further provider calls.
+- The Modal app overview after redeploy showed `$0.10` total usage this cycle, 0 live containers, 0 live Sandboxes, and 0 Sandboxes created in the last 24 hours. The `control_api` function details show 1 CPU core requested, 512 MiB memory requested, no explicit CPU or memory limit, 60-second timeout, maximum 1 container, no GPU, and preemptible execution. These are control-function settings, not evidence of the separate Sandbox's resource limits. The visible latest `GET /v1/health` call was on Nov 13 (HTTP 200), before the Nov 14 redeploy; no post-deploy health call is recorded.
 - The registered inference plan estimates `$0.0013` Sandbox CPU/memory and has a `$0.01` Sandbox-only ceiling. Modal control-function charges are separate and must also fit within the aggregate project budget.
 
 ## Exact-plan health check pending
