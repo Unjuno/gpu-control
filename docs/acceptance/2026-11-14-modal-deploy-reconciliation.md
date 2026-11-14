@@ -16,13 +16,14 @@
 ## Exact-plan health check pending
 
 - ChatGPT `experiment_capabilities` confirms provider configured but admission disabled, with blocker `CPU_WORKLOAD_ADMISSION_DISABLED`. This is the intended closed state until acceptance gates pass.
-- Prepared one health-check plan through the installed ChatGPT tool for the registered `tiny-stories-inference-v1` workload: repository `Unjuno/gpu-control`, registered source SHA `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, prompt `Once`, one token, seed `61112`, 30 seconds, CPU-only, no network, and the `$0.01` Sandbox ceiling. Plan/run ID: `53a421b131ba41de8b8021ddd4539f1c`; plan fingerprint: `c8876c8305b2d31975e9a3ceb425bdfd840367385a0120290a36404264337d0d`.
-- The Site requires the authenticated owner to sign in with ChatGPT and explicitly approve the exact plan before `experiment_provider_health` can make one separately billed Modal control-function call. Opening the returned authorization URL reached the OpenAI login page. No credentials were entered and no health call or Sandbox execution occurred.
+- Prepared the first health-check plan through the installed ChatGPT tool for the registered `tiny-stories-inference-v1` workload: repository `Unjuno/gpu-control`, registered source SHA `3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288`, prompt `Once`, one token, seed `61112`, 30 seconds, CPU-only, no network, and the `$0.01` Sandbox ceiling. Plan/run ID `53a421b131ba41de8b8021ddd4539f1c` was not authorized before its short confirmation window elapsed.
+- Re-prepared the same bounded plan. Current plan/run ID is `df24bffd138f4eefad332f4db0c5a60d`; plan fingerprint `c8876c8305b2d31975e9a3ceb425bdfd840367385a0120290a36404264337d0d`. The Site requires the authenticated owner to sign in with ChatGPT and explicitly approve this exact plan before `experiment_provider_health` can make one separately billed Modal control-function call. The current authorization URL still resolves to the OpenAI login page. No credentials were entered; no health call or Sandbox execution occurred.
 - After owner confirmation, perform the single health call, verify readiness, then prepare/confirm exactly one bounded inference plan. Collect successful output, digest, cleanup evidence, and actual Modal Sandbox CPU/memory/network limits. Leave admission disabled until these checks and the outstanding P0 review are complete.
 
 ## Remaining release gates
 
 - Current Modal inference remains unaccepted: latest recorded Modal-origin attempt failed with `MODAL_WORKLOAD_EXIT_2`; no successful result artifact is established for this candidate.
+- The repository-wide P0 Deep Scan continuation was attempted on 2026-11-14 and did not start/rejoin. Exact blocker: `Deep Scan cannot safely start a read-only worker: the parent must provide a managed filesystem permission profile.` The existing scan remains incomplete; no replacement scan or security clearance is claimed.
 - Verify actual Modal Sandbox resource and network limits from the provider record, not only code/config.
 - Complete repository-wide P0 security review; the historical scan is stale and incomplete.
 - RunPod/GPU acceptance remains parked. Do not claim full ChatGPT experiment completion until the live ChatGPT-to-provider path, artifact ownership, cleanup, account isolation, and required security gates have evidence.
