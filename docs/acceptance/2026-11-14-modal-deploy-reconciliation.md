@@ -21,6 +21,13 @@
 - Re-prepared the same bounded plan. Plan/run ID `df24bffd138f4eefad332f4db0c5a60d` and fingerprint `c8876c8305b2d31975e9a3ceb425bdfd840367385a0120290a36404264337d0d` expired at 2026-11-14 11:27 UTC without owner authentication or confirmation. The Site required ChatGPT sign-in before displaying the plan. No credentials were entered; no health call or Sandbox execution occurred. Wait for owner sign-in before preparing another short-lived plan.
 - After owner confirmation, perform the single health call, verify readiness, then prepare/confirm exactly one bounded inference plan. Collect successful output, digest, cleanup evidence, and actual Modal Sandbox CPU/memory/network limits. Leave admission disabled until these checks and the outstanding P0 review are complete.
 
+## RunPod account and deploy-screen checkpoint
+
+- The signed-in RunPod console shows the Pod deployment screen, but no GPU is selected and no Pod has been created. The Deploy button is disabled.
+- The selected PyTorch 2.8.0 template is marked Deprecated. The default 50 GB container disk contributes `$0.007/hour`; with no GPU selected, the UI shows `$0.01/hour` total. The GPU catalog currently displayed RTX A5000 at `$0.27/hour`, RTX A6000 at `$0.69/hour`, RTX 6000 Ada at `$1.09/hour`, and A100 PCIe at `$2.09/hour`. These are dashboard rates at observation time, not a current live allocation or an authorization to create one.
+- RunPod account Settings showed profile and GitHub connection details but no credit balance. The previously mentioned `$15` balance is therefore not verified. No billing/top-up change, Pod creation, or RunPod charge occurred during this check.
+- Do not use the selected Deprecated template for a live test. Before any registered RunPod GPU experiment, select and verify a current supported template, confirm remaining account credits and a hard spend limit, wire the Site-side account lease/authorization/result route, and prove cleanup.
+
 ## Remaining release gates
 
 - Current Modal inference remains unaccepted: latest recorded Modal-origin attempt failed with `MODAL_WORKLOAD_EXIT_2`; no successful result artifact is established for this candidate.
