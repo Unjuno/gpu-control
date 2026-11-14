@@ -1,5 +1,19 @@
 # Project status
 
+## Follow-up status — 2026-11-15 02:39 JST
+
+- The first follow-up docs commit `cc1ee922` exposed one timing-sensitive
+  assertion in the Sites confirmation test: it required exactly 300 seconds,
+  while the code correctly capped authorization at the plan's expiry and the
+  observed integer-second lifetime was 299. The test now checks that the
+  authorization expiry equals the plan expiry and is still in the future.
+- The Sites Worker suite passes **43/43** locally. Commit
+  `9a8adffa8df1509b05d994a23052a7bd760646bc` is pushed to PR #68; exact-head
+  CI and Project bridge tests both pass all six CI jobs plus the bridge
+  workflow. PR #68 remains Draft with no submitted independent review.
+- The live Modal spend/admission snapshot and P0 scan blocker are unchanged
+  from the [02:33 JST recheck](acceptance/2026-11-15-budget-and-local-regression-recheck.md).
+
 ## Follow-up status — 2026-11-15 02:33 JST
 
 - Rechecked the Modal Workspace Usage Limit page in the logged-in browser:

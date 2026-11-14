@@ -41,6 +41,20 @@
   tests. This passing CI does not replace the incomplete repository-wide P0
   Deep Scan or live provider acceptance.
 
+### Follow-up: boundary-safe plan expiry assertion
+
+- The subsequent docs commit `cc1ee922` found a timing-sensitive test assertion:
+  the plan confirmation route correctly used the earlier plan expiry, but the
+  test assumed the full 300 seconds remained after the authenticated request
+  crossed a Unix-second boundary (observed lifetime: 299 seconds).
+- The test now verifies `authorization.expires_at === plan.expires_at` and that
+  authorization remains valid at the recorded instant. The full Sites Worker
+  suite passed **43/43** locally.
+- Code commit `9a8adffa8df1509b05d994a23052a7bd760646bc` passed exact-head CI:
+  Python 3.11, 3.12, 3.13, Trusted reference container, and Sites Worker/D1
+  contract, plus the Project bridge tests workflow. PR #68 remains Draft and
+  has no independent review.
+
 ## Security audit blocker
 
 The repository-wide Codex Deep Scan did not start. The exact coordinator error
