@@ -1,5 +1,29 @@
 # Project status
 
+## Follow-up status — 2026-11-15 03:27 JST
+
+- The ChatGPT Sites experiment tool successfully prepared a new bounded CPU
+  plan. Its confirmation page requires ChatGPT sign-in in the in-app browser;
+  no current plan is confirmed, and no provider health request or Sandbox has
+  started. Prepare a fresh plan after sign-in if the current one expires.
+- The user's testing allowance is cumulative through completion, not per run.
+  Keep the existing Workspace `$1` cap and the per-plan `$0.01` Sandbox
+  ceiling; separately billed Modal control-function calls remain outside that
+  per-plan estimate.
+- Local checks passed on source HEAD `ab7124f`: `uv run pytest` reported 588
+  passed, 1 skipped, and 5 subtests; Sites `npm test` reported 43 passed;
+  `npm run build` and `npm run validate` succeeded. Exact-head CI and Project
+  bridge checks for `ab7124f` also passed. This status-only README edit still
+  needs its own pushed-head checks.
+- Independent source reviews found no confirmed vulnerability in the reviewed
+  Sites authorization, Modal/RunPod provider, Python control-plane, or workflow
+  paths. Repository-wide scan coverage remains partial. The Sites Worker
+  trusts the platform-provided `oai-authenticated-user-id`; an earlier
+  unauthenticated forged-header probe received 401, but an authenticated
+  forged-header probe or authoritative edge contract remains unverified.
+- Exact-owner confirmation is therefore still required before the first fresh
+  CPU Sandbox. RunPod/GPU remains parked. Details: [current Site acceptance](acceptance/2026-11-13-sites-v33-live-refresh.md).
+
 ## Follow-up status — 2026-11-15 03:06 JST
 
 - Published Sites environment revision 39 with only
