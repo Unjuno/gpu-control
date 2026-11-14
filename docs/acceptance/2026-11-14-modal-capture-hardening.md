@@ -50,3 +50,32 @@ credits, `$0` in charges, and a `$1` Workspace usage limit. The per-Sandbox
 - The repository-wide security review is still partial at 45 of 335 files and
   has no final report; these focused reviews do not constitute security
   clearance.
+
+## Stale Modal run-slot recovery — follow-up
+
+An independent D1/R2 recovery audit found that a persistently missing Modal
+Sandbox left a run in `running` forever. The unique active-run index then
+blocked every subsequent submission. A transient 404 must still preserve the
+reservation because the original submit may have succeeded with a lost reply.
+
+The Worker now keeps the reservation until the recorded lease has expired plus
+a 300-second recovery grace. Only a subsequent authenticated Modal not-found
+response can conditionally move that same still-running, cleanup-pending lease
+to `failed`, set `cleanup_state=confirmed`, and record a bounded evidence
+receipt. The update is fenced by run owner, observed lease expiry, active state,
+and pending cleanup; a transient not-found before the horizon leaves the slot
+occupied. This grace exceeds Modal's documented 150-second Web Function HTTP
+request window and the workload's 30-second maximum Sandbox lifetime. See
+[Modal Web Function request timeouts](https://modal.com/docs/guide/webhook-timeouts)
+and [Sandbox lifetime](https://modal.com/docs/guide/sandboxes).
+
+Regression coverage proves a 404 before the horizon retains the slot and a 404
+at the horizon releases it with failure and cleanup evidence. The prior lost
+submit test still proves that a transient 404 followed by finding the original
+Sandbox does not create a duplicate. Sites Worker tests pass 43/43; the Site
+build and artifact validation pass.
+
+The fix is not deployed. Sites Version 33 remains live with CPU admission
+disabled; no Modal call or Sandbox was made for this change. This controlled
+recovery only runs when the authenticated owner requests status, so it does
+not create background provider traffic or unobserved control-function cost.

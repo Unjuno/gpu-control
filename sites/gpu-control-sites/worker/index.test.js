@@ -977,6 +977,66 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   assert.equal(current.lease_id, "sb-existing", "the later provider lookup reconnects the original Sandbox");
 });
 
+test("persistent Modal not-found releases a stale run slot only after the recovery horizon", async () => {
+  const runId = "8".repeat(32);
+  const leaseExpiresAt = 1000;
+  const current = { id: runId, state: "running", created_at: 900, updated_at: 901,
+    lease_expires_at: leaseExpiresAt, result_json: null, failure_code: null, cleanup_state: "pending",
+    cleanup_receipt_json: null, cancel_requested: 0, result_artifact_id: null,
+    result_artifact_sha256: null, result_artifact_size: null, lease_id: null,
+    workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control", source_sha: sourceSha,
+    image_digest: imageDigest, parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
+    fingerprint: "c".repeat(64), runtime_seconds: 30 };
+  const env = environment();
+  env.MODAL_API_URL = modalApiUrl;
+  env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
+  env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "d".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
+    async first() {
+      if (sql.includes("FROM runs r JOIN plans p")) return { ...current };
+      if (sql.startsWith("SELECT state, created_at, updated_at, cleanup_state, failure_code FROM runs")) return { ...current };
+      throw new Error(`unexpected D1 first query: ${sql}`);
+    },
+    async run() {
+      if (sql.includes("modal_status_check_limits")) return { meta: { changes: 1 } };
+      if (sql.includes("MODAL_SANDBOX_ABSENT_AFTER_RECOVERY_GRACE")) {
+        assert.equal(values[4], leaseExpiresAt, "the update is fenced to the observed lease generation");
+        current.state = "failed";
+        current.failure_code = "MODAL_SANDBOX_ABSENT_AFTER_RECOVERY_GRACE";
+        current.cleanup_state = "confirmed";
+        current.cleanup_receipt_json = values[0];
+        current.updated_at = values[1];
+        return { meta: { changes: 1 } };
+      }
+      throw new Error(`unexpected D1 write query: ${sql}`);
+    },
+  }; } });
+
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  try {
+    globalThis.fetch = async () => Response.json({ state: "not_found", cleanup_state: "unknown" }, { status: 404 });
+    Date.now = () => (leaseExpiresAt + 300 - 1) * 1000;
+    const earlyResponse = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const early = JSON.parse((await earlyResponse.json()).result.content[0].text);
+    assert.equal(early.machine_state.state, "running");
+    assert.equal(early.machine_state.cleanup_state, "pending");
+
+    Date.now = () => (leaseExpiresAt + 300) * 1000;
+    const recoveredResponse = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const recovered = JSON.parse((await recoveredResponse.json()).result.content[0].text);
+    assert.equal(recovered.machine_state.state, "failed");
+    assert.equal(recovered.machine_state.failure_code, "MODAL_SANDBOX_ABSENT_AFTER_RECOVERY_GRACE");
+    assert.equal(recovered.machine_state.cleanup_state, "confirmed");
+    assert.equal(JSON.parse(current.cleanup_receipt_json).evidence, "modal_named_sandbox_absent_after_bounded_lifetime");
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
 test("retries Modal result persistence after an R2 or D1 write failure", async () => {
   const runId = "e".repeat(32);
   const fingerprint = "f".repeat(64);

@@ -10,6 +10,12 @@
   was ambiguous (`5a7f0aa`), and malformed Modal output/stream errors could
   bypass Sandbox termination (`bc1035d`). See
   [Modal capture hardening](acceptance/2026-11-14-modal-capture-hardening.md).
+- A further D1/R2 review found a stale Modal `running` row could block the
+  single execution slot forever if the Sandbox stayed missing. The candidate
+  now retains the slot through a 300-second post-lease grace and releases it
+  only after a fresh authenticated Modal 404, with a conditional D1 update and
+  cleanup evidence. Sites Worker tests pass 43/43; build and artifact
+  validation pass. It is not yet deployed.
 - These changes have not been deployed to the live Site or Modal app. Sites
   remains Version 33, environment revision 36, and
   `CPU_WORKLOAD_ADMISSION_ENABLED=false`; ChatGPT capabilities report
