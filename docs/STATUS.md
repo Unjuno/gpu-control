@@ -1,5 +1,32 @@
 # Project status
 
+## Follow-up status — 2026-11-15
+
+- PR #68 candidate `66010298af1cad4c40a45c0463f7e31e56db5da4` was redeployed
+  to Modal `unjuno/main` (`gpu-control-sites`). The CLI reported success in
+  3.328 seconds. No Sandbox or post-deploy health request was started. The
+  Modal runtime source has no delta from `6a024f5`; this deploy does not resolve
+  the observed exit-code-2 failure.
+- Modal Usage after deploy showed `$0.10` in credits used, `$0` in charges, and
+  a `$1` Workspace cap. The authorized testing budget is `$1` aggregate through
+  completion, not per run. The Workspace API-token list was refreshed to 0
+  entries after the deploy token was deleted. One earlier token-creation view
+  emitted its secret in automation output; that token was not used and was
+  deleted. The credential clipboard was cleared after the deploy.
+- ChatGPT capabilities still report `CPU_WORKLOAD_ADMISSION_DISABLED`,
+  `available=false`, and defer provider health checks until exact-plan owner
+  confirmation. New plan `16fc88de7ef44e88957f58ffd8e88035` is pending that
+  confirmation. It binds the registered TinyStories 15M workload, prompt
+  `Once`, one token, seed `61112`, 30 seconds, CPU-only, no network, 1 core,
+  512 MiB, a `$0.0013` Sandbox estimate, and a `$0.01` Sandbox-only ceiling.
+  Control-function costs are separate. No run was submitted.
+- The latest Modal-origin run remains failed with `MODAL_WORKLOAD_EXIT_2`,
+  confirmed cleanup, and no result artifact; the queried Modal Sandbox log view
+  returned no logs. RunPod/GPU remains disabled pending the controller-owned
+  completion-evidence protocol. The repository-wide P0 scan remains incomplete
+  because its managed read-only worker cannot start in this session profile.
+- See [the dated deployment and plan record](acceptance/2026-11-15-modal-redeploy-and-cpu-plan.md).
+
 ## Follow-up status — 2026-11-14 22:50 JST
 
 - Current candidate is PR #68 head `6a024f5b584e85efa93cf6df3cd0fa827f833bc2`.
