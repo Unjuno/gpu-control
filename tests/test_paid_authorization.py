@@ -117,6 +117,14 @@ def test_paid_environment_requires_a_reviewer_other_than_the_workflow_actor() ->
         authorize(policy=policy)
 
 
+def test_paid_environment_requires_a_configured_independent_reviewer() -> None:
+    policy = enabled_policy()
+    policy["github_environment"]["required_reviewer"] = None
+
+    with pytest.raises(PaidAuthorizationError, match="configure an independent reviewer"):
+        authorize(policy=policy)
+
+
 def test_paid_environment_must_prevent_self_review() -> None:
     policy = enabled_policy()
     policy["github_environment"]["prevent_self_review"] = False
