@@ -1,5 +1,32 @@
 # Project status
 
+## Follow-up status — 2026-11-15 02:33 JST
+
+- Rechecked the Modal Workspace Usage Limit page in the logged-in browser:
+  `$0.10` credit usage, `$0` charges, and a `$1` Workspace usage limit. This is
+  within the user's `$1` aggregate project-testing budget. No payment method,
+  spend setting, provider configuration, or admission setting was changed.
+- The live ChatGPT capabilities call still reports
+  `CPU_WORKLOAD_ADMISSION_DISABLED`, `available=false`, and defers Modal health
+  until an exact plan is owner-confirmed. The one-token plan
+  `ade7d8e5ce6a4961b16d847c393fd769` was never confirmed or submitted; its
+  authorization window elapsed and status now returns `RUN_NOT_FOUND`. No new
+  provider health request or Sandbox was made.
+- The latest existing Modal-origin attempt remains failed with
+  `MODAL_WORKLOAD_EXIT_2`, cleanup confirmed, and no artifact. This does not
+  establish the failure cause for the currently deployed candidate.
+- Focused local regressions passed: retired Runner route rejection **1/1** and
+  Modal bootstrap tests **7/7**. A tracked-source search found no active
+  Keychain launcher or personal-host compute Runner implementation; the code
+  matches were limited to the inference secret-denylist and the negative
+  retired-route test. These local checks do not establish live provider
+  acceptance or a repository-wide security clearance.
+- The repository-wide Codex Deep Scan remains unstarted. The coordinator
+  returned: `Deep Scan cannot safely start a read-only worker: the parent must
+  provide a managed filesystem permission profile.` No scan artifacts or
+  security clearance were produced. See
+  [the live budget and local regression recheck](acceptance/2026-11-15-budget-and-local-regression-recheck.md).
+
 ## Follow-up status — 2026-11-15
 
 - PR #68 candidate `66010298af1cad4c40a45c0463f7e31e56db5da4` was redeployed
