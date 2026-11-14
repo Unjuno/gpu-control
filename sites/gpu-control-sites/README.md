@@ -7,14 +7,16 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
 - Site Version 34 is live from source commit
   `18339d5106ff148d0ec4b3acf8da64791b69d54f`; its published environment
-  revision is 38 and deployment succeeded. Platform access is public, with an
-  owner account ID allowlist enforced for MCP operations. Cross-account denial and trusted
-  provenance of the platform-injected identity are not independently verified.
+  revision is 39 and deployment `appgdep_6af8a25b69b08191a7d67795a7b571ac`
+  succeeded. Platform access is public, with an owner account ID allowlist
+  enforced for MCP operations. Cross-account denial and trusted provenance of
+  the platform-injected identity are not independently verified.
 - State and artifacts use Sites D1/R2 bindings `DB` and `BUCKET`. ChatGPT
   capability and experiment-list calls succeeded from the connected owner
-  account. Modal is configured and authorization storage is ready, but
-  `CPU_WORKLOAD_ADMISSION_ENABLED=false`; provider readiness and inference are
-  not available until the acceptance gate is deliberately opened.
+  account. Modal is configured and authorization storage is ready.
+  `CPU_WORKLOAD_ADMISSION_ENABLED=true` in environment revision 39. The
+  corrected Modal endpoint is deployed, but provider health and post-correction
+  inference have not yet been verified.
 - Only `tiny-stories-inference-v1` is exposed: maximum 30 seconds, one
   in-flight run, estimated Sandbox cost `$0.0013`, and a declared `$0.01`
   per-run Sandbox CPU/memory ceiling. The currently deployed Sandbox had CPU
@@ -22,7 +24,7 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   were requests, so bursting could exceed that declared dollar ceiling. Current
   candidate source now sets request=limit to 1 physical CPU core and 512 MiB,
   fingerprints both limits, and documents CPU throttling and memory OOM failure.
-  Current Site environment revision 36 registers fingerprint
+  Current Site environment revision 39 registers fingerprint
   `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5` and image
   digest `sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
   Modal control-function charges remain outside the per-run Sandbox ceiling. A
@@ -36,7 +38,7 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   Earlier successful records used the retired local Runner and are not Modal
   acceptance.
 - The Modal `main` app was redeployed from PR #68 candidate
-  `6c2260d75232b30e440ca0b8eb635bfe58f12779`; the deployment completed
+  `3eb2ab5d218b06c2559fd22088e1a4763fc78521`; the deployment completed
   successfully without starting a Sandbox. The control function currently has
   zero live containers and zero running calls. Its displayed limits are 1 CPU
   request with default CPU limit, 512 MiB memory request with no memory limit,
@@ -51,9 +53,10 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   estimate. Keep the Workspace hard limit in place.
 - The current owner prepared a fresh exact CPU plan, but its confirmation page
   required a ChatGPT sign-in in the browser. No health call or Sandbox request
-  was issued from that plan; its one-use confirmation expires after 600
-  seconds. CPU admission remains disabled. Reprepare only after the owner has
-  signed into the Site, then use a fresh exact-plan confirmation.
+  was issued from that plan; the five-minute plan expired before owner
+  confirmation. CPU admission is enabled under the Workspace `$1` cap and
+  exact-plan, one-use confirmation. Sign into the Site, then prepare and confirm
+  a fresh plan before any provider call.
 - The former macOS Runner, its Worker routes, and its bearer secret are retired.
   RunPod is not connected to the Site Worker; GPU and paid execution remain
   parked. Vercel and Neon/PostgreSQL are not target runtime dependencies.
