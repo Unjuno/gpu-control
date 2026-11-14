@@ -45,11 +45,12 @@
 - Modal's Usage Limit page showed `$0.10` in credits, `$0` in charges, and a
   `$1` Workspace usage limit set by Modal. The page offered adding a payment
   method to raise that limit; no separate net-spend limit was shown.
-- The Credits tab says the Starter Workspace includes `$1` in credits each
-  month. The separate dashboard banner mentioning `$30/mo` does not match this
-  Workspace's Credits tab; use the account-specific Credits tab as the current
-  source. The user authorized up to `$1` total project testing usage. Preserve
-  the existing `$1` Workspace cap and do not add a payment method. The `$0.10`
+- Modal's general Starter pricing advertises `$30` monthly compute. The
+  account-specific dashboard currently says `$1` of `$30/mo` is available, while
+  its Credits tab says `$1` monthly. Treat the account UI as authoritative for
+  the unlocked amount; do not assume the full public `$30` allotment is usable.
+  The user authorized up to `$1` total project testing usage. Preserve the
+  existing `$1` Workspace cap and do not add a payment method. The `$0.10`
   already used this period leaves at most `$0.90` under that cap for subsequent
   usage, including separately billed control-function calls.
 - Modal's member API token page showed zero active member API tokens. The

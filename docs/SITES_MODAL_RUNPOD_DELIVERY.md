@@ -27,14 +27,15 @@ provide model compute. Compute remains an explicitly configured provider.
   verified on the deployed Modal app. Five newest Modal-origin runs failed with
   `MODAL_WORKLOAD_EXIT_2`; cleanup is confirmed for the newest run and no result
   artifact exists.
-- The current Modal Credits page says the Starter Workspace includes `$1` in
-  credits each month. Usage & Billing reports `$0.10` in credits used, `$0` in
-  charges, and a `$1` Workspace usage limit. Treat the provider as paid and
+- Modal's general Starter pricing advertises `$30` in monthly compute, but the
+  account-specific dashboard currently says `$1` of `$30/mo` is available and
+  its Credits tab says `$1` monthly. Usage & Billing reports `$0.10` in credits
+  used, `$0` in charges, and a `$1` Workspace usage limit, leaving at most
+  `$0.90` usage headroom under the cap. Treat the provider as paid and
   usage-billed; credits may offset eligible usage. The `$0.01` Sandbox ceiling
   does not include control-function calls. The user authorized up to `$1` total
   project testing usage; preserve the current Workspace cap and do not add a
-  payment method. The observed `$0.10` is already consumed in this billing
-  period, leaving at most `$0.90` under that cap before any newly incurred usage.
+  payment method.
 - The short-lived Workspace API token inventory is empty. A fresh temporary
   token, deployment to `unjuno/main`, and immediate revocation are still needed
   to deploy the candidate. Do not reopen admission or start another Sandbox

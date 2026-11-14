@@ -18,11 +18,12 @@
   Candidate hard limits of CPU `(1.0, 1.0)` and memory `(512, 512)` are not
   live-verified. Five latest Modal-origin attempts failed with
   `MODAL_WORKLOAD_EXIT_2`; the newest has confirmed cleanup and no artifact.
-- Modal is usage-billed, not inherently free. The current Starter Credits page
-  says the Workspace includes `$1` of credits each month. Usage & Billing shows
-  `$0.10` in credits used, `$0` in charges, and a `$1` Workspace usage limit;
-  `$0.90` remaining is arithmetic from these values, not a separately displayed
-  balance. The provider remains classified as paid and credit-eligible. The
+- Modal is usage-billed, not inherently free. Modal's general Starter pricing
+  advertises `$30` monthly compute, but this Workspace's dashboard says only
+  `$1` of `$30/mo` is currently available and its Credits tab says `$1` monthly.
+  Usage & Billing shows `$0.10` in credits used, `$0` in charges, and a `$1`
+  Workspace usage limit; at most `$0.90` usage headroom remains under that cap.
+  The provider remains classified as paid and credit-eligible. The
   `$0.01` Sandbox ceiling excludes control-function charges. No billing setting
   changed.
 - PR #68 is still Draft. Exact-head CI passed, but repository-wide security
