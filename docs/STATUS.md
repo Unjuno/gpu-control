@@ -1,5 +1,26 @@
 # Project status
 
+## Follow-up status — 2026-11-15 03:29 JST
+
+- Sites Version 34 reports source commit
+  `18339d5106ff148d0ec4b3acf8da64791b69d54f`; GitHub's commit API does not
+  find that SHA in `Unjuno/gpu-control`. The Site uses a separate Cloudflare
+  artifact source branch. Exact parity between the live Worker and reviewed
+  GitHub source remains unverified, so the first CPU Sandbox is held pending
+  source reconciliation.
+- The ChatGPT Sites tool can prepare a registered CPU plan. ChatGPT sign-in
+  and exact one-use owner confirmation are still required; no provider health
+  request or Sandbox has started. The current confirmation attempt has
+  expired, so prepare a fresh plan after sign-in.
+- User-authorized testing remains a cumulative allowance through completion,
+  not a per-run allowance. The Workspace cap remains `$1`; the per-plan
+  Sandbox ceiling is `$0.01`, excluding separately billed Modal control calls.
+- No code finding was confirmed in the reviewed Sites authorization, Modal and
+  RunPod provider, Python control-plane, or workflow slices. The repository
+  scan remains partial. An unauthenticated forged owner-header request
+  previously received 401, but authenticated header-spoof resistance remains
+  unverified.
+
 ## Follow-up status — 2026-11-15 03:27 JST
 
 - The ChatGPT Sites experiment tool successfully prepared a new bounded CPU
