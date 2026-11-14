@@ -55,8 +55,9 @@ login and created this bounded, unexecuted plan:
 The user was away and could not perform the exact destructive-write
 confirmation. `experiment_submit` was therefore not called. No provider health
 request, Modal Sandbox, RunPod request, GPU allocation, or new provider spend
-occurred. A later execution must prepare a fresh plan and obtain a new exact
-confirmation; this expired plan is not reusable.
+occurred. If this 600-second plan expires before confirmation, a later
+execution must prepare a fresh plan and obtain a new exact confirmation; an
+expired plan is not reusable.
 
 ## Remaining acceptance
 
