@@ -52,7 +52,7 @@ completion       gpu-control-hmac-sha256-v3
 
 That exact **main-branch SHA** has a successful full pytest run (`33313993621`) and a successful `cpu-contract-smoke` workflow (`33313993623`). The latter is a CPU contract check; it is not a RunPod allocation or live provider smoke test. The selected protocol is `gpu-control-hmac-sha256-v3`; the repository records v2 compatibility as temporary migration support only. The workload signer boundary is root UID 0 and training UID/GID 10001.
 
-The v3 signed completion evidence binds the result digest and observed process exit code. The control-plane verifier and Network Volume/S3 result-transport path are implemented and mock-tested offline; live secret injection, provider result collection, and cleanup remain unverified.
+The v3 signed completion evidence binds the result digest and effective process exit code. The digest-pinned Orbitune image captures the per-run key in a root-owned wrapper, removes it before launching training as UID/GID 10001, and emits the signed evidence. The control-plane verifier refuses submission without the authenticated Network Volume/S3 path. This is implemented and mock-tested offline; live secret injection, provider result collection, and cleanup remain unverified.
 
 An immutable GHCR image is published for the selected source SHA. Its digest is recorded in `policies/repository-state.yaml`. Image publication does not authorize or prove paid execution.
 

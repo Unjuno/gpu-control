@@ -135,10 +135,17 @@ submission:
 completion_evidence:
   protocol: hmac-sha256-v3
   legacy_v2_compatibility_status: temporary_offline_migration_only
-  implementation_status: disabled_awaiting_controller_owned_completion_protocol
-  security_status: workload_signing_secret_not_sent_fail_closed
-  workload_receives_completion_signing_secret: false
-  root_owned_signer_redesign_required: true
+  implementation_status: root_owned_signer_connected_offline_not_live_verified
+  security_status: ephemeral_key_limited_to_digest_pinned_root_wrapper
+  root_signer_receives_completion_signing_secret: true
+  training_process_receives_completion_signing_secret: false
+  provider_account_or_host_is_outside_signer_threat_model: true
+  root_owned_signer_redesign_required: false
+  root_owned_signer_repository: Unjuno/orbitune
+  root_owned_signer_commit: fc131174a9b529a9825f54fccf1a7df4c63c9a1a
+  root_owned_signer_entrypoint: workloads/runpod-training-canary/entrypoint.py
+  root_owned_signer_uid: 0
+  training_uid: 10001
   provider_v2_exit_code_field_documented: false
   per_run_nonce_required: true
   pre_create_execution_name_required: true
@@ -148,6 +155,7 @@ completion_evidence:
   user_override: forbidden
   system_environment_owner: gpu-control
   system_environment:
+    - GPU_CONTROL_COMPLETION_KEY_B64
     - GPU_CONTROL_COMPLETION_KEY_ID
     - GPU_CONTROL_COMPLETION_NONCE
     - GPU_CONTROL_EXECUTION_NAME

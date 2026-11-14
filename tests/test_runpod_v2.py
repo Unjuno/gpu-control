@@ -100,20 +100,20 @@ def test_create_payload_is_minimal_and_digest_pinned() -> None:
     assert "mounts" not in payload
 
 
-def test_authenticated_create_payload_never_injects_completion_signing_secret() -> None:
+def test_authenticated_create_payload_injects_ephemeral_key_for_root_signer() -> None:
     plan = make_plan()
     completion = make_completion(plan)
     payload = build_create_pod_payload(plan, make_image(plan), completion=completion)
 
     assert payload["name"] == completion.challenge.execution_name
     assert payload["env"] == {
+        "GPU_CONTROL_COMPLETION_KEY_B64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         "GPU_CONTROL_COMPLETION_KEY_ID": "paid-runpod-v2",
         "GPU_CONTROL_COMPLETION_NONCE": "b" * 64,
         "GPU_CONTROL_EXECUTION_NAME": completion.challenge.execution_name,
         "GPU_CONTROL_PLAN_FINGERPRINT": plan.fingerprint(),
         "GPU_CONTROL_IMAGE_DIGEST": DIGEST,
     }
-    assert "GPU_CONTROL_COMPLETION_KEY_B64" not in payload["env"]
     assert "ports" not in payload
     assert "mounts" not in payload
 
@@ -408,6 +408,29 @@ def test_http_errors_do_not_leak_api_key() -> None:
     assert "HTTP 403" in message
     assert "access denied" in message
     assert "super-secret-api-key" not in message
+
+
+def test_secret_bearing_create_suppresses_reflected_provider_detail() -> None:
+    reflected_secret = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+    body = io.BytesIO(
+        json.dumps({"detail": f"invalid env GPU_CONTROL_COMPLETION_KEY_B64={reflected_secret}"}).encode("utf-8")
+    )
+
+    def opener(request, timeout):  # type: ignore[no-untyped-def]
+        raise HTTPError(request.full_url, 400, "Bad Request", {}, body)
+
+    value = make_plan()
+    client = RunPodV2HttpClient("super-secret-api-key", opener=opener)
+    with pytest.raises(RunPodV2Error) as exc_info:
+        client.create_pod(
+            {"env": {"GPU_CONTROL_COMPLETION_KEY_B64": reflected_secret}},
+            plan=value,
+            live_permit=issue_live_permit_for_plan(value),
+        )
+
+    message = str(exc_info.value)
+    assert message == "RunPod API returned HTTP 400"
+    assert reflected_secret not in message
 
 
 def test_client_rejects_arbitrary_actions_and_bad_identifiers_without_network() -> None:

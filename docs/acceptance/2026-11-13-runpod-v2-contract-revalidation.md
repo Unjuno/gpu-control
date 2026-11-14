@@ -51,13 +51,16 @@ execution. RunPod remains disabled and parked pending those separate gates.
 
 ## Completion signer security blocker — 2026-11-13
 
-Source review found that the old `RunPodCompletionLaunch.provider_environment()`
-put `GPU_CONTROL_COMPLETION_KEY_B64` into the Pod environment, allowing workload
-code to forge completion-v3 evidence. The current change removes that secret
-from the Pod environment and adds a regression assertion. The legacy
-workload-signed completion flow consequently cannot produce valid evidence and
-remains disabled; this does not yet implement a replacement completion protocol.
-RunPod live calls and result collection remain disabled.
+The original workload ran the training process with the completion key, which
+allowed that process to forge completion-v3 evidence. The configured Orbitune
+workload at `fc131174a9b529a9825f54fccf1a7df4c63c9a1a` now has a root-owned
+wrapper that captures and removes the key before starting training as fixed
+UID/GID 10001 without supplementary groups. The control-plane candidate sends
+the per-run key to that digest-pinned wrapper and refuses provider submission
+unless authenticated Network Volume result collection is configured. This
+protects against unprivileged training-code forgery; it does not attest the
+RunPod host or an account administrator. RunPod live allocation and collection
+remain disabled pending live acceptance.
 
 The current official [REST v2 OpenAPI document](https://api.runpod.io/v2/openapi.json)
 defines `GET /pods/{podId}` as returning a `Pod` schema, but contains no

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import json
@@ -78,9 +79,11 @@ class RunPodCompletionLaunch:
 
     The challenge is safe to persist separately. The secret key is intentionally
     excluded from repr/serialization and must be supplied from protected
-    control-plane state. Only public correlation metadata may be sent to the Pod.
-    The legacy workload-signed completion protocol is intentionally unusable
-    until a controller-owned evidence protocol replaces it.
+    control-plane state. It is sent only to the digest-pinned image's root-owned
+    completion wrapper. That wrapper must remove it from its own environment
+    before starting the fixed unprivileged training process. This authenticates
+    the boundary between the trusted wrapper and training code; it does not
+    attest the RunPod host or an account administrator.
     """
 
     challenge: CompletionChallenge
@@ -104,6 +107,7 @@ class RunPodCompletionLaunch:
     def provider_environment(self, plan: ApprovedExecutionPlan) -> dict[str, str]:
         self.validate_against_plan(plan)
         return {
+            "GPU_CONTROL_COMPLETION_KEY_B64": base64.b64encode(self.secret_key).decode("ascii"),
             "GPU_CONTROL_COMPLETION_KEY_ID": self.challenge.key_id,
             "GPU_CONTROL_COMPLETION_NONCE": self.challenge.nonce,
             "GPU_CONTROL_EXECUTION_NAME": self.challenge.execution_name,
@@ -278,6 +282,13 @@ class RunPodV2HttpClient:
         if not path.startswith("/") or path.startswith("//"):
             raise RunPodV2Error("RunPod API path must be an absolute single-origin path")
         normalized_path = path.split("?", 1)[0]
+        secret_bearing_create = (
+            method.upper() == "POST"
+            and normalized_path == "/pods"
+            and isinstance(body, Mapping)
+            and isinstance(body.get("env"), Mapping)
+            and "GPU_CONTROL_COMPLETION_KEY_B64" in body["env"]
+        )
         if method.upper() == "POST" and (
             normalized_path == "/pods" or normalized_path.endswith("/action")
         ):
@@ -317,7 +328,11 @@ class RunPodV2HttpClient:
             detail = ""
             try:
                 payload = json.loads(read_bounded(exc, max_bytes=_MAX_API_RESPONSE_BYTES).decode("utf-8"))
-                if isinstance(payload, dict) and isinstance(payload.get("detail"), str):
+                if (
+                    not secret_bearing_create
+                    and isinstance(payload, dict)
+                    and isinstance(payload.get("detail"), str)
+                ):
                     detail = f": {payload['detail']}"
             except Exception:
                 pass

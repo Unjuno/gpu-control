@@ -103,10 +103,11 @@ def test_parked_mode_cross_checks_all_live_provider_flags() -> None:
     assert runpod["api"]["workflow_enabled"] is False
     assert runpod["results"]["enabled"] is False
     assert runpod["completion_evidence"]["implementation_status"] == (
-        "disabled_awaiting_controller_owned_completion_protocol"
+        "root_owned_signer_connected_offline_not_live_verified"
     )
-    assert runpod["completion_evidence"]["security_status"] == "workload_signing_secret_not_sent_fail_closed"
-    assert runpod["completion_evidence"]["root_owned_signer_redesign_required"] is True
+    assert runpod["completion_evidence"]["security_status"] == "ephemeral_key_limited_to_digest_pinned_root_wrapper"
+    assert runpod["completion_evidence"]["root_owned_signer_redesign_required"] is False
+    assert runpod["completion_evidence"]["training_process_receives_completion_signing_secret"] is False
     assert runpod["completion_evidence"]["protocol"] == "hmac-sha256-v3"
     assert runpod["completion_evidence"]["production_collection_transport_status"] == (
         "network_volume_s3_implemented_offline_mock_tested"

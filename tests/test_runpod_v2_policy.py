@@ -140,17 +140,20 @@ def test_submission_is_bound_to_permit_plan_image_gpu_cloud_price_volume_and_rec
     assert submission["compensating_termination_failure_is_visible"] is True
 
 
-def test_completion_v3_signer_is_blocked_and_transport_is_not_live_verified() -> None:
+def test_completion_v3_root_signer_is_connected_but_not_live_verified() -> None:
     policy = load_policy()
     completion = policy["completion_evidence"]
     transport = policy["network_volume_results"]
     results = policy["results"]
 
     assert completion["protocol"] == "hmac-sha256-v3"
-    assert completion["implementation_status"] == "disabled_awaiting_controller_owned_completion_protocol"
-    assert completion["security_status"] == "workload_signing_secret_not_sent_fail_closed"
-    assert completion["workload_receives_completion_signing_secret"] is False
-    assert completion["root_owned_signer_redesign_required"] is True
+    assert completion["implementation_status"] == "root_owned_signer_connected_offline_not_live_verified"
+    assert completion["security_status"] == "ephemeral_key_limited_to_digest_pinned_root_wrapper"
+    assert completion["root_signer_receives_completion_signing_secret"] is True
+    assert completion["training_process_receives_completion_signing_secret"] is False
+    assert completion["provider_account_or_host_is_outside_signer_threat_model"] is True
+    assert completion["root_owned_signer_redesign_required"] is False
+    assert completion["root_owned_signer_commit"] == "fc131174a9b529a9825f54fccf1a7df4c63c9a1a"
     assert completion["provider_v2_exit_code_field_documented"] is False
     assert completion["legacy_v2_compatibility_status"] == "temporary_offline_migration_only"
     assert completion["provider_job_id_binding"] == "submission_receipt_and_provider_specific_collection_transport"
@@ -158,6 +161,7 @@ def test_completion_v3_signer_is_blocked_and_transport_is_not_live_verified() ->
     assert completion["offline_marker_authentication_allowed"] is True
     assert "process_exit_code" in completion["binds"]
     assert completion["completion_marker"] == "GPU_CONTROL_COMPLETION_JSON_V3:"
+    assert "GPU_CONTROL_COMPLETION_KEY_B64" in completion["system_environment"]
     assert completion["production_collection_transport_status"] == (
         "network_volume_s3_implemented_offline_mock_tested"
     )

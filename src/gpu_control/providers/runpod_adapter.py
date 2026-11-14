@@ -186,6 +186,21 @@ class RunPodV2Adapter:
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
 
+    def _require_authenticated_result_transport(self) -> None:
+        """Require the complete signer and durable-result path before allocation."""
+        if (
+            self.inventory_probe is None
+            or self.completion_launch is None
+            or self.network_volume is None
+            or self.result_client is None
+            or not isinstance(self.expected_workload_id, str)
+            or not self.expected_workload_id.strip()
+        ):
+            raise RunPodV2AdapterError(
+                "RunPod submission requires reconciliation inventory, the root signer, "
+                "and authenticated network-volume result transport"
+            )
+
     def _prove_pod_released(self, pod_id: str) -> None:
         evidence = self._probe_inventory(self.approved_plan)
         try:
@@ -256,6 +271,7 @@ class RunPodV2Adapter:
         """Submit exactly once after exact authorization and account checks pass."""
 
         require_runpod_live_allocation_enabled()
+        self._require_authenticated_result_transport()
         self._require_plan_identity(plan)
         occupancy_evidence = self._probe_before_create(plan)
         payload = build_priced_create_pod_payload(

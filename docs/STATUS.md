@@ -207,8 +207,8 @@
   Control-function costs are separate. No run was submitted.
 - The latest Modal-origin run remains failed with `MODAL_WORKLOAD_EXIT_2`,
   confirmed cleanup, and no result artifact; the queried Modal Sandbox log view
-  returned no logs. RunPod/GPU remains disabled pending the controller-owned
-  completion-evidence protocol. The repository-wide P0 scan remains incomplete
+  returned no logs. RunPod/GPU remains disabled pending live root-signer,
+  result-collection, and cleanup acceptance. The repository-wide P0 scan remains incomplete
   because its managed read-only worker cannot start in this session profile.
 - See [the dated deployment and plan record](acceptance/2026-11-15-modal-redeploy-and-cpu-plan.md).
 
@@ -859,7 +859,7 @@ This document describes what `gpu-control` on `main` can do today. It deliberate
 | RunPod Network Volume/S3 result transport | Ready offline | Fixed RunPod S3 origin, trusted `/outputs` mount, exact two-object bounded collection, and v3 authentication are mock-tested. Live verification and real credentials/volume are pending. |
 | Orbitune paid-canary result acceptance | Ready offline | Workload-specific acceptance accepts authenticated log-v2 or durable volume-v3 evidence and remains separate from provider cleanup/finalization. |
 | Pre-cleanup result capture/finalization | Ready offline | Provider-neutral ephemeral-result capture is durable and bounded. |
-| Production Pod-log SSE | Unavailable | Current RunPod evidence records the Pod-log SSE operation as dev-only/unavailable in production; it is not used as the live result path. |
+| Production Pod-log SSE | Officially documented, not live verified | Current RunPod REST v2 documentation exposes `GET /pods/{id}/logs` as SSE. It is not used as the result path because its account behavior and terminal semantics have not been live verified. |
 | Paid GitHub Actions workflow | Not present yet | `main` contains CI and dry-run workflows only. It must not be added/enabled until external GitHub gates and initial live provider verification are complete. |
 | Live paid GPU execution | Disabled | Repository state is `parked`; paid/provider/result live flags remain off. |
 
@@ -878,18 +878,18 @@ The repository currently records this canary workload:
 - exact-main full pytest run: `33313993621` — passed
 - exact-main RunPod canary smoke run: `33313993623` — passed
 
-The source CI, signer isolation, current REST v2 adapter contract, current v2 price/DC-stock contract, and central offline volume-transport tests have passed in earlier candidate runs. The legacy v3 workload-signing design is now disabled because its signing key had been exposed to the Pod. That does **not** mean the control plane is authorized to spend money today.
+The source CI, signer isolation, current REST v2 adapter contract, current v2 price/DC-stock contract, and central offline volume-transport tests have passed in earlier candidate runs. The selected image now separates a root-owned signer from training UID/GID 10001. The control plane supplies a per-run key only to that digest-pinned wrapper and requires authenticated volume result transport before submission. That does **not** mean the control plane is authorized to spend money today.
 
 ## Durable result transport
 
-The Pod-log limitation has a candidate durable-transport implementation, but secure completion acceptance remains blocked:
+The Pod-log limitation has a candidate durable-transport implementation and an offline-connected completion path:
 
 1. a pre-existing RunPod Network Volume is mounted at trusted path `/outputs` when the Pod is created;
-2. the workload writes `result.json`; legacy workload-signed `completion-v3.json` is not trusted because the old key was exposed;
+2. the root wrapper captures the per-run key, removes it before launching the unprivileged training process, and writes `completion-v3.json` over the exact `result.json` bytes and effective process exit code;
 3. the Pod may exit and be cleaned up without destroying the Network Volume;
 4. the control plane can read bounded objects through RunPod's S3-compatible API;
-5. RunPod v2's Pod schema has no documented process exit code, and controller-owned signed observation receipts are not implemented;
-6. therefore the current transport must not promote an exited workload to `SUCCEEDED` or `FAILED`.
+5. the control plane verifies the v3 HMAC, source, image, plan, execution nonce, result digest and signed exit code before mapping an exited Pod to `SUCCEEDED` or `FAILED`;
+6. this boundary protects against the unprivileged training process, while the RunPod host and account administrator remain outside the signer threat model.
 
 The transport is implemented and mock-tested, but not yet live-verified. Network Volume creation/resizing is deliberately not automated because it is a persistent billable resource.
 
@@ -903,10 +903,10 @@ The selected RunPod path has offline/mock components from price selection throug
 - the approved plan carries the exact price/reference/time window;
 - `RunPodV2CurrentAdapter` rechecks that evidence and the Network Volume DC immediately before submission;
 - current REST v2 creates the Pod and cursor-paginated v2 List Pods backs account occupancy/reconciliation;
-- durable Network Volume/S3 collection exists, while secure completion acceptance is disabled pending a controller-owned protocol;
+- durable Network Volume/S3 collection and the root-signer contract are connected offline, while live injection and collection remain disabled pending provider acceptance;
 - cleanup remains explicit and reconciliation-backed.
 
-No live provider call is enabled. Provider live verification must wait until the secure completion protocol is implemented and reviewed; real account evidence alone cannot close that code-level blocker.
+No live provider call is enabled. Provider acceptance must still prove the exact image receives the challenge, the training UID cannot read it, the bounded result is collected, and cleanup is reconciled before activation.
 
 ## Why live paid execution is still disabled
 
