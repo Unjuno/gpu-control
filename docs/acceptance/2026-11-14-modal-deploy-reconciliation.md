@@ -35,3 +35,14 @@
 - Verify actual Modal Sandbox resource and network limits from the provider record, not only code/config.
 - Complete repository-wide P0 security review; the historical scan is stale and incomplete.
 - RunPod/GPU acceptance remains parked. Do not claim full ChatGPT experiment completion until the live ChatGPT-to-provider path, artifact ownership, cleanup, account isolation, and required security gates have evidence.
+
+## Later correction — 2026-11-14
+
+The token-inventory statement above records the immediate post-deployment
+snapshot only. A later one-hour Workspace API token was created but not used
+after a Modal source comparison showed no deployable Modal code change at that
+point. The inventory still lists that token after its displayed expiry and
+shows no recent activity; revocation has not been verified. Do not interpret
+the earlier “zero active tokens” snapshot as the current state. No secret value
+was recovered or used. Current budget and candidate state are recorded in
+`2026-11-14-modal-capture-hardening.md`.

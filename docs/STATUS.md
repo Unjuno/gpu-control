@@ -1,5 +1,35 @@
 # Project status
 
+## Follow-up status — 2026-11-14 22:26 JST
+
+- Current candidate is PR #68 head `bc1035df4a72d12b8347f549bf30b970ebdf48d6`.
+  All six exact-head GitHub checks passed. Local Python suite: 588 passed,
+  1 skipped; Sites Worker/D1 suite: 42 passed. The branch is clean and pushed.
+- Independent review found two concrete reliability issues, both fixed in this
+  candidate: RunPod account leases could be released while provider creation
+  was ambiguous (`5a7f0aa`), and malformed Modal output/stream errors could
+  bypass Sandbox termination (`bc1035d`). See
+  [Modal capture hardening](acceptance/2026-11-14-modal-capture-hardening.md).
+- These changes have not been deployed to the live Site or Modal app. Sites
+  remains Version 33, environment revision 36, and
+  `CPU_WORKLOAD_ADMISSION_ENABLED=false`; ChatGPT capabilities report
+  `CPU_WORKLOAD_ADMISSION_DISABLED`. No health call or Sandbox inference was
+  started for this candidate.
+- The Modal dashboard shows `$0.10` in credits, `$0` in charges, and a `$1`
+  Workspace usage limit. The project test authorization is `$1` aggregate
+  through completion; the `$0.01` Sandbox ceiling excludes control-function
+  charges.
+- Correction to the earlier token snapshot: an unused one-hour Workspace API
+  token was created after that zero-token observation and did not get used for
+  deployment. The API-token UI still lists it after its displayed expiry, with
+  no recent activity. Revocation is not yet confirmed. No token secret was
+  retrieved or used.
+- Repository-wide Codex Security scan remains partial at 45/335 files, without
+  a final report. Independent Sites review found no actionable issue in the
+  inspected paths, but separately authenticated account isolation and trusted
+  identity-header provenance remain unverified. RunPod/GPU and paid execution
+  remain parked.
+
 ## Latest hosted state — 2026-11-14
 
 - ChatGPT Sites Version 33 is active at the published URL. The connected owner
