@@ -1,5 +1,22 @@
 # Project status
 
+## Follow-up status — 2026-11-15 03:06 JST
+
+- Published Sites environment revision 39 with only
+  `CPU_WORKLOAD_ADMISSION_ENABLED=true` changed, using saved Site Version 34.
+  The deployment succeeded; ChatGPT capabilities now reports `available=true`
+  with provider health deferred until exact-plan confirmation. The public Site
+  audience and owner allowlist were preserved.
+- Prepared the bounded CPU run `aa687747b5474d0192b5cfc6fc6b89a7`; its exact
+  plan was not confirmed. This browser required a separate ChatGPT sign-in, so
+  the five-minute plan expired without any Modal health call or Sandbox. A new
+  plan is required after sign-in; older authorization does not apply to the
+  new fingerprint.
+- Modal usage immediately before the Site deployment was `$0.10` credits,
+  `$0` charges, and a `$1` Workspace limit. RunPod/GPU and paid training remain
+  parked; repository-wide P0 security review is incomplete. Details:
+  [Sites admission and CPU plan](acceptance/2026-11-15-sites-admission-and-cpu-plan.md).
+
 ## Follow-up status — 2026-11-15 02:55 JST
 
 - Deployed candidate `3eb2ab5d218b06c2559fd22088e1a4763fc78521` to Modal
