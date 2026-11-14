@@ -1,5 +1,25 @@
 # Project status
 
+## P0 audit and Sites Version 35 — 2026-11-15 08:00 JST
+
+- The repository-wide Codex Security Standard scan completed and sealed at
+  Git revision `26c1deff1f73924a3cf88592bdcc8bedf0970285` with zero
+  source-backed findings. Live identity, deployment configuration and provider
+  behavior remain runtime acceptance gates rather than source-audit claims.
+- The reviewed ChatGPT-native approval candidate was pushed to the Site-owned
+  source repository as `0eb4fe4ba7dcdc6035af4bdc89f8751b40716538` and
+  published successfully as Sites Version 35. The public audience, owner
+  allowlist and environment revision 39 were preserved.
+- Hosted D1 now exposes `human_authorizations.authorization_source`, proving
+  migration `0011` applied. The connected owner can still read capabilities;
+  Modal is configured, authorization storage is ready and CPU admission is
+  enabled.
+- The current conversation retains the old cached submit schema. A fresh
+  conversation must verify Version 35's exact-plan destructive confirmation,
+  then one bounded CPU run, result artifact, cleanup and budget. No provider
+  request or new spend occurred during this publication checkpoint. Evidence:
+  [P0 scan and Sites Version 35](acceptance/2026-11-15-p0-scan-and-sites-v35.md).
+
 ## ChatGPT-native approval candidate — 2026-11-15
 
 - The active PR #68 branch changes the CPU execution flow so `experiment_submit`
