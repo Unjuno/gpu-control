@@ -11,6 +11,25 @@ const healthRunId = "1".repeat(32);
 const healthFingerprint = "c".repeat(64);
 const healthArgs = { run_id: healthRunId, plan_fingerprint: healthFingerprint };
 
+function approvedPlan(overrides = {}) {
+  return { workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control", commit: sourceSha,
+    prompt: "A", max_new_tokens: 1, seed: 1, runtime_seconds: 10, estimated_sandbox_cost_usd: "0.0005",
+    max_cost_usd: "0.01", cpu_limit_physical_cores: 1, memory_limit_mib: 512, gpu_allowed: false,
+    control_function_cost_included: false, ...overrides };
+}
+
+function submitArgs(runId, fingerprint, plan = approvedPlan()) {
+  return { run_id: runId, plan_fingerprint: fingerprint, approved_plan: plan };
+}
+
+function storedPlan(runId, fingerprint, plan = approvedPlan(), overrides = {}) {
+  return { id: runId, owner_id: "test-owner", fingerprint, workload: plan.workload,
+    repository: plan.repository, source_sha: plan.commit,
+    parameters_json: JSON.stringify({ prompt: plan.prompt, max_new_tokens: plan.max_new_tokens, seed: plan.seed }),
+    runtime_seconds: plan.runtime_seconds, max_cost_usd: plan.max_cost_usd, image_digest: imageDigest,
+    state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 300, ...overrides };
+}
+
 function environment({ heartbeatAt, admission = "false", heartbeatDigest = imageDigest, heartbeatSha = sourceSha, cancellationProtocol = 1 } = {}) {
   const healthLimit = new Map();
   const heartbeat = heartbeatAt === undefined ? null : {
@@ -155,6 +174,8 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   const tools = Object.fromEntries(rpc.result.tools.map((item) => [item.name, item.annotations]));
   const healthTool = rpc.result.tools.find((item) => item.name === "experiment_provider_health");
   assert.deepEqual(healthTool.inputSchema.required, ["run_id", "plan_fingerprint"]);
+  assert.deepEqual(rpc.result.tools.find((item) => item.name === "experiment_submit").inputSchema.required,
+    ["approved_plan", "plan_fingerprint", "run_id"]);
 
   for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list"]) {
     assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);
@@ -178,7 +199,7 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
     readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
   });
   assert.deepEqual(tools.experiment_provider_health, {
-    readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
+    readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false,
   });
 });
 
@@ -585,11 +606,13 @@ test("authorized submission still bounds and cancels oversized Modal health resp
   env.BUCKET = { put: async () => {} };
   const fingerprint = "e".repeat(64);
   const runId = "c".repeat(32);
+  const plan = storedPlan(runId, fingerprint);
   let healthBudgetUsed = false;
   let planHealthUsed = false;
   env.DB.prepare = (sql) => ({ bind() { return {
     first: async () => {
     if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return null;
+    if (sql.includes("FROM plans WHERE id=?")) return plan;
     if (sql.includes("FROM human_authorizations")) return { id: "a".repeat(32), fingerprint,
       expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
     return null;
@@ -621,7 +644,7 @@ test("authorized submission still bounds and cancels oversized Modal health resp
       },
       cancel() { cancelCalls++; },
     })); };
-    const response = await toolCall(env, "test-owner", "experiment_submit", { run_id: runId, plan_fingerprint: fingerprint });
+    const response = await toolCall(env, "test-owner", "experiment_submit", submitArgs(runId, fingerprint));
     const rpc = await response.json();
     const result = JSON.parse(rpc.result.content[0].text);
     assert.equal(rpc.result.isError, false);
@@ -629,7 +652,7 @@ test("authorized submission still bounds and cancels oversized Modal health resp
     assert.equal(cancelCalls, 1);
     assert.equal(healthCalls, 1);
     assert.equal(batchCalls, 0);
-    const retryResponse = await toolCall(env, "test-owner", "experiment_submit", { run_id: runId, plan_fingerprint: fingerprint });
+    const retryResponse = await toolCall(env, "test-owner", "experiment_submit", submitArgs(runId, fingerprint));
     const retry = JSON.parse((await retryResponse.json()).result.content[0].text);
     assert.equal(retry.blocking_reason, "MODAL_HEALTH_CHECK_RATE_LIMITED");
     assert.equal(healthCalls, 1, "a failed health response cannot be retried within the workspace budget");
@@ -647,6 +670,7 @@ test("parallel submits for one confirmed plan reserve at most one billable healt
   env.BUCKET = { put: async () => {} };
   const fingerprint = "e".repeat(64);
   const runId = "c".repeat(32);
+  const plan = storedPlan(runId, fingerprint);
   let workspaceReserved = false;
   let planReserved = false;
   let batchCalls = 0;
@@ -655,6 +679,7 @@ test("parallel submits for one confirmed plan reserve at most one billable healt
     async first() {
       if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return null;
       if (sql.includes("SELECT ready FROM modal_authorized_health_checks")) return null;
+      if (sql.includes("FROM plans WHERE id=?")) return plan;
       if (sql.includes("FROM human_authorizations")) return { id: "a".repeat(32), fingerprint,
         expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
       return null;
@@ -683,8 +708,8 @@ test("parallel submits for one confirmed plan reserve at most one billable healt
       return new Response("unavailable", { status: 503 });
     };
     const responses = await Promise.all([
-      toolCall(env, "test-owner", "experiment_submit", { run_id: runId, plan_fingerprint: fingerprint }),
-      toolCall(env, "test-owner", "experiment_submit", { run_id: runId, plan_fingerprint: fingerprint }),
+      toolCall(env, "test-owner", "experiment_submit", submitArgs(runId, fingerprint)),
+      toolCall(env, "test-owner", "experiment_submit", submitArgs(runId, fingerprint)),
     ]);
     const outcomes = await Promise.all(responses.map(async (response) => {
       const rpc = await response.json();
@@ -871,7 +896,7 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   const plan = { id: runId, owner_id: "test-owner", state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 300,
     fingerprint: "c".repeat(64), image_digest: imageDigest, workload: "tiny-stories-inference-v1",
     repository: "Unjuno/gpu-control", source_sha: sourceSha,
-    parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }), runtime_seconds: 10 };
+    parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }), runtime_seconds: 10, max_cost_usd: "0.01" };
   let current = null;
   const authorization = { id: "d".repeat(32), fingerprint: plan.fingerprint,
     expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
@@ -895,6 +920,7 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
     async first() {
       if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return current ? { id: current.id, state: current.state, created_at: current.created_at } : null;
       if (sql.includes("SELECT ready FROM modal_authorized_health_checks")) return { ready: 1 };
+      if (sql.includes("FROM plans WHERE id=?")) return plan;
       if (sql.includes("FROM human_authorizations")) return { ...authorization };
       if (sql.includes("FROM runs r JOIN plans p")) return current ? { ...plan, ...current } : null;
       if (sql.startsWith("SELECT state, created_at, updated_at, cleanup_state, failure_code FROM runs")) return current;
@@ -952,7 +978,7 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
     };
 
     const submitResponse = await toolCall(env, "test-owner", "experiment_submit", {
-      run_id: runId, plan_fingerprint: plan.fingerprint,
+      ...submitArgs(runId, plan.fingerprint, approvedPlan({ prompt: "Once" })),
     });
     const submitRpc = await submitResponse.json();
     assert.equal(submitRpc.result.isError, true, "the lost provider response is reported as an error");
@@ -1489,8 +1515,13 @@ test("prepare idempotency keys are isolated by Site owner", async () => {
 
   assert.equal(first.state, "prepared");
   assert.equal(first.approval_required, true);
-  assert.equal(new URL(first.authorization_url).pathname, "/authorize");
-  assert.equal(new URL(first.authorization_url).origin, siteOrigin);
+  assert.equal(first.authorization_surface, "chatgpt_mcp_write_confirmation");
+  assert.equal(first.approved_plan.prompt, "A");
+  assert.equal(first.approved_plan.max_cost_usd, "0.01");
+  assert.equal(first.approved_plan.estimated_sandbox_cost_usd, "0.0005");
+  assert.equal(first.approved_plan.gpu_allowed, false);
+  assert.equal(first.approved_plan.control_function_cost_included, false);
+  assert.equal(first.authorization_url, undefined);
   assert.equal(second.state, "prepared");
   assert.equal(first.estimated_sandbox_cost_usd, "0.0005");
   assert.equal(first.max_sandbox_cost_usd, "0.01");
@@ -1509,15 +1540,17 @@ test("prepare idempotency keys are isolated by Site owner", async () => {
 
 test("keeps Modal submission blocked until the provider is configured", async () => {
   const env = environment();
+  const plan = storedPlan("f".repeat(32), "a".repeat(64));
   env.DB.prepare = (sql) => ({ bind() { return { first: async () => {
     if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return null;
+    if (sql.includes("FROM plans WHERE id=?")) return plan;
     if (sql.includes("FROM human_authorizations")) return { id: "a".repeat(32), fingerprint: "a".repeat(64), expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
     return null;
   } }; } });
   let writes = 0;
   env.DB.batch = async () => { writes++; throw new Error("blocked submission must not write"); };
   const response = await toolCall(env, "test-owner", "experiment_submit", {
-    run_id: "f".repeat(32), plan_fingerprint: "a".repeat(64),
+    ...submitArgs("f".repeat(32), "a".repeat(64)),
   });
   const rpc = await response.json();
   assert.equal(rpc.result.isError, false);
@@ -1527,8 +1560,49 @@ test("keeps Modal submission blocked until the provider is configured", async ()
   assert.equal(writes, 0);
 });
 
-test("Modal submission without exact-plan confirmation is blocked before provider access", async () => {
+test("confirmed ChatGPT submit records an exact one-use authorization without a browser session", async () => {
+  const runId = "8".repeat(32);
+  const fingerprint = "9".repeat(64);
+  const plan = storedPlan(runId, fingerprint);
+  const env = environment();
+  let authorization = null;
+  let authorizationInsert = null;
+  let batches = 0;
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
+    async first() {
+      if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return null;
+      if (sql.includes("FROM plans WHERE id=?")) return plan;
+      if (sql.includes("FROM human_authorizations")) return authorization;
+      throw new Error(`unexpected ChatGPT authorization query: ${sql}`);
+    },
+    async run() {
+      assert.match(sql, /chatgpt_mcp_write_confirmation/);
+      assert.match(sql, /json_extract\(p\.parameters_json/);
+      authorizationInsert = { source: "chatgpt_mcp_write_confirmation", owner_id: values[5], plan_id: values[4],
+        fingerprint: values[6], authorized_at: values[2], expires_at: Math.min(values[3], plan.expires_at), consumed_at: null };
+      authorization = { id: values[0], fingerprint: values[6], expires_at: authorizationInsert.expires_at, consumed_at: null };
+      return { meta: { changes: 1 } };
+    },
+  }; } });
+  env.DB.batch = async () => { batches++; throw new Error("provider-disabled submit must not reserve a run"); };
+
+  const response = await toolCall(env, "test-owner", "experiment_submit", submitArgs(runId, fingerprint));
+  const rpc = await response.json();
+  const result = JSON.parse(rpc.result.content[0].text);
+  assert.equal(rpc.result.isError, false);
+  assert.equal(result.blocking_reason, "MODAL_PROVIDER_NOT_CONFIGURED");
+  assert.equal(authorizationInsert.owner_id, "test-owner");
+  assert.equal(authorizationInsert.plan_id, runId);
+  assert.equal(authorizationInsert.fingerprint, fingerprint);
+  assert.equal(authorizationInsert.source, "chatgpt_mcp_write_confirmation");
+  assert.ok(authorizationInsert.expires_at <= plan.expires_at);
+  assert.equal(authorization.consumed_at, null);
+  assert.equal(batches, 0);
+});
+
+test("ChatGPT submit rejects plan review values that do not match the exact owner-bound plan", async () => {
   const env = environment({ admission: "true" });
+  const plan = storedPlan("c".repeat(32), "e".repeat(64));
   let providerRequests = 0;
   let dbWrites = 0;
   let authorization = null;
@@ -1538,6 +1612,7 @@ test("Modal submission without exact-plan confirmation is blocked before provide
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "f".repeat(64);
   env.DB.prepare = (sql) => ({ bind() { return { first: async () => {
     if (sql.startsWith("SELECT id, state, created_at FROM runs WHERE owner_id=?")) return null;
+    if (sql.includes("FROM plans WHERE id=?")) return plan;
     if (sql.includes("FROM human_authorizations")) return authorization;
     return null;
   }, async run() { dbWrites++; return { success: true }; } }; } });
@@ -1545,25 +1620,22 @@ test("Modal submission without exact-plan confirmation is blocked before provide
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = async () => { providerRequests++; throw new Error("unconfirmed plan reached Modal"); };
-    const response = await toolCall(env, "test-owner", "experiment_submit", {
-      run_id: "c".repeat(32), plan_fingerprint: "e".repeat(64),
-    });
+    const response = await toolCall(env, "test-owner", "experiment_submit",
+      submitArgs("c".repeat(32), "e".repeat(64), approvedPlan({ prompt: "changed" })));
     const rpc = await response.json();
     const result = JSON.parse(rpc.result.content[0].text);
     assert.equal(rpc.result.isError, false);
-    assert.equal(result.blocking_reason, "HUMAN_AUTHORIZATION_REQUIRED");
+    assert.equal(result.blocking_reason, "APPROVED_PLAN_MISMATCH_OR_EXPIRED");
     assert.equal(result.machine_state.authorization_required, true);
-    assert.equal(new URL(result.authorization_url).pathname, "/authorize");
     assert.equal(providerRequests, 0);
     assert.equal(dbWrites, 0);
 
-    authorization = { id: "a".repeat(32), fingerprint: "e".repeat(64), expires_at: Math.floor(Date.now() / 1000) - 1, consumed_at: null };
-    const expiredResponse = await toolCall(env, "test-owner", "experiment_submit", {
-      run_id: "c".repeat(32), plan_fingerprint: "e".repeat(64),
-    });
+    plan.expires_at = Math.floor(Date.now() / 1000) - 1;
+    const expiredResponse = await toolCall(env, "test-owner", "experiment_submit",
+      submitArgs("c".repeat(32), "e".repeat(64)));
     const expiredRpc = await expiredResponse.json();
     const expired = JSON.parse(expiredRpc.result.content[0].text);
-    assert.equal(expired.blocking_reason, "HUMAN_AUTHORIZATION_EXPIRED");
+    assert.equal(expired.blocking_reason, "APPROVED_PLAN_MISMATCH_OR_EXPIRED");
     assert.equal(expired.authorization_url, undefined);
     assert.equal(providerRequests, 0);
     assert.equal(dbWrites, 0);

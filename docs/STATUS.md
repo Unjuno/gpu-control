@@ -1,5 +1,19 @@
 # Project status
 
+## ChatGPT-native approval candidate — 2026-11-15
+
+- The active PR #68 branch changes the CPU execution flow so `experiment_submit`
+  carries the exact plan fields and is marked as a destructive MCP action. Its
+  invocation records a short-lived, one-use authorization for the authenticated
+  Site owner, avoiding the separate browser sign-in in the intended chat flow.
+- The live Site remains Version 34 and still requires the browser confirmation
+  page. The branch change has not been published, and no health request or
+  Sandbox was started for it.
+- The Site's platform-injected owner identity provenance and authenticated
+  cross-account denial remain unverified. The in-chat approval candidate must
+  stay unpublished until those checks, the D1 migration, exact ChatGPT tool
+  confirmation UI, and a bounded end-to-end result/cleanup are verified.
+
 ## Live recheck — 2026-11-15 05:17 JST
 
 - Sites Version 34 is active with `access_mode=public`, one owner account on

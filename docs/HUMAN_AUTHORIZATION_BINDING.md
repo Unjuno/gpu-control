@@ -29,28 +29,36 @@ The RunPod adapter now requires that permit and revalidates its exact plan bindi
 
 **Live paid execution is still disabled.** The paid workflow and provider credentials are not present, the repository remains parked, provider reconciliation is not live-verified, and the selected canary still lacks a verified production-supported authenticated result transport. `runtime_enforced: false` therefore remains accurate for the complete end-to-end live path.
 
-## Sites CPU confirmation path
+## Sites CPU confirmation paths
 
-The Sites Worker has a separate, provider-specific confirmation path for its
-fixed Modal CPU inference plan. `experiment_prepare` returns a Site URL that
-shows the exact workload, repository commit, prompt, token limit, seed, runtime,
-Sandbox ceiling, and the separate Modal control-function cost caveat. The
-owner must open that page while signed in to the Site and submit its
-same-origin confirmation form. The Worker stores a challenge hash and an
-owner-, plan-fingerprint-, and expiry-bound authorization in D1. The challenge
-is single-use; the authorization lasts no longer than the plan (at most 10
-minutes) and is consumed in the same D1 batch that reserves the one run.
-Unconfirmed or expired submits stop before Modal health or submit calls.
+The fixed Modal CPU inference has two owner-authenticated approval surfaces.
+The deployed Site Version 34 currently uses the browser path: `experiment_prepare`
+returns a Site URL showing workload, repository commit, prompt, token limit,
+seed, runtime, Sandbox ceiling, and the separate Modal control-function cost
+caveat. The owner opens it while signed in and submits a same-origin form. The
+Worker stores a challenge hash and an owner-, plan-fingerprint-, and expiry-
+bound authorization in D1.
 
-This is a Site-authenticated browser confirmation event, not a cryptographic
-attestation that a human operated the browser. Do not describe it as proof of
-manual interaction against a separate browser automation capability. The
-repository-wide structured evidence format above still governs the protected
-RunPod/GPU path. The Sites flow must remain admission-disabled until its D1
-migration and published Site version are verified, then the user must exercise
-the confirmation page through ChatGPT and a separate account must fail the
-owner check. This source implementation alone does not establish live
-acceptance.
+The current PR candidate adds a ChatGPT-native path. `experiment_prepare`
+returns the same exact plan fields in its structured result. `experiment_submit`
+is marked as a destructive MCP write and its confirmed tool call must repeat
+the plan fields; the Worker compares each field with the current owner-bound
+D1 plan and image digest before it creates an authorization with source
+`chatgpt_mcp_write_confirmation`. The authorization expires no later than the
+plan (at most 10 minutes), permits one run, and is consumed in the same D1 batch
+that reserves that run. A separate browser login is not part of this intended
+ChatGPT flow.
+
+The ChatGPT host's write confirmation is a user-facing approval surface, not a
+cryptographic attestation that a human operated the UI. MCP annotations do not
+replace the Worker's owner authorization, exact-plan validation, short expiry,
+one-use record, provider gates, or cleanup checks. The browser path has the
+same limitation. Neither path proves human interaction against a compromised
+ChatGPT client or an untrusted identity header. The repository-wide structured
+evidence format above still governs the protected RunPod/GPU path. The candidate
+is not live acceptance: verify the actual ChatGPT confirmation UI, trusted
+identity-header provenance, cross-account denial, D1 migration, provider
+result, and cleanup before publishing or spending compute.
 
 ## Why exact plan binding matters
 

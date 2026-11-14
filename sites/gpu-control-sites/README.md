@@ -64,6 +64,19 @@ Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
   [Modal deployment acceptance](../../docs/acceptance/2026-11-13-modal-main-deploy.md),
   and [latest Modal local smoke and live gate](../../docs/acceptance/2026-11-14-modal-local-smoke-and-live-gate.md).
 
+## ChatGPT-native approval candidate
+
+PR #68 now includes a candidate flow that returns the exact plan fields to the
+ChatGPT conversation and requires approval of the destructive `experiment_submit`
+MCP action. Its confirmation request carries the reviewed fields. The Worker
+binds them to the authenticated Site owner, stored plan fingerprint, image digest, expiry, and one-use D1
+authorization. This removes the separate browser sign-in from the intended
+ChatGPT workflow while keeping the Site public and MCP execution owner-scoped.
+This candidate is not live: Site Version 34 still uses the browser confirmation
+page. Verify how ChatGPT renders the exact tool arguments before approval, the
+platform identity source, cross-account denial, migration, and end-to-end
+cleanup before publishing.
+
 ## Target execution architecture
 
 The Site remains the only ChatGPT-facing product and control plane. Modal is the
@@ -73,10 +86,15 @@ gates. D1/R2 lifecycle data must be preserved through the transition.
 
 ```text
 ChatGPT -> Sites MCP Worker -> owner-scoped D1/R2
-                    -> exact-plan Sites confirmation page -> one-use D1 authorization
+                    -> exact-plan ChatGPT write approval -> one-use D1 authorization
                                     -> authenticated Modal function
                                     -> Runpod only after live gates pass
 ```
+
+The browser confirmation page remains as a fallback. The new ChatGPT path must
+not infer approval from a prompt or plan preparation alone; the submit tool is
+marked destructive and the tool call contains the exact plan fields shown to
+the user for confirmation.
 
 No caller may choose arbitrary code, an image, a command, a provider URL, a
 secret, or an owner ID. Provider call IDs and results must be bound to the

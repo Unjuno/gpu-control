@@ -51,6 +51,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0008_modal_plan_health_authorization.sql",
         "0009_modal_health_readiness.sql",
         "0010_modal_status_check_budget.sql",
+        "0011_chatgpt_tool_authorization.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -159,8 +160,27 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     )
     db.execute(
         """INSERT INTO human_authorizations
+        (id, owner_id, plan_id, fingerprint, authorization_reference,
+            authorized_at, expires_at, consumed_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         ("authorization-1", "owner-1", "plan-existing", "a" * 64, "ref-1", 5, 600, None),
     )
+    assert db.execute(
+        "SELECT authorization_source FROM human_authorizations WHERE id = ?",
+        ("authorization-1",),
+    ).fetchone() == ("site_confirmation",)
+    db.execute(
+        "UPDATE human_authorizations SET authorization_source = ? WHERE id = ?",
+        ("chatgpt_mcp_write_confirmation", "authorization-1"),
+    )
+    try:
+        db.execute(
+            "UPDATE human_authorizations SET authorization_source = ? WHERE id = ?",
+            ("untrusted_model_output", "authorization-1"),
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        raise AssertionError("authorization source must reject unrecognized values")
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     db.close()

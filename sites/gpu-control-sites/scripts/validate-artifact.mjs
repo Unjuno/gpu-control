@@ -54,4 +54,8 @@ assert.match(planHealthMigration, /CREATE INDEX modal_authorized_health_checks_o
 assert.ok(migrations.includes("0009_modal_health_readiness.sql"));
 const healthReadinessMigration = readFileSync(join(root, ".openai/drizzle/0009_modal_health_readiness.sql"), "utf8");
 assert.match(healthReadinessMigration, /ADD COLUMN ready INTEGER NOT NULL DEFAULT 0 CHECK \(ready IN \(0, 1\)\)/);
+assert.ok(migrations.includes("0011_chatgpt_tool_authorization.sql"));
+const chatgptAuthorizationMigration = readFileSync(join(root, ".openai/drizzle/0011_chatgpt_tool_authorization.sql"), "utf8");
+assert.match(chatgptAuthorizationMigration, /authorization_source TEXT NOT NULL DEFAULT 'site_confirmation'/);
+assert.match(chatgptAuthorizationMigration, /chatgpt_mcp_write_confirmation/);
 console.log("Site Worker artifact is complete.");
