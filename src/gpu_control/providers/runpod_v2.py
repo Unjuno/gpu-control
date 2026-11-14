@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import json
@@ -12,8 +11,10 @@ from urllib.request import Request
 
 from ..completion import CompletionChallenge, CompletionEvidenceError
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
+from ..human_authorization import LiveExecutionPermit
 from ..http_security import open_no_redirect, read_bounded
 from ..lifecycle import JobState
+from .runpod_live_gate import require_runpod_live_allocation_enabled, validate_runpod_create_authorization
 
 if TYPE_CHECKING:
     from .runpod_network_volume import RunPodNetworkVolumeEvidence
@@ -77,9 +78,9 @@ class RunPodCompletionLaunch:
 
     The challenge is safe to persist separately. The secret key is intentionally
     excluded from repr/serialization and must be supplied from protected
-    control-plane state. This type is the only supported path for injecting
-    environment variables into a RunPod create request; arbitrary user-provided
-    environment mappings remain outside the trusted provider boundary.
+    control-plane state. Only public correlation metadata may be sent to the Pod.
+    The legacy workload-signed completion protocol is intentionally unusable
+    until a controller-owned evidence protocol replaces it.
     """
 
     challenge: CompletionChallenge
@@ -103,7 +104,6 @@ class RunPodCompletionLaunch:
     def provider_environment(self, plan: ApprovedExecutionPlan) -> dict[str, str]:
         self.validate_against_plan(plan)
         return {
-            "GPU_CONTROL_COMPLETION_KEY_B64": base64.b64encode(self.secret_key).decode("ascii"),
             "GPU_CONTROL_COMPLETION_KEY_ID": self.challenge.key_id,
             "GPU_CONTROL_COMPLETION_NONCE": self.challenge.nonce,
             "GPU_CONTROL_EXECUTION_NAME": self.challenge.execution_name,
@@ -272,9 +272,33 @@ class RunPodV2HttpClient:
         *,
         expected_status: int,
         body: Mapping[str, Any] | None = None,
+        plan: ApprovedExecutionPlan | None = None,
+        live_permit: LiveExecutionPermit | None = None,
     ) -> dict[str, Any] | None:
         if not path.startswith("/") or path.startswith("//"):
             raise RunPodV2Error("RunPod API path must be an absolute single-origin path")
+        normalized_path = path.split("?", 1)[0]
+        if method.upper() == "POST" and (
+            normalized_path == "/pods" or normalized_path.endswith("/action")
+        ):
+            require_runpod_live_allocation_enabled()
+        if (
+            method.upper() == "POST"
+            and normalized_path.endswith("/action")
+            and isinstance(body, Mapping)
+            and isinstance(body.get("action"), str)
+            and body.get("action") in {"start", "restart"}
+        ):
+            raise RunPodV2Error(
+                "RunPod start/restart is disabled until an authorized owned-Pod lifecycle path exists"
+            )
+        if method.upper() == "POST" and normalized_path == "/pods":
+            if plan is None or live_permit is None:
+                raise RunPodV2Error("RunPod create requires an approved plan and issued live permit")
+            try:
+                validate_runpod_create_authorization(plan, live_permit)
+            except ValueError as exc:
+                raise RunPodV2Error(str(exc)) from exc
         data = None
         headers = {
             "Accept": "application/json",
@@ -391,8 +415,28 @@ class RunPodV2HttpClient:
             seen_cursors.add(next_cursor)
             cursor = next_cursor
 
-    def create_pod(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        result = self._request("POST", "/pods", expected_status=201, body=payload)
+    def create_pod(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        plan: ApprovedExecutionPlan | None = None,
+        live_permit: LiveExecutionPermit | None = None,
+    ) -> dict[str, Any]:
+        require_runpod_live_allocation_enabled()
+        if plan is None or live_permit is None:
+            raise RunPodV2Error("RunPod create requires an approved plan and issued live permit")
+        try:
+            validate_runpod_create_authorization(plan, live_permit)
+        except ValueError as exc:
+            raise RunPodV2Error(str(exc)) from exc
+        result = self._request(
+            "POST",
+            "/pods",
+            expected_status=201,
+            body=payload,
+            plan=plan,
+            live_permit=live_permit,
+        )
         assert result is not None
         return result
 
@@ -409,6 +453,10 @@ class RunPodV2HttpClient:
     def transition_pod(self, pod_id: str, action: str) -> dict[str, Any] | None:
         if action not in {"start", "stop", "restart", "terminate"}:
             raise RunPodV2Error("unsupported RunPod pod action")
+        if action in {"start", "restart"}:
+            raise RunPodV2Error(
+                "RunPod start/restart is disabled until an authorized owned-Pod lifecycle path exists"
+            )
         encoded = self._pod_id(pod_id)
         expected_status = 204 if action == "terminate" else 200
         return self._request(

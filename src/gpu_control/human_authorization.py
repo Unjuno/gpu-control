@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import re
+import threading
 from typing import Any, Mapping
+import weakref
 
 from .execution import ApprovedExecutionPlan, ExecutionGateError
 from .paid_authorization import PaidAuthorizationEvidence
@@ -38,6 +40,32 @@ _FIELDS = {
 
 class HumanAuthorizationError(ValueError):
     """Raised when explicit human intent does not bind the exact live action."""
+
+
+# A LiveExecutionPermit is an in-process capability, not a serializable claim.
+# Register issued instances by identity so constructing an equal dataclass (or
+# restoring one from JSON) cannot impersonate authorize_live_plan's result.
+_ISSUED_LIVE_PERMITS: dict[int, weakref.ReferenceType[LiveExecutionPermit]] = {}
+_LIVE_PERMIT_LOCK = threading.Lock()
+
+
+def _register_live_permit(permit: LiveExecutionPermit) -> None:
+    key = id(permit)
+
+    def discard(reference: weakref.ReferenceType[LiveExecutionPermit]) -> None:
+        with _LIVE_PERMIT_LOCK:
+            if _ISSUED_LIVE_PERMITS.get(key) is reference:
+                _ISSUED_LIVE_PERMITS.pop(key, None)
+
+    reference = weakref.ref(permit, discard)
+    with _LIVE_PERMIT_LOCK:
+        _ISSUED_LIVE_PERMITS[key] = reference
+
+
+def _is_issued_live_permit(permit: LiveExecutionPermit) -> bool:
+    with _LIVE_PERMIT_LOCK:
+        reference = _ISSUED_LIVE_PERMITS.get(id(permit))
+        return reference is not None and reference() is permit
 
 
 def _text(value: object, field: str) -> str:
@@ -224,6 +252,8 @@ class LiveExecutionPermit:
     valid_until_utc: str
 
     def validate_for_plan(self, plan: ApprovedExecutionPlan, *, now_utc: datetime) -> None:
+        if not _is_issued_live_permit(self):
+            raise HumanAuthorizationError("live execution permit was not issued by authorize_live_plan")
         try:
             plan.validate_shape()
         except ExecutionGateError as exc:
@@ -285,5 +315,6 @@ def authorize_live_plan(
         control_plane_sha=human.control_plane_sha,
         valid_until_utc=human.valid_until_utc,
     )
+    _register_live_permit(permit)
     permit.validate_for_plan(plan, now_utc=now_utc)
     return permit

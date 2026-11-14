@@ -16,6 +16,7 @@ from typing import Any
 import modal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from gpu_control_modal_bootstrap import normalize_exit_code, preflight_exit_code_map, sandbox_entrypoint
 
 APP_NAME = "gpu-control-sites"
 REPOSITORY = "Unjuno/gpu-control"
@@ -26,11 +27,18 @@ MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories
 MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a"
 TOKENIZER_SHA256 = "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361"
 MAX_RUNTIME_SECONDS = 30
+SANDBOX_CPU_REQUEST = 1.0
+SANDBOX_CPU_LIMIT = 1.0
+SANDBOX_MEMORY_REQUEST_MIB = 512
+SANDBOX_MEMORY_LIMIT_MIB = 512
 MAX_STDOUT_BYTES = 4096
 MAX_STDERR_BYTES = 2048
 RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 SHA64_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+# Modal ignores Dockerfile USER and starts Sandbox commands as root.
+# Drop privileges in this fixed bootstrap before executing the pinned workload.
+SANDBOX_ENTRYPOINT = sandbox_entrypoint()
 
 REMOTE_SITE_ROOT = Path("/root/gpu-control-sites")
 
@@ -74,8 +82,19 @@ def workload_image_fingerprint() -> str:
         "model_id": MODEL_ID,
         "model_sha256": MODEL_SHA256,
         "tokenizer_sha256": TOKENIZER_SHA256,
-        "entrypoint": ["python", "-I", "/work/inference.py"],
-        "sandbox": {"cpu": 1, "memory_mib": 512, "network": "blocked", "max_runtime_seconds": MAX_RUNTIME_SECONDS},
+        "image_cmd": ["python", "-I", "/work/inference.py"],
+        "sandbox_command": list(SANDBOX_ENTRYPOINT),
+        "preflight_exit_code_map": {
+            str(code): diagnostic for code, diagnostic in sorted(preflight_exit_code_map().items())
+        },
+        "sandbox": {
+            "cpu_request": SANDBOX_CPU_REQUEST,
+            "cpu_limit": SANDBOX_CPU_LIMIT,
+            "memory_request_mib": SANDBOX_MEMORY_REQUEST_MIB,
+            "memory_limit_mib": SANDBOX_MEMORY_LIMIT_MIB,
+            "network": "blocked",
+            "max_runtime_seconds": MAX_RUNTIME_SECONDS,
+        },
     }
     return _sha256(_canonical(manifest))
 
@@ -113,7 +132,10 @@ workload_image = modal.Image.from_dockerfile(
 )
 api_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install("fastapi==0.128.2")
+    .pip_install_from_requirements(str(SITE_ROOT / "modal" / "requirements.txt"))
+    # This is followed by a copied local workload directory; keep both local
+    # sources in image layers so Modal does not try to mutate a mounted image.
+    .add_local_python_source("gpu_control_modal_bootstrap", copy=True)
     .add_local_dir(str(SITE_ROOT / "workloads"), remote_path=str(REMOTE_SITE_ROOT / "workloads"), copy=True)
 )
 api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -170,10 +192,11 @@ def _bounded_stream(stream, maximum: int) -> tuple[str, bool]:
 
 
 def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    exit_code = sandbox.poll()
-    if exit_code is None:
+    raw_exit_code = sandbox.poll()
+    if raw_exit_code is None:
         return {"state": "running", "sandbox_id": sandbox.object_id,
                 "cleanup_state": "pending", "image_id": workload_image.object_id}
+    exit_code, diagnostic_code = normalize_exit_code(raw_exit_code)
     stdout, stdout_truncated = _bounded_stream(sandbox.stdout, MAX_STDOUT_BYTES)
     stderr, stderr_truncated = _bounded_stream(sandbox.stderr, MAX_STDERR_BYTES)
     try:
@@ -189,6 +212,8 @@ def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         result.get("status") != "passed"
     ):
         result = None
+    diagnostic_match = re.search(r"^GPU_CONTROL_PREFLIGHT_RETURN_LINE=([1-9][0-9]{0,3})$", stderr, re.MULTILINE) if exit_code == 2 else None
+    system_exit_match = re.search(r"^GPU_CONTROL_SANDBOX_SYSTEM_EXIT=2$", stderr, re.MULTILINE) if exit_code == 2 else None
     sandbox_id = sandbox.object_id
     try:
         sandbox.terminate(wait=True)
@@ -207,6 +232,10 @@ def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "image_fingerprint": WORKLOAD_IMAGE_FINGERPRINT,
         "result": result,
         "stderr": stderr,
+        "diagnostic_code": diagnostic_code or (
+            f"PREFLIGHT_RETURN_LINE_{diagnostic_match.group(1)}" if diagnostic_match else
+            "PREFLIGHT_SYSTEM_EXIT_2" if system_exit_match else None
+        ),
         "logs_truncated": stdout_truncated or stderr_truncated,
     }
 
@@ -226,12 +255,13 @@ async def submit(run_id: str, request: Request):
         return _capture(existing, run_id, payload)
     try:
         sandbox = modal.Sandbox.create(
+            *SANDBOX_ENTRYPOINT,
             app=app,
             image=workload_image,
             name=_sandbox_name(run_id),
             timeout=payload["runtime_seconds"],
-            cpu=1,
-            memory=512,
+            cpu=(SANDBOX_CPU_REQUEST, SANDBOX_CPU_LIMIT),
+            memory=(SANDBOX_MEMORY_REQUEST_MIB, SANDBOX_MEMORY_LIMIT_MIB),
             block_network=True,
             env={
                 "GPU_CONTROL_RUN_ID": run_id,

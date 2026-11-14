@@ -16,6 +16,8 @@ from gpu_control.providers.runpod_occupancy import build_account_occupancy_evide
 from gpu_control.providers.runpod_network_volume import RunPodNetworkVolumeEvidence
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
 from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodV2Error
+from gpu_control.providers import runpod_live_gate
+from conftest import issue_live_permit_for_plan
 
 
 DIGEST = "sha256:" + "a" * 64
@@ -62,17 +64,7 @@ def plan() -> ApprovedExecutionPlan:
 
 
 def permit(value: ApprovedExecutionPlan, *, valid_until_utc: str = "2026-08-22T16:10:00Z") -> LiveExecutionPermit:
-    return LiveExecutionPermit(
-        plan_fingerprint=value.fingerprint(),
-        actor="Unjuno",
-        decision_record_id="decision-test",
-        human_authorization_id="auth-test",
-        human_authorization_reference=value.authorization_reference,
-        paid_authorization_reference="github-actions:test",
-        repository_security_reference="github:main-protection:sha256:" + "b" * 64,
-        control_plane_sha="c" * 40,
-        valid_until_utc=valid_until_utc,
-    )
+    return issue_live_permit_for_plan(value, valid_until_utc=valid_until_utc)
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -107,7 +99,7 @@ class FakeClient:
         self.create_error: Exception | None = None
         self.terminate_error: Exception | None = None
 
-    def create_pod(self, payload):  # type: ignore[no-untyped-def]
+    def create_pod(self, payload, **kwargs):  # type: ignore[no-untyped-def]
         self.create_calls += 1
         self.create_payloads.append(payload)
         if self.create_error is not None:
@@ -184,6 +176,27 @@ def test_adapter_requires_live_execution_permit_before_any_provider_work() -> No
             live_permit=None,  # type: ignore[arg-type]
             clock=lambda: SUBMITTED_AT + timedelta(seconds=1),
         )
+    assert occupancy.calls == 0
+    assert client.create_calls == 0
+
+
+def test_adapter_rejects_manually_forged_permit() -> None:
+    value = plan()
+    runpod, _client, _occupancy = adapter(value)
+    forged = LiveExecutionPermit(**runpod.live_permit.__dict__)
+
+    with pytest.raises(RunPodV2AdapterError, match="not issued by authorize_live_plan"):
+        replace(runpod, live_permit=forged)
+
+
+def test_parked_adapter_stops_before_any_provider_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runpod_live_gate, "RUNPOD_LIVE_ALLOCATION_ENABLED", False)
+    value = plan()
+    runpod, client, occupancy = adapter(value)
+
+    with pytest.raises(runpod_live_gate.RunPodLiveDisabledError, match="parked"):
+        runpod.submit(value)
+
     assert occupancy.calls == 0
     assert client.create_calls == 0
 

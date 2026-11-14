@@ -37,6 +37,27 @@ def test_uv_bootstrap_uses_immutable_setup_uv_not_pip_install() -> None:
         )
 
 
+def test_dry_run_token_is_limited_to_main_source_verification_step() -> None:
+    workflow = yaml.load((WORKFLOWS / "dry-run.yml").read_text(encoding="utf-8"),
+                         Loader=yaml.BaseLoader)
+    job = workflow["jobs"]["validate"]
+
+    assert job["if"] == "github.ref == 'refs/heads/main'"
+    assert "GITHUB_TOKEN" not in job.get("env", {})
+
+    steps = job["steps"]
+    token_steps = [step for step in steps if "GITHUB_TOKEN" in step.get("env", {})]
+    assert len(token_steps) == 1
+    verify_step = token_steps[0]
+    assert verify_step["name"] == "Validate request and verify source (no GPU resources are created)"
+    assert verify_step["env"]["GITHUB_TOKEN"] == "${{ github.token }}"
+    assert "--target-repo \"$TARGET_REPO\"" in verify_step["run"]
+    assert "--target-sha \"$TARGET_SHA\"" in verify_step["run"]
+
+    token_step_index = steps.index(verify_step)
+    assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in steps[:token_step_index])
+
+
 def test_required_ci_checks_are_unique_and_report_for_pull_requests_and_merge_groups() -> None:
     def load(name: str) -> dict:
         path = WORKFLOWS / name

@@ -110,7 +110,7 @@ Reconstructed evidence recomputes the content digest and revalidates every entry
 
 ## Results remain disabled because the production transport is missing
 
-`collect_results(...)` currently rejects every request. This is no longer because the workload-completion protocol is undefined: the Orbitune workload emits the v2 HMAC completion envelope, the control plane authenticates it offline, and the workload-specific paid-canary acceptance layer is separately implemented.
+`collect_results(...)` currently rejects every request. The selected Orbitune workload emits the `gpu-control-hmac-sha256-v3` completion envelope, which the fixed Network Volume/S3 result path authenticates offline. The bounded Pod-log verifier retains v2 compatibility for legacy log results only. Neither offline verifier establishes a production-supported collection transport or live paid-canary acceptance.
 
 The remaining RunPod blocker is transport. The pinned official RunPod audit records the Pod-log SSE operation used by the earlier prototype as unavailable on the production surface. No alternative production-supported authenticated collection transport has yet been verified.
 

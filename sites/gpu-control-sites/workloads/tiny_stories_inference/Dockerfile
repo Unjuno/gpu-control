@@ -28,4 +28,4 @@ COPY --from=build /build/tokenizer.bin /work/tokenizer.bin
 COPY workloads/tiny_stories_inference/inference.py /work/inference.py
 USER 10001:10001
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-ENTRYPOINT ["python", "-I", "/work/inference.py"]
+CMD ["python", "-I", "/work/inference.py"]

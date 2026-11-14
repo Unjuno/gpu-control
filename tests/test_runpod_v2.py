@@ -23,6 +23,8 @@ from gpu_control.providers.runpod_v2 import (
     validate_created_pod,
 )
 from gpu_control.providers.runpod_network_volume import RunPodNetworkVolumeEvidence
+from gpu_control.providers import runpod_live_gate
+from conftest import issue_live_permit_for_plan
 
 
 DIGEST = "sha256:" + "a" * 64
@@ -98,20 +100,20 @@ def test_create_payload_is_minimal_and_digest_pinned() -> None:
     assert "mounts" not in payload
 
 
-def test_authenticated_create_payload_injects_only_control_plane_completion_env() -> None:
+def test_authenticated_create_payload_never_injects_completion_signing_secret() -> None:
     plan = make_plan()
     completion = make_completion(plan)
     payload = build_create_pod_payload(plan, make_image(plan), completion=completion)
 
     assert payload["name"] == completion.challenge.execution_name
     assert payload["env"] == {
-        "GPU_CONTROL_COMPLETION_KEY_B64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         "GPU_CONTROL_COMPLETION_KEY_ID": "paid-runpod-v2",
         "GPU_CONTROL_COMPLETION_NONCE": "b" * 64,
         "GPU_CONTROL_EXECUTION_NAME": completion.challenge.execution_name,
         "GPU_CONTROL_PLAN_FINGERPRINT": plan.fingerprint(),
         "GPU_CONTROL_IMAGE_DIGEST": DIGEST,
     }
+    assert "GPU_CONTROL_COMPLETION_KEY_B64" not in payload["env"]
     assert "ports" not in payload
     assert "mounts" not in payload
 
@@ -300,7 +302,12 @@ def test_http_client_uses_fixed_origin_bearer_auth_and_v2_paths() -> None:
 
     client = RunPodV2HttpClient("secret-token", timeout=3.0, opener=opener)
     client.list_gpu_types()
-    client.create_pod({"name": "test"})
+    value = make_plan()
+    client.create_pod(
+        {"name": "test"},
+        plan=value,
+        live_permit=issue_live_permit_for_plan(value),
+    )
     client.get_pod("pod-123")
     client.transition_pod("pod-123", "stop")
     client.terminate_pod("pod-123")
@@ -318,6 +325,73 @@ def test_http_client_uses_fixed_origin_bearer_auth_and_v2_paths() -> None:
     assert all(request.get_header("Authorization") == "Bearer secret-token" for request, _ in calls)
     stop_body = json.loads(calls[3][0].data.decode("utf-8"))
     assert stop_body == {"action": "stop"}
+
+
+def test_parked_http_client_rejects_raw_create_without_network_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runpod_live_gate, "RUNPOD_LIVE_ALLOCATION_ENABLED", False)
+    calls = []
+    client = RunPodV2HttpClient("secret-token", opener=lambda *args, **kwargs: calls.append(args))
+
+    with pytest.raises(runpod_live_gate.RunPodLiveDisabledError, match="parked"):
+        client.create_pod({"name": "unapproved"})
+
+    assert calls == []
+
+
+def test_http_client_rejects_queued_pod_response_when_queue_is_not_requested() -> None:
+    def opener(request, timeout):  # type: ignore[no-untyped-def]
+        assert request.full_url == f"{RUNPOD_V2_BASE_URL}/pods"
+        assert request.get_method() == "POST"
+        body = json.loads(request.data.decode("utf-8"))
+        assert "queue" not in body
+        return FakeResponse(202, {"id": "queued-pod", "status": "QUEUED"})
+
+    client = RunPodV2HttpClient("secret-token", opener=opener)
+    value = make_plan()
+    with pytest.raises(RunPodV2Error, match="unexpected HTTP status 202"):
+        client.create_pod(
+            {"name": "test"},
+            plan=value,
+            live_permit=issue_live_permit_for_plan(value),
+        )
+
+
+@pytest.mark.parametrize("action", ["start", "restart"])
+def test_unowned_pod_cannot_be_started_or_restarted(action: str) -> None:
+    client = RunPodV2HttpClient("secret-token", opener=lambda *args, **kwargs: pytest.fail("network call"))
+
+    with pytest.raises(RunPodV2Error, match="authorized owned-Pod lifecycle path"):
+        client.transition_pod("unowned-pod", action)
+
+    with pytest.raises(RunPodV2Error, match="authorized owned-Pod lifecycle path"):
+        client._request(
+            "POST",
+            "/pods/unowned-pod/action",
+            expected_status=200,
+            body={"action": action},
+        )
+
+
+def test_http_client_requires_factory_issued_permit_for_create() -> None:
+    calls = []
+    client = RunPodV2HttpClient("secret-token", opener=lambda *args, **kwargs: calls.append(args))
+    value = make_plan()
+    genuine = issue_live_permit_for_plan(value)
+    forged = type(genuine)(**genuine.__dict__)
+
+    with pytest.raises(RunPodV2Error, match="not issued by authorize_live_plan"):
+        client.create_pod({"name": "unapproved"}, plan=value, live_permit=forged)
+    with pytest.raises(RunPodV2Error, match="not issued by authorize_live_plan"):
+        client._request(
+            "POST",
+            "/pods",
+            expected_status=201,
+            body={"name": "unapproved"},
+            plan=value,
+            live_permit=forged,
+        )
+
+    assert calls == []
 
 
 def test_http_errors_do_not_leak_api_key() -> None:

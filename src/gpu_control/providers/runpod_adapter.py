@@ -33,6 +33,7 @@ from .runpod_reconciliation import (
     cleanup_reconciled,
     reconcile_ambiguous_create,
 )
+from .runpod_live_gate import require_runpod_live_allocation_enabled
 from .runpod_v2 import (
     PublishedImageEvidence,
     RunPodCompletionLaunch,
@@ -254,6 +255,7 @@ class RunPodV2Adapter:
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
         """Submit exactly once after exact authorization and account checks pass."""
 
+        require_runpod_live_allocation_enabled()
         self._require_plan_identity(plan)
         occupancy_evidence = self._probe_before_create(plan)
         payload = build_priced_create_pod_payload(
@@ -276,7 +278,7 @@ class RunPodV2Adapter:
             raise RunPodV2AdapterError(str(exc)) from exc
 
         try:
-            pod = self.client.create_pod(payload)
+            pod = self.client.create_pod(payload, plan=plan, live_permit=self.live_permit)
         except RunPodV2Error as create_error:
             return self._reconcile_create_failure(plan, create_error)
 

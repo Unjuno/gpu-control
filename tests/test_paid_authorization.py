@@ -21,9 +21,8 @@ REQUIRED_CHECKS = (
     "Python 3.12",
     "Python 3.13",
     "Trusted reference container",
-    "Gateway offline tests",
-    "Gateway comment bridge tests",
     "Project bridge tests",
+    "Sites Worker and D1 contract",
 )
 
 

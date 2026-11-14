@@ -136,6 +136,13 @@ def test_submission_receipt_rejects_unknown_missing_and_duplicate_fields() -> No
         SubmissionReceipt.from_json(duplicate)
 
 
+def test_submission_receipt_rejects_oversized_json_before_parsing() -> None:
+    with pytest.raises(LifecycleError, match="maximum size"):
+        SubmissionReceipt.from_json("x" * (64 * 1024 + 1))
+    with pytest.raises(LifecycleError, match="maximum size"):
+        SubmissionReceipt.from_json("é" * (64 * 1024 // 2 + 1))
+
+
 def test_submission_receipt_requires_decimal_string_not_json_number() -> None:
     payload = make_receipt().to_dict()
     payload["max_cost_usd"] = 0.10

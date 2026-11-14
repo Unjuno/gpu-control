@@ -1,35 +1,165 @@
 # Current operations: ChatGPT Sites + D1
 
+## Latest verified state — 2026-11-14
+
+The production Sites project is active at Version 33. ChatGPT owner-scoped
+capability and run-list calls succeed, and the Sites-to-Modal Proxy Token
+configuration remains present. The public Site URL does not enable anonymous
+execution: the Worker requires authenticated owner identity and exact-plan
+confirmation. A separate signed-in account denial test remains open.
+
+Sites environment revision 35 has `CPU_WORKLOAD_ADMISSION_ENABLED=false`.
+The provider is configured, but no new inference can be submitted while
+admission is closed. The live Site fingerprint is
+`53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`; the
+candidate fingerprint is
+`8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`. Deploy
+the reviewed Modal candidate and verify its authenticated health response and
+effective Sandbox limits before updating the Site fingerprint or reopening
+admission. The latest five Modal-origin runs failed with exit code 2; the
+newest cleanup is confirmed and no result artifact exists. Modal dashboard log
+filters returned no rows for the checked Sandbox and control call.
+
+The latest Modal usage view showed `$0.10` credits used, `$0` charges, a `$1`
+Workspace usage limit, and `$0.90` credits remaining. Modal execution is
+usage-billed: credit eligibility does not make it free, and the `$0.01` Sandbox
+ceiling excludes separately billed control-function calls. No billing setting
+was changed. RunPod/GPU and broader paid execution remain parked.
+
+## Live release gate refresh — 2026-11-13 13:30 UTC
+
+Production Sites is Version 33 from source commit
+`c85fdf7da994ab59b8a19bbb42b2998bc9814e69`, deployment
+`appgdep_6af709c728a08191925d228213edbd03`, environment revision 34. The Site
+is public at the hosting layer and stores one owner account ID in its MCP
+allowlist. ChatGPT capability and experiment-list calls succeeded from the
+owner account. Admission is enabled for the fixed CPU workload, but provider
+health remains deferred until a plan is authorized and submitted. Cross-account
+denial and trusted identity-header provenance are still open.
+
+Five newest Modal-origin runs were individually checked. All failed, have
+`cleanup_state=confirmed`, and have no result artifact. They were created
+before the Modal API deployment recorded at 2026-11-13 18:59 JST, which includes
+the Docker `CMD` correction intended to invoke the fixed privilege-dropping
+bootstrap. No post-deployment Modal inference has been accepted. The locally
+rebuilt image ID `sha256:60ea9d29f70def1ad4577021ac51e2b186b8f8d2c6dee7a2d2d848b441fcbda1`
+is not verified as Modal's deployed image; Sites still advertises
+`sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541`.
+The Sandbox estimate is `$0.0013` with a `$0.01` Sandbox-only ceiling; Modal
+control-function costs are separate.
+
+The logged-in Modal Usage limit page displayed `$0.10 in credits • $0 in
+charges`, `$0.10 / $1`, and a `$1` Workspace usage limit set by Modal; adding a
+payment method is offered to raise that limit. The page did not expose a
+separate net spend limit field, so a distinct out-of-pocket cap remains
+unverified. Modal documents gross usage budgets and net spend limits as
+separate controls. No Modal health call or Sandbox was made during this refresh.
+
+PR #68 remains Draft. The repository-wide P0 audit still requires the managed
+read-only security scan; cross-account denial and image identity reconciliation
+remain open. RunPod has no Sites Worker execution route, and GPU/paid execution
+remain parked. See [Sites Version 33 live refresh](acceptance/2026-11-13-sites-v33-live-refresh.md).
+
+## Modal Sandbox resource-limit correction — 2026-11-14
+
+The live Modal Sandbox details page showed CPU limit `None` and memory limit
+`None`. In the deployed source, `cpu=1` and `memory=512` specified requests,
+not hard limits; therefore the previously advertised `$0.01` per-run Sandbox
+ceiling was not enforced against burst usage. Modal bills the greater of request
+and actual usage. Current candidate source now uses CPU `(1.0, 1.0)` and memory
+`(512, 512)` request/limit tuples. CPU at the limit is throttled; a Sandbox that
+exceeds the memory limit can be OOM-terminated and the run fails. The candidate
+fingerprint is `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`;
+the deployed/Site value remains `53b5d84a82830a360f1b90bab6087e54723d9db21989ff3fb5440400f3991eec`.
+No deploy or provider call was made for this source change.
+
+Before the new bound is treated as live, deploy the Modal API from the candidate
+source with the documented Modal Python SDK 1.6.3 tuple API, verify authenticated
+health reports the candidate fingerprint, then update Sites'
+`MODAL_WORKLOAD_IMAGE_FINGERPRINT` and publish the matching Worker. A future
+exact-plan Sandbox acceptance must confirm CPU limit 1, memory limit 512 MiB,
+the expected OOM/throttle semantics, and cleanup. Health alone does not prove
+the UI's effective Sandbox limits.
+
+## Sites migration behavior and recovery
+
+Sites applies hosted D1 migrations before uploading the Worker. A deployment
+that fails after migration may leave D1 at the new schema while the prior Worker
+continues serving. Migration `0005_human_plan_authorization.sql` only creates
+the challenge/authorization tables and their index; it does not rewrite or
+delete existing data. The previous Worker can ignore those additive tables,
+but a release must still inspect both deployment status and the live schema.
+
+Keep applied migration SQL immutable. After a failed or interrupted publish,
+first inspect deployment state and the D1 table overview. If `0005` is already
+applied, continue with the matching Worker source; do not manually re-run the
+SQL, drop the new tables, or revert the schema. If migration state is uncertain,
+resolve it through the Sites deployment and schema evidence before any new
+publish. Preserve all existing D1 rows and R2 objects.
+
+## Latest operational state — 2026-11-12 13:46 UTC
+
+Production Sites is Version 28, source commit
+`237c0bed24277cf7c808f8c0e9946c71d517288c`, environment revision 32, with D1/R2.
+The live ChatGPT capability read passed all eight Modal health checks; admission
+is disabled. Sites Version 28 accepts the `$0.01` Sandbox-only ceiling and uses
+a 15-second bounded Modal request timeout. The one authorized CPU diagnostic
+run `e9330c5bb5454f42bb3dabe058091dc0` failed with
+`MODAL_WORKLOAD_EXIT_2`; Modal Sandbox
+`sb-01M77ZZRFC1090CXA2W3MHDH7V` exited after 247 ms. Its dashboard had no
+Sandbox logs, Sites confirmed cleanup, and no inference result or artifact was
+produced. The expected bounded preflight line marker was absent, so the exact
+failed check remains unknown. Modal Usage remained `$0.05` credits used and
+`$0` charges after the run; those totals include prior control/deploy activity
+and cannot be attributed to this Sandbox. The `$1` Workspace limit was checked
+before execution. Admission was restored to false at environment revision 32;
+capabilities report the provider ready but unavailable. Do not retry without a
+new exact-run authorization and a useful diagnostic change. RunPod has no Sites
+MCP execution route; GPU and paid execution remain parked.
+
+The following paragraph is an earlier operational snapshot, superseded by the
+latest state above.
+
 The supported ChatGPT control plane is the public Sites MCP Worker at
 `https://gpu-control-sites.unjuno.chatgpt.site`. Its product records are stored
 in the Sites-provisioned D1 database and result objects in R2. The live Site is
-Version 23 from source commit `1352662626d44dee08fd513f4c8886b6f75cb090`, with
+Version 24 from source commit `c919b0047b203fb0c22b6dd7755934834e899f8f`, with
 environment revision 22. Current ChatGPT capabilities report
 `provider_ready=true`, `available=false`, and `admission_enabled=false` for
-`modal_cpu`. The authenticated Modal endpoint is healthy; compute admission is
-closed pending one post-fix runtime acceptance.
-Historical CPU success records below remain valid evidence for those earlier
-runs; they do not show present readiness.
+`modal_cpu`. The authenticated Modal endpoint is healthy, but the current Modal
+deployment has no accepted inference result. The successful run previously
+attributed to Modal was actually executed by the retired local Runner under
+Sites Version 16. Two Modal runs failed before the dashboard's v4 deployment;
+the UI did not bind v4 to a source commit, and no successful inference has run
+after v4. Site Version 24 now records bounded exit-code failure codes without
+provider stderr, but this diagnostic has not been observed live. Keep compute
+admission closed. Historical CPU results below apply only to their recorded
+provider and runtime versions.
 
 ## Latest Modal attempt and recovery status — 2026-11-12
 
 Run `599473dcc1ed4034a42d849bcb42e261` was prepared and submitted through
 ChatGPT with a 30-second runtime and `$0.00` Site cost ceiling. It failed as
 `MODAL_WORKLOAD_FAILED`; D1/Sites reported `cleanup_state=confirmed`. Modal
-showed Sandbox exit `code 2` after 165 ms and no stdout/stderr logs, with zero
-live Sandboxes. The source at that time launched a root-required privilege-drop
-script even though the pinned Dockerfile already declared `USER 10001:10001`
-and the workload entrypoint. The redundant launcher was removed in commit
-`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`, tests passed, and Modal reported a
-successful deploy. A post-fix run has not yet occurred; admission remains
-disabled. The temporary one-hour deployment API token was revoked and the
-Modal token list returned zero entries. Modal showed `$0.01` usage this cycle.
+The earlier Modal app failure logged Sandbox exit `code 2` after 165 ms with
+no stdout/stderr logs; the root-dependent launcher was removed in commit
+`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`. Historical run
+`eacc26ff2ad54cf69a1ee7665325b197` succeeded in 142 ms and ChatGPT retrieved
+its complete 962-byte R2 result, but it used the local Runner, not Modal. Two
+Modal runs, `96d7efef9542463d9fc51f47ffbfd5d7` and
+`599473dcc1ed4034a42d849bcb42e261`, failed with cleanup confirmed. The Site
+discarded their Modal exit codes, and the later Sandbox log filter had no
+entries, so their cause remains unknown. Both failures predate the dashboard's
+v4 deployment; the dashboard did not expose v4's source commit, and no v4
+inference is recorded. Current admission is disabled. The temporary one-hour
+deployment API token was revoked and the Modal token list returned zero
+entries. Modal showed `$0.01` usage this cycle. Details:
+[`Modal and CPU inference chronology`](acceptance/2026-11-12-modal-and-cpu-inference-chronology.md).
 
-This failure did not validate the new launcher path, cancellation, or
-reconciliation after provider failure. Keep the run as failed evidence; do not
-retry it under the same idempotency key. A new bounded smoke must use a new
-authorization and idempotency key after admission is deliberately enabled for
-that test, and admission must be closed again immediately afterward.
+Keep all failed runs as failed evidence; do not retry them under the same
+idempotency keys. A new bounded smoke needs a new authorization and idempotency
+key after the cause is understood and admission is deliberately opened for that
+single test; close admission immediately afterward.
 
 The target is a publicly discoverable ChatGPT Site + D1/R2 control plane, Modal
 as the first bounded compute integration, and Runpod as the later separately
@@ -170,8 +300,8 @@ history and historical run evidence.
 
 ## Open operational acceptance
 
-1. Verify one authorized post-fix inference through the deployed authenticated
-   Modal CPU path with idempotent submit, bounded status/collection, and no
+1. Verify one authorized inference against the current deployed Modal CPU
+   source with idempotent submit, bounded status/collection, and no
    caller-selected code or image. Admission is currently disabled.
 2. Exercise ambiguous submission, timeout, cancellation, provider failure, D1
    and R2 write failure, and recovery without duplicate runs or orphan compute.

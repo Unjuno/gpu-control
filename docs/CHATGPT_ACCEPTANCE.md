@@ -355,6 +355,7 @@ redacted evidence collected during this acceptance run.
 | ChatGPT's selected OAuth client-registration mode succeeds (Gateway currently advertises DCR, not CIMD); DCR client remains usable across reconnection/token refresh | NOT RUN | | |
 | ChatGPT discovers the expected eight canonical tools and current schemas | NOT RUN | | |
 | `experiment_capabilities` reports only the currently verified CPU lane and its true blockers | NOT RUN | | |
+| `experiment_provider_health` verifies authenticated Modal readiness and image identity without starting a Sandbox; separate control-function charges are disclosed and calls are globally rate-limited | NOT RUN | | |
 | First conversation completes registered CPU prepare/submit/status/result | NOT RUN | | |
 | Result binds the expected run ID, source SHA, plan fingerprint, and image digest | NOT RUN | | |
 | Result reports `simulation=false`, `gpu_used=false`, and confirmed cleanup | NOT RUN | | |

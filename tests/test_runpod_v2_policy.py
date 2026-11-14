@@ -37,6 +37,12 @@ def test_current_api_audit_records_v2_contract_and_offline_acceptance_boundary()
     assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
     assert audit["deprecated_rest_v1_retirement_date"] == "2026-11-15"
     assert audit["current_official_create_pod_endpoint"] == "POST /pods"
+    assert audit["current_official_create_pod_immediate_status"] == 201
+    assert audit["current_official_create_pod_queued_status"] == 202
+    assert audit["current_official_create_pod_202_requires_queue_option"] is True
+    assert audit["implementation_pod_queue_enabled"] is False
+    assert audit["implementation_create_pod_expected_status"] == 201
+    assert audit["implementation_rejects_unrequested_queued_pod_response"] is True
     assert audit["current_official_list_pods_endpoint"] == "GET /pods"
     assert audit["current_official_list_pods_response_shape"] == "cursor_paginated_object_with_pods_array"
     assert audit["current_official_delete_pod_endpoint"] == "DELETE /pods/{id}"
@@ -130,13 +136,18 @@ def test_submission_is_bound_to_permit_plan_image_gpu_cloud_price_volume_and_rec
     assert submission["compensating_termination_failure_is_visible"] is True
 
 
-def test_completion_v3_and_volume_transport_are_implemented_but_not_live_verified() -> None:
+def test_completion_v3_signer_is_blocked_and_transport_is_not_live_verified() -> None:
     policy = load_policy()
     completion = policy["completion_evidence"]
     transport = policy["network_volume_results"]
     results = policy["results"]
 
     assert completion["protocol"] == "hmac-sha256-v3"
+    assert completion["implementation_status"] == "disabled_awaiting_controller_owned_completion_protocol"
+    assert completion["security_status"] == "workload_signing_secret_not_sent_fail_closed"
+    assert completion["workload_receives_completion_signing_secret"] is False
+    assert completion["root_owned_signer_redesign_required"] is True
+    assert completion["provider_v2_exit_code_field_documented"] is False
     assert completion["legacy_v2_compatibility_status"] == "temporary_offline_migration_only"
     assert completion["provider_job_id_binding"] == "submission_receipt_and_provider_specific_collection_transport"
     assert completion["max_marker_bytes"] == 16384

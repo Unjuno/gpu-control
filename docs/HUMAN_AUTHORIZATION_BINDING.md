@@ -29,6 +29,29 @@ The RunPod adapter now requires that permit and revalidates its exact plan bindi
 
 **Live paid execution is still disabled.** The paid workflow and provider credentials are not present, the repository remains parked, provider reconciliation is not live-verified, and the selected canary still lacks a verified production-supported authenticated result transport. `runtime_enforced: false` therefore remains accurate for the complete end-to-end live path.
 
+## Sites CPU confirmation path
+
+The Sites Worker has a separate, provider-specific confirmation path for its
+fixed Modal CPU inference plan. `experiment_prepare` returns a Site URL that
+shows the exact workload, repository commit, prompt, token limit, seed, runtime,
+Sandbox ceiling, and the separate Modal control-function cost caveat. The
+owner must open that page while signed in to the Site and submit its
+same-origin confirmation form. The Worker stores a challenge hash and an
+owner-, plan-fingerprint-, and expiry-bound authorization in D1. The challenge
+is single-use; the authorization lasts no longer than the plan (at most 10
+minutes) and is consumed in the same D1 batch that reserves the one run.
+Unconfirmed or expired submits stop before Modal health or submit calls.
+
+This is a Site-authenticated browser confirmation event, not a cryptographic
+attestation that a human operated the browser. Do not describe it as proof of
+manual interaction against a separate browser automation capability. The
+repository-wide structured evidence format above still governs the protected
+RunPod/GPU path. The Sites flow must remain admission-disabled until its D1
+migration and published Site version are verified, then the user must exercise
+the confirmation page through ChatGPT and a separate account must fail the
+owner check. This source implementation alone does not establish live
+acceptance.
+
 ## Why exact plan binding matters
 
 Without exact binding, an approval for a small canary could be reused for a larger runtime, a different GPU, a different workload commit, or a different image. It could also be replayed after the control-plane code changed.

@@ -24,8 +24,9 @@ Read-only calls to the installed `GPU Control — ChatGPT実験管理` MCP retur
   report `MODAL_WORKLOAD_FAILED`, `cleanup_state=confirmed`, and no result.
 - The latest listed success, `eacc26ff2ad54cf69a1ee7665325b197` (created
   2026-11-12 05:02 UTC), has a validated TinyStories CPU result and confirmed
-  cleanup. It predates the current Modal deploy and does not verify the
-  launcher fix.
+  cleanup. The Runner environment acceptance identifies it as a local Runner
+  execution under Sites Version 16. It is not Modal evidence, predates the
+  current Modal deploy, and does not verify the launcher fix.
 
 ## Modal dashboard
 
@@ -69,8 +70,9 @@ cross-account isolation, Runpod GPU, and paid execution remain separate gates.
 - Modal's deployed function page still shows zero live containers and calls;
   its latest visible health calls returned HTTP 200. The account banner shows
   `$1` of `$30/mo` in credits, which is not a hard spending cap.
-- The post-fix ChatGPT CPU run, artifact verification, and cleanup acceptance
-  remain open. The current PR branch is not merged to `main`; recovery,
+- A successful ChatGPT run against the current Modal deployment, artifact
+  verification, and cleanup acceptance remain open. The current PR branch is
+  not merged to `main`; recovery,
   separate-account authorization, Runpod GPU, and paid execution remain open.
 
 ## Deployment credential scope check — 2026-11-12 10:00 UTC
@@ -88,4 +90,37 @@ cross-account isolation, Runpod GPU, and paid execution remain separate gates.
   (`1c8c30d2270ca2bc7f35f3a988d66b4012be9a27`); the pushed follow-up contains
   documentation and test coverage. Current health and deployment state remain
   as recorded above; a main-scoped deployment credential and the separate
-  post-fix ChatGPT inference acceptance remain unresolved.
+  successful ChatGPT inference against the current Modal deployment remains
+  unresolved.
+
+## Deployment credential eligibility recheck — 2026-11-12
+
+- The user authorized reissuing a short-lived credential limited to the Modal
+  `main` Environment and deploying. The signed-in Workspace `Service users`
+  page states that Starter cannot create service users and requires a Team
+  upgrade. No upgrade or Workspace-wide token was authorized, so no credential
+  was created and no deploy was attempted. The API-token list remains empty.
+- The current uncommitted source delta changes the Sites Worker diagnostics and
+  documentation; it does not change `sites/gpu-control-sites/modal/app.py` or
+  the Modal workload. There is no Modal code change in this delta to deploy.
+- Modal deployment remains gated on an eligible main-scoped credential. No
+  Sandbox, admission, payment, or provider settings were changed.
+
+## Current Sites deployment and capability check — 2026-11-12 10:43 UTC
+
+- The authenticated Sites control API reports production Site Version 24,
+  source commit `c919b0047b203fb0c22b6dd7755934834e899f8f`, public access, and
+  the existing production URL. This supersedes the earlier Version 23 snapshot
+  above; it does not change the earlier evidence about the provenance of the
+  Modal deployment itself.
+- A fresh ChatGPT capability call reports `provider_ready=true`,
+  `admission_enabled=false`, `available=false`, provider `modal_cpu`, workload
+  `tiny-stories-inference-v1`, and blocker `CPU_WORKLOAD_ADMISSION_DISABLED`.
+  Paid execution is parked and no next actions are enabled. No experiment was
+  prepared or submitted in this check.
+- This confirms the current Sites product route is Modal CPU and remains
+  disabled. The separate successful `local_cpu` history is not current Modal
+  acceptance. The current Sites Worker has no RunPod provider route; RunPod's
+  v2 adapter remains an offline core-library implementation.
+- No credential, compute, admission, D1/R2 data, or provider setting was
+  changed during this read-only check.
