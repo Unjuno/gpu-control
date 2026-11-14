@@ -67,6 +67,8 @@ def repository_security(**changes: object) -> RepositorySecurityEvidence:
 def enabled_policy() -> dict:
     policy = load_paid_execution_policy()
     policy["live_paid_compute_enabled"] = True
+    # Synthetic test-only reviewer. Production policy must name a real, independent reviewer.
+    policy["github_environment"]["required_reviewer"] = "independent-reviewer-for-test"
     return policy
 
 
@@ -105,6 +107,22 @@ def test_owner_context_can_be_authorized_only_with_protected_main_evidence() -> 
     assert evidence.authorization_reference == (
         "github-actions:Unjuno/gpu-control:run:123456789:attempt:1:actor:Unjuno"
     )
+
+
+def test_paid_environment_requires_a_reviewer_other_than_the_workflow_actor() -> None:
+    policy = enabled_policy()
+    policy["github_environment"]["required_reviewer"] = OWNER
+
+    with pytest.raises(PaidAuthorizationError, match="independent from the authorized actor"):
+        authorize(policy=policy)
+
+
+def test_paid_environment_must_prevent_self_review() -> None:
+    policy = enabled_policy()
+    policy["github_environment"]["prevent_self_review"] = False
+
+    with pytest.raises(PaidAuthorizationError, match="prevent self-review"):
+        authorize(policy=policy)
 
 
 @pytest.mark.parametrize(

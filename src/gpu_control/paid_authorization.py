@@ -161,8 +161,10 @@ def authorize_paid_execution(
 
     environment_name = _text(environment.get("name"), "paid environment name")
     required_reviewer = _text(environment.get("required_reviewer"), "paid environment required_reviewer")
-    if required_reviewer != expected_actor:
-        raise PaidAuthorizationError("paid environment reviewer must be the authorized actor")
+    if required_reviewer == expected_actor:
+        raise PaidAuthorizationError("paid environment reviewer must be independent from the authorized actor")
+    if environment.get("prevent_self_review") is not True:
+        raise PaidAuthorizationError("paid environment must prevent self-review")
     if environment.get("secret_scope") != "environment_only":
         raise PaidAuthorizationError("paid provider secret must be environment-scoped")
     secrets = environment.get("secret_names")

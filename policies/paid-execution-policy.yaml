@@ -50,7 +50,8 @@ prompt_context_security:
 
 github_environment:
   name: paid-runpod
-  required_reviewer: Unjuno
+  # Leave unset until a trusted reviewer distinct from the workflow actor is selected.
+  required_reviewer: null
   prevent_self_review: true
   protected_branch_only: true
   secret_scope: environment_only
