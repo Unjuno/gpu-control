@@ -34,8 +34,10 @@ registered Modal fingerprint is
 workload requests and hard-limits CPU to 1 core and memory to 512 MiB for at
 most 30 seconds. One ChatGPT-to-Modal result, bounded artifact, independent
 artifact digest, provider `Done` state, and zero concurrent Sandboxes are now
-verified. Repeatability and recovery drills remain open. RunPod/GPU and paid
-training remain parked.
+verified. A second owner-confirmed run through Sites Version 39 also returned
+normally, produced a digest-verified artifact, and confirmed cleanup. Forced
+recovery and cancellation drills remain open. RunPod/GPU and paid training
+remain parked.
 
 Modal execution is usage-billed, not inherently free. Public Starter pricing does not establish this Workspace's credit balance, usage limit, or out-of-pocket exposure. The authorized project testing budget is `$1` cumulative through completion, not `$1` per run. The provider is still classified as paid and credit-eligible. The `$0.01` ceiling covers only Sandbox CPU/memory, not separately billed Modal control-function calls. Check current account billing in Modal before any provider call. See [Modal pricing](https://modal.com/pricing) and [Modal budgets](https://modal.com/docs/guide/budgets).
 

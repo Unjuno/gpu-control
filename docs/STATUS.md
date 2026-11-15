@@ -1,5 +1,18 @@
 # Project status
 
+## Modal asynchronous repeat accepted — 2026-11-15
+
+- Sites Version 39 and the matching Modal `unjuno/main` app were published from
+  the asynchronous candidate. The owner-confirmed submit returned normal
+  `running` state instead of the previous host `INTERNAL_ERROR`.
+- Run `9f2c52912b234888b709c7a04bdeb707` succeeded through Modal, produced a
+  digest-verified 931-byte R2 artifact, and finished with cleanup confirmed.
+  Modal showed the Sandbox `Done` after 575 ms and zero concurrent Sandboxes.
+- Both temporary one-hour deployment tokens were deleted; the Modal API-token
+  list returned to zero. Usage still displayed `$0.10 / $1` and `$0` charges,
+  subject to billing delay. Evidence:
+  [Version 39 asynchronous repeat](acceptance/2026-11-15-sites-v39-modal-async-repeat.md).
+
 ## Modal recovery candidate verified offline — 2026-11-15
 
 - The unpublished candidate now returns from Modal submit after provider
