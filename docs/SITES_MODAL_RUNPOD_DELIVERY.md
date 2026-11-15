@@ -217,7 +217,30 @@ ChatGPT
   evidence, actual cost and runtime, authenticated result, and confirmed
   cleanup; a repeat is separately authorized.
 
-## Current blockers
+## Current blockers — refreshed 2026-11-15
+
+1. The fixed Modal CPU vertical has one accepted owner-confirmed live run with
+   a digest-verified R2 artifact and confirmed cleanup. The next Site source
+   candidate changes `/submit` to return after deterministic Sandbox acceptance
+   while `/status` owns capture and cleanup. It is committed and tested but is
+   not yet published or live-repeated.
+2. Recovery mocks cover parallel/duplicate reservation, a lost submit response,
+   a status timeout, delayed not-found reconciliation, provider failure,
+   cancellation/result races, and retry after D1 or R2 persistence failure.
+   Live repeatability, cancellation, forced restart, lease-expiry/orphan
+   reconciliation, and backup/restore drills remain unaccepted.
+3. The full-repository P0 source scan completed with zero source-backed
+   findings. Runtime identity, provider behavior, and account configuration
+   remain separate acceptance gates.
+4. RunPod and GPU execution remain parked. Current account occupancy, supported
+   authenticated result transport, immutable GPU image, exact offer/price,
+   execution, result verification, actual spend, and cleanup still require live
+   evidence.
+5. Public Site reachability must not become anonymous compute authorization.
+   Owner-only execution remains required; a genuinely separate ChatGPT account
+   denial/distribution test is still open.
+
+## Historical blockers snapshot — before the accepted Modal CPU run
 
 1. Sites Version 28 and the live Modal app remain on the old fingerprint
    `3bf90f4c3f99ab1bd9ad8f8a7714fbe63f4ccf8f308c729590e86f29c375d577`.
