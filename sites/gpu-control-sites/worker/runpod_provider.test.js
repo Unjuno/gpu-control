@@ -44,7 +44,7 @@ test("registered execution cannot become an arbitrary shell", async () => {
     return jsonResponse({ stdout: "ok", stderr: "", exitCode: 0, timedOut: false, truncated: false, durationMs: 10 });
   } });
   await client.runRegisteredWorkload("pod_abc123", {
-    planFingerprint: "b".repeat(64), nonce: "c".repeat(64), steps: 1, seed: 7,
+    planFingerprint: "b".repeat(64), nonce: "c".repeat(64),
   });
   assert.equal(body.command[0], "/opt/gpu-control/run-registered-workload");
   assert.equal(body.command.includes("sh"), false);

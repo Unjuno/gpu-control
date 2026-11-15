@@ -784,8 +784,8 @@ async function capabilities(env) {
     workloads: [
       { id: WORKLOAD, enabled: available, providers: ["modal_cpu"], requires_gpu: false,
         sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST || null },
-      { id: "tiny-gpu-training-v1", enabled: runpodEnabled, providers: ["runpod_gpu"], requires_gpu: true,
-        parameters: { steps: { minimum: 1, maximum: 200 }, seed: { minimum: 1, maximum: 1000000 } },
+      { id: "runpod-gpu-canary-v1", enabled: runpodEnabled, providers: ["runpod_gpu"], requires_gpu: true,
+        parameters: {},
         image: env.RUNPOD_WORKLOAD_IMAGE || null },
     ],
     paid_execution: "parked",

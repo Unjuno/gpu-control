@@ -38,7 +38,7 @@ References:
   GHCR. Every third-party action and the CUDA/PyTorch base image are pinned by
   immutable digest or full commit SHA.
 - `experiment_capabilities` now describes `runpod_gpu` and
-  `tiny-gpu-training-v1`, but keeps them disabled until server-side credential,
+  `runpod-gpu-canary-v1`, but keeps them disabled until server-side credential,
   immutable published image, admission, pricing, authorization, and lifecycle
   wiring all exist.
 

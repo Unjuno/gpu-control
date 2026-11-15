@@ -599,7 +599,7 @@ test("read-only capabilities do not call Modal", async () => {
     assert.deepEqual(result.providers.map((provider) => provider.id), ["modal_cpu", "runpod_gpu"]);
     assert.equal(result.providers[1].enabled, false);
     assert.equal(result.providers[1].configured, false);
-    assert.deepEqual(result.workloads.map((workload) => workload.id), ["tiny-stories-inference-v1", "tiny-gpu-training-v1"]);
+    assert.deepEqual(result.workloads.map((workload) => workload.id), ["tiny-stories-inference-v1", "runpod-gpu-canary-v1"]);
     assert.equal(providerCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;

@@ -186,22 +186,16 @@ export class RunpodV2Client {
     };
   }
 
-  runRegisteredWorkload(podId, { planFingerprint, nonce, steps, seed }) {
+  runRegisteredWorkload(podId, { planFingerprint, nonce }) {
     if (!POD_ID_RE.test(podId)) throw new RunpodProviderError("RUNPOD_INVALID_POD_ID");
     if (!/^[0-9a-f]{64}$/.test(planFingerprint) || !/^[0-9a-f]{64}$/.test(nonce)) {
       throw new RunpodProviderError("RUNPOD_INVALID_EXECUTION_BINDING");
-    }
-    if (!Number.isSafeInteger(steps) || steps < 1 || steps > 200 ||
-        !Number.isSafeInteger(seed) || seed < 1 || seed > 1_000_000) {
-      throw new RunpodProviderError("RUNPOD_INVALID_WORKLOAD_PARAMETERS");
     }
     return this.request(`/v2/pods/${podId}/exec`, { method: "POST", expectedStatus: 200, body: {
       command: [
         "/opt/gpu-control/run-registered-workload",
         "--plan-fingerprint", planFingerprint,
         "--nonce", nonce,
-        "--steps", String(steps),
-        "--seed", String(seed),
       ],
       cwd: "/opt/gpu-control",
       timeoutSeconds: 25,
