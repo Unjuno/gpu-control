@@ -46,6 +46,13 @@ def test_current_api_audit_records_v2_contract_and_offline_acceptance_boundary()
     assert audit["current_official_list_pods_endpoint"] == "GET /pods"
     assert audit["current_official_list_pods_response_shape"] == "cursor_paginated_object_with_pods_array"
     assert audit["current_official_delete_pod_endpoint"] == "DELETE /pods/{id}"
+    assert audit["current_official_get_pod_endpoint"] == "GET /pods/{id}"
+    assert audit["current_official_exec_pod_endpoint"] == "POST /pods/{id}/exec"
+    assert audit["current_official_exec_pod_command_shape"] == "argv_array"
+    assert audit["current_official_exec_pod_timeout_seconds_max"] == 25
+    assert audit["current_official_exec_pod_requires_ssh_or_public_port"] is False
+    assert audit["sites_worker_v2_adapter_status"] == "implemented_offline_mock_tested"
+    assert audit["sites_worker_v2_adapter_live_verified"] is False
     assert audit["current_official_network_volume_attach_fields_observed"] is True
     assert audit["current_official_network_volume_fields"] == [
         "mounts.network[].volumeId", "mounts.network[].path", "dataCenterIds"
@@ -115,8 +122,8 @@ def test_submission_is_bound_to_permit_plan_image_gpu_cloud_price_volume_and_rec
     assert submission["user_mounts_forwarded"] is False
     assert submission["automatic_create_retry"] is False
 
-    assert submission["trusted_network_volume_required_for_live_canary"] is True
-    assert submission["network_volume_must_preexist"] is True
+    assert submission["trusted_network_volume_required_for_live_canary"] is False
+    assert submission["network_volume_must_preexist"] is False
     assert submission["network_volume_auto_create_or_resize"] is False
     assert submission["network_volume_mount_path"] == "/outputs"
     assert submission["network_volume_from_trusted_control_plane_only"] is True
@@ -154,7 +161,7 @@ def test_completion_v3_root_signer_is_connected_but_not_live_verified() -> None:
     assert completion["provider_account_or_host_is_outside_signer_threat_model"] is True
     assert completion["root_owned_signer_redesign_required"] is False
     assert completion["root_owned_signer_commit"] == "fc131174a9b529a9825f54fccf1a7df4c63c9a1a"
-    assert completion["provider_v2_exit_code_field_documented"] is False
+    assert completion["provider_v2_exit_code_field_documented"] is True
     assert completion["legacy_v2_compatibility_status"] == "temporary_offline_migration_only"
     assert completion["provider_job_id_binding"] == "submission_receipt_and_provider_specific_collection_transport"
     assert completion["max_marker_bytes"] == 16384
@@ -163,8 +170,11 @@ def test_completion_v3_root_signer_is_connected_but_not_live_verified() -> None:
     assert completion["completion_marker"] == "GPU_CONTROL_COMPLETION_JSON_V3:"
     assert "GPU_CONTROL_COMPLETION_KEY_B64" in completion["system_environment"]
     assert completion["production_collection_transport_status"] == (
-        "network_volume_s3_implemented_offline_mock_tested"
+        "pod_exec_registered_wrapper_implemented_offline_mock_tested"
     )
+    assert completion["production_collection_transport_endpoint"] == "POST /pods/{id}/exec"
+    assert completion["production_collection_transport_arbitrary_command_exposed"] is False
+    assert completion["production_collection_transport_requires_persistent_storage"] is False
     assert completion["production_collection_transport_live_verified"] is False
     assert completion["live_injection_enabled"] is False
     assert completion["live_collection_enabled"] is False

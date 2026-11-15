@@ -11,7 +11,7 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-11-14T17:01:11Z
+  audited_at_utc: 2026-11-15T00:00:00Z
   implementation_contract: rest_v2_openapi_reviewed_offline
   implementation_matches_current_official_rest_contract: true
   current_official_rest_version_observed: v2
@@ -28,6 +28,22 @@ api_contract_audit:
   current_official_list_pods_endpoint: GET /pods
   current_official_list_pods_response_shape: cursor_paginated_object_with_pods_array
   current_official_delete_pod_endpoint: DELETE /pods/{id}
+  current_official_get_pod_endpoint: GET /pods/{id}
+  current_official_exec_pod_endpoint: POST /pods/{id}/exec
+  current_official_exec_pod_response_fields:
+    - stdout
+    - stderr
+    - exitCode
+    - timedOut
+    - truncated
+    - durationMs
+  current_official_exec_pod_command_shape: argv_array
+  current_official_exec_pod_timeout_seconds_max: 25
+  current_official_exec_pod_stdout_stderr_cap_bytes_each: 1048576
+  current_official_exec_pod_requires_ssh_or_public_port: false
+  current_official_exec_pod_checked_docs_url: https://docs.runpod.io/api-reference-v2/pods/run-a-command-in-a-pod
+  sites_worker_v2_adapter_status: implemented_offline_mock_tested
+  sites_worker_v2_adapter_live_verified: false
   current_official_network_volume_attach_fields_observed: true
   current_official_network_volume_fields:
     - mounts.network[].volumeId
@@ -81,7 +97,7 @@ api_contract_audit:
   network_volume_attach_contract_repository: runpod/runpodctl
   network_volume_attach_contract_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
   network_volume_attach_contract_path: cmd/pod/create.go
-  note: Official API v2 documentation and OpenAPI were rechecked on 2026-11-14. The bounded v2 client follows cursor-paginated GET /pods, uses the v2 GPU catalog for price and exact datacenter availability, and binds Network Volume mounts through mounts.network plus trusted dataCenterIds. It does not request queueing and rejects HTTP 202; adding queued Pods requires a separate queued-resource lifecycle and cancellation implementation. The current official OpenAPI documents GET /pods/{id}/logs as a 200 text/event-stream response; an older runpod-mcp disabled-tool note is not proof that the production REST endpoint is unavailable. The endpoint has not been live-verified with this account, and SSE is not enabled as a result transport. Full provider behavior, result integrity, cleanup, and live account evidence remain unverified. All live calls remain disabled.
+  note: Official API v2 documentation was rechecked on 2026-11-15. The current contract includes POST /pods/{id}/exec, which executes a direct argv command without SSH or a public port and returns bounded stdout, stderr, exitCode, timeout, truncation, and duration fields. The Sites adapter exposes no caller-selected command and invokes only a digest-pinned image's registered wrapper. This removes Network Volume and S3 from the minimum canary architecture, avoiding persistent storage cost, but the exec and cleanup behavior are not yet live-verified with this account. Full provider behavior, result integrity, pricing, cleanup, and live account evidence remain unverified. All live calls remain disabled.
 
 submission:
   approved_plan_required: true
@@ -104,8 +120,8 @@ submission:
   user_env_forwarded: false
   user_mounts_forwarded: false
   automatic_create_retry: false
-  trusted_network_volume_required_for_live_canary: true
-  network_volume_must_preexist: true
+  trusted_network_volume_required_for_live_canary: false
+  network_volume_must_preexist: false
   network_volume_auto_create_or_resize: false
   network_volume_mount_path: /outputs
   network_volume_from_trusted_control_plane_only: true
@@ -146,7 +162,7 @@ completion_evidence:
   root_owned_signer_entrypoint: workloads/runpod-training-canary/entrypoint.py
   root_owned_signer_uid: 0
   training_uid: 10001
-  provider_v2_exit_code_field_documented: false
+  provider_v2_exit_code_field_documented: true
   per_run_nonce_required: true
   pre_create_execution_name_required: true
   minimum_secret_bytes: 32
@@ -176,7 +192,10 @@ completion_evidence:
   completion_marker: "GPU_CONTROL_COMPLETION_JSON_V3:"
   max_marker_bytes: 16384
   offline_marker_authentication_allowed: true
-  production_collection_transport_status: network_volume_s3_implemented_offline_mock_tested
+  production_collection_transport_status: pod_exec_registered_wrapper_implemented_offline_mock_tested
+  production_collection_transport_endpoint: POST /pods/{id}/exec
+  production_collection_transport_arbitrary_command_exposed: false
+  production_collection_transport_requires_persistent_storage: false
   production_collection_transport_live_verified: false
   live_injection_enabled: false
   live_collection_enabled: false

@@ -1,3 +1,5 @@
+import { runpodConfigured } from "./runpod_provider.js";
+
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
 const MCP_VERSIONS = [...LEGACY_VERSIONS, MCP_VERSION];
@@ -762,6 +764,9 @@ async function capabilities(env) {
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
   const authorizationStoreReady = await humanAuthorizationStoreReady(env);
   const providerConfigured = modalConfigured(env);
+  const runpodProviderConfigured = runpodConfigured(env);
+  const runpodEnabled = env.RUNPOD_WORKLOAD_ADMISSION_ENABLED === "true" &&
+    runpodProviderConfigured && authorizationStoreReady;
   // Capabilities is read-only. Defer the billable live health probe until submit,
   // after the exact plan's one-use human authorization has been verified.
   const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady;
@@ -771,8 +776,18 @@ async function capabilities(env) {
     human_summary: available ? "Modalの固定CPU・メモリ上限が有効です（1 physical core / 512 MiB、最大30秒）。実際の接続確認はplan確認後の送信時に行います。Sandbox使用料が発生し、利用可能なクレジットがあれば充当されます。" : "Modal実行経路は未設定または停止中です。登録済み実験の実行はできません。",
     machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_inflight: 1, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
     blocking_reason: available ? null : (!authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" : (!providerConfigured ? "MODAL_PROVIDER_NOT_CONFIGURED" : "CPU_WORKLOAD_ADMISSION_DISABLED")),
-    providers: [{ id: "modal_cpu", enabled: available, free: false, paid: true, credit_eligible: true }],
-    workloads: [{ id: WORKLOAD, enabled: available, requires_gpu: false, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST || null }],
+    providers: [
+      { id: "modal_cpu", enabled: available, configured: providerConfigured, free: false, paid: true, credit_eligible: true },
+      { id: "runpod_gpu", enabled: runpodEnabled, configured: runpodProviderConfigured, free: false, paid: true,
+        credit_eligible: false, gpu_count: 1, api_version: "v2", execution_interface: "registered_workload_only" },
+    ],
+    workloads: [
+      { id: WORKLOAD, enabled: available, providers: ["modal_cpu"], requires_gpu: false,
+        sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST || null },
+      { id: "tiny-gpu-training-v1", enabled: runpodEnabled, providers: ["runpod_gpu"], requires_gpu: true,
+        parameters: { steps: { minimum: 1, maximum: 200 }, seed: { minimum: 1, maximum: 1000000 } },
+        image: env.RUNPOD_WORKLOAD_IMAGE || null },
+    ],
     paid_execution: "parked",
   };
 }
