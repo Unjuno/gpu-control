@@ -52,6 +52,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0009_modal_health_readiness.sql",
         "0010_modal_status_check_budget.sql",
         "0011_chatgpt_tool_authorization.sql",
+        "0012_provider_runtime_state.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -124,6 +125,8 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
     assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events", "modal_authorized_health_checks", "modal_status_check_limits"} <= tables
+    assert db.execute("SELECT provider, provider_plan_json FROM plans WHERE id=?", ("plan-existing",)).fetchone() == ("modal_cpu", None)
+    assert db.execute("SELECT provider_job_id, provider_phase, provider_nonce, completion_key_ciphertext_b64 FROM runs WHERE id=?", ("run-existing",)).fetchone() == (None, "not_started", None, None)
     db.execute(
         """INSERT INTO modal_authorized_health_checks
         (plan_id, owner_id, fingerprint, checked_at)
