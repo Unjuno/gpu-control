@@ -1,6 +1,6 @@
 # Sites + D1 architecture pivot
 
-**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. A historical free TinyStories inference and artifact retrieval were verified through the now-retired local Runner. Current Modal health is ready, but no successful inference against the current Modal deployment is accepted. Recovery, identity isolation, complete artifact operations, and GPU execution remain open.
+**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. A historical free TinyStories inference and artifact retrieval were verified through the now-retired local Runner. On 2026-11-15, the current Modal deployment completed one owner-confirmed TinyStories CPU inference with a digest-verified R2 artifact and confirmed Sandbox cleanup. That accepts only the fixed CPU vertical; repeatability, recovery/stability drills, identity isolation, GPU execution, and RunPod remain open. See [the current Modal CPU acceptance record](../acceptance/2026-11-15-sites-modal-cpu-success.md).
 
 ## P0 baseline refresh — 2026-11-11 (historical snapshot; superseded below)
 

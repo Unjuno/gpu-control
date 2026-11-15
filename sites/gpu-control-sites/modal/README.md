@@ -16,6 +16,13 @@ networking and at most 30 seconds of runtime. The resource tuple is included in
 the workload image fingerprint. CPU usage at the limit is throttled; exceeding
 the memory limit can OOM-terminate the Sandbox and fail the run.
 
+`POST /submit` returns after Modal accepts or reconciles the deterministic
+Sandbox. It does not wait for workload output or terminate the Sandbox. Later
+`POST /status` calls own bounded stream capture, result validation, termination,
+and cleanup reporting. This separation keeps the ChatGPT tool call short while
+preserving idempotent recovery after a lost submit response. A run is not
+terminal until status reports terminal execution and confirmed cleanup.
+
 ## Deploy requirements
 
 - Modal Python SDK 1.6.3. The fixed API uses the documented
