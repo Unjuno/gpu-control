@@ -191,6 +191,17 @@ def _bounded_stream(stream, maximum: int) -> tuple[str, bool]:
     return out.decode("utf-8", errors="replace"), truncated
 
 
+def _submission_observation(sandbox) -> dict[str, Any]:
+    """Return after provider acceptance; status owns capture and cleanup."""
+    return {
+        "state": "running",
+        "sandbox_id": sandbox.object_id,
+        "cleanup_state": "pending",
+        "image_id": workload_image.object_id,
+        "image_fingerprint": WORKLOAD_IMAGE_FINGERPRINT,
+    }
+
+
 def _capture(sandbox, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         raw_exit_code = sandbox.poll()
@@ -266,7 +277,7 @@ async def submit(run_id: str, request: Request):
     payload = _validate_payload(run_id, await request.json())
     existing = _find_sandbox(run_id)
     if existing is not None:
-        return _capture(existing, run_id, payload)
+        return _submission_observation(existing)
     try:
         sandbox = modal.Sandbox.create(
             *SANDBOX_ENTRYPOINT,
@@ -291,7 +302,7 @@ async def submit(run_id: str, request: Request):
         sandbox = _find_sandbox(run_id)
         if sandbox is None:
             raise HTTPException(status_code=503, detail="SUBMISSION_STATE_UNKNOWN")
-    return _capture(sandbox, run_id, payload)
+    return _submission_observation(sandbox)
 
 
 @api.post("/v1/runs/{run_id}/status")

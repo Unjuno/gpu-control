@@ -51,6 +51,20 @@ def load_capture():
     return namespace["_capture"]
 
 
+def load_submission_observation():
+    source = (MODAL_DIR / "app.py").read_text(encoding="utf-8")
+    function = next(node for node in ast.parse(source).body
+                    if isinstance(node, ast.FunctionDef) and node.name == "_submission_observation")
+    namespace = {
+        "Any": object,
+        "WORKLOAD_IMAGE_FINGERPRINT": "image-fingerprint",
+        "workload_image": types.SimpleNamespace(object_id="im-test"),
+    }
+    module = ast.Module(body=[function], type_ignores=[])
+    exec(compile(module, str(MODAL_DIR / "app.py"), "exec"), namespace)
+    return namespace["_submission_observation"]
+
+
 def test_non_object_json_fails_closed_and_still_terminates_sandbox():
     sandbox = FakeSandbox(["[]\n"])
     capture = load_capture()(sandbox, "a" * 32, {"plan_fingerprint": "b" * 64})
@@ -71,3 +85,24 @@ def test_stream_error_still_terminates_sandbox_and_reports_capture_failure():
     assert capture["diagnostic_code"] == "CAPTURE_FAILED"
     assert capture["cleanup_state"] == "confirmed"
     assert sandbox.terminated is True
+
+
+def test_submit_returns_provider_acceptance_without_waiting_for_capture_or_cleanup():
+    sandbox = FakeSandbox(["result must not be read during submit\n"])
+    observation = load_submission_observation()(sandbox)
+    assert observation == {
+        "state": "running",
+        "sandbox_id": "sb-test",
+        "cleanup_state": "pending",
+        "image_id": "im-test",
+        "image_fingerprint": "image-fingerprint",
+    }
+    assert sandbox.terminated is False
+
+    source = (MODAL_DIR / "app.py").read_text(encoding="utf-8")
+    submit = next(node for node in ast.parse(source).body
+                  if isinstance(node, ast.AsyncFunctionDef) and node.name == "submit")
+    called_names = {node.func.id for node in ast.walk(submit)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    assert "_submission_observation" in called_names
+    assert "_capture" not in called_names
