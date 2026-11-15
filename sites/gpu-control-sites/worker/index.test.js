@@ -1016,6 +1016,51 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   assert.equal(current.lease_id, "sb-existing", "the later provider lookup reconnects the original Sandbox");
 });
 
+test("Modal status timeout preserves the recoverable running state without claiming cleanup", async () => {
+  const runId = "6".repeat(32);
+  const current = { id: runId, state: "running", created_at: 10, updated_at: 11,
+    lease_expires_at: 1000, result_json: null, failure_code: null, cleanup_state: "pending",
+    cleanup_receipt_json: null, cancel_requested: 0, result_artifact_id: null,
+    result_artifact_sha256: null, result_artifact_size: null, lease_id: "sb-existing",
+    workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control", source_sha: sourceSha,
+    image_digest: imageDigest, parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
+    fingerprint: "c".repeat(64), runtime_seconds: 30 };
+  const env = environment();
+  env.MODAL_API_URL = modalApiUrl;
+  env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
+  env.MODAL_PROXY_TOKEN_SECRET = `ws-${"s".repeat(16)}`;
+  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "d".repeat(64);
+  env.BUCKET = { put: async () => {} };
+  let stateWrites = 0;
+  env.DB.prepare = (sql) => ({ bind() { return {
+    async first() {
+      if (sql.includes("FROM runs r JOIN plans p")) return { ...current };
+      throw new Error(`unexpected D1 first query: ${sql}`);
+    },
+    async run() {
+      if (sql.includes("modal_status_check_limits")) return { meta: { changes: 1 } };
+      stateWrites++;
+      throw new Error(`unexpected D1 state write after provider timeout: ${sql}`);
+    },
+  }; } });
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => { throw new DOMException("request timed out", "AbortError"); };
+    const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const rpc = await response.json();
+    assert.equal(rpc.result.isError, true);
+    assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "INTERNAL_ERROR" },
+      "provider timeout details must not escape through the public tool response");
+    assert.equal(current.state, "running");
+    assert.equal(current.cleanup_state, "pending");
+    assert.equal(current.failure_code, null);
+    assert.equal(stateWrites, 0, "an observation timeout must not invent a terminal state or cleanup receipt");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("persistent Modal not-found releases a stale run slot only after the recovery horizon", async () => {
   const runId = "8".repeat(32);
   const leaseExpiresAt = 1000;
