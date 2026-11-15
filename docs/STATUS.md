@@ -1,5 +1,19 @@
 # Project status
 
+## Modal recovery candidate verified offline — 2026-11-15
+
+- The unpublished candidate now returns from Modal submit after provider
+  acceptance and leaves capture, validation, termination, and cleanup to later
+  status calls.
+- Injected recovery coverage includes duplicate reservation, lost submit
+  response, status timeout, post-horizon absence, provider failure, image
+  mismatch, R2/D1 persistence retry, and cancellation/result races. Sites has
+  45 passing tests; build and artifact validation pass. Exact-head PR checks
+  pass.
+- This is offline evidence only. A repeat live run and a bounded live recovery
+  drill are still required before recovery/operations acceptance. Evidence:
+  [Modal recovery offline matrix](acceptance/2026-11-15-modal-recovery-offline-matrix.md).
+
 ## Modal CPU vertical accepted — 2026-11-15
 
 - ChatGPT Sites Version 38 completed owner-confirmed run
