@@ -65,4 +65,8 @@ const providerRuntimeMigration = readFileSync(join(root, ".openai/drizzle/0012_p
 assert.match(providerRuntimeMigration, /ADD COLUMN provider TEXT NOT NULL DEFAULT 'modal_cpu'/);
 assert.match(providerRuntimeMigration, /ADD COLUMN provider_job_id TEXT/);
 assert.match(providerRuntimeMigration, /runs_provider_job_id_unique/);
+assert.ok(migrations.includes("0013_provider_budgets.sql"));
+const providerBudgetMigration = readFileSync(join(root, ".openai/drizzle/0013_provider_budgets.sql"), "utf8");
+assert.match(providerBudgetMigration, /'modal_cpu', 30000000, 10000/);
+assert.match(providerBudgetMigration, /'runpod_gpu', NULL, 1000000/);
 console.log("Site Worker artifact is complete.");

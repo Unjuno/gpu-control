@@ -31,6 +31,8 @@ const MODAL_SANDBOX_CPU_USD_PER_CORE_SECOND = 0.00003942;
 const MODAL_SANDBOX_MEMORY_USD_PER_GIB_SECOND = 0.00000667;
 const MODAL_SANDBOX_MEMORY_GIB = MODAL_SANDBOX_MEMORY_LIMIT_MIB / 1024;
 const MODAL_SANDBOX_COST_CEILING_USD = "0.01";
+const MODAL_MONTHLY_BUDGET_USD = "30.00";
+const RUNPOD_PER_RUN_BUDGET_USD = "1.00";
 const MODAL_PRICING_SOURCE = "https://modal.com/pricing";
 const MODAL_PRICING_CHECKED_AT = "2026-11-14";
 const MODAL_MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin";
@@ -788,8 +790,38 @@ async function capabilities(env) {
         parameters: {},
         image: env.RUNPOD_WORKLOAD_IMAGE || null },
     ],
+    provider_budgets: [
+      { provider: "modal_cpu", monthly_limit_usd: MODAL_MONTHLY_BUDGET_USD,
+        per_run_limit_usd: MODAL_SANDBOX_COST_CEILING_USD },
+      { provider: "runpod_gpu", monthly_limit_usd: null,
+        per_run_limit_usd: RUNPOD_PER_RUN_BUDGET_USD },
+    ],
     paid_execution: "parked",
   };
+}
+
+function utcMonthKey(epochSeconds) {
+  const date = new Date(epochSeconds * 1000);
+  return `${date.getUTCFullYear().toString().padStart(4, "0")}-${(date.getUTCMonth() + 1).toString().padStart(2, "0")}`;
+}
+
+async function reserveProviderBudget(env, { runId, provider, requestedMicrousd, now }) {
+  const periodKey = utcMonthKey(now);
+  const inserted = await env.DB.prepare(`INSERT INTO provider_budget_reservations
+      (run_id, provider, period_key, reserved_microusd, created_at)
+    SELECT ?, p.provider, ?, ?, ? FROM provider_budget_policies p
+    WHERE p.provider=? AND ?<=p.per_run_limit_microusd
+      AND (p.monthly_limit_microusd IS NULL OR
+        COALESCE((SELECT SUM(r.reserved_microusd) FROM provider_budget_reservations r
+          WHERE r.provider=p.provider AND r.period_key=?), 0) + ? <= p.monthly_limit_microusd)
+    ON CONFLICT(run_id) DO NOTHING`)
+    .bind(runId, periodKey, requestedMicrousd, now, provider, requestedMicrousd,
+      periodKey, requestedMicrousd).run();
+  const reservation = await env.DB.prepare(`SELECT provider, period_key, reserved_microusd
+    FROM provider_budget_reservations WHERE run_id=?`).bind(runId).first();
+  return inserted?.meta?.changes === 1 ||
+    (reservation?.provider === provider && reservation?.period_key === periodKey &&
+      reservation?.reserved_microusd === requestedMicrousd);
 }
 
 function modalWorkloadFailureCode(providerResult) {
@@ -1054,6 +1086,22 @@ async function callTool(name, args, request, env) {
       human_summary: "CPU実行Admissionは停止中です。Modalには接続していません。",
       machine_state: { run_id: args.run_id, admission_enabled: false, sandbox_started: false },
       next_allowed_actions: [], blocking_reason: "CPU_WORKLOAD_ADMISSION_DISABLED" };
+    let budgetReserved = false;
+    try {
+      budgetReserved = await reserveProviderBudget(env, {
+        runId: args.run_id, provider: "modal_cpu", requestedMicrousd: 10000, now,
+      });
+    } catch {
+      return { schema_version: 2, status: "blocked",
+        human_summary: "Modalのprovider別予算台帳を安全に更新できないため、Modalには接続していません。",
+        machine_state: { run_id: args.run_id, sandbox_started: false },
+        next_allowed_actions: [], blocking_reason: "PROVIDER_BUDGET_LEDGER_UNAVAILABLE" };
+    }
+    if (!budgetReserved) return { schema_version: 2, status: "blocked",
+      human_summary: "Modalの月次30ドル上限または1回0.01ドル上限に達したため、Modalには接続していません。",
+      machine_state: { run_id: args.run_id, provider: "modal_cpu", monthly_limit_usd: MODAL_MONTHLY_BUDGET_USD,
+        per_run_limit_usd: MODAL_SANDBOX_COST_CEILING_USD, sandbox_started: false },
+      next_allowed_actions: [], blocking_reason: "PROVIDER_BUDGET_EXHAUSTED" };
     // A successful explicit health check is reusable by submit. Otherwise
     // reserve the separately billed call in the same bounded workspace and
     // one-use plan ledgers before contacting Modal.

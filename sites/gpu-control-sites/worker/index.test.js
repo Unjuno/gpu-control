@@ -683,6 +683,7 @@ test("parallel submits for one confirmed plan reserve at most one billable healt
   const plan = storedPlan(runId, fingerprint);
   let workspaceReserved = false;
   let planReserved = false;
+  let providerBudgetReserved = false;
   let batchCalls = 0;
   let healthCalls = 0;
   env.DB.prepare = (sql) => ({ bind() { return {
@@ -692,6 +693,9 @@ test("parallel submits for one confirmed plan reserve at most one billable healt
       if (sql.includes("FROM plans WHERE id=?")) return plan;
       if (sql.includes("FROM human_authorizations")) return { id: "a".repeat(32), fingerprint,
         expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
+      if (sql.includes("FROM provider_budget_reservations WHERE run_id=?")) return providerBudgetReserved
+        ? { provider: "modal_cpu", period_key: new Date().toISOString().slice(0, 7), reserved_microusd: 10000 }
+        : null;
       return null;
     },
     async run() {
@@ -706,6 +710,11 @@ test("parallel submits for one confirmed plan reserve at most one billable healt
         return { meta: { changes: 1 } };
       }
       if (sql.includes("UPDATE modal_authorized_health_checks")) return { meta: { changes: 1 } };
+      if (sql.includes("INSERT INTO provider_budget_reservations")) {
+        if (providerBudgetReserved) return { meta: { changes: 0 } };
+        providerBudgetReserved = true;
+        return { meta: { changes: 1 } };
+      }
       throw new Error(`unexpected D1 write query: ${sql}`);
     },
   }; } });
@@ -918,6 +927,7 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
     expires_at: Math.floor(Date.now() / 1000) + 300, consumed_at: null };
   let healthBudgetUsed = false;
   let planHealthUsed = false;
+  let providerBudgetReserved = false;
   const env = environment({ admission: "true" });
   env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
@@ -938,6 +948,9 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
       if (sql.includes("SELECT ready FROM modal_authorized_health_checks")) return { ready: 1 };
       if (sql.includes("FROM plans WHERE id=?")) return plan;
       if (sql.includes("FROM human_authorizations")) return { ...authorization };
+      if (sql.includes("FROM provider_budget_reservations WHERE run_id=?")) return providerBudgetReserved
+        ? { provider: "modal_cpu", period_key: new Date().toISOString().slice(0, 7), reserved_microusd: 10000 }
+        : null;
       if (sql.includes("FROM runs r JOIN plans p")) return current ? { ...plan, ...current } : null;
       if (sql.startsWith("SELECT state, created_at, updated_at, cleanup_state, failure_code FROM runs")) return current;
       throw new Error(`unexpected D1 first query: ${sql}`);
@@ -953,6 +966,10 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
       if (sql.includes("modal_authorized_health_checks")) {
         if (planHealthUsed) return { meta: { changes: 0 } };
         planHealthUsed = true;
+        return { meta: { changes: 1 } };
+      }
+      if (sql.includes("INSERT INTO provider_budget_reservations")) {
+        providerBudgetReserved = true;
         return { meta: { changes: 1 } };
       }
       if (sql.startsWith("UPDATE runs SET state='running'")) {
