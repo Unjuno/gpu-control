@@ -2,23 +2,20 @@
 
 ## Latest verified state — 2026-11-15
 
-The production Sites project is active at Version 35 from source commit
-`0eb4fe4ba7dcdc6035af4bdc89f8751b40716538`, environment revision 39. The Site
+The production Sites project is active at Version 38 from source commit
+`e8515950bdda0583300ae6b85258a14429527077`, environment revision 40. The Site
 URL is public, but MCP state and run operations require authenticated owner
 identity and exact-plan confirmation. A separate signed-in account denial
 test remains open.
 
 The candidate Modal app is deployed to `unjuno/main` with fingerprint
 `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`.
-`CPU_WORKLOAD_ADMISSION_ENABLED=true`. A fresh goal turn loaded Version 35's
-exact-plan ChatGPT-native write schema and prepared an owner-bound plan without
-a separate browser login. The destructive confirmation and submit remain
-unverified. No provider health call or Sandbox was submitted through Version
-35. The candidate's hard limits are 1 CPU and 512 MiB, but
-provider-side Sandbox limits and the post-deploy health response have not yet
-been verified.
-The latest historical Modal-origin runs failed with exit code 2; no
-current-candidate inference has completed.
+`CPU_WORKLOAD_ADMISSION_ENABLED=true`. Owner-confirmed run
+`245d034977e5471aa7ec6d1f80f6232f` completed through Version 38 without a
+separate browser login. It succeeded with the expected fixed CPU workload,
+verified R2 artifact, confirmed cleanup, and zero concurrent Sandboxes. The
+candidate's hard limits are 1 CPU and 512 MiB. Recovery and repeatability
+remain open operational gates.
 
 Current Modal balance, usage, and Workspace limits are account-specific and are
 not published here. Modal execution is usage-billed: credit eligibility does

@@ -39,7 +39,7 @@ caveat. The owner opens it while signed in and submits a same-origin form. The
 Worker stores a challenge hash and an owner-, plan-fingerprint-, and expiry-
 bound authorization in D1.
 
-Deployed Site Version 35 adds a ChatGPT-native path. `experiment_prepare`
+Deployed Site Version 38 provides a ChatGPT-native path. `experiment_prepare`
 returns the same exact plan fields in its structured result. `experiment_submit`
 is marked as a destructive MCP write and its confirmed tool call must repeat
 the plan fields; the Worker compares each field with the current owner-bound
@@ -50,8 +50,9 @@ that reserves that run. A separate browser login is not part of this intended
 ChatGPT flow.
 
 The publishing conversation cached Version 34's tool schema. A later goal turn
-loaded Version 35 and prepared an exact plan; the destructive write UI and
-submit remain unverified.
+loaded the new schema, prepared an exact plan, and completed one owner-confirmed
+Modal CPU run with result and cleanup. Separate-account denial and stronger
+host-confirmation provenance remain unverified.
 The ChatGPT host's write confirmation is a user-facing approval surface, not a
 cryptographic attestation that a human operated the UI. MCP annotations do not
 replace the Worker's owner authorization, exact-plan validation, short expiry,

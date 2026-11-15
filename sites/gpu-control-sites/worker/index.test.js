@@ -268,8 +268,9 @@ test("Modal requests reject redirects before proxy credentials can be forwarded"
   try {
     const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
     const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(redirectMode, "error");
+    assert.equal(redirectMode, "manual");
     assert.equal(result.blocking_reason, "MODAL_PROVIDER_HEALTH_MISMATCH");
+    assert.equal(result.machine_state.checks.error_code, "MODAL_PROVIDER_HTTP_3XX");
     assert.equal(result.machine_state.sandbox_started, false);
   } finally {
     globalThis.fetch = originalFetch;
@@ -323,8 +324,10 @@ test("Modal health diagnostic is owner-scoped and performs one authenticated GET
     assert.equal(url, "https://unjuno--gpu-control-sites-control-api.us-east.modal.run/v1/health");
     assert.equal(init.method, "GET");
     assert.equal(init.body, undefined);
-    assert.equal(init.headers["Modal-Key"], env.MODAL_PROXY_TOKEN_ID);
-    assert.equal(init.headers["Modal-Secret"], env.MODAL_PROXY_TOKEN_SECRET);
+    assert.equal(init.headers.Authorization,
+      `Bearer ${env.MODAL_PROXY_TOKEN_ID}.${env.MODAL_PROXY_TOKEN_SECRET}`);
+    assert.equal(init.headers["Modal-Key"], undefined);
+    assert.equal(init.headers["Modal-Secret"], undefined);
     return new Response(JSON.stringify({
       ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
       registered_image_digest: imageDigest, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT,
@@ -376,15 +379,18 @@ test("Modal health diagnostic reports provider auth failure without starting a S
   env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
   env.BUCKET = { put: async () => {} };
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response("unauthorized", { status: 401 });
+  globalThis.fetch = async () => new Response("credential detail must not escape", { status: 401 });
   try {
     const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
     const result = JSON.parse((await response.json()).result.content[0].text);
     assert.equal(result.status, "blocked");
     assert.equal(result.machine_state.ready, false);
     assert.equal(result.machine_state.checks.request_succeeded, false);
+    assert.equal(result.machine_state.checks.error_code, "MODAL_PROVIDER_HTTP_401");
     assert.equal(result.machine_state.sandbox_started, false);
     assert.equal(result.machine_state.inference_started, false);
+    assert.equal(JSON.stringify(result).includes("credential detail"), false);
+    assert.equal(JSON.stringify(result).includes(env.MODAL_PROXY_TOKEN_SECRET), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -721,6 +727,12 @@ test("parallel submits for one confirmed plan reserve at most one billable healt
       "MODAL_HEALTH_CHECK_RATE_LIMITED",
       "MODAL_PROVIDER_HEALTH_FAILED",
     ]);
+    const failed = outcomes.find((outcome) => outcome.blocking_reason === "MODAL_PROVIDER_HEALTH_FAILED");
+    assert.deepEqual(failed.machine_state.provider_health_checks, {
+      configured: true,
+      request_succeeded: false,
+      error_code: "MODAL_PROVIDER_HTTP_5XX",
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1132,7 +1144,10 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
     try {
       globalThis.fetch = async (url, init) => {
         assert.match(String(url), new RegExp(`/v1/runs/${runId}/status$`));
-        assert.equal(new Headers(init.headers).get("modal-key"), env.MODAL_PROXY_TOKEN_ID);
+        assert.equal(new Headers(init.headers).get("authorization"),
+          `Bearer ${env.MODAL_PROXY_TOKEN_ID}.${env.MODAL_PROXY_TOKEN_SECRET}`);
+        assert.equal(new Headers(init.headers).get("modal-key"), null);
+        assert.equal(new Headers(init.headers).get("modal-secret"), null);
         providerReads++;
         return Response.json({ state: "succeeded", cleanup_state: "confirmed", sandbox_id: "sb-terminal",
           image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT, result });

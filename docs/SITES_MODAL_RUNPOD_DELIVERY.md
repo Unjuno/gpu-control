@@ -15,14 +15,12 @@ provide model compute. Compute remains an explicitly configured provider.
 
 ## Current live state — refreshed 2026-11-15
 
-- ChatGPT Site Version 35 is active at the published URL with public
+- ChatGPT Site Version 38 is active at the published URL with public
   audience and an owner-only MCP allowlist. The connected owner account can
   read capabilities and owner-scoped history. Current capabilities report the
-  Modal CPU workload configured and admission enabled, but provider health is
-  deferred until exact owner confirmation of a fresh plan. Version 35 publishes
-  the ChatGPT-native destructive write contract. A fresh goal turn loaded the
-  schema and prepared a plan without a browser login; the destructive
-  confirmation and submit remain unverified before the first live run.
+  Modal CPU workload configured and admission enabled. The ChatGPT-native exact
+  confirmation path completed one fixed Modal CPU run with verified artifact
+  and cleanup; recovery and repeatability remain open.
 - The current Sites capabilities response registers fingerprint
   `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5` and
   image digest
@@ -31,17 +29,17 @@ provide model compute. Compute remains an explicitly configured provider.
   hard limits; provider health remains deferred until plan confirmation. The five recorded
   Modal-origin runs failed on November 12 before the November 13 Docker `CMD`
   correction was deployed. Source analysis points to the older image
-  `ENTRYPOINT` bypassing the privilege-dropping bootstrap; no post-correction
-  Sandbox run has verified the fix.
+  `ENTRYPOINT` bypassing the privilege-dropping bootstrap. A post-correction
+  Version 38 Sandbox run has now verified the fixed path.
 - Public Starter pricing does not reveal this Workspace's account balance,
   usage, or limits. Treat Modal as paid and usage-billed; credits may offset
   eligible usage. The `$0.01` Sandbox ceiling does not include control-function
   calls. The user authorized up to `$1` total project testing usage; check the
   live Workspace limit before a provider call and do not add a payment method.
 - The fixed Modal candidate is deployed to `unjuno/main`; its temporary
-  deployment token was revoked. Do not start another Sandbox until ChatGPT
-  confirms a fresh exact Version 35 plan and the deployed
-  fingerprint, digest, and actual hard resource limits are reconciled.
+  deployment token was revoked. Any additional Sandbox still requires a fresh
+  exact ChatGPT confirmation and must preserve the deployed fingerprint,
+  digest, hard resource limits, result, and cleanup checks.
   RunPod/GPU remains parked.
 
 ## Historical baseline — refreshed 2026-11-13

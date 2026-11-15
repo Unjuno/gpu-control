@@ -507,10 +507,9 @@ async function modalRequest(env, path, payload, { method = "POST", body = true }
   try {
     const response = await fetch(`${base}${path}`, {
       method,
-      redirect: "error",
+      redirect: "manual",
       headers: {
-        "Modal-Key": env.MODAL_PROXY_TOKEN_ID,
-        "Modal-Secret": env.MODAL_PROXY_TOKEN_SECRET,
+        "Authorization": `Bearer ${env.MODAL_PROXY_TOKEN_ID}.${env.MODAL_PROXY_TOKEN_SECRET}`,
         ...(body ? { "content-type": "application/json" } : {}),
       },
       ...(body ? { body: JSON.stringify(payload) } : {}),
@@ -518,7 +517,17 @@ async function modalRequest(env, path, payload, { method = "POST", body = true }
     });
     if (!response.ok) {
       try { await response.body?.cancel(); } catch {}
-      throw new Error(response.status === 404 ? "MODAL_RUN_NOT_FOUND" : "MODAL_PROVIDER_REQUEST_FAILED");
+      if (response.status === 404) throw new Error("MODAL_RUN_NOT_FOUND");
+      if ([401, 403, 429].includes(response.status)) {
+        throw new Error(`MODAL_PROVIDER_HTTP_${response.status}`);
+      }
+      if (response.status >= 300 && response.status <= 399) {
+        throw new Error("MODAL_PROVIDER_HTTP_3XX");
+      }
+      if (response.status >= 500 && response.status <= 599) {
+        throw new Error("MODAL_PROVIDER_HTTP_5XX");
+      }
+      throw new Error("MODAL_PROVIDER_REQUEST_FAILED");
     }
     const declaredLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(declaredLength) && declaredLength > MODAL_MAX_RESULT_BYTES) {
@@ -596,8 +605,19 @@ async function providerHealth(env) {
       source_sha: value.source_sha === env.CPU_WORKLOAD_SOURCE_SHA,
     };
     return { provider: Object.values(checks).every(Boolean) ? value : null, checks };
-  } catch {
-    return { provider: null, checks: { configured: true, request_succeeded: false } };
+  } catch (error) {
+    const allowedErrorCodes = new Set([
+      "MODAL_PROVIDER_HTTP_401", "MODAL_PROVIDER_HTTP_403",
+      "MODAL_PROVIDER_HTTP_429", "MODAL_PROVIDER_HTTP_3XX",
+      "MODAL_PROVIDER_HTTP_5XX",
+      "MODAL_PROVIDER_REQUEST_FAILED", "MODAL_PROVIDER_RESPONSE_TOO_LARGE",
+      "MODAL_PROVIDER_INVALID_RESPONSE", "MODAL_PROVIDER_TIMEOUT",
+    ]);
+    const errorCode = allowedErrorCodes.has(error?.message)
+      ? error.message : "MODAL_PROVIDER_NETWORK_ERROR";
+    return { provider: null, checks: {
+      configured: true, request_succeeded: false, error_code: errorCode,
+    } };
   }
 }
 
@@ -1077,7 +1097,8 @@ async function callTool(name, args, request, env) {
       const health = await providerHealth(env);
       if (!health.provider) return { schema_version: 2, status: "blocked",
         human_summary: "Modal health確認に失敗しました。Sandboxは起動していません。接続を復旧して新しいplanを確認してください。",
-        machine_state: { run_id: args.run_id, provider: "modal_cpu", workload: WORKLOAD, sandbox_started: false },
+        machine_state: { run_id: args.run_id, provider: "modal_cpu", workload: WORKLOAD,
+          provider_health_checks: health.checks, sandbox_started: false },
         next_allowed_actions: [], blocking_reason: "MODAL_PROVIDER_HEALTH_FAILED" };
       try {
         const persisted = await env.DB.prepare(`UPDATE modal_authorized_health_checks SET ready=1

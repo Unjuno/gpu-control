@@ -26,14 +26,15 @@ current candidate. ChatGPT MCP capabilities report the Modal CPU workload
 configured and admission enabled; each run still requires one-use confirmation
 of its exact plan. The confirmation page requires owner ChatGPT sign-in. The
 five recorded Modal failures all occurred on November 12, before the November
-13 Docker `CMD` correction was deployed. Source analysis attributes the old
-exit-2 failures to the image `ENTRYPOINT` bypassing the privilege-dropping
-bootstrap. No post-correction Sandbox run has verified that fix. The current
+13 Docker `CMD` correction was deployed. A post-correction owner-confirmed run
+has now completed successfully through ChatGPT Sites, Modal, R2, and confirmed
+cleanup. The current
 registered Modal fingerprint is
 `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5`. The fixed
 workload requests and hard-limits CPU to 1 core and memory to 512 MiB for at
-most 30 seconds. A successful ChatGPT-to-Modal result, provider-side limits,
-and cleanup after the correction are not yet verified. RunPod/GPU and paid
+most 30 seconds. One ChatGPT-to-Modal result, bounded artifact, independent
+artifact digest, provider `Done` state, and zero concurrent Sandboxes are now
+verified. Repeatability and recovery drills remain open. RunPod/GPU and paid
 training remain parked.
 
 Modal execution is usage-billed, not inherently free. Public Starter pricing does not establish this Workspace's credit balance, usage limit, or out-of-pocket exposure. The authorized project testing budget is `$1` cumulative through completion, not `$1` per run. The provider is still classified as paid and credit-eligible. The `$0.01` ceiling covers only Sandbox CPU/memory, not separately billed Modal control-function calls. Check current account billing in Modal before any provider call. See [Modal pricing](https://modal.com/pricing) and [Modal budgets](https://modal.com/docs/guide/budgets).
@@ -42,8 +43,8 @@ Modal execution is usage-billed, not inherently free. Public Starter pricing doe
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Provider configuration and authenticated plan/read tools are connected. Admission is enabled. Exact-plan owner confirmation is required before each run; the confirmation page requires ChatGPT sign-in. Five recorded failures predate the Docker `CMD` correction; no post-correction run has verified the fix. Modal control-function charges are separate from the Sandbox estimate. |
-| Real model inference through ChatGPT | No accepted successful inference against the current Modal deployment yet. Older local-Runner successes and failed Modal runs are historical evidence only. The current exact plan must complete with verified artifact digest and cleanup before CPU acceptance. |
+| Registered CPU experiment through ChatGPT | Accepted for one owner-confirmed fixed Modal run. Exact-plan owner confirmation remains required per run; Modal control-function charges remain separate from the Sandbox estimate. |
+| Real model inference through ChatGPT | Accepted for one fixed TinyStories 15M CPU run with verified R2 artifact digest and confirmed cleanup; recovery and repeatability remain open |
 | GPU execution | Not yet verified |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
@@ -64,16 +65,14 @@ Site URL is public, while MCP calls are authenticated and stateful tools bind
 the caller to the owner allowlist. This ChatGPT account successfully prepared
 a plan and read its capabilities; a separate-account denial and authenticated
 identity-header spoof resistance and deployed-source parity remain
-unverified. Sites Version 35 is live at environment revision 39 with CPU
-admission enabled. It adds a ChatGPT-native destructive write whose arguments
-repeat the exact approved plan. A fresh goal turn loaded that schema and
-prepared an owner-bound plan; the host confirmation UI and submit remain
-unverified. Each run still requires one-use
-exact-plan confirmation. No provider health request or Sandbox run has started
-through Version 35.
+unverified. Sites Version 38 is live at environment revision 40 with CPU
+admission enabled. Its ChatGPT-native destructive write repeats the exact
+approved plan. The owner-confirmed submit, ambiguous-response recovery, result,
+artifact, and cleanup have now completed once. Each run still requires one-use
+exact-plan confirmation.
 The Modal candidate is deployed to `unjuno/main`;
 provider health, effective Sandbox limits, successful inference, artifact
-digest, and cleanup are not yet verified. PR #68 remains an open Draft. The
+digest, and cleanup are verified for one fixed CPU run. PR #68 remains an open Draft. The
 repository-wide source security scan passed at revision `26c1def` with zero
 source-backed findings; live identity provenance, cross-account denial and
 provider behavior remain separate runtime gates.

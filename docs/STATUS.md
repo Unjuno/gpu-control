@@ -1,5 +1,24 @@
 # Project status
 
+## Modal CPU vertical accepted — 2026-11-15
+
+- ChatGPT Sites Version 38 completed owner-confirmed run
+  `245d034977e5471aa7ec6d1f80f6232f` through the fixed Modal CPU path.
+  The result generated `Once upon`, passed all nine workload/isolation checks,
+  used no GPU, and ended with cleanup confirmed.
+- The complete 931-byte R2 artifact was retrieved and its SHA-256 was
+  independently recomputed as
+  `86d88aa2593829f818003288b0d48a86807f2161e88cf6b5dd41af2e582325d7`,
+  matching the recorded digest. Modal independently displayed the Sandbox as
+  `Done`, lifetime 693 ms, with zero concurrent Sandboxes.
+- The submit response was ambiguous (`INTERNAL_ERROR`), but no duplicate was
+  submitted. Owner list/status recovery reconciled the original run to its
+  terminal result, exercising the lost-response recovery path.
+- Post-run Modal billing still displayed `$0.10` credits used, `$0` charges,
+  and the `$1` Workspace limit. This display can lag final billing. Recovery
+  and stability work is next; RunPod/GPU remains parked. Evidence:
+  [Modal CPU success](acceptance/2026-11-15-sites-modal-cpu-success.md).
+
 ## Sites Version 35 native plan preparation — 2026-11-15
 
 - A fresh goal turn loaded Version 35's updated `experiment_submit` schema,
