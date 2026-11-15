@@ -110,8 +110,9 @@ def test_parked_mode_cross_checks_all_live_provider_flags() -> None:
     assert runpod["completion_evidence"]["training_process_receives_completion_signing_secret"] is False
     assert runpod["completion_evidence"]["protocol"] == "hmac-sha256-v3"
     assert runpod["completion_evidence"]["production_collection_transport_status"] == (
-        "network_volume_s3_implemented_offline_mock_tested"
+        "pod_exec_registered_wrapper_implemented_offline_mock_tested"
     )
+    assert runpod["completion_evidence"]["production_collection_transport_live_verified"] is False
     assert runpod["completion_evidence"]["production_collection_transport_live_verified"] is False
     assert runpod["completion_evidence"]["live_injection_enabled"] is False
     assert runpod["completion_evidence"]["live_collection_enabled"] is False

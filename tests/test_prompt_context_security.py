@@ -237,7 +237,9 @@ def test_runpod_v2_source_review_does_not_activate_live_provider_calls() -> None
     assert audit["live_enablement_by_flag_only_forbidden"] is True
     assert completion["protocol"] == "hmac-sha256-v3"
     assert completion["pre_create_execution_name_required"] is True
-    assert completion["production_collection_transport_status"] == "network_volume_s3_implemented_offline_mock_tested"
+    assert completion["production_collection_transport_status"] == "pod_exec_registered_wrapper_implemented_offline_mock_tested"
+    assert completion["production_collection_transport_arbitrary_command_exposed"] is False
+    assert completion["production_collection_transport_live_verified"] is False
     assert completion["live_injection_enabled"] is False
     assert completion["live_collection_enabled"] is False
 
