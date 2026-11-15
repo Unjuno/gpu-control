@@ -13,6 +13,10 @@
 - This is offline evidence only. A repeat live run and a bounded live recovery
   drill are still required before recovery/operations acceptance. Evidence:
   [Modal recovery offline matrix](acceptance/2026-11-15-modal-recovery-offline-matrix.md).
+- A later read-only ChatGPT tool refresh still reported the fixed route
+  available and found no `queued` or `running` record in the latest 50
+  owner-visible D1 runs. This did not contact Modal health and is not a
+  provider-side orphan inventory.
 
 ## Modal CPU vertical accepted — 2026-11-15
 

@@ -52,3 +52,18 @@ Before calling recovery and operations accepted:
 5. retain admission and exact one-use plan confirmation instead of exposing
    anonymous public compute.
 
+## Read-only live refresh
+
+After recording the matrix, the authenticated ChatGPT tools were queried
+without preparing a plan, checking provider health, or starting compute.
+Capabilities still reported the fixed Modal CPU route available with admission
+enabled, explicit one-use plan confirmation, one physical CPU core, 512 MiB,
+30 seconds maximum runtime, estimated maximum Sandbox cost `$0.0013`, and the
+`$0.01` Sandbox ceiling. The latest 50 owner-visible D1 records contained no
+`queued` or `running` run; the newest record was the accepted Modal success
+`245d034977e5471aa7ec6d1f80f6232f`.
+
+This proves only the owner-visible Site/D1 state at the observation time. It
+does not replace a provider-side Modal active-Sandbox inventory or billing
+refresh, and no provider health call or spend was triggered by this read.
+
