@@ -70,6 +70,31 @@ test("unrequested queued create is rejected instead of becoming an unmanaged res
   });
 });
 
+test("catalog offer requires one positive secure price and HIGH exact-datacenter capacity", async () => {
+  const client = new RunpodV2Client(env, { fetchImpl: async (url) => {
+    assert.equal(url, "https://api.runpod.io/v2/catalog/gpus?include=AVAILABILITY&product=POD&count=1&cloud=SECURE");
+    return jsonResponse({ gpus: [{ id: env.RUNPOD_GPU_ID, secure: true, price: { secure: 0.24 },
+      maxCount: { secure: 2 }, availability: "HIGH", dataCenters: [
+        { id: "US-TX-3", availability: "HIGH" }, { id: "EU-RO-1", availability: "HIGH" },
+      ] }] });
+  } });
+  const offer = await client.getVerifiedOffer();
+  assert.deepEqual({ ...offer, checkedAt: 0 }, { gpuId: env.RUNPOD_GPU_ID, cloud: "SECURE", gpuCount: 1,
+    hourlyPriceUsd: 0.24, availability: "HIGH", dataCenterId: "EU-RO-1", checkedAt: 0,
+    validForSeconds: 300, source: "runpod-rest-v2-catalog" });
+});
+
+test("catalog refuses zero price, non-HIGH stock, and duplicate exact GPU rows", async () => {
+  for (const gpus of [
+    [{ id: env.RUNPOD_GPU_ID, secure: true, price: { secure: 0 }, maxCount: { secure: 1 }, availability: "HIGH", dataCenters: [{ id: "US-TX-3", availability: "HIGH" }] }],
+    [{ id: env.RUNPOD_GPU_ID, secure: true, price: { secure: 0.24 }, maxCount: { secure: 1 }, availability: "LOW", dataCenters: [{ id: "US-TX-3", availability: "LOW" }] }],
+    [{ id: env.RUNPOD_GPU_ID }, { id: env.RUNPOD_GPU_ID }],
+  ]) {
+    const client = new RunpodV2Client(env, { fetchImpl: async () => jsonResponse({ gpus }) });
+    await assert.rejects(client.getVerifiedOffer(), RunpodProviderError);
+  }
+});
+
 test("redirects are rejected and termination requires exact pod id", async () => {
   const client = new RunpodV2Client(env, { fetchImpl: async () => new Response(null, { status: 302, headers: { location: "https://evil.invalid" } }) });
   await assert.rejects(client.listPods(), (error) => error.code === "RUNPOD_REDIRECT_REJECTED");

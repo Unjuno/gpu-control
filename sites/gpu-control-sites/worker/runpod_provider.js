@@ -160,6 +160,32 @@ export class RunpodV2Client {
     return this.request("/v2/pods");
   }
 
+  async getVerifiedOffer() {
+    const value = await this.request("/v2/catalog/gpus?include=AVAILABILITY&product=POD&count=1&cloud=SECURE");
+    if (!Array.isArray(value.gpus) || value.gpus.length > 1024) {
+      throw new RunpodProviderError("RUNPOD_INVALID_CATALOG_RESPONSE");
+    }
+    const matches = value.gpus.filter((gpu) => gpu?.id === this.gpuId);
+    if (matches.length !== 1) throw new RunpodProviderError("RUNPOD_GPU_NOT_IN_CATALOG");
+    const gpu = matches[0];
+    const price = gpu?.price?.secure;
+    if (gpu.secure !== true || typeof price !== "number" || !Number.isFinite(price) || price <= 0 || price > 100 ||
+        !Number.isSafeInteger(gpu?.maxCount?.secure) || gpu.maxCount.secure < 1 || gpu.availability !== "HIGH" ||
+        !Array.isArray(gpu.dataCenters) || gpu.dataCenters.length < 1 || gpu.dataCenters.length > 1024) {
+      throw new RunpodProviderError("RUNPOD_GPU_OFFER_UNAVAILABLE");
+    }
+    const dataCenters = gpu.dataCenters.filter((item) => item && typeof item.id === "string" &&
+      /^[A-Z0-9-]{3,32}$/.test(item.id) && item.availability === "HIGH");
+    if (dataCenters.length < 1) throw new RunpodProviderError("RUNPOD_GPU_OFFER_UNAVAILABLE");
+    dataCenters.sort((left, right) => left.id.localeCompare(right.id));
+    return {
+      gpuId: this.gpuId, cloud: "SECURE", gpuCount: 1, hourlyPriceUsd: price,
+      availability: "HIGH", dataCenterId: dataCenters[0].id,
+      checkedAt: Math.floor(Date.now() / 1000), validForSeconds: 300,
+      source: "runpod-rest-v2-catalog",
+    };
+  }
+
   runRegisteredWorkload(podId, { planFingerprint, nonce, steps, seed }) {
     if (!POD_ID_RE.test(podId)) throw new RunpodProviderError("RUNPOD_INVALID_POD_ID");
     if (!/^[0-9a-f]{64}$/.test(planFingerprint) || !/^[0-9a-f]{64}$/.test(nonce)) {
