@@ -127,6 +127,8 @@ class Settings:
     runpod_factory: str = ""
     kaggle_username: str = ""
     kaggle_staging_root: str = ""
+    hf_token: str = field(default="", repr=False, compare=False)
+    hf_artifact_repositories: tuple[str, ...] = ()
     modal_app: str = "gpu-control"
     max_inflight: int = 1
     approval_ttl_seconds: int = 900
@@ -357,6 +359,13 @@ class Settings:
             root = Path(self.kaggle_staging_root)
             if not root.is_absolute():
                 raise ValueError("Kaggle staging root must be an absolute operator path")
+        if self.hf_artifact_repositories:
+            if not self.hf_token or any(character.isspace() for character in self.hf_token):
+                raise ValueError("Hugging Face artifact repositories require a worker-only token")
+            if (len(set(self.hf_artifact_repositories)) != len(self.hf_artifact_repositories) or
+                    any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) is None
+                        for repo in self.hf_artifact_repositories)):
+                raise ValueError("Hugging Face artifact repository allowlist is invalid")
 
     def validate_api_security(self) -> None:
         """Validate public HTTP login source handling; worker processes don't need this secret."""
@@ -409,6 +418,10 @@ class Settings:
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),
             kaggle_username=e.get("GATEWAY_KAGGLE_USERNAME", ""),
             kaggle_staging_root=e.get("GATEWAY_KAGGLE_STAGING_ROOT", ""),
+            hf_token=e.get("HF_TOKEN", ""),
+            hf_artifact_repositories=tuple(
+                item.strip() for item in e.get("GATEWAY_HF_ARTIFACT_REPOSITORIES", "").split(",")
+                if item.strip()),
             modal_app=e.get("GATEWAY_MODAL_APP", "gpu-control"),
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
             max_job_cost_usd=Decimal(e.get("GATEWAY_MAX_JOB_COST_USD", "1")),

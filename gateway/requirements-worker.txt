@@ -1,2 +1,4 @@
 -r requirements.txt
 modal==1.5.5
+kaggle>=2.2,<3
+huggingface_hub>=1,<3
