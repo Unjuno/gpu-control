@@ -1,0 +1,35 @@
+[Unit]
+Description=Ingest GPU Control capacity journal events into the private outbox
+After=systemd-journald.service
+Wants=systemd-journald.service
+
+[Service]
+Type=oneshot
+User=gpu-control-capacity-bridge
+Group=gpu-control-capacity-bridge
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/gpu-control/gateway
+ExecStart=/opt/gpu-control/venv/bin/python /opt/gpu-control/gateway/deploy/capacity_event_bridge.py --poll-once --state-path /var/lib/gpu-control-capacity-bridge/state.json
+StateDirectory=gpu-control-capacity-bridge
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
