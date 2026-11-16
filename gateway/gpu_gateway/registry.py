@@ -111,6 +111,7 @@ def default_registry() -> dict[str, ProviderRegistration]:
     from .backends import DemoBackend, ExistingRunPodBridge, ModalSandboxBackend
     from .local_backend import LocalContainerBackend
     from .kaggle_backend import KaggleBackend
+    from .huggingface_space_backend import HuggingFaceSpaceBackend
     from .admission import local_cpu_policy_enabled
     entries = (
         ProviderRegistration("demo", "local_simulation_no_gpu", lambda s: True, lambda s: DemoBackend()),
@@ -127,6 +128,13 @@ def default_registry() -> dict[str, ProviderRegistration]:
             lambda s: s.enable_kaggle and bool(s.kaggle_username and s.kaggle_staging_root),
             KaggleBackend,
             "Free-quota Kernel versions only; official CLI has no reliable cancellation command.",
+        ),
+        ProviderRegistration(
+            "huggingface_space", "approved_gradio_zero_gpu",
+            lambda s: (s.enable_huggingface_space and bool(s.hf_token) and
+                       bool(s.hf_space_allowlist)),
+            HuggingFaceSpaceBackend,
+            "Short approved ZeroGPU evaluation only; paid Hugging Face Jobs are separate and disabled.",
         ),
     )
     return {entry.name: entry for entry in entries}

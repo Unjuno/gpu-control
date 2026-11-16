@@ -122,6 +122,7 @@ class Settings:
     enable_runpod_bridge: bool = False
     enable_runpod_evidence: bool = False
     enable_kaggle: bool = False
+    enable_huggingface_space: bool = False
     runpod_api_key: str = field(default="", repr=False, compare=False)
     runpod_account_scope_id: str = field(default="", repr=False, compare=False)
     runpod_factory: str = ""
@@ -129,6 +130,7 @@ class Settings:
     kaggle_staging_root: str = ""
     hf_token: str = field(default="", repr=False, compare=False)
     hf_artifact_repositories: tuple[str, ...] = ()
+    hf_space_allowlist: tuple[str, ...] = ()
     modal_app: str = "gpu-control"
     max_inflight: int = 1
     approval_ttl_seconds: int = 900
@@ -366,6 +368,14 @@ class Settings:
                     any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) is None
                         for repo in self.hf_artifact_repositories)):
                 raise ValueError("Hugging Face artifact repository allowlist is invalid")
+        if self.enable_huggingface_space:
+            if not self.hf_token or any(character.isspace() for character in self.hf_token):
+                raise ValueError("Hugging Face Space execution requires a worker-only token")
+            if (not self.hf_space_allowlist or
+                    len(set(self.hf_space_allowlist)) != len(self.hf_space_allowlist) or
+                    any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", space) is None
+                        for space in self.hf_space_allowlist)):
+                raise ValueError("Hugging Face Space allowlist is invalid")
 
     def validate_api_security(self) -> None:
         """Validate public HTTP login source handling; worker processes don't need this secret."""
@@ -413,6 +423,7 @@ class Settings:
             enable_runpod_bridge=e.get("GATEWAY_ENABLE_RUNPOD_BRIDGE") == "true",
             enable_runpod_evidence=e.get("GATEWAY_ENABLE_RUNPOD_EVIDENCE") == "true",
             enable_kaggle=e.get("GATEWAY_ENABLE_KAGGLE") == "true",
+            enable_huggingface_space=e.get("GATEWAY_ENABLE_HUGGINGFACE_SPACE") == "true",
             runpod_api_key=e.get("RUNPOD_API_KEY", ""),
             runpod_account_scope_id=e.get("GATEWAY_RUNPOD_ACCOUNT_SCOPE_ID", ""),
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),
@@ -421,6 +432,9 @@ class Settings:
             hf_token=e.get("HF_TOKEN", ""),
             hf_artifact_repositories=tuple(
                 item.strip() for item in e.get("GATEWAY_HF_ARTIFACT_REPOSITORIES", "").split(",")
+                if item.strip()),
+            hf_space_allowlist=tuple(
+                item.strip() for item in e.get("GATEWAY_HF_SPACE_ALLOWLIST", "").split(",")
                 if item.strip()),
             modal_app=e.get("GATEWAY_MODAL_APP", "gpu-control"),
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
