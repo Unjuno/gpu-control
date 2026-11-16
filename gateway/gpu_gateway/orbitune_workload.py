@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import re
 import shutil
@@ -11,6 +12,26 @@ import subprocess
 ORBITUNE_REPOSITORY = "Unjuno/orbitune"
 ORBITUNE_SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
+
+
+def staged_bundle_digest(target: str | Path) -> str:
+    root = Path(target)
+    entrypoint = root / "train.py"
+    package = root / "orbitune"
+    if not entrypoint.is_file() or entrypoint.is_symlink() or not package.is_dir() or package.is_symlink():
+        raise ValueError("staged Orbitune bundle is incomplete")
+    staged_files = [entrypoint] + sorted(path for path in package.rglob("*") if path.is_file())
+    if any(path.is_symlink() for path in staged_files):
+        raise ValueError("staged Orbitune bundle contains a symlink")
+    digest = hashlib.sha256()
+    for path in staged_files:
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        content = path.read_bytes()
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return "sha256:" + digest.hexdigest()
 
 
 def _git(checkout: Path, *args: str) -> str:
@@ -69,6 +90,7 @@ def stage_orbitune_checkout(
         "source_sha": expected_sha,
         "data_kind": "synthetic",
         "steps": 100,
+        "image_digest": staged_bundle_digest(target),
     }
     (target / "gpu-control-provenance.json").write_text(
         json.dumps(provenance, sort_keys=True, separators=(",", ":")) + "\n",

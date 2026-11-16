@@ -46,6 +46,7 @@ def test_kaggle_and_space_workloads_use_provider_specific_resource_identity():
     space = Workload.model_validate(common | {
         "provider": "huggingface_space",
         "provider_resource_id": "owner/approved-zero-gpu",
+        "source_revision": "c" * 40,
         "max_runtime_seconds": 60,
     })
 

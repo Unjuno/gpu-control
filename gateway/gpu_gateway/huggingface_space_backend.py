@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import hashlib
 import json
 import math
 import re
@@ -18,6 +19,11 @@ _REQUEST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}-[0-9a-f]{12}$")
 
 class ZeroGpuQuotaError(RuntimeError):
     pass
+
+
+def space_contract_digest(space_id: str, revision: str) -> str:
+    value = f"gpu-control/huggingface-space-contract/v1\0{space_id}\0{revision}\0/evaluate\0/status\0/cancel"
+    return "sha256:" + hashlib.sha256(value.encode("ascii")).hexdigest()
 
 
 class HuggingFaceSpaceBackend:
@@ -52,6 +58,8 @@ class HuggingFaceSpaceBackend:
                         run["registered_workload_manifest"])
             space_id = manifest["provider_resource_id"]
             source_sha = manifest["source_sha"]
+            space_revision = manifest["source_revision"]
+            image_digest = manifest["image_digest"]
             parameters = plan["parameters"]
             runtime = plan["runtime_seconds"]
             fingerprint = run["fingerprint"]
@@ -64,6 +72,10 @@ class HuggingFaceSpaceBackend:
             raise ValueError("Hugging Face Space is not allowlisted")
         if not isinstance(source_sha, str) or _SHA_RE.fullmatch(source_sha) is None:
             raise ValueError("Hugging Face Space source SHA is invalid")
+        if not isinstance(space_revision, str) or _SHA_RE.fullmatch(space_revision) is None:
+            raise ValueError("Hugging Face Space revision is invalid")
+        if image_digest != space_contract_digest(space_id, space_revision):
+            raise ValueError("Hugging Face Space contract digest is invalid")
         if (not isinstance(run_id, str) or
                 re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", run_id) is None or
                 not isinstance(fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None):
@@ -72,6 +84,16 @@ class HuggingFaceSpaceBackend:
             raise ValueError("Hugging Face Space evaluation must be at most 60 seconds")
         if not isinstance(parameters, dict):
             raise ValueError("Hugging Face Space parameters must be an object")
+        if set(parameters) != {"artifact_repo_id", "artifact_revision", "artifact_path", "artifact_sha256"}:
+            raise ValueError("Hugging Face Space artifact reference is incomplete")
+        if (parameters.get("artifact_repo_id") not in self.settings.hf_artifact_repositories or
+                not isinstance(parameters.get("artifact_revision"), str) or
+                _SHA_RE.fullmatch(parameters["artifact_revision"]) is None or
+                not isinstance(parameters.get("artifact_path"), str) or
+                re.fullmatch(r"runs/[0-9a-f]{32}/orbitune-output\.zip", parameters["artifact_path"]) is None or
+                not isinstance(parameters.get("artifact_sha256"), str) or
+                re.fullmatch(r"[0-9a-f]{64}", parameters["artifact_sha256"]) is None):
+            raise ValueError("Hugging Face Space artifact reference is not allowlisted or immutable")
         encoded = json.dumps(parameters, allow_nan=False, sort_keys=True, separators=(",", ":"))
         if len(encoded.encode("utf-8")) > 16 * 1024:
             raise ValueError("Hugging Face Space parameters exceed the request bound")
@@ -91,7 +113,9 @@ class HuggingFaceSpaceBackend:
         except Exception as exc:
             raise ZeroGpuQuotaError("Hugging Face ZeroGPU quota is unavailable") from exc
         if (not isinstance(remaining, (int, float)) or isinstance(remaining, bool) or
-                remaining < runtime or overquota not in {None, 0, 0.0}):
+                not math.isfinite(remaining) or remaining < runtime or
+                not isinstance(overquota, (int, float)) or isinstance(overquota, bool) or
+                not math.isfinite(overquota) or overquota != 0):
             raise ZeroGpuQuotaError("free Hugging Face ZeroGPU quota is unsafe or insufficient")
 
     @staticmethod
@@ -108,12 +132,51 @@ class HuggingFaceSpaceBackend:
     def _client(self, space_id: str) -> Any:
         return self.client_factory(space_id, self.settings.hf_token)
 
+    def verify_space(self, space_id: str, revision: str) -> None:
+        try:
+            info = self.api.space_info(repo_id=space_id, token=self.settings.hf_token)
+        except Exception as exc:
+            raise RuntimeError("approved Hugging Face Space is unavailable") from exc
+        if getattr(info, "sha", None) != revision or getattr(info, "sdk", None) != "gradio":
+            raise RuntimeError("approved Hugging Face Space revision or SDK changed")
+
+    def verify_contract(self, space_id: str) -> None:
+        try:
+            info = self._client(space_id).view_api(print_info=False, return_format="dict")
+        except Exception as exc:
+            raise RuntimeError("approved Hugging Face Space API is unavailable") from exc
+        named = info.get("named_endpoints") if isinstance(info, Mapping) else None
+        expected = {"/evaluate": 3, "/status": 1, "/cancel": 1}
+        if not isinstance(named, Mapping) or set(named) != set(expected):
+            raise RuntimeError("approved Hugging Face Space endpoint set changed")
+        for endpoint, count in expected.items():
+            parameters = named[endpoint].get("parameters") if isinstance(named[endpoint], Mapping) else None
+            if not isinstance(parameters, list) or len(parameters) != count:
+                raise RuntimeError("approved Hugging Face Space parameter contract changed")
+
+    def verified_space_ids(self, workloads: Mapping[str, Any]) -> set[str]:
+        verified: set[str] = set()
+        for workload in workloads.values():
+            if getattr(workload, "provider", None) != "huggingface_space":
+                continue
+            space_id = getattr(workload, "provider_resource_id", None)
+            revision = getattr(workload, "source_revision", None)
+            if not isinstance(space_id, str) or not isinstance(revision, str):
+                raise RuntimeError("registered Hugging Face Space identity is incomplete")
+            self.verify_space(space_id, revision)
+            self.verify_contract(space_id)
+            verified.add(space_id)
+        return verified
+
     def start(self, run: dict) -> dict:
         if not self.settings.enable_huggingface_space:
             raise RuntimeError("Hugging Face Space submission is disabled")
         if not self.settings.hf_token:
             raise RuntimeError("Hugging Face worker token is not configured")
         space_id, request_id, source_sha, parameters, runtime = self._identity(run)
+        manifest = run["plan"].get("workload_manifest") or run["registered_workload_manifest"]
+        self.verify_space(space_id, manifest["source_revision"])
+        self.verify_contract(space_id)
         self._quota(runtime)
         response = self._response(
             self._client(space_id).predict(
@@ -125,6 +188,7 @@ class HuggingFaceSpaceBackend:
             request_id,
         )
         handle = self._handle(run, space_id, request_id, source_sha)
+        handle["space_revision"] = manifest["source_revision"]
         if response["state"] not in {"queued", "running"}:
             handle["observation"] = response
         return handle
@@ -161,6 +225,10 @@ class HuggingFaceSpaceBackend:
             self._client(space_id).predict(request_id, api_name="/status"), request_id,
         )
         handle = self._handle(run, space_id, request_id, source_sha)
+        manifest = run["plan"].get("workload_manifest") or run["registered_workload_manifest"]
+        self.verify_space(space_id, manifest["source_revision"])
+        self.verify_contract(space_id)
+        handle["space_revision"] = manifest["source_revision"]
         handle["observation"] = response
         return handle
 
@@ -168,6 +236,7 @@ class HuggingFaceSpaceBackend:
         request_id = handle.get("request_id")
         if not isinstance(request_id, str) or _REQUEST_RE.fullmatch(request_id) is None:
             raise ValueError("Hugging Face Space handle is invalid")
+        self.verify_space(handle["space_id"], handle["space_revision"])
         response = handle.get("observation")
         if response is None:
             response = self._response(

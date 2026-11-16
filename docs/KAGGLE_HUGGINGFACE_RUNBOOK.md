@@ -54,6 +54,22 @@ Kaggle must be authenticated using the official CLI login/token mechanism in the
 
 The source cache directory for a commit is `<cache-root>/<40-character-sha>`. It must be a clean Git checkout at that exact commit. Staging copies only the `orbitune` Python package and the registered training entrypoint. Preparation performs no provider call; `kaggle kernels push` occurs only after approval, quota verification, and the durable submission intent.
 
+Start from `gateway/examples/kaggle-hf-workloads.template.json`. Replace `OWNER`,
+the approved Space name and revision, and both zero digests. The Kaggle digest
+must equal `image_digest` in the generated `gpu-control-provenance.json`; the
+worker recomputes it before every push. The Space digest is an operator-owned
+runtime fingerprint, while `source_revision` must be the exact 40-character
+Hub Space commit returned by `space_info`. Zero placeholders are intentionally
+non-runnable.
+
+Capability constants are derived from the current official provider documents:
+
+- Kaggle CLI accelerator and Kernel metadata: https://github.com/Kaggle/kaggle-cli/blob/main/docs/kernels.md and https://github.com/Kaggle/kaggle-cli/blob/main/docs/kernels_metadata.md
+- Kaggle notebook technical specifications: https://www.kaggle.com/docs/notebooks
+- Hugging Face ZeroGPU sizes, duration and quota: https://huggingface.co/docs/hub/spaces-zerogpu
+
+Refresh these sources before changing a registered capability profile.
+
 ## Recovery rules
 
 - A lost or non-zero `kernels push` response is `submit_unknown`. Never push again automatically.

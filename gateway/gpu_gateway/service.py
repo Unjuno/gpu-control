@@ -242,6 +242,8 @@ class ExperimentService:
             digest(plan.parameters)
         except (SchemaError, ValueError, TypeError):
             raise GatewayError("invalid_parameters", "Parameters do not match the registered schema") from None
+        if workload.provider == "huggingface_space":
+            self._require_owned_external_artifact(principal, plan.parameters)
         if (plan.runtime_seconds > workload.max_runtime_seconds or
                 plan.max_cost_usd < 0 or plan.max_cost_usd > workload.max_cost_usd):
             raise GatewayError("plan_changed", "Runtime or cost exceeds registered workload policy", 409)
@@ -277,6 +279,39 @@ class ExperimentService:
                 state="awaiting_approval", created_at=now,
             ))
         return self._public_run(self.owned(principal, run_id))
+
+    def _require_owned_external_artifact(self, principal: Principal, parameters: dict) -> None:
+        """Bind ZeroGPU evaluation to one completed artifact owned by this principal."""
+        expected = {
+            "service": "huggingface_hub",
+            "repo_id": parameters.get("artifact_repo_id"),
+            "repo_type": "model",
+            "path_in_repo": parameters.get("artifact_path"),
+            "revision": parameters.get("artifact_revision"),
+            "sha256": parameters.get("artifact_sha256"),
+            "private": True,
+        }
+        with self.store.engine.connect() as connection:
+            rows = connection.execute(select(runs).where(
+                runs.c.owner == principal.owner,
+                runs.c.state == "succeeded",
+            ).order_by(runs.c.created_at.desc()).limit(100)).mappings()
+            for row in rows:
+                result = row.get("result")
+                references = result.get("external_artifacts") if isinstance(result, dict) else None
+                if not isinstance(references, list) or result.get("cleanup_state") != "complete":
+                    continue
+                for reference in references:
+                    if (isinstance(reference, dict) and
+                            all(reference.get(key) == value for key, value in expected.items()) and
+                            reference.get("run_id") == row["id"] and
+                            reference.get("source_sha") == row["plan"].get("source_sha")):
+                        return
+        raise GatewayError(
+            "artifact_not_owned",
+            "ZeroGPU evaluation requires an exact private artifact from a completed owned run",
+            409,
+        )
 
     def prepare_local(self, principal: Principal, plan: PlanV2, idempotency_key: str,
                       policy: dict, decision, request_hash: str | None = None) -> dict:

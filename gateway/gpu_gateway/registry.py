@@ -156,7 +156,7 @@ def default_registry() -> dict[str, ProviderRegistration]:
             HuggingFaceSpaceBackend,
             "Short approved ZeroGPU evaluation only; paid Hugging Face Jobs are separate and disabled.",
             supports_candidate_binding=True,
-            supports_cancellation=True,
+            supports_cancellation=False,
         ),
     )
     return {entry.name: entry for entry in entries}

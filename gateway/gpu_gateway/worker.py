@@ -162,7 +162,9 @@ class Worker:
             jobs.append((
                 "huggingface_space", HF_SPACE_SOURCE, HF_SPACE_SOURCE_REVISION,
                 lambda: collect_huggingface_space_inventory(
-                    workloads, HuggingFaceSpaceBackend(self.settings).quota_snapshot(),
+                    workloads,
+                    (space_backend := HuggingFaceSpaceBackend(self.settings)).quota_snapshot(),
+                    verified_space_ids=space_backend.verified_space_ids(workloads),
                     observed_at=now, expires_at=now + OBSERVATION_TTL_SECONDS),
             ))
         for provider, source, revision, collect in jobs:

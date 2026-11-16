@@ -5,7 +5,9 @@ from dataclasses import dataclass
 import pytest
 
 from gpu_gateway.config import Settings
-from gpu_gateway.huggingface_space_backend import HuggingFaceSpaceBackend, ZeroGpuQuotaError
+from gpu_gateway.huggingface_space_backend import (
+    HuggingFaceSpaceBackend, ZeroGpuQuotaError, space_contract_digest,
+)
 from gpu_gateway.registry import default_registry
 
 
@@ -17,6 +19,12 @@ class Quota:
     overquota_used: float = 0
 
 
+@dataclass
+class SpaceInfo:
+    sha: str = "e" * 40
+    sdk: str = "gradio"
+
+
 class FakeApi:
     def __init__(self, quota):
         self.quota = quota
@@ -25,6 +33,10 @@ class FakeApi:
     def get_zero_gpu_quota(self, **kwargs):
         self.calls.append(kwargs)
         return self.quota
+
+    def space_info(self, **kwargs):
+        self.calls.append(kwargs)
+        return SpaceInfo()
 
 
 class FakeClient:
@@ -41,28 +53,44 @@ class FakeClient:
             raise response
         return response
 
+    def view_api(self, **_kwargs):
+        return {"named_endpoints": {
+            "/evaluate": {"parameters": [{}, {}, {}]},
+            "/status": {"parameters": [{}]},
+            "/cancel": {"parameters": [{}]},
+        }}
+
 
 def settings():
     return Settings(
         enable_huggingface_space=True,
         hf_token="hf_read_token",
+        hf_artifact_repositories=("owner/private-artifacts",),
         hf_space_allowlist=("owner/approved-zero-gpu",),
     )
 
 
 def run():
+    digest = space_contract_digest("owner/approved-zero-gpu", "e" * 40)
     return {
         "id": "run-1",
         "fingerprint": "f" * 64,
         "started_at": 1000,
         "plan": {
             "runtime_seconds": 30,
-            "image_digest": "sha256:" + "b" * 64,
-            "parameters": {"prompt": "evaluate this checkpoint"},
+            "image_digest": digest,
+            "parameters": {
+                "artifact_repo_id": "owner/private-artifacts",
+                "artifact_revision": "d" * 40,
+                "artifact_path": "runs/" + "1" * 32 + "/orbitune-output.zip",
+                "artifact_sha256": "c" * 64,
+            },
             "workload_manifest": {
                 "provider": "huggingface_space",
                 "provider_resource_id": "owner/approved-zero-gpu",
                 "source_sha": "a" * 40,
+                "source_revision": "e" * 40,
+                "image_digest": digest,
             },
         },
     }
@@ -82,7 +110,8 @@ def test_start_checks_free_quota_and_returns_bounded_durable_request_handle():
         "request_id": "run-1-" + "f" * 12,
         "source_sha": "a" * 40,
         "run_id": "run-1", "plan_fingerprint": "f" * 64,
-        "image_digest": "sha256:" + "b" * 64, "started_at": 1000,
+        "image_digest": space_contract_digest("owner/approved-zero-gpu", "e" * 40), "started_at": 1000,
+        "space_revision": "e" * 40,
     }
     request = client.calls[0]
     assert request[1] == "/evaluate"
@@ -90,7 +119,11 @@ def test_start_checks_free_quota_and_returns_bounded_durable_request_handle():
     assert "hf_read_token" not in repr(request)
 
 
-@pytest.mark.parametrize("quota", [Quota(remaining=29), Quota(remaining=120, overquota_used=1), None])
+@pytest.mark.parametrize("quota", [
+    Quota(remaining=29), Quota(remaining=120, overquota_used=1),
+    Quota(remaining=float("nan")), Quota(remaining=float("inf")),
+    Quota(remaining=120, overquota_used=None), None,
+])
 def test_start_fails_closed_before_space_call_when_free_quota_is_unsafe(quota):
     client = FakeClient([])
     backend = HuggingFaceSpaceBackend(
@@ -136,3 +169,19 @@ def test_space_must_be_allowlisted_and_registry_does_not_enable_paid_jobs():
     assert "huggingface_space" in registry
     assert "huggingface_jobs" not in registry
     assert registry["huggingface_space"].supports_paid_execution is False
+
+
+def test_space_endpoint_contract_must_be_exact_before_evaluation():
+    client = FakeClient([])
+    client.view_api = lambda **_kwargs: {"named_endpoints": {
+        "/evaluate": {"parameters": [{}, {}, {}]},
+        "/status": {"parameters": [{}]},
+        "/unexpected": {"parameters": []},
+    }}
+    backend = HuggingFaceSpaceBackend(
+        settings(), api=FakeApi(Quota()), client_factory=lambda _space, _token: client,
+    )
+
+    with pytest.raises(RuntimeError, match="endpoint set changed"):
+        backend.start(run())
+    assert client.calls == []

@@ -141,6 +141,18 @@ class KaggleBackend:
     def prepare(self, run: Mapping[str, Any]) -> dict[str, object]:
         owner, slug, source_sha, accelerator = self._manifest(run)
         stage = self._stage(run)
+        try:
+            provenance = json.loads((stage / "gpu-control-provenance.json").read_text(encoding="utf-8"))
+            manifest = (run["plan"].get("workload_manifest") or
+                        run["registered_workload_manifest"])
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise ValueError("Kaggle trusted stage provenance is unavailable") from exc
+        from .orbitune_workload import staged_bundle_digest
+        if (not isinstance(provenance, Mapping) or
+                provenance.get("source_sha") != source_sha or
+                provenance.get("image_digest") != manifest.get("image_digest") or
+                provenance.get("image_digest") != staged_bundle_digest(stage)):
+            raise ValueError("Kaggle staged bundle does not match the registered image digest")
         metadata = {
             "id": f"{owner}/{slug}",
             "title": slug,

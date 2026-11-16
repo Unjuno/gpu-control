@@ -7,6 +7,7 @@ import pytest
 
 from gpu_gateway.config import Settings
 from gpu_gateway.kaggle_backend import KaggleBackend, KaggleCommandResult, KaggleQuotaError
+from gpu_gateway.orbitune_workload import staged_bundle_digest
 
 
 SOURCE_SHA = "a" * 40
@@ -34,18 +35,25 @@ def run(tmp_path: Path):
     stage = tmp_path / "run-1"
     stage.mkdir()
     (stage / "train.py").write_text("print('registered workload')\n", encoding="utf-8")
+    (stage / "orbitune").mkdir()
+    (stage / "orbitune" / "__init__.py").write_text("", encoding="utf-8")
+    image_digest = staged_bundle_digest(stage)
+    (stage / "gpu-control-provenance.json").write_text(json.dumps({
+        "source_sha": SOURCE_SHA, "image_digest": image_digest,
+    }), encoding="utf-8")
     return {
         "id": "run-1",
         "fingerprint": "b" * 64,
         "started_at": 1000,
         "plan": {
             "runtime_seconds": 120,
-            "image_digest": "sha256:" + "c" * 64,
+            "image_digest": image_digest,
             "workload_manifest": {
                 "provider": "kaggle",
                 "provider_resource_id": "owner/orbitune-100-step",
                 "source_sha": SOURCE_SHA,
                 "gpu": "NvidiaTeslaT4",
+                "image_digest": image_digest,
             },
         },
     }
@@ -74,6 +82,15 @@ def test_prepare_is_offline_and_binds_owned_kernel_and_source(tmp_path):
     assert metadata["accelerator"] == "NvidiaTeslaT4"
 
 
+def test_prepare_recomputes_staged_bundle_digest_and_rejects_tampering(tmp_path):
+    submitted = run(tmp_path)
+    (tmp_path / "run-1" / "train.py").write_text("print('tampered')\n", encoding="utf-8")
+    backend = KaggleBackend(settings(tmp_path), runner=ScriptedRunner([]))
+
+    with pytest.raises(ValueError, match="image digest"):
+        backend.prepare(submitted)
+
+
 def test_start_checks_quota_and_persists_exact_new_version(tmp_path):
     runner = ScriptedRunner([
         result({"gpu": {"remainingSeconds": 3600}}),
@@ -83,12 +100,13 @@ def test_start_checks_quota_and_persists_exact_new_version(tmp_path):
     ])
     backend = KaggleBackend(settings(tmp_path), runner=runner)
 
-    handle = backend.start(run(tmp_path))
+    submitted = run(tmp_path)
+    handle = backend.start(submitted)
 
     assert handle == {
         "provider": "kaggle", "owner": "owner", "kernel_slug": "orbitune-100-step",
         "version": 8, "source_sha": SOURCE_SHA, "run_id": "run-1",
-        "plan_fingerprint": "b" * 64, "image_digest": "sha256:" + "c" * 64,
+        "plan_fingerprint": "b" * 64, "image_digest": submitted["plan"]["image_digest"],
         "started_at": 1000,
     }
     assert runner.calls == [

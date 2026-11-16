@@ -14,14 +14,15 @@ from gpu_gateway.worker import Worker
 import gpu_gateway.worker as worker_module
 
 
-def _workload(provider, resource, *, runtime=100, cancellation=False):
+def _workload(provider, resource, *, runtime=100, cancellation=False, gpu=None):
     return Workload(
         provider=provider,
         image_digest="sha256:" + "1" * 64,
         source_repository="Unjuno/orbitune",
         source_sha="4" * 40,
+        source_revision="e" * 40 if provider == "huggingface_space" else "",
         provider_resource_id=resource,
-        gpu="t4",
+        gpu=gpu or ("NvidiaTeslaT4" if provider == "kaggle" else "zero-gpu-large"),
         operating_system="linux",
         architecture="x86_64",
         gpu_count=1,
@@ -60,25 +61,49 @@ def test_unknown_kaggle_quota_never_advertises_a_candidate():
     assert payload == {"inventory_complete": False, "candidates": []}
 
 
+def test_registered_requirements_cannot_inflate_provider_capability_evidence():
+    oversized = _workload("kaggle", "owner/orbitune").model_copy(update={
+        "cpu": 8, "memory_mib": 65536, "minimum_vram_mib": 65536,
+    })
+    payload = collect_kaggle_inventory(
+        {"orbitune": oversized}, {"gpu": {"remainingSeconds": "600s"}},
+        observed_at=1000, expires_at=1120,
+    )
+    candidate = payload["candidates"][0]
+    assert candidate["max_cpu_cores"] == "4"
+    assert candidate["max_memory_mib"] == 29 * 1024
+    assert candidate["max_vram_mib"] == 30 * 1024
+
+
 def test_zero_gpu_inventory_blocks_overquota_and_requires_enough_included_seconds():
     workloads = {"eval": _workload("huggingface_space", "owner/eval", runtime=30,
-                                     cancellation=True)}
+                                     cancellation=False)}
     blocked = collect_huggingface_space_inventory(
         workloads, SimpleNamespace(remaining=100, overquota_used=1),
-        observed_at=1000, expires_at=1120,
+        verified_space_ids={"owner/eval"}, observed_at=1000, expires_at=1120,
     )
     assert blocked == {"inventory_complete": False, "candidates": []}
 
     payload = collect_huggingface_space_inventory(
         workloads, SimpleNamespace(remaining=100, overquota_used=0),
-        observed_at=1000, expires_at=1120,
+        verified_space_ids={"owner/eval"}, observed_at=1000, expires_at=1120,
     )
     candidate = payload["candidates"][0]
     assert payload["inventory_complete"] is True
     assert candidate["resource_id"] == "owner/eval"
     assert candidate["cost_classification"] == "FREE_QUOTA"
     assert candidate["overage_behavior"] == "STOPS"
-    assert candidate["cancellation_supported"] is True
+    assert candidate["cancellation_supported"] is False
+
+    for unsafe in (
+        SimpleNamespace(remaining=float("nan"), overquota_used=0),
+        SimpleNamespace(remaining=float("inf"), overquota_used=0),
+        SimpleNamespace(remaining=100, overquota_used=None),
+    ):
+        assert collect_huggingface_space_inventory(
+            workloads, unsafe, verified_space_ids={"owner/eval"},
+            observed_at=1000, expires_at=1120,
+        ) == {"inventory_complete": False, "candidates": []}
 
 
 def test_worker_signs_both_free_provider_snapshots_without_submitting(tmp_path, monkeypatch):
@@ -104,7 +129,7 @@ def test_worker_signs_both_free_provider_snapshots_without_submitting(tmp_path, 
     monkeypatch.setattr(worker_module, "load_workloads", lambda: {
         "train": _workload("kaggle", "owner/orbitune"),
         "eval": _workload("huggingface_space", "owner/eval", runtime=30,
-                          cancellation=True),
+                          cancellation=False),
     })
 
     class FakeKaggle:
@@ -114,6 +139,7 @@ def test_worker_signs_both_free_provider_snapshots_without_submitting(tmp_path, 
     class FakeSpace:
         def __init__(self, _settings): pass
         def quota_snapshot(self): return SimpleNamespace(remaining=60, overquota_used=0)
+        def verified_space_ids(self, _workloads): return {"owner/eval"}
 
     monkeypatch.setattr(worker_module, "KaggleBackend", FakeKaggle)
     monkeypatch.setattr(worker_module, "HuggingFaceSpaceBackend", FakeSpace)

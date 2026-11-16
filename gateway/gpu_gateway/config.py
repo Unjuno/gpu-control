@@ -98,6 +98,8 @@ class Workload(BaseModel):
                 raise ValueError(f"{self.provider} requires one provider resource ID and no data-center ID")
             if not self.source_repository or not self.source_sha:
                 raise ValueError(f"{self.provider} requires an immutable source repository and SHA")
+        if self.provider == "huggingface_space" and re.fullmatch(r"[0-9a-f]{40}", self.source_revision) is None:
+            raise ValueError("huggingface_space requires an immutable approved Space revision")
         for field_name, value in (("provider_resource_id", self.provider_resource_id),
                                   ("provider_data_center_id", self.provider_data_center_id)):
             if value is not None and (not isinstance(value, str) or not value or
