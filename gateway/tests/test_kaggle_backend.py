@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from gpu_gateway.config import Settings
+from gpu_gateway import kaggle_backend
 from gpu_gateway.kaggle_backend import KaggleBackend, KaggleCommandResult, KaggleQuotaError
 from gpu_gateway.orbitune_workload import staged_bundle_digest
 
@@ -65,6 +67,31 @@ def settings(tmp_path: Path):
         kaggle_username="owner",
         kaggle_staging_root=str(tmp_path),
     )
+
+
+def test_default_runner_passes_only_kaggle_and_process_environment(monkeypatch):
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    monkeypatch.setenv("KAGGLE_API_TOKEN", "kaggle-token")
+    monkeypatch.setenv("HF_TOKEN", "hub-token")
+    monkeypatch.setenv("RUNPOD_API_KEY", "runpod-token")
+    monkeypatch.setenv("MODAL_TOKEN_SECRET", "modal-token")
+    monkeypatch.setenv("GATEWAY_DATABASE_URL", "postgresql://secret")
+    monkeypatch.setenv("GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64", "signing-key")
+    monkeypatch.setattr(kaggle_backend.subprocess, "run", fake_run)
+
+    response = kaggle_backend._default_runner(("kaggle", "quota", "--format", "json"))
+
+    assert response.returncode == 0
+    assert captured["env"]["KAGGLE_API_TOKEN"] == "kaggle-token"
+    for key in ("HF_TOKEN", "RUNPOD_API_KEY", "MODAL_TOKEN_SECRET",
+                "GATEWAY_DATABASE_URL", "GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64"):
+        assert key not in captured["env"]
+    assert captured["shell"] is False
 
 
 def test_prepare_is_offline_and_binds_owned_kernel_and_source(tmp_path):

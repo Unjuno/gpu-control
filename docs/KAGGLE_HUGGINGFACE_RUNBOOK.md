@@ -29,8 +29,8 @@ Non-secret operator configuration:
 ```dotenv
 GATEWAY_ENABLE_KAGGLE=true
 GATEWAY_KAGGLE_USERNAME=OWNER
-GATEWAY_KAGGLE_STAGING_ROOT=/var/lib/gpu-control/kaggle-staging
-GATEWAY_KAGGLE_SOURCE_CACHE_ROOT=/var/lib/gpu-control/source-cache/orbitune
+GATEWAY_KAGGLE_STAGING_ROOT=/var/lib/gpu-control/kaggle-stage
+GATEWAY_KAGGLE_SOURCE_CACHE_ROOT=/opt/gpu-control/source-cache/orbitune
 GATEWAY_ENABLE_HUGGINGFACE_SPACE=true
 GATEWAY_HF_ARTIFACT_REPOSITORIES=OWNER/private-artifacts
 GATEWAY_HF_SPACE_ALLOWLIST=OWNER/approved-zero-gpu
@@ -39,6 +39,7 @@ GATEWAY_HF_SPACE_ALLOWLIST=OWNER/approved-zero-gpu
 Worker-only secrets:
 
 ```dotenv
+KAGGLE_API_TOKEN=REDACTED
 HF_TOKEN=REDACTED
 GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_IDS=adapter:kaggle:worker-v1,adapter:huggingface_space:worker-v1
 GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64=REDACTED
@@ -50,7 +51,20 @@ distinct Ed25519 key from the provider-observation signing key. One private key
 may be pinned under separate provider-scoped public key IDs; receipts can never
 cross provider scope.
 
-Kaggle must be authenticated using the official CLI login/token mechanism in the worker account. Do not put Kaggle credentials in workload JSON, the database, an MCP result, or the source cache.
+Kaggle must be authenticated with the official CLI's non-interactive
+`KAGGLE_API_TOKEN` mechanism in the worker account. Do not put Kaggle
+credentials in workload JSON, the database, an MCP result, or the source
+cache. The Kaggle CLI child process receives that token plus only a minimal
+process/TLS/proxy environment; Hugging Face, Modal, RunPod, database, OAuth,
+and signing secrets are removed from its environment.
+
+Use `gateway/deploy/gateway.env.example`, `worker-secrets.env.example`, and
+`provider-evidence.env.example` as the hosted systemd templates. Keep both free
+provider enable flags false until the exact identity, private resources,
+included quota, trusted keys, and owner approval route are verified. Enabling
+configuration or evidence collection is not execution authorization. The
+source cache is operator-owned and read-only to the worker; the per-run stage
+lives under the worker's writable systemd StateDirectory.
 
 The source cache directory for a commit is `<cache-root>/<40-character-sha>`. It must be a clean Git checkout at that exact commit. Staging copies only the `orbitune` Python package and the registered training entrypoint. Preparation performs no provider call; `kaggle kernels push` occurs only after approval, quota verification, and the durable submission intent.
 

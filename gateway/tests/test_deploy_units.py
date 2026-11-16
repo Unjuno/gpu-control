@@ -189,6 +189,12 @@ def test_shared_deployment_environment_uses_public_https_and_persistent_artifact
     assert int(values["GATEWAY_ARTIFACT_MIN_FREE_BYTES"]) > 0
     assert values["GATEWAY_ENABLE_MODAL"] == "false"
     assert values["GATEWAY_ENABLE_RUNPOD_BRIDGE"] == "false"
+    assert values["GATEWAY_ENABLE_KAGGLE"] == "false"
+    assert values["GATEWAY_ENABLE_HUGGINGFACE_SPACE"] == "false"
+    assert values["GATEWAY_KAGGLE_STAGING_ROOT"] == "/var/lib/gpu-control/kaggle-stage"
+    assert values["GATEWAY_KAGGLE_SOURCE_CACHE_ROOT"] == "/opt/gpu-control/source-cache/orbitune"
+    assert values["GATEWAY_HF_ARTIFACT_REPOSITORIES"].count("/") == 1
+    assert values["GATEWAY_HF_SPACE_ALLOWLIST"].count("/") == 1
     assert values["GATEWAY_HOSTED"] == "true"
     assert "GATEWAY_DATABASE_URL" not in values
     assert values["GATEWAY_CLIENT_IP_MODE"] == "trusted_proxy"
@@ -266,11 +272,15 @@ def test_authentication_and_capacity_settings_are_environment_isolated():
         assert "worker-secrets.env" not in (DEPLOY / name).read_text(encoding="utf-8")
     secret_example = (DEPLOY / "worker-secrets.env.example").read_text(encoding="utf-8")
     assert "MODAL_TOKEN_ID" in secret_example and "MODAL_TOKEN_SECRET" in secret_example
+    assert "KAGGLE_API_TOKEN" in secret_example
+    assert "HF_TOKEN" in secret_example
     assert "GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64" not in secret_example
     evidence_example = (DEPLOY / "provider-evidence.env.example").read_text(encoding="utf-8")
     assert "GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64" in evidence_example
     assert "RUNPOD_API_KEY" in evidence_example
     assert "GATEWAY_ENABLE_RUNPOD_EVIDENCE" in evidence_example
+    assert "GATEWAY_ENABLE_KAGGLE_EVIDENCE" in evidence_example
+    assert "GATEWAY_ENABLE_HUGGINGFACE_SPACE_EVIDENCE" in evidence_example
     assert "GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64" not in api_example
     common_example = (DEPLOY / "gateway.env.example").read_text(encoding="utf-8")
     assert "GATEWAY_PROVIDER_EVIDENCE_PUBLIC_KEYS_JSON" in common_example

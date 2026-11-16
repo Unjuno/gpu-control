@@ -7,7 +7,7 @@ endpoint is not substituted for real provider and ChatGPT evidence.
 ## Authoritative snapshot
 
 - GitHub `main`: `24ecb9bba0264c5370b2a5d94d2fe373e4afeb9e`
-- candidate: `codex/sites-modal-runner` at `13ee997a400ee0b68fb392a06e5b9ee8afade09f`
+- candidate: `codex/sites-modal-runner` at `e2575a66f641cd58964d2cd61ff24d6a2720a7ff`
 - Draft PR: #68, stacked on `codex/gpu-control-p1-dcr-v9-review`
 - audit PR #43: still open and Draft against `main`
 - exact-head checks: seven successful

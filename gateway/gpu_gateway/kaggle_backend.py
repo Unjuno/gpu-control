@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -36,8 +37,20 @@ class KaggleCommandResult:
 
 
 def _default_runner(argv: tuple[str, ...]) -> KaggleCommandResult:
+    # The worker can hold credentials for several providers.  The Kaggle CLI
+    # needs only its own token and basic process/transport configuration; do
+    # not inherit HF, Modal, RunPod, database, OAuth, or signing secrets.
+    allowed = {
+        "HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "TZ",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+        "http_proxy", "https_proxy", "no_proxy",
+        "KAGGLE_API_TOKEN",
+    }
+    environment = {key: value for key, value in os.environ.items() if key in allowed}
     completed = subprocess.run(
         argv, shell=False, capture_output=True, text=True, timeout=60, check=False,
+        env=environment,
     )
     return KaggleCommandResult(completed.returncode, completed.stdout, completed.stderr)
 
