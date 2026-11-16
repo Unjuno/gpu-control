@@ -155,6 +155,9 @@ class Settings:
         default="local-development-only-do-not-use", repr=False, compare=False)
     provider_evidence_public_keys_json: str = "{}"
     candidate_receipt_public_keys_json: str = "{}"
+    candidate_receipt_signing_key_id: str = ""
+    candidate_receipt_signing_key_ids: tuple[str, ...] = ()
+    candidate_receipt_signing_key_pem: bytes | None = field(default=None, repr=False, compare=False)
     paid_authorization_issuer: str = ""
     paid_authorization_policy_version: str = ""
     paid_authorization_public_keys_json: str = "{}"
@@ -234,6 +237,29 @@ class Settings:
                 raise ValueError("candidate receipt public key must be Ed25519")
             keys[key_id] = pem.encode("ascii")
         return keys
+
+    @property
+    def candidate_receipt_signing_private_key(self) -> Ed25519PrivateKey:
+        if self.candidate_receipt_signing_key_pem is None:
+            raise ValueError("candidate receipt signing key is not configured")
+        try:
+            key = serialization.load_pem_private_key(
+                self.candidate_receipt_signing_key_pem, password=None)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("candidate receipt signing key is invalid PEM") from exc
+        if not isinstance(key, Ed25519PrivateKey):
+            raise ValueError("candidate receipt signing key must be Ed25519")
+        return key
+
+    def candidate_receipt_signer(self, provider: str) -> tuple[str, Ed25519PrivateKey]:
+        configured = tuple(dict.fromkeys(
+            ((self.candidate_receipt_signing_key_id,) if self.candidate_receipt_signing_key_id else ()) +
+            self.candidate_receipt_signing_key_ids
+        ))
+        matches = [key_id for key_id in configured if key_id.startswith(f"adapter:{provider}:")]
+        if len(matches) != 1:
+            raise ValueError("candidate receipt signing key is not scoped to this provider")
+        return matches[0], self.candidate_receipt_signing_private_key
 
     @property
     def paid_authorization_trusted_keys(self) -> dict[str, bytes]:
@@ -323,7 +349,25 @@ class Settings:
         if type(self.artifact_min_free_bytes) is not int or self.artifact_min_free_bytes < 0:
             raise ValueError("artifact_min_free_bytes must be a nonnegative integer")
         trusted_keys = self.provider_evidence_trusted_keys
-        self.candidate_receipt_trusted_keys
+        receipt_keys = self.candidate_receipt_trusted_keys
+        if self.candidate_receipt_signing_key_pem is not None:
+            signing_ids = tuple(dict.fromkeys(
+                ((self.candidate_receipt_signing_key_id,) if self.candidate_receipt_signing_key_id else ()) +
+                self.candidate_receipt_signing_key_ids
+            ))
+            if (not signing_ids or any(not key_id.startswith("adapter:") or key_id not in receipt_keys
+                                       for key_id in signing_ids)):
+                raise ValueError("candidate receipt signing key ID must be a trusted adapter key")
+            private = self.candidate_receipt_signing_private_key
+            derived = private.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            for key_id in signing_ids:
+                expected = serialization.load_pem_public_key(receipt_keys[key_id])
+                if derived != expected.public_bytes(
+                        serialization.Encoding.Raw, serialization.PublicFormat.Raw):
+                    raise ValueError("candidate receipt signing key does not match its trusted public key")
+        elif self.candidate_receipt_signing_key_id or self.candidate_receipt_signing_key_ids:
+            raise ValueError("candidate receipt signing key ID is set without a private key")
         self.provider_account_scope_hmac_key
         paid_keys = self.paid_authorization_trusted_keys
         if paid_keys or self.paid_authorization_issuer or self.paid_authorization_policy_version:
@@ -419,11 +463,14 @@ class Settings:
             public_url = "http://127.0.0.1:8000"
 
         evidence_private = e.get("GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64", "")
+        receipt_private = e.get("GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64", "")
         try:
             evidence_private_pem = (base64.b64decode(evidence_private, validate=True)
                                     if evidence_private else None)
+            receipt_private_pem = (base64.b64decode(receipt_private, validate=True)
+                                   if receipt_private else None)
         except (ValueError, base64.binascii.Error) as exc:
-            raise ValueError("provider evidence signing key must be valid base64") from exc
+            raise ValueError("worker signing key must be valid base64") from exc
 
         value = cls(
             database_url=database_url,
@@ -470,6 +517,11 @@ class Settings:
                 "GATEWAY_CLIENT_IP_HASH_KEY", "local-development-only-do-not-use"),
             provider_evidence_public_keys_json=e.get("GATEWAY_PROVIDER_EVIDENCE_PUBLIC_KEYS_JSON", "{}"),
             candidate_receipt_public_keys_json=e.get("GATEWAY_CANDIDATE_RECEIPT_PUBLIC_KEYS_JSON", "{}"),
+            candidate_receipt_signing_key_id=e.get("GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_ID", ""),
+            candidate_receipt_signing_key_ids=tuple(
+                item.strip() for item in e.get("GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_IDS", "").split(",")
+                if item.strip()),
+            candidate_receipt_signing_key_pem=receipt_private_pem,
             paid_authorization_issuer=e.get("GATEWAY_PAID_AUTHORIZATION_ISSUER", ""),
             paid_authorization_policy_version=e.get("GATEWAY_PAID_AUTHORIZATION_POLICY_VERSION", ""),
             paid_authorization_public_keys_json=e.get("GATEWAY_PAID_AUTHORIZATION_PUBLIC_KEYS_JSON", "{}"),

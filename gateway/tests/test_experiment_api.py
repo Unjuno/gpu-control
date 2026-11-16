@@ -1147,6 +1147,11 @@ def test_free_candidate_backend_success_requires_bound_receipt_and_confirmed_cle
         candidate_receipt_public_keys_json=json.dumps({
             "adapter:modal:gateway-v1": adapter_public.decode("ascii"),
         }),
+        candidate_receipt_signing_key_id="adapter:modal:gateway-v1",
+        candidate_receipt_signing_key_pem=adapter_key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ),
     )
     prepared = invoke(system.service, system.owner, "experiment_prepare", {
         "repository": REPOSITORY, "commit": SOURCE_SHA, "workload": "gpu",
@@ -1192,33 +1197,28 @@ def test_free_candidate_backend_success_requires_bound_receipt_and_confirmed_cle
             return self.handle
 
         def validate_candidate_observation(self, job, observation):
-            receipt = observation.candidate_receipt
             return bool(
                 self.handle is not None and
-                self.handle["resource_id"] == job["plan"]["selection_binding"]["resource_id"] and
-                isinstance(receipt, dict) and
-                receipt.get("payload", {}).get("provider_execution_id") ==
-                self.handle["provider_execution_id"] and
-                receipt.get("payload", {}).get("resource_id") == self.handle["resource_id"]
+                self.handle["resource_id"] == job["plan"]["selection_binding"]["resource_id"]
             )
 
         def capture(self, handle):
             self.captured += 1
             assert handle == self.handle
-            now = int(system.clock())
-            receipt = sign_adapter_candidate_receipt(
-                private_key=adapter_key, key_id="adapter:modal:gateway-v1",
-                issued_at=now, expires_at=now + 60, now=now,
-                plan=plan, fingerprint=plan_fingerprint(plan), run_id=run_id,
-                result=self.result, provider_execution_id=handle["provider_execution_id"],
-                device_id="GPU-test-uuid", evidence_source="modal.sandbox.get",
-                provider_object_projection={
+            return Observation("succeeded", self.result)
+
+        def candidate_receipt_claims(self, handle, observation):
+            assert observation.result == self.result
+            return {
+                "provider_execution_id": handle["provider_execution_id"],
+                "device_id": "GPU-test-uuid",
+                "evidence_source": "modal.sandbox.get",
+                "provider_object_projection": {
                     "id": handle["provider_execution_id"],
                     "resource_id": handle["resource_id"],
                     "state": "EXITED", "device_id": "GPU-test-uuid",
                 },
-            )
-            return Observation("succeeded", self.result, candidate_receipt=receipt)
+            }
 
         def cancel(self, _handle):
             raise AssertionError("successful candidate run must not be cancelled")

@@ -37,8 +37,10 @@ def run(tmp_path: Path):
     return {
         "id": "run-1",
         "fingerprint": "b" * 64,
+        "started_at": 1000,
         "plan": {
             "runtime_seconds": 120,
+            "image_digest": "sha256:" + "c" * 64,
             "workload_manifest": {
                 "provider": "kaggle",
                 "provider_resource_id": "owner/orbitune-100-step",
@@ -85,7 +87,9 @@ def test_start_checks_quota_and_persists_exact_new_version(tmp_path):
 
     assert handle == {
         "provider": "kaggle", "owner": "owner", "kernel_slug": "orbitune-100-step",
-        "version": 8, "source_sha": SOURCE_SHA,
+        "version": 8, "source_sha": SOURCE_SHA, "run_id": "run-1",
+        "plan_fingerprint": "b" * 64, "image_digest": "sha256:" + "c" * 64,
+        "started_at": 1000,
     }
     assert runner.calls == [
         ("kaggle", "quota", "--format", "json"),
@@ -138,3 +142,54 @@ def test_logs_are_bounded_and_cancel_is_not_advertised(tmp_path):
     assert backend.capabilities()["cancellation_supported"] is False
     with pytest.raises(NotImplementedError):
         backend.cancel(handle)
+
+
+def test_capture_downloads_exact_version_and_normalizes_gpu_result(tmp_path):
+    output = tmp_path / "run-1" / "output-v8" / "gpu-control-output"
+
+    class OutputRunner(ScriptedRunner):
+        def __call__(self, argv):
+            self.calls.append(tuple(argv))
+            response = self.responses.pop(0)
+            if tuple(argv[1:3]) == ("kernels", "output"):
+                output.mkdir(parents=True)
+                raw = {
+                    "status": "succeeded", "exit_status": 0, "source_sha": SOURCE_SHA,
+                    "gpu_name": "Tesla T4", "elapsed_seconds": 12.5,
+                    "steps": 100, "first_loss": 4.0, "final_loss": 2.0,
+                    "checkpoint_sha256": "47320987f9a49d5b00119b960f247a956773f57543982b8bfcb6da5bb3afd9ef",
+                    "evaluation": {"validation_loss": 2.25},
+                }
+                (output / "result.json").write_text(json.dumps(raw), encoding="utf-8")
+                (output / "training-config.json").write_text("{}", encoding="utf-8")
+                (output / "evaluation.json").write_text("{}", encoding="utf-8")
+                (output / "checkpoint.pt").write_bytes(b"checkpoint")
+            return response
+
+    runner = OutputRunner([
+        result({"status": "complete", "versionNumber": 8}),
+        result(stdout="finished"),
+        result(stdout="downloaded"),
+    ])
+    backend = KaggleBackend(settings(tmp_path), runner=runner)
+    handle = {
+        "provider": "kaggle", "owner": "owner", "kernel_slug": "orbitune-100-step",
+        "version": 8, "source_sha": SOURCE_SHA, "run_id": "run-1",
+        "plan_fingerprint": "b" * 64, "image_digest": "sha256:" + "c" * 64,
+        "started_at": 1000,
+    }
+
+    observation = backend.capture(handle)
+
+    assert observation.state == "succeeded"
+    assert observation.result["gpu_used"] is True
+    assert observation.result["device"] == "Tesla T4"
+    assert observation.result["metrics"] == {
+        "steps": 100, "first_loss": 4.0, "final_loss": 2.0,
+        "validation_loss": 2.25,
+    }
+    assert observation.result["checksum"] == "47320987f9a49d5b00119b960f247a956773f57543982b8bfcb6da5bb3afd9ef"
+    assert runner.calls[-1] == (
+        "kaggle", "kernels", "output", "owner/orbitune-100-step/8",
+        "-p", str(tmp_path / "run-1" / "output-v8"), "--force",
+    )

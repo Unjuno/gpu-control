@@ -13,6 +13,7 @@ from gpu_gateway.huggingface_artifacts import HuggingFaceArtifactStore
 @dataclass
 class RepoInfo:
     private: bool
+    sha: str = "c" * 40
 
 
 @dataclass
@@ -21,14 +22,19 @@ class CommitInfo:
 
 
 class FakeApi:
-    def __init__(self, *, private=True):
+    def __init__(self, *, private=True, existing=False):
         self.private = private
+        self.existing = existing
         self.calls = []
         self.uploaded = b""
 
     def repo_info(self, **kwargs):
         self.calls.append(("repo_info", kwargs))
         return RepoInfo(private=self.private)
+
+    def file_exists(self, **kwargs):
+        self.calls.append(("file_exists", kwargs))
+        return self.existing
 
     def upload_file(self, **kwargs):
         self.calls.append(("upload_file", kwargs))
@@ -116,6 +122,43 @@ def test_publish_detects_redownload_checksum_mismatch(tmp_path):
             artifact, repo_id="owner/private-artifacts",
             path_in_repo="runs/run/checkpoint.pt", run_id="run", source_sha="a" * 40,
         )
+
+
+def test_publish_reuses_matching_existing_path_without_duplicate_upload(tmp_path):
+    artifact = tmp_path / "bundle.zip"
+    artifact.write_bytes(b"same-content")
+    restored = tmp_path / "existing.zip"
+    restored.write_bytes(b"same-content")
+    api = FakeApi(existing=True)
+    store = HuggingFaceArtifactStore(
+        settings(), api=api, downloader=lambda **_: str(restored),
+    )
+
+    reference = store.publish(
+        artifact, repo_id="owner/private-artifacts",
+        path_in_repo="runs/run/bundle.zip", run_id="run", source_sha="a" * 40,
+    )
+
+    assert reference["revision"] == "c" * 40
+    assert all(name != "upload_file" for name, _kwargs in api.calls)
+
+
+def test_publish_refuses_to_overwrite_existing_path_with_different_content(tmp_path):
+    artifact = tmp_path / "bundle.zip"
+    artifact.write_bytes(b"new")
+    restored = tmp_path / "existing.zip"
+    restored.write_bytes(b"old")
+    api = FakeApi(existing=True)
+    store = HuggingFaceArtifactStore(
+        settings(), api=api, downloader=lambda **_: str(restored),
+    )
+
+    with pytest.raises(RuntimeError, match="immutable artifact path"):
+        store.publish(
+            artifact, repo_id="owner/private-artifacts",
+            path_in_repo="runs/run/bundle.zip", run_id="run", source_sha="a" * 40,
+        )
+    assert all(name != "upload_file" for name, _kwargs in api.calls)
 
 
 def test_publish_rejects_paths_tokens_and_unbounded_artifacts(tmp_path):

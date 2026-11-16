@@ -88,15 +88,32 @@ class HuggingFaceArtifactStore:
         if getattr(info, "private", None) is not True:
             raise ValueError("Hugging Face artifact repository must be private")
         checksum = _sha256(local_path)
-        commit = self.api.upload_file(
-            path_or_fileobj=str(local_path),
-            path_in_repo=remote_path,
-            repo_id=repo_id,
-            repo_type="model",
+        exists = self.api.file_exists(
+            repo_id=repo_id, filename=remote_path, repo_type="model",
             token=self.settings.hf_token,
-            commit_message=f"gpu-control artifact {run_id}",
         )
-        revision = getattr(commit, "oid", None)
+        if type(exists) is not bool:
+            raise RuntimeError("Hugging Face file existence result is invalid")
+        if exists:
+            revision = getattr(info, "sha", None)
+            if not isinstance(revision, str) or _SHA40_RE.fullmatch(revision) is None:
+                raise RuntimeError("Hugging Face repository did not return an immutable revision")
+            existing = Path(self.downloader(
+                repo_id=repo_id, filename=remote_path, repo_type="model",
+                revision=revision, token=self.settings.hf_token,
+            ))
+            if not existing.is_file() or _sha256(existing) != checksum:
+                raise RuntimeError("immutable artifact path already contains different content")
+        else:
+            commit = self.api.upload_file(
+                path_or_fileobj=str(local_path),
+                path_in_repo=remote_path,
+                repo_id=repo_id,
+                repo_type="model",
+                token=self.settings.hf_token,
+                commit_message=f"gpu-control artifact {run_id}",
+            )
+            revision = getattr(commit, "oid", None)
         if not isinstance(revision, str) or _SHA40_RE.fullmatch(revision) is None:
             raise RuntimeError("Hugging Face upload did not return an immutable revision")
         downloaded = Path(self.downloader(

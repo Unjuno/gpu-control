@@ -627,7 +627,9 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                     payload["logs"] = raw_logs[-STATUS_LOG_LIMIT:]
                     payload["logs_truncated"] = len(raw_logs) > STATUS_LOG_LIMIT
                 status = "ok" if state in TERMINAL else "pending"
-                actions = [] if state in TERMINAL else ["experiment_status", "experiment_cancel"]
+                actions = ([] if state in TERMINAL else
+                           ["experiment_status", "experiment_cancel"]
+                           if service.cancellation_supported(result) else ["experiment_status"])
             elif name == "experiment_cancel":
                 status, actions = "pending", ["experiment_status"] if state not in TERMINAL else []
             else:

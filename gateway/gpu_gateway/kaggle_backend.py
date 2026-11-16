@@ -7,10 +7,13 @@ journal beside the trusted staging directory before provider submission.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
+import zipfile
 from typing import Any, Callable, Mapping
 
 from .backends import Observation, bounded_text
@@ -84,10 +87,12 @@ class KaggleBackend:
         *,
         runner: Callable[[tuple[str, ...]], KaggleCommandResult] | None = None,
         max_output_bytes: int | None = None,
+        artifact_store: Any = None,
     ) -> None:
         self.settings = settings
         self.runner = runner or _default_runner
         self.max_output_bytes = max_output_bytes or settings.max_output_bytes
+        self.artifact_store = artifact_store
 
     def _command(self, *args: str) -> KaggleCommandResult:
         result = self.runner(("kaggle", *args))
@@ -207,8 +212,27 @@ class KaggleBackend:
         if version <= baseline:
             raise RuntimeError("Kaggle submission outcome unknown")
         owner, slug = str(prepared["kernel"]).split("/", 1)
-        return {"provider": "kaggle", "owner": owner, "kernel_slug": slug,
-                "version": version, "source_sha": prepared["source_sha"]}
+        return self._handle(run, owner=owner, slug=slug, version=version,
+                            source_sha=str(prepared["source_sha"]))
+
+    @staticmethod
+    def _handle(run: Mapping[str, Any], *, owner: str, slug: str, version: int,
+                source_sha: str) -> dict[str, Any]:
+        plan = run.get("plan")
+        if not isinstance(plan, Mapping):
+            raise ValueError("Kaggle run plan is unavailable")
+        values = {
+            "provider": "kaggle", "owner": owner, "kernel_slug": slug,
+            "version": version, "source_sha": source_sha,
+            "run_id": run.get("id"), "plan_fingerprint": run.get("fingerprint"),
+            "image_digest": plan.get("image_digest"), "started_at": run.get("started_at"),
+        }
+        if (not isinstance(values["run_id"], str) or
+                not isinstance(values["plan_fingerprint"], str) or
+                not isinstance(values["image_digest"], str) or
+                type(values["started_at"]) is not int):
+            raise ValueError("Kaggle run identity is incomplete")
+        return values
 
     def start_candidate_bound(self, run: dict) -> dict:
         owner, slug, _source_sha, _accelerator = self._manifest(run)
@@ -231,8 +255,8 @@ class KaggleBackend:
         if type(baseline) is not int or version <= baseline:
             return None
         owner, slug = str(prepared["kernel"]).split("/", 1)
-        return {"provider": "kaggle", "owner": owner, "kernel_slug": slug,
-                "version": version, "source_sha": prepared["source_sha"]}
+        return self._handle(run, owner=owner, slug=slug, version=version,
+                            source_sha=str(prepared["source_sha"]))
 
     def inspect(self, handle: dict) -> Observation:
         ref = f'{handle["owner"]}/{handle["kernel_slug"]}/{handle["version"]}'
@@ -248,16 +272,124 @@ class KaggleBackend:
         })
 
     def capture(self, handle: dict) -> Observation:
-        return self.inspect(handle)
+        observation = self.inspect(handle)
+        if observation.state != "succeeded":
+            return observation
+        ref = f'{handle["owner"]}/{handle["kernel_slug"]}/{handle["version"]}'
+        stage_root = Path(self.settings.kaggle_staging_root).resolve()
+        output_root = (stage_root / str(handle["run_id"]) / f'output-v{handle["version"]}').resolve()
+        if output_root.parent.parent != stage_root:
+            raise ValueError("Kaggle output directory escaped the trusted staging root")
+        result_path = output_root / "gpu-control-output" / "result.json"
+        if not result_path.is_file():
+            output_root.mkdir(parents=True, exist_ok=True)
+            downloaded = self._command(
+                "kernels", "output", ref, "-p", str(output_root), "--force",
+            )
+            if downloaded.returncode != 0:
+                raise RuntimeError("Kaggle output download failed")
+        directory = output_root / "gpu-control-output"
+        expected = {"result.json", "training-config.json", "evaluation.json", "checkpoint.pt"}
+        if (not directory.is_dir() or any(item.is_symlink() for item in output_root.rglob("*")) or
+                {item.name for item in directory.iterdir()} != expected or
+                any(not item.is_file() for item in directory.iterdir())):
+            raise RuntimeError("Kaggle output bundle is incomplete or unsafe")
+        limits = {"result.json": 1_048_576, "training-config.json": 1_048_576,
+                  "evaluation.json": 1_048_576, "checkpoint.pt": 64 * 1024 * 1024}
+        if any((directory / name).stat().st_size < 1 or
+               (directory / name).stat().st_size > limit for name, limit in limits.items()):
+            raise RuntimeError("Kaggle output file exceeds its bound")
+        try:
+            raw = json.loads(result_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Kaggle result manifest is invalid") from exc
+        checkpoint = directory / "checkpoint.pt"
+        checkpoint_sha = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+        evaluation = raw.get("evaluation") if isinstance(raw, Mapping) else None
+        required = {
+            "status": "succeeded", "exit_status": 0, "source_sha": handle["source_sha"],
+            "steps": 100, "checkpoint_sha256": checkpoint_sha,
+        }
+        if (not isinstance(raw, Mapping) or any(raw.get(k) != v for k, v in required.items()) or
+                not isinstance(evaluation, Mapping)):
+            raise RuntimeError("Kaggle result does not match the registered workload")
+        numeric = (raw.get("elapsed_seconds"), raw.get("first_loss"), raw.get("final_loss"),
+                   evaluation.get("validation_loss"))
+        if any(not isinstance(value, (int, float)) or isinstance(value, bool) or
+               not math.isfinite(value) for value in numeric):
+            raise RuntimeError("Kaggle result metrics are invalid")
+        if not isinstance(raw.get("gpu_name"), str) or not raw["gpu_name"].strip():
+            raise RuntimeError("Kaggle result did not identify a GPU")
+        elapsed = float(raw["elapsed_seconds"])
+        external_artifacts = []
+        if self.settings.hf_artifact_repositories:
+            store = self.artifact_store
+            if store is None:
+                from .huggingface_artifacts import HuggingFaceArtifactStore
+                store = HuggingFaceArtifactStore(self.settings)
+            bundle = output_root / "orbitune-output.zip"
+            with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_STORED) as archive:
+                for name in sorted(expected):
+                    info = zipfile.ZipInfo(f"gpu-control-output/{name}", (1980, 1, 1, 0, 0, 0))
+                    info.external_attr = 0o100600 << 16
+                    archive.writestr(info, (directory / name).read_bytes())
+            external_artifacts.append(store.publish(
+                bundle, repo_id=self.settings.hf_artifact_repositories[0],
+                path_in_repo=f'runs/{handle["run_id"]}/orbitune-output.zip',
+                run_id=handle["run_id"], source_sha=handle["source_sha"],
+            ))
+        result = {
+            "schema_version": 2, "run_id": handle["run_id"],
+            "source_sha": handle["source_sha"],
+            "plan_fingerprint": handle["plan_fingerprint"], "provider": "kaggle",
+            "image_digest": handle["image_digest"], "simulation": False,
+            "gpu_used": True, "device": raw["gpu_name"], "exit_code": 0,
+            "started_at": handle["started_at"],
+            "finished_at": handle["started_at"] + max(1, math.ceil(elapsed)),
+            "runtime_seconds": elapsed,
+            "metrics": {"steps": 100, "first_loss": float(raw["first_loss"]),
+                        "final_loss": float(raw["final_loss"]),
+                        "validation_loss": float(evaluation["validation_loss"])},
+            "checks": ["kaggle_exact_version", "checkpoint_reloaded"],
+            "checksum": checkpoint_sha, "artifacts": [],
+            "external_artifacts": external_artifacts, "known_cost_usd": "0",
+            "cost_classification": "FREE_QUOTA", "cleanup_state": "pending",
+            "logs": observation.result.get("logs", ""),
+            "logs_truncated": observation.result.get("logs_truncated", False),
+        }
+        return Observation("succeeded", result)
 
     def validate_candidate_observation(self, run: dict, observation: Observation) -> bool:
         if observation.state == "running" or not isinstance(observation.result, Mapping):
             return False
         owner, slug, source_sha, _accelerator = self._manifest(run)
-        kernel = observation.result.get("kernel")
         return (observation.result.get("provider") == "kaggle" and
                 observation.result.get("source_sha") == source_sha and
-                isinstance(kernel, str) and kernel.startswith(f"{owner}/{slug}/"))
+                observation.result.get("gpu_used") is True and
+                observation.result.get("exit_code") == 0 and
+                isinstance(observation.result.get("checksum"), str))
+
+    def candidate_receipt_claims(self, handle: dict, observation: Observation) -> dict[str, Any]:
+        if observation.state != "succeeded" or not isinstance(observation.result, Mapping):
+            raise ValueError("Kaggle receipt requires a successful captured result")
+        ref = f'{handle["owner"]}/{handle["kernel_slug"]}/{handle["version"]}'
+        status = self._status(ref)
+        if str(status.get("status", "")).lower() not in {"complete", "completed", "succeeded"}:
+            raise RuntimeError("Kaggle Kernel is not terminal-successful")
+        projection = {
+            "kernel": ref,
+            "version": handle["version"],
+            "status": str(status.get("status", "")).lower(),
+            "source_sha": handle["source_sha"],
+            "device_model": observation.result.get("device"),
+            "checkpoint_sha256": observation.result.get("checksum"),
+        }
+        return {
+            "provider_execution_id": ref,
+            "device_id": f'kaggle:{ref}:{observation.result.get("device")}',
+            "evidence_source": "kaggle.cli.status-and-output",
+            "provider_object_projection": projection,
+        }
 
     def cleanup(self, handle: dict) -> None:
         if self.inspect(handle).state == "running":

@@ -54,8 +54,10 @@ def run():
     return {
         "id": "run-1",
         "fingerprint": "f" * 64,
+        "started_at": 1000,
         "plan": {
             "runtime_seconds": 30,
+            "image_digest": "sha256:" + "b" * 64,
             "parameters": {"prompt": "evaluate this checkpoint"},
             "workload_manifest": {
                 "provider": "huggingface_space",
@@ -79,6 +81,8 @@ def test_start_checks_free_quota_and_returns_bounded_durable_request_handle():
         "space_id": "owner/approved-zero-gpu",
         "request_id": "run-1-" + "f" * 12,
         "source_sha": "a" * 40,
+        "run_id": "run-1", "plan_fingerprint": "f" * 64,
+        "image_digest": "sha256:" + "b" * 64, "started_at": 1000,
     }
     request = client.calls[0]
     assert request[1] == "/evaluate"
@@ -102,7 +106,8 @@ def test_reconcile_never_restarts_and_uses_deterministic_status_endpoint():
     client = FakeClient([{
         "request_id": "run-1-" + "f" * 12,
         "state": "succeeded",
-        "result": {"score": 0.75},
+        "result": {"score": 0.75, "device": "NVIDIA A10G", "gpu_used": True,
+                   "exit_code": 0, "checksum": "c" * 64, "runtime_seconds": 4.5},
     }])
     backend = HuggingFaceSpaceBackend(
         settings(), api=FakeApi(Quota()), client_factory=lambda _space, _token: client,
@@ -114,6 +119,8 @@ def test_reconcile_never_restarts_and_uses_deterministic_status_endpoint():
     assert client.calls == [(("run-1-" + "f" * 12,), "/status")]
     assert observation.state == "succeeded"
     assert observation.result["metrics"] == {"score": 0.75}
+    assert observation.result["device"] == "NVIDIA A10G"
+    assert observation.result["gpu_used"] is True
 
 
 def test_space_must_be_allowlisted_and_registry_does_not_enable_paid_jobs():

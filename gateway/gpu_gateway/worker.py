@@ -26,7 +26,7 @@ from .admission import (evaluate_admission, load_local_cpu_policy,
                         matches_registered_local_workload)
 from .contracts import (PlanV2, ResultV2, plan_fingerprint,
                         validate_candidate_gpu_success, validate_result_binding)
-from .candidate_receipts import verify_candidate_receipt
+from .candidate_receipts import sign_adapter_candidate_receipt, verify_candidate_receipt
 from .health import HEARTBEAT_STALE_SECONDS, heartbeat_is_stale
 from .provider_evidence import build_signed_observation
 from .runpod_inventory import (
@@ -916,7 +916,8 @@ class Worker:
                 return True
             overdue = now > job["started_at"] + plan["runtime_seconds"] + 60
             cancelling = latest["cancel_requested"] or overdue
-            if cancelling:
+            registration = self.registry.get(plan["provider"])
+            if cancelling and registration is not None and registration.supports_cancellation:
                 backend.cancel(handle)
             observation = backend.capture(handle) if lifecycle_backend else backend.inspect(handle)
             observed_at = int(self.clock())
@@ -931,6 +932,22 @@ class Worker:
                         verified_receipt = None
                         if verified and observation.state == "succeeded":
                             validated_plan = PlanV2.model_validate_json(json.dumps(plan, allow_nan=False))
+                            if observation.candidate_receipt is None:
+                                claims = backend.candidate_receipt_claims(handle, observation)
+                                key_id, private_key = self.settings.candidate_receipt_signer(
+                                    validated_plan.provider)
+                                receipt_now = int(self.clock())
+                                receipt = sign_adapter_candidate_receipt(
+                                    private_key=private_key, key_id=key_id,
+                                    issued_at=receipt_now, expires_at=receipt_now + 300,
+                                    now=receipt_now, plan=validated_plan,
+                                    fingerprint=job["fingerprint"], run_id=job["id"],
+                                    result=observation.result, **claims,
+                                )
+                                observation = Observation(
+                                    observation.state, observation.result,
+                                    observation.artifacts, receipt,
+                                )
                             verified_receipt = verify_candidate_receipt(
                                 observation.candidate_receipt,
                                 self.settings.candidate_receipt_trusted_keys,

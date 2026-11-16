@@ -108,6 +108,19 @@ class ArtifactMetadata(StrictContract):
     expires_at: int | None
 
 
+class ExternalArtifactReference(StrictContract):
+    service: Literal["huggingface_hub"]
+    repo_id: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    repo_type: Literal["model"]
+    path_in_repo: str = Field(min_length=1, max_length=512)
+    revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=1, le=20 * 1024 * 1024 * 1024)
+    run_id: str = Field(min_length=1, max_length=128)
+    source_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    private: Literal[True]
+
+
 class ResultV2(StrictContract):
     schema_version: Literal[2]
     run_id: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -128,6 +141,7 @@ class ResultV2(StrictContract):
     checks: list[str] = Field(default_factory=list, max_length=32)
     checksum: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     artifacts: list[ArtifactMetadata] = Field(max_length=10)
+    external_artifacts: list[ExternalArtifactReference] = Field(default_factory=list, max_length=10)
     known_cost_usd: Decimal | None
     cost_classification: CostClassification
     cleanup_state: Literal["not_required", "pending", "complete", "unknown"]

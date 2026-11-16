@@ -40,7 +40,15 @@ Worker-only secrets:
 
 ```dotenv
 HF_TOKEN=REDACTED
+GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_IDS=adapter:kaggle:worker-v1,adapter:huggingface_space:worker-v1
+GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64=REDACTED
 ```
+
+The corresponding public keys must appear in
+`GATEWAY_CANDIDATE_RECEIPT_PUBLIC_KEYS_JSON`. The adapter receipt key is a
+distinct Ed25519 key from the provider-observation signing key. One private key
+may be pinned under separate provider-scoped public key IDs; receipts can never
+cross provider scope.
 
 Kaggle must be authenticated using the official CLI login/token mechanism in the worker account. Do not put Kaggle credentials in workload JSON, the database, an MCP result, or the source cache.
 
@@ -54,6 +62,10 @@ The source cache directory for a commit is `<cache-root>/<40-character-sha>`. It
 - A ZeroGPU request uses the deterministic request ID `<run-id>-<plan-prefix>`. On an ambiguous call, query the approved Space `/status` endpoint; do not call `/evaluate` again.
 - ZeroGPU runs only when `get_zero_gpu_quota()` reports enough included seconds and no overquota use. Paid credit extension and Hugging Face Jobs remain separate, disabled paths.
 - Hub publication records the commit revision and SHA-256, then downloads the exact revision and verifies it before the reference is accepted.
+- Kaggle output is accepted only from the exact owner/slug/version and the fixed
+  `gpu-control-output` file set. The trusted worker creates a deterministic
+  `orbitune-output.zip`, uploads it to `runs/<run_id>/orbitune-output.zip` in the
+  allowlisted private repository, and refuses to overwrite different content.
 
 ## Live acceptance sequence
 

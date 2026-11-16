@@ -428,6 +428,15 @@ class ExperimentService:
                 raise GatewayError("not_found", "Experiment not found", 404)
             if row["state"] in TERMINAL:
                 return self._public_run(dict(row))
+            if row["state"] not in {"awaiting_approval", "approved", "authorized", "queued"}:
+                provider = row["plan"].get("provider") if isinstance(row["plan"], dict) else None
+                registration = self.registry.get(provider)
+                if registration is None or not registration.supports_cancellation:
+                    raise GatewayError(
+                        "cancellation_unsupported",
+                        "The accepted provider job cannot be reliably cancelled; status remains observable",
+                        409,
+                    )
             if row["state"] in {"awaiting_approval", "approved", "authorized", "queued"}:
                 if row["slot_reserved"]:
                     connection.execute(update(control).where(control.c.id == 1).values(active_count=control.c.active_count - 1))
@@ -435,6 +444,16 @@ class ExperimentService:
             else:
                 connection.execute(update(runs).where(runs.c.id == run_id).values(cancel_requested=True))
         return self._public_run(self.owned(principal, run_id))
+
+    def cancellation_supported(self, run: dict) -> bool:
+        if run.get("state") in TERMINAL:
+            return False
+        if run.get("state") in {"awaiting_approval", "approved", "authorized", "queued"}:
+            return True
+        plan = run.get("plan")
+        provider = plan.get("provider") if isinstance(plan, dict) else None
+        registration = self.registry.get(provider)
+        return bool(registration is not None and registration.supports_cancellation)
 
     def get(self, principal: Principal, run_id: str) -> dict:
         principal.require("experiments:read")

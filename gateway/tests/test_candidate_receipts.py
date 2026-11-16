@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 from decimal import Decimal
+from dataclasses import replace
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -163,6 +164,51 @@ def test_adapter_receipt_signer_binds_plan_result_and_authenticated_projection()
     unsigned = {key: value for key, value in receipt.items() if key != "signature"}
     signature = base64.urlsafe_b64decode(receipt["signature"] + "==")
     private.public_key().verify(signature, _canonical(unsigned))
+
+
+def test_settings_require_adapter_private_key_to_match_trusted_receipt_key():
+    private = Ed25519PrivateKey.generate()
+    private_pem = private.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    public_pem = private.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    settings = Settings(
+        candidate_receipt_public_keys_json=json.dumps({
+            "adapter:kaggle:worker-v1": public_pem.decode(),
+        }),
+        candidate_receipt_signing_key_id="adapter:kaggle:worker-v1",
+        candidate_receipt_signing_key_pem=private_pem,
+    )
+    settings.validate()
+    assert settings.candidate_receipt_signing_private_key.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw,
+    ) == private.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw,
+    )
+    multi = replace(
+        settings,
+        candidate_receipt_public_keys_json=json.dumps({
+            "adapter:kaggle:worker-v1": public_pem.decode(),
+            "adapter:huggingface_space:worker-v1": public_pem.decode(),
+        }),
+        candidate_receipt_signing_key_id="",
+        candidate_receipt_signing_key_ids=(
+            "adapter:kaggle:worker-v1", "adapter:huggingface_space:worker-v1",
+        ),
+    )
+    multi.validate()
+    assert multi.candidate_receipt_signer("kaggle")[0] == "adapter:kaggle:worker-v1"
+    assert multi.candidate_receipt_signer("huggingface_space")[0] == "adapter:huggingface_space:worker-v1"
+
+    wrong = Ed25519PrivateKey.generate().private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    with pytest.raises(ValueError, match="receipt signing key"):
+        replace(settings, candidate_receipt_signing_key_pem=wrong).validate()
 
 
 @pytest.mark.parametrize(("change", "message"), [

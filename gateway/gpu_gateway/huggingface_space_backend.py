@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import math
 import re
 from typing import Any, Callable, Mapping
 
@@ -123,10 +124,28 @@ class HuggingFaceSpaceBackend:
             ),
             request_id,
         )
-        handle = {"provider": "huggingface_space", "space_id": space_id,
-                  "request_id": request_id, "source_sha": source_sha}
+        handle = self._handle(run, space_id, request_id, source_sha)
         if response["state"] not in {"queued", "running"}:
             handle["observation"] = response
+        return handle
+
+    @staticmethod
+    def _handle(run: Mapping[str, Any], space_id: str, request_id: str,
+                source_sha: str) -> dict[str, Any]:
+        plan = run.get("plan")
+        if not isinstance(plan, Mapping):
+            raise ValueError("Hugging Face run plan is unavailable")
+        handle = {
+            "provider": "huggingface_space", "space_id": space_id,
+            "request_id": request_id, "source_sha": source_sha,
+            "run_id": run.get("id"), "plan_fingerprint": run.get("fingerprint"),
+            "image_digest": plan.get("image_digest"), "started_at": run.get("started_at"),
+        }
+        if (not isinstance(handle["run_id"], str) or
+                not isinstance(handle["plan_fingerprint"], str) or
+                not isinstance(handle["image_digest"], str) or
+                type(handle["started_at"]) is not int):
+            raise ValueError("Hugging Face run identity is incomplete")
         return handle
 
     def start_candidate_bound(self, run: dict) -> dict:
@@ -141,9 +160,8 @@ class HuggingFaceSpaceBackend:
         response = self._response(
             self._client(space_id).predict(request_id, api_name="/status"), request_id,
         )
-        handle = {"provider": "huggingface_space", "space_id": space_id,
-                  "request_id": request_id, "source_sha": source_sha,
-                  "observation": response}
+        handle = self._handle(run, space_id, request_id, source_sha)
+        handle["observation"] = response
         return handle
 
     def inspect(self, handle: dict) -> Observation:
@@ -159,14 +177,38 @@ class HuggingFaceSpaceBackend:
         state = response["state"]
         if state in {"queued", "running"}:
             return Observation("running")
-        result = {
-            "provider": "huggingface_space",
-            "space_id": handle["space_id"],
-            "request_id": request_id,
-            "source_sha": handle["source_sha"],
-            "metrics": response.get("result", {}),
-            "cleanup_state": "not_required",
-        }
+        handle["observation"] = response
+        raw = response.get("result")
+        if state == "succeeded":
+            if not isinstance(raw, Mapping):
+                raise RuntimeError("Hugging Face Space result is invalid")
+            required = (raw.get("device"), raw.get("runtime_seconds"), raw.get("score"))
+            if (raw.get("gpu_used") is not True or raw.get("exit_code") != 0 or
+                    not isinstance(raw.get("checksum"), str) or
+                    re.fullmatch(r"[0-9a-f]{64}", raw["checksum"]) is None or
+                    not isinstance(raw.get("device"), str) or not raw["device"].strip() or
+                    any(not isinstance(value, (int, float)) or isinstance(value, bool) or
+                        not math.isfinite(value) for value in required[1:])):
+                raise RuntimeError("Hugging Face Space did not return verified GPU evidence")
+            elapsed = float(raw["runtime_seconds"])
+            result = {
+                "schema_version": 2, "run_id": handle["run_id"],
+                "source_sha": handle["source_sha"],
+                "plan_fingerprint": handle["plan_fingerprint"],
+                "provider": "huggingface_space", "image_digest": handle["image_digest"],
+                "simulation": False, "gpu_used": True, "device": raw["device"],
+                "exit_code": 0, "started_at": handle["started_at"],
+                "finished_at": handle["started_at"] + max(1, math.ceil(elapsed)),
+                "runtime_seconds": elapsed, "metrics": {"score": float(raw["score"])},
+                "checks": ["approved_space_contract", "zero_gpu_quota_checked"],
+                "checksum": raw["checksum"], "artifacts": [], "external_artifacts": [],
+                "known_cost_usd": "0", "cost_classification": "FREE_QUOTA",
+                "cleanup_state": "pending",
+            }
+        else:
+            result = {"provider": "huggingface_space", "space_id": handle["space_id"],
+                      "request_id": request_id, "source_sha": handle["source_sha"],
+                      "failure_code": f"space_{state}", "cleanup_state": "pending"}
         return Observation(state, result)
 
     def capture(self, handle: dict) -> Observation:
@@ -177,9 +219,27 @@ class HuggingFaceSpaceBackend:
             return False
         space_id, request_id, source_sha, _parameters, _runtime = self._identity(run)
         return (observation.result.get("provider") == "huggingface_space" and
-                observation.result.get("space_id") == space_id and
-                observation.result.get("request_id") == request_id and
-                observation.result.get("source_sha") == source_sha)
+                observation.result.get("source_sha") == source_sha and
+                observation.result.get("gpu_used") is True and
+                observation.result.get("exit_code") == 0)
+
+    def candidate_receipt_claims(self, handle: dict, observation: Observation) -> dict[str, Any]:
+        response = handle.get("observation")
+        if (observation.state != "succeeded" or not isinstance(observation.result, Mapping) or
+                not isinstance(response, Mapping) or response.get("state") != "succeeded"):
+            raise ValueError("Hugging Face receipt requires an authenticated terminal response")
+        projection = {
+            "space_id": handle["space_id"], "request_id": handle["request_id"],
+            "state": response["state"], "source_sha": handle["source_sha"],
+            "device_model": observation.result.get("device"),
+            "checksum": observation.result.get("checksum"),
+        }
+        return {
+            "provider_execution_id": handle["request_id"],
+            "device_id": f'huggingface:{handle["request_id"]}:{observation.result.get("device")}',
+            "evidence_source": "huggingface_space.gradio.status",
+            "provider_object_projection": projection,
+        }
 
     def cleanup(self, handle: dict) -> None:
         if self.inspect(handle).state == "running":
