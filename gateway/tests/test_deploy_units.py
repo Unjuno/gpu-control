@@ -203,6 +203,18 @@ def test_shared_deployment_environment_uses_public_https_and_persistent_artifact
     assert "GATEWAY_OIDC_CLIENT_SECRET" not in values
 
 
+def test_worker_image_contains_exact_source_verifier_and_provider_clients():
+    dockerfile = (DEPLOY.parent / "Dockerfile.worker").read_text(encoding="utf-8")
+    requirements = (DEPLOY.parent / "requirements-worker.txt").read_text(encoding="utf-8")
+    assert "apt-get install -y --no-install-recommends git" in dockerfile
+    assert "rm -rf /var/lib/apt/lists/*" in dockerfile
+    assert "COPY gateway/workloads ./workloads" in dockerfile
+    assert "kaggle==" in requirements
+    assert "six==" in requirements
+    assert "huggingface_hub==" in requirements
+    assert "gradio_client==" in requirements
+
+
 def test_caddy_example_filters_request_secrets_and_uses_local_admin_and_gateway():
     caddy = (DEPLOY / "Caddyfile.example").read_text(encoding="utf-8")
     assert "admin 127.0.0.1:2019" in caddy

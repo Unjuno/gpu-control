@@ -66,6 +66,12 @@ configuration or evidence collection is not execution authorization. The
 source cache is operator-owned and read-only to the worker; the per-run stage
 lives under the worker's writable systemd StateDirectory.
 
+Install the cache as `root:gpu-control-config` with directories mode `0750`
+and files mode `0640`, so the worker can verify and copy it but cannot modify
+it. The worker container includes Git solely for local `rev-parse` and
+clean-worktree checks; it does not fetch source from the network. Source
+materialization remains a separate operator action.
+
 The source cache directory for a commit is `<cache-root>/<40-character-sha>`. It must be a clean Git checkout at that exact commit. Staging copies only the `orbitune` Python package and the registered training entrypoint. Preparation performs no provider call; `kaggle kernels push` occurs only after approval, quota verification, and the durable submission intent.
 
 Start from `gateway/examples/kaggle-hf-workloads.template.json`. Replace `OWNER`,
