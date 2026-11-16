@@ -4,6 +4,7 @@ from gpu_gateway.registry import (
     candidate_plan_requires_paid_authorization,
     supports_candidate_execution,
     default_registry,
+    default_artifact_registry,
 )
 from gpu_gateway.config import Settings
 from gpu_gateway.kaggle_backend import KaggleBackend
@@ -200,5 +201,19 @@ def test_kaggle_is_registered_but_not_falsely_candidate_or_cancel_ready(tmp_path
     assert registration.enabled(disabled) is False
     assert registration.enabled(enabled) is True
     assert isinstance(registration.factory(enabled), KaggleBackend)
-    assert registration.supports_candidate_binding is False
+    assert registration.supports_candidate_binding is True
+    assert registration.supports_cancellation is False
     assert "cancellation" in registration.note.lower()
+
+
+def test_huggingface_hub_is_a_separate_artifact_service_not_execution_provider():
+    artifacts = default_artifact_registry()
+    providers = default_registry()
+    settings = Settings(
+        hf_token="hf_worker_secret",
+        hf_artifact_repositories=("owner/private-artifacts",),
+    )
+
+    assert "huggingface_hub" in artifacts
+    assert artifacts["huggingface_hub"].enabled(settings) is True
+    assert "huggingface_hub" not in providers

@@ -91,8 +91,13 @@ class Workload(BaseModel):
                 raise ValueError("local_cpu policy only supports the smoke profile")
         if bool(self.source_repository) != bool(self.source_sha):
             raise ValueError("source_repository and source_sha must be configured together")
-        if bool(self.provider_resource_id) != bool(self.provider_data_center_id):
-            raise ValueError("provider_resource_id and provider_data_center_id must be configured together")
+        if self.provider == "runpod" and bool(self.provider_resource_id) != bool(self.provider_data_center_id):
+            raise ValueError("RunPod resource and data-center IDs must be configured together")
+        if self.provider in {"kaggle", "huggingface_space"}:
+            if self.provider_resource_id is None or self.provider_data_center_id is not None:
+                raise ValueError(f"{self.provider} requires one provider resource ID and no data-center ID")
+            if not self.source_repository or not self.source_sha:
+                raise ValueError(f"{self.provider} requires an immutable source repository and SHA")
         for field_name, value in (("provider_resource_id", self.provider_resource_id),
                                   ("provider_data_center_id", self.provider_data_center_id)):
             if value is not None and (not isinstance(value, str) or not value or
@@ -128,6 +133,7 @@ class Settings:
     runpod_factory: str = ""
     kaggle_username: str = ""
     kaggle_staging_root: str = ""
+    kaggle_source_cache_root: str = ""
     hf_token: str = field(default="", repr=False, compare=False)
     hf_artifact_repositories: tuple[str, ...] = ()
     hf_space_allowlist: tuple[str, ...] = ()
@@ -361,16 +367,18 @@ class Settings:
             root = Path(self.kaggle_staging_root)
             if not root.is_absolute():
                 raise ValueError("Kaggle staging root must be an absolute operator path")
+            if self.kaggle_source_cache_root and not Path(self.kaggle_source_cache_root).is_absolute():
+                raise ValueError("Kaggle source cache root must be an absolute operator path")
         if self.hf_artifact_repositories:
-            if not self.hf_token or any(character.isspace() for character in self.hf_token):
-                raise ValueError("Hugging Face artifact repositories require a worker-only token")
+            if self.hf_token and any(character.isspace() for character in self.hf_token):
+                raise ValueError("Hugging Face worker token must not contain whitespace")
             if (len(set(self.hf_artifact_repositories)) != len(self.hf_artifact_repositories) or
                     any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) is None
                         for repo in self.hf_artifact_repositories)):
                 raise ValueError("Hugging Face artifact repository allowlist is invalid")
         if self.enable_huggingface_space:
-            if not self.hf_token or any(character.isspace() for character in self.hf_token):
-                raise ValueError("Hugging Face Space execution requires a worker-only token")
+            if self.hf_token and any(character.isspace() for character in self.hf_token):
+                raise ValueError("Hugging Face worker token must not contain whitespace")
             if (not self.hf_space_allowlist or
                     len(set(self.hf_space_allowlist)) != len(self.hf_space_allowlist) or
                     any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", space) is None
@@ -429,6 +437,7 @@ class Settings:
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),
             kaggle_username=e.get("GATEWAY_KAGGLE_USERNAME", ""),
             kaggle_staging_root=e.get("GATEWAY_KAGGLE_STAGING_ROOT", ""),
+            kaggle_source_cache_root=e.get("GATEWAY_KAGGLE_SOURCE_CACHE_ROOT", ""),
             hf_token=e.get("HF_TOKEN", ""),
             hf_artifact_repositories=tuple(
                 item.strip() for item in e.get("GATEWAY_HF_ARTIFACT_REPOSITORIES", "").split(",")

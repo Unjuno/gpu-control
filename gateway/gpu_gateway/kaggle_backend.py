@@ -97,7 +97,8 @@ class KaggleBackend:
 
     def _manifest(self, run: Mapping[str, Any]) -> tuple[str, str, str, str]:
         try:
-            manifest = run["plan"]["workload_manifest"]
+            manifest = (run["plan"].get("workload_manifest") or
+                        run["registered_workload_manifest"])
             kernel = manifest["provider_resource_id"]
             source_sha = manifest["source_sha"]
             accelerator = manifest["gpu"]
@@ -121,7 +122,14 @@ class KaggleBackend:
             raise ValueError("Kaggle run id is invalid")
         root = Path(self.settings.kaggle_staging_root).resolve()
         stage = (root / run_id).resolve()
-        if stage.parent != root or not stage.is_dir():
+        if stage.parent != root:
+            raise ValueError("trusted Kaggle staging directory is unavailable")
+        if not stage.exists() and self.settings.kaggle_source_cache_root:
+            from .orbitune_workload import stage_orbitune_checkout
+            _owner, _slug, source_sha, _accelerator = self._manifest(run)
+            checkout = Path(self.settings.kaggle_source_cache_root).resolve() / source_sha
+            stage_orbitune_checkout(checkout, stage, expected_sha=source_sha)
+        if not stage.is_dir():
             raise ValueError("trusted Kaggle staging directory is unavailable")
         return stage
 
@@ -198,6 +206,13 @@ class KaggleBackend:
         return {"provider": "kaggle", "owner": owner, "kernel_slug": slug,
                 "version": version, "source_sha": prepared["source_sha"]}
 
+    def start_candidate_bound(self, run: dict) -> dict:
+        owner, slug, _source_sha, _accelerator = self._manifest(run)
+        binding = run.get("plan", {}).get("selection_binding")
+        if not isinstance(binding, Mapping) or binding.get("resource_id") != f"{owner}/{slug}":
+            raise ValueError("Kaggle candidate binding does not match the registered Kernel")
+        return self.start(run)
+
     def reconcile(self, run: dict) -> dict | None:
         prepared = self.prepare(run)
         journal_path = Path(str(prepared["stage"]), ".gpu-control-submission.json")
@@ -227,6 +242,25 @@ class KaggleBackend:
             "provider": "kaggle", "kernel": ref, "source_sha": handle["source_sha"],
             "logs": logs, "logs_truncated": truncated,
         })
+
+    def capture(self, handle: dict) -> Observation:
+        return self.inspect(handle)
+
+    def validate_candidate_observation(self, run: dict, observation: Observation) -> bool:
+        if observation.state == "running" or not isinstance(observation.result, Mapping):
+            return False
+        owner, slug, source_sha, _accelerator = self._manifest(run)
+        kernel = observation.result.get("kernel")
+        return (observation.result.get("provider") == "kaggle" and
+                observation.result.get("source_sha") == source_sha and
+                isinstance(kernel, str) and kernel.startswith(f"{owner}/{slug}/"))
+
+    def cleanup(self, handle: dict) -> None:
+        if self.inspect(handle).state == "running":
+            raise RuntimeError("Kaggle Kernel is not terminal; cleanup cannot be proven")
+
+    def is_clean(self, handle: dict) -> bool:
+        return self.inspect(handle).state != "running"
 
     def logs(self, handle: Mapping[str, Any]) -> tuple[str, bool]:
         ref = f'{handle["owner"]}/{handle["kernel_slug"]}/{handle["version"]}'

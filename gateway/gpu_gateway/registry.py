@@ -20,12 +20,24 @@ class ProviderRegistration:
     # Candidate-bound PlanV2 needs a backend that consumes the immutable plan,
     # binds provider results to it, and enforces exact-resource lifecycle gates.
     supports_candidate_binding: bool = False
+    # Some official provider surfaces cannot reliably cancel accepted work.
+    # Keep this independent from candidate binding so admission can reject only
+    # workloads whose contract explicitly requires cancellation.
+    supports_cancellation: bool = True
     # Paid execution additionally needs a run-specific LiveExecutionPermit.
     # This opt-in is independent from candidate-bound/free-GPU acceptance.
     supports_paid_execution: bool = False
     # Credits require their own owner decision and gross-debit evidence;
     # account credits alone are not consent to use them.
     supports_credit_execution: bool = False
+
+
+@dataclass(frozen=True)
+class ArtifactServiceRegistration:
+    name: str
+    enabled: Callable[[Settings], bool]
+    factory: Callable
+    note: str = ""
 
 
 def candidate_plan_requires_paid_authorization(plan: dict | object) -> bool:
@@ -78,7 +90,7 @@ def supports_candidate_execution(registration: ProviderRegistration | None,
     """
     required = (
         "start_candidate_bound", "validate_candidate_observation", "capture",
-        "cancel", "reconcile", "cleanup", "is_clean",
+        "reconcile", "cleanup", "is_clean",
     )
     candidate_ready = bool(
         registration is not None and registration.supports_candidate_binding and
@@ -86,6 +98,13 @@ def supports_candidate_execution(registration: ProviderRegistration | None,
     )
     if not candidate_ready or plan is None:
         return candidate_ready
+    manifest = plan.get("workload_manifest", {}) if isinstance(plan, dict) else {}
+    cancellation_required = (manifest.get("cancellation_required")
+                             if isinstance(manifest, dict) else None)
+    if cancellation_required is True and not registration.supports_cancellation:
+        return False
+    if registration.supports_cancellation and not callable(getattr(backend, "cancel", None)):
+        return False
     provider = plan.get("provider") if isinstance(plan, dict) else getattr(plan, "provider", None)
     if provider == "runpod":
         lease_contract = (
@@ -128,13 +147,29 @@ def default_registry() -> dict[str, ProviderRegistration]:
             lambda s: s.enable_kaggle and bool(s.kaggle_username and s.kaggle_staging_root),
             KaggleBackend,
             "Free-quota Kernel versions only; official CLI has no reliable cancellation command.",
+            supports_candidate_binding=True,
+            supports_cancellation=False,
         ),
         ProviderRegistration(
             "huggingface_space", "approved_gradio_zero_gpu",
-            lambda s: (s.enable_huggingface_space and bool(s.hf_token) and
-                       bool(s.hf_space_allowlist)),
+            lambda s: s.enable_huggingface_space and bool(s.hf_space_allowlist),
             HuggingFaceSpaceBackend,
             "Short approved ZeroGPU evaluation only; paid Hugging Face Jobs are separate and disabled.",
+            supports_candidate_binding=True,
+            supports_cancellation=True,
+        ),
+    )
+    return {entry.name: entry for entry in entries}
+
+
+def default_artifact_registry() -> dict[str, ArtifactServiceRegistration]:
+    from .huggingface_artifacts import HuggingFaceArtifactStore
+    entries = (
+        ArtifactServiceRegistration(
+            "huggingface_hub",
+            lambda settings: bool(settings.hf_artifact_repositories),
+            HuggingFaceArtifactStore,
+            "Trusted-worker publication to allowlisted private repositories with revision and checksum verification.",
         ),
     )
     return {entry.name: entry for entry in entries}

@@ -68,6 +68,8 @@ class HuggingFaceArtifactStore:
         run_id: str,
         source_sha: str,
     ) -> dict[str, object]:
+        if not self.settings.hf_token:
+            raise RuntimeError("Hugging Face worker token is not configured")
         if (_REPO_RE.fullmatch(repo_id or "") is None or
                 repo_id not in self.settings.hf_artifact_repositories):
             raise ValueError("Hugging Face repository is not allowlisted")

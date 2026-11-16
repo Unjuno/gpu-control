@@ -14,7 +14,8 @@ from sqlalchemy import func, insert, select, update
 
 from .config import Settings, Workload
 from .store import Store, control, runs
-from .registry import candidate_plan_authorization_kind, default_registry
+from .registry import (candidate_plan_authorization_kind,
+                       default_artifact_registry, default_registry)
 from .contracts import (PlanV2, ResultV2, plan_fingerprint, plan_payload,
                         validate_candidate_gpu_success, validate_result_binding)
 from .candidate_receipts import verify_candidate_receipt
@@ -72,12 +73,18 @@ class ExperimentService:
     def __init__(self, store: Store, settings: Settings, workloads: dict[str, Workload], clock: Callable[[], float] = time.time, *, registry=None):
         self.store, self.settings, self.workloads, self.clock = store, settings, workloads, clock
         self.registry = default_registry() if registry is None else registry
+        self.artifact_registry = default_artifact_registry()
 
     def integrations(self, principal: Principal) -> dict:
         principal.require("experiments:read")
         return {"providers": [{"id": entry.name, "enabled": bool(entry.enabled(self.settings)),
                                "execution": entry.execution, "note": entry.note}
                               for entry in self.registry.values()],
+                "artifact_services": [
+                    {"id": entry.name, "enabled": bool(entry.enabled(self.settings)),
+                     "note": entry.note}
+                    for entry in self.artifact_registry.values()
+                ],
                 "workloads": [{"id": name, "provider": w.provider,
                                "max_runtime_seconds": w.max_runtime_seconds,
                                "parameter_schema": w.parameter_schema,

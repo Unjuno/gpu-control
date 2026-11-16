@@ -47,7 +47,8 @@ class HuggingFaceSpaceBackend:
     def _identity(self, run: Mapping[str, Any]) -> tuple[str, str, str, dict[str, Any], int]:
         try:
             plan = run["plan"]
-            manifest = plan["workload_manifest"]
+            manifest = (plan.get("workload_manifest") or
+                        run["registered_workload_manifest"])
             space_id = manifest["provider_resource_id"]
             source_sha = manifest["source_sha"]
             parameters = plan["parameters"]
@@ -103,6 +104,8 @@ class HuggingFaceSpaceBackend:
     def start(self, run: dict) -> dict:
         if not self.settings.enable_huggingface_space:
             raise RuntimeError("Hugging Face Space submission is disabled")
+        if not self.settings.hf_token:
+            raise RuntimeError("Hugging Face worker token is not configured")
         space_id, request_id, source_sha, parameters, runtime = self._identity(run)
         self._quota(runtime)
         response = self._response(
@@ -119,6 +122,13 @@ class HuggingFaceSpaceBackend:
         if response["state"] not in {"queued", "running"}:
             handle["observation"] = response
         return handle
+
+    def start_candidate_bound(self, run: dict) -> dict:
+        space_id, _request_id, _source_sha, _parameters, _runtime = self._identity(run)
+        binding = run.get("plan", {}).get("selection_binding")
+        if not isinstance(binding, Mapping) or binding.get("resource_id") != space_id:
+            raise ValueError("Hugging Face candidate binding does not match the approved Space")
+        return self.start(run)
 
     def reconcile(self, run: dict) -> dict | None:
         space_id, request_id, source_sha, _parameters, _runtime = self._identity(run)
@@ -152,6 +162,25 @@ class HuggingFaceSpaceBackend:
             "cleanup_state": "not_required",
         }
         return Observation(state, result)
+
+    def capture(self, handle: dict) -> Observation:
+        return self.inspect(handle)
+
+    def validate_candidate_observation(self, run: dict, observation: Observation) -> bool:
+        if observation.state == "running" or not isinstance(observation.result, Mapping):
+            return False
+        space_id, request_id, source_sha, _parameters, _runtime = self._identity(run)
+        return (observation.result.get("provider") == "huggingface_space" and
+                observation.result.get("space_id") == space_id and
+                observation.result.get("request_id") == request_id and
+                observation.result.get("source_sha") == source_sha)
+
+    def cleanup(self, handle: dict) -> None:
+        if self.inspect(handle).state == "running":
+            raise RuntimeError("Hugging Face evaluation is not terminal")
+
+    def is_clean(self, handle: dict) -> bool:
+        return self.inspect(handle).state != "running"
 
     def cancel(self, handle: dict) -> None:
         request_id = handle["request_id"]

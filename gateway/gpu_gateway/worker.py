@@ -497,14 +497,21 @@ class Worker:
                 if plan.get("schema_version") == 2:
                     try:
                         bound_plan = PlanV2.model_validate_json(json.dumps(plan, allow_nan=False))
+                        current_workloads = load_workloads()
                         binding_valid = (bound_plan.selection_binding is not None and
                                          plan_fingerprint(bound_plan) == job["fingerprint"] and
                                          job["approved_until"] > now and
                                          Decimal(plan["max_cost_usd"]) <= self.settings.max_job_cost_usd)
                         current = (current_bound_candidate(
-                            self.store, self.settings, load_workloads(), bound_plan, now=now,
+                            self.store, self.settings, current_workloads, bound_plan, now=now,
                         ) if binding_valid else None)
                         binding_valid = binding_valid and current is not None and current.selected is not None
+                        registered = current_workloads.get(bound_plan.workload)
+                        if binding_valid and registered is not None:
+                            # Transient trusted registry data for adapters. It is
+                            # deliberately not accepted from or persisted in the
+                            # client-authored PlanV2 envelope.
+                            job["registered_workload_manifest"] = registered.model_dump(mode="json")
                     except (OSError, ValueError, TypeError, KeyError, OverflowError):
                         binding_valid = False
                     if not binding_valid:
