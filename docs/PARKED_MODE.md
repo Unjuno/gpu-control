@@ -34,6 +34,15 @@ While `policies/repository-state.yaml` says `mode: parked`:
 
 CI cross-checks these invariants against the existing paid, RunPod, agent, context-trust, container, and workflow configuration.
 
+Two exact, non-general exceptions are machine-readable in that policy. The
+Modal CPU smoke lane remains bounded to its registered one-run inference. The
+Kaggle/Hugging Face lane permits only the fixed 100-step Orbitune acceptance
+job and one private ZeroGPU evaluation after current included-quota evidence
+and exact one-use owner confirmation. It forbids paid fallback, public
+artifacts/Spaces, Hugging Face Jobs, write credentials in provider workloads,
+and retrying an ambiguous submission. Neither exception changes `mode` or
+authorizes RunPod.
+
 ## Selected workload
 
 The current workload candidate is the Orbitune RunPod training canary:

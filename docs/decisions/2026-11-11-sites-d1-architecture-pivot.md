@@ -2,6 +2,24 @@
 
 **Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. A historical free TinyStories inference and artifact retrieval were verified through the now-retired local Runner. On 2026-11-15, the current Modal deployment completed one owner-confirmed TinyStories CPU inference with a digest-verified R2 artifact and confirmed Sandbox cleanup. That accepts only the fixed CPU vertical; repeatability, recovery/stability drills, identity isolation, GPU execution, and RunPod remain open. See [the current Modal CPU acceptance record](../acceptance/2026-11-15-sites-modal-cpu-success.md).
 
+## 2026-11-17 amendment — maintained provider Gateway
+
+Sites + D1/R2 remains the deployed owner-facing control plane for its accepted
+Modal CPU path. The later Kaggle/Hugging Face integration directive also
+requires preserving the existing Gateway, Remote MCP, OAuth, PostgreSQL,
+worker, and job-management contracts. The restored Gateway is therefore a
+maintained provider execution service and direct Remote MCP for Kaggle, private
+Hub artifacts, and private ZeroGPU evaluation; it is not a reason to restore
+Vercel or Neon.
+
+The historical statements below that the Gateway source was removed or was
+legacy-only describe the 2026-11-12 snapshot and are superseded for current
+source. Sites does not automatically acquire the Gateway provider registry.
+Until a signed, replay-protected owner-delegation bridge is implemented, the
+Kaggle/Hugging Face acceptance uses the Gateway's own OAuth-protected Remote
+MCP. Neither offline Gateway tests nor a Sites deployment proves that live
+connection.
+
 ## P0 baseline refresh — 2026-11-11 (historical snapshot; superseded below)
 
 - Local source is `codex/gpu-control-current-p5-on-pr58` at `4658552a9bc8f65a6f2623a8642ff39d8aaa081c`; the worktree began clean. PR #60 is still OPEN/DRAFT and mergeable. Its latest GitHub combined commit status surfaced a successful Vercel check only; do not treat that as Sites, ChatGPT, D1, runtime, or end-to-end acceptance. PR #60's own body reports its earlier local full-suite results and explicitly says no deployed ChatGPT tool flow or real GPU/paid provider call was exercised.

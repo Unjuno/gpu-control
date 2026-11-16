@@ -96,6 +96,59 @@ modal_cpu_smoke_exception:
     revoke_deploy_token_immediately_after_deploy: true
     credentials_exposed_to_sandbox: false
 
+# Narrow free-provider acceptance lane for the Kaggle/Hugging Face integration.
+# This leaves the repository parked and never authorizes a paid fallback. Each
+# external job/call still requires a fresh, exact owner confirmation after live
+# authentication, quota and private-resource checks succeed.
+free_gpu_acceptance_exception:
+  allowed_while_parked: true
+  purpose: one_authenticated_kaggle_huggingface_vertical
+  workload:
+    repository: Unjuno/orbitune
+    source_sha: 44a1b806160ab5bc721a370d034a6dfcb28f27a8
+    training_workload_id: orbitune-kaggle-100-step-v1
+    evaluation_workload_id: orbitune-zero-gpu-eval-v1
+    training_steps: 100
+    synthetic_data_must_be_labeled: true
+  providers:
+    kaggle:
+      max_jobs_per_authorization: 1
+      included_gpu_quota_required: true
+      exact_kernel_version_required: true
+      ambiguous_submit_must_not_retry: true
+      paid_fallback_allowed: false
+    huggingface_space:
+      max_evaluations_per_authorization: 1
+      private_space_required: true
+      included_zero_gpu_quota_required: true
+      overquota_usage_required_to_equal: 0
+      paid_credit_extension_allowed: false
+      huggingface_jobs_allowed: false
+  artifact_service:
+    provider: huggingface_hub
+    private_repository_required: true
+    trusted_worker_transfer_required: true
+    provider_job_write_token_forbidden: true
+    exact_revision_redownload_required: true
+    checksum_roundtrip_required: true
+  execution_bounds:
+    automatic_paid_fallback: false
+    automatic_retry_after_ambiguous_submit: false
+    require_confirmed_cleanup_before_next_run: true
+    max_inflight_training_jobs: 1
+    current_quota_evidence_required: true
+  authorization:
+    explicit_current_human_request_required: true
+    authenticated_owner_required: true
+    exact_plan_fingerprint_required: true
+    one_use_authorization_required: true
+    configuration_does_not_authorize_execution: true
+  credentials:
+    worker_secret_reference_allowed_for_this_exception: true
+    public_api_process_forbidden: true
+    chatgpt_and_mcp_results_forbidden: true
+    workload_process_write_token_forbidden: true
+
 authorization:
   activation_requires_explicit_human_request: true
   repository_access_does_not_activate: true

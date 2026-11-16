@@ -10,6 +10,25 @@ are stored in R2; the Worker returns bounded chunks after owner/run and digest
 verification. Eight complete result artifacts have been retrieved through
 ChatGPT.
 
+### Kaggle and Hugging Face extension boundary
+
+The Sites deployment does not currently advertise Kaggle or Hugging Face.
+Those providers are implemented in the maintained FastAPI/PostgreSQL Gateway,
+whose existing Remote MCP exposes the same canonical experiment tool names.
+For the integration acceptance, deploy that Gateway as a durable API plus
+worker/supervisor, connect its OAuth-protected `/mcp` endpoint to ChatGPT, and
+use only the registered Orbitune workloads. Do not claim that the existing
+Sites connector gained these providers merely because the Gateway code or its
+offline tests exist.
+
+The long-term user experience may keep Sites as the primary control plane and
+route provider work to the Gateway execution service, but such delegation must
+have an authenticated owner binding, one-use plan authorization, durable run
+routing, and replay protection. No unsigned header-forwarding or generic proxy
+is supported. Until that bridge is implemented and accepted, ChatGPT connects
+to the Gateway Remote MCP directly for the Kaggle/Hugging Face vertical while
+the Sites MCP remains available for its accepted Modal CPU path.
+
 The Worker does not run Docker or model inference. The personal-host Runner
 has been retired. The fixed Modal CPU adapter and the Sites Worker with
 exact-plan human authorization are deployed. The current ChatGPT capability
@@ -19,9 +38,11 @@ health is deferred until an authorized submit. No successful inference against
 the current Modal deployment has been accepted through ChatGPT. RunPod GPU
 execution remains a separately gated future path; paid execution is parked.
 
-The legacy FastAPI/PostgreSQL Gateway and its Vercel deployment are archived
-references, not supported deployment choices. Do not configure new Vercel or
-Neon resources for this product. Historical setup evidence is preserved in
+The Vercel deployment of the FastAPI/PostgreSQL Gateway is archived and must
+not be recreated. The Gateway source itself is maintained again for the
+Kaggle/Hugging Face Remote MCP extension described above; it needs a reviewed
+durable host and PostgreSQL rather than Vercel or Neon. Do not configure new
+Vercel or Neon resources for this product. Historical setup evidence is preserved in
 [`archive/CHATGPT_SETUP-legacy-vercel-gateway.md`](archive/CHATGPT_SETUP-legacy-vercel-gateway.md)
 and [`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-gateway.md).
 
@@ -90,8 +111,9 @@ The latest live-state evidence is recorded in
 
 ## Data and resource retirement
 
-D1 is the selected control-plane database; PostgreSQL is not required for this
-Sites product path. The Vercel `gpu-control` project has been deleted. The
+D1 is the selected database for the Sites product path. PostgreSQL is required
+only when operating the separately maintained Gateway Remote MCP/worker; it is
+not a dependency of Sites itself. The Vercel `gpu-control` project has been deleted. The
 legacy Neon project is soft-deleted and remains recoverable until
 `2026-11-19T05:19:58Z`; verify that the recovery window expires and the project
 is absent afterward. Neither service is a serving or rollback dependency.

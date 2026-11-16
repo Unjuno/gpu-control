@@ -87,6 +87,29 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
     assert cpu["credentials"]["deploy_command_must_target_environment"] == "main"
     assert cpu["credentials"]["revoke_deploy_token_immediately_after_deploy"] is True
     assert cpu["credentials"]["credentials_exposed_to_sandbox"] is False
+    free_gpu = state["free_gpu_acceptance_exception"]
+    assert free_gpu["allowed_while_parked"] is True
+    assert free_gpu["purpose"] == "one_authenticated_kaggle_huggingface_vertical"
+    assert free_gpu["workload"] == {
+        "repository": "Unjuno/orbitune",
+        "source_sha": "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
+        "training_workload_id": "orbitune-kaggle-100-step-v1",
+        "evaluation_workload_id": "orbitune-zero-gpu-eval-v1",
+        "training_steps": 100,
+        "synthetic_data_must_be_labeled": True,
+    }
+    assert free_gpu["providers"]["kaggle"]["paid_fallback_allowed"] is False
+    assert free_gpu["providers"]["kaggle"]["ambiguous_submit_must_not_retry"] is True
+    assert free_gpu["providers"]["huggingface_space"]["private_space_required"] is True
+    assert free_gpu["providers"]["huggingface_space"]["paid_credit_extension_allowed"] is False
+    assert free_gpu["providers"]["huggingface_space"]["huggingface_jobs_allowed"] is False
+    assert free_gpu["artifact_service"]["private_repository_required"] is True
+    assert free_gpu["artifact_service"]["provider_job_write_token_forbidden"] is True
+    assert free_gpu["execution_bounds"]["automatic_paid_fallback"] is False
+    assert free_gpu["authorization"]["explicit_current_human_request_required"] is True
+    assert free_gpu["authorization"]["configuration_does_not_authorize_execution"] is True
+    assert free_gpu["credentials"]["worker_secret_reference_allowed_for_this_exception"] is True
+    assert free_gpu["credentials"]["public_api_process_forbidden"] is True
     assert state["authorization"]["activation_requires_explicit_human_request"] is True
 
 

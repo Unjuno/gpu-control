@@ -31,7 +31,18 @@ Read `policies/repository-state.yaml` before proposing execution changes. When i
 
 While parked, do not create a paid workflow, configure or reference provider secrets for GPU/paid paths, enable RunPod live calls, enable generic external Dockerfile execution, or treat implementation progress as a reason to activate paid compute. Documentation, policy, offline tests, mock-provider work, source validation, and the repository-owned trusted container are still allowed.
 
-The sole external-compute exception while parked is `policies/repository-state.yaml:modal_cpu_smoke_exception`. It permits only the currently registered, authenticated, one-run Modal CPU inference within that policy's exact workload, runtime, resource, network, per-run-cost, and Workspace-budget bounds. It also permits a temporary Workspace deploy token only for deploying that fixed app to Modal `main` for at most one hour, followed by immediate revocation. Neither credential may enter the Sandbox. This exception does not permit RunPod, GPU allocation, generic external containers, paid training, or unattended retries. Recheck the live Modal Workspace usage limit and charges before each run; if the cap exceeds $1 or cannot be verified, keep the run blocked.
+The only external-compute exceptions while parked are the exact lanes in
+`policies/repository-state.yaml`. `modal_cpu_smoke_exception` permits the
+registered one-run Modal CPU inference within its fixed bounds.
+`free_gpu_acceptance_exception` permits only one owner-confirmed Kaggle training
+job and one owner-confirmed private ZeroGPU evaluation for the exact registered
+Orbitune commit, after included quota is verified. It permits a trusted worker
+to reference provider credentials but never exposes them to the public API,
+ChatGPT, MCP results, Kaggle, or workload code. It forbids paid fallback,
+Hugging Face Jobs, ZeroGPU credit extension, ambiguous-submit retries, and
+public artifacts/Spaces. Configuration alone is not execution authorization.
+Neither exception permits RunPod GPU execution, generic external containers,
+paid training, or unattended retries.
 
 Leaving parked mode requires an explicit human request plus a reviewed repository change. Changing the mode is not itself spend authorization; all independent GitHub, provider, pricing, workload, prompt/context security, completion-evidence, and cleanup gates still apply.
 
