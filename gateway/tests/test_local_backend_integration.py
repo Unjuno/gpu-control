@@ -21,8 +21,11 @@ def _docker_ready():
     docker = shutil.which("docker")
     if not docker:
         return False
-    return subprocess.run([docker, "info"], stdout=subprocess.DEVNULL,
-                          stderr=subprocess.DEVNULL, timeout=5).returncode == 0
+    try:
+        return subprocess.run([docker, "info"], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 @pytest.mark.skipif(not _docker_ready(), reason="Docker/OrbStack daemon is unavailable")
