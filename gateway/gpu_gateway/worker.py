@@ -38,6 +38,13 @@ from .runpod_inventory import (
 )
 from .provider_selection import current_bound_candidate
 from .provider_account_scope import derive_provider_account_scope
+from .free_provider_inventory import (
+    HF_SPACE_SOURCE, HF_SPACE_SOURCE_REVISION, KAGGLE_SOURCE,
+    KAGGLE_SOURCE_REVISION, collect_huggingface_space_inventory,
+    collect_kaggle_inventory,
+)
+from .kaggle_backend import KaggleBackend
+from .huggingface_space_backend import HuggingFaceSpaceBackend
 
 logger = logging.getLogger(__name__)
 # Keep the historical module constant for callers while sharing its source.
@@ -66,6 +73,7 @@ class Worker:
         self.role = role
         self.last_artifact_prune_at = 0
         self.last_provider_evidence_attempt_at = 0
+        self.last_free_provider_evidence_attempt_at = 0
 
     def _maybe_collect_runpod_evidence(self, now: int) -> None:
         """Poll catalog only from an explicitly enabled, idle normal worker."""
@@ -126,6 +134,49 @@ class Worker:
         )
         return self.store.write_provider_observation(
             envelope, trusted_keys, now=observed_at)
+
+    def _maybe_collect_free_provider_evidence(self, now: int) -> None:
+        """Publish only authenticated included-quota evidence; never execute work."""
+        if (self.role != "worker" or
+                now - self.last_free_provider_evidence_attempt_at < PROVIDER_EVIDENCE_POLL_INTERVAL_SECONDS):
+            return
+        enabled = (self.settings.enable_kaggle_evidence or
+                   self.settings.enable_huggingface_space_evidence)
+        if not enabled:
+            return
+        self.last_free_provider_evidence_attempt_at = now
+        try:
+            workloads = load_workloads()
+        except Exception:
+            logger.warning("Free-provider capability observations were not updated")
+            return
+        jobs = []
+        if self.settings.enable_kaggle_evidence:
+            jobs.append((
+                "kaggle", KAGGLE_SOURCE, KAGGLE_SOURCE_REVISION,
+                lambda: collect_kaggle_inventory(
+                    workloads, KaggleBackend(self.settings).quota_snapshot(),
+                    observed_at=now, expires_at=now + OBSERVATION_TTL_SECONDS),
+            ))
+        if self.settings.enable_huggingface_space_evidence:
+            jobs.append((
+                "huggingface_space", HF_SPACE_SOURCE, HF_SPACE_SOURCE_REVISION,
+                lambda: collect_huggingface_space_inventory(
+                    workloads, HuggingFaceSpaceBackend(self.settings).quota_snapshot(),
+                    observed_at=now, expires_at=now + OBSERVATION_TTL_SECONDS),
+            ))
+        for provider, source, revision, collect in jobs:
+            try:
+                payload = collect()
+                stored = self.store.read_provider_observation(provider)
+                version = (stored["version"] if stored else 0) + 1
+                self.persist_provider_observation(
+                    provider=provider, source=source, source_revision=revision,
+                    version=version, expires_at=now + OBSERVATION_TTL_SECONDS,
+                    payload=payload, observed_at=now,
+                )
+            except Exception:
+                logger.warning("%s capability observation was not updated", provider)
 
     def _maybe_prune_artifacts(self, now: int) -> None:
         if (not self.settings.artifact_dir or
@@ -448,6 +499,7 @@ class Worker:
         job = self.claim()
         if job is None:
             self._maybe_collect_runpod_evidence(int(self.clock()))
+            self._maybe_collect_free_provider_evidence(int(self.clock()))
             return False
         now = int(self.clock())
         plan = job["plan"]

@@ -76,9 +76,15 @@ class HuggingFaceSpaceBackend:
             raise ValueError("Hugging Face Space parameters exceed the request bound")
         return space_id, f"{run_id}-{fingerprint[:12]}", source_sha, parameters, runtime
 
+    def quota_snapshot(self) -> Any:
+        try:
+            return self.api.get_zero_gpu_quota(token=self.settings.hf_token)
+        except Exception as exc:
+            raise ZeroGpuQuotaError("Hugging Face ZeroGPU quota is unavailable") from exc
+
     def _quota(self, runtime: int) -> None:
         try:
-            quota = self.api.get_zero_gpu_quota(token=self.settings.hf_token)
+            quota = self.quota_snapshot()
             remaining = getattr(quota, "remaining", None)
             overquota = getattr(quota, "overquota_used", None)
         except Exception as exc:

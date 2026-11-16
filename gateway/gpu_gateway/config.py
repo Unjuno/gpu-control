@@ -127,7 +127,9 @@ class Settings:
     enable_runpod_bridge: bool = False
     enable_runpod_evidence: bool = False
     enable_kaggle: bool = False
+    enable_kaggle_evidence: bool = False
     enable_huggingface_space: bool = False
+    enable_huggingface_space_evidence: bool = False
     runpod_api_key: str = field(default="", repr=False, compare=False)
     runpod_account_scope_id: str = field(default="", repr=False, compare=False)
     runpod_factory: str = ""
@@ -361,6 +363,13 @@ class Settings:
                 raise ValueError("RunPod evidence collection requires a worker-only API key")
             if self.provider_evidence_signing_key_pem is None:
                 raise ValueError("RunPod evidence collection requires a worker signing key")
+        if self.enable_kaggle_evidence and self.provider_evidence_signing_key_pem is None:
+            raise ValueError("Kaggle evidence collection requires a worker signing key")
+        if self.enable_huggingface_space_evidence:
+            if not self.hf_token or any(character.isspace() for character in self.hf_token):
+                raise ValueError("Hugging Face evidence collection requires a worker-only token")
+            if self.provider_evidence_signing_key_pem is None:
+                raise ValueError("Hugging Face evidence collection requires a worker signing key")
         if self.enable_kaggle:
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,49}", self.kaggle_username):
                 raise ValueError("Kaggle execution requires a canonical account username")
@@ -431,7 +440,9 @@ class Settings:
             enable_runpod_bridge=e.get("GATEWAY_ENABLE_RUNPOD_BRIDGE") == "true",
             enable_runpod_evidence=e.get("GATEWAY_ENABLE_RUNPOD_EVIDENCE") == "true",
             enable_kaggle=e.get("GATEWAY_ENABLE_KAGGLE") == "true",
+            enable_kaggle_evidence=e.get("GATEWAY_ENABLE_KAGGLE_EVIDENCE") == "true",
             enable_huggingface_space=e.get("GATEWAY_ENABLE_HUGGINGFACE_SPACE") == "true",
+            enable_huggingface_space_evidence=e.get("GATEWAY_ENABLE_HUGGINGFACE_SPACE_EVIDENCE") == "true",
             runpod_api_key=e.get("RUNPOD_API_KEY", ""),
             runpod_account_scope_id=e.get("GATEWAY_RUNPOD_ACCOUNT_SCOPE_ID", ""),
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),

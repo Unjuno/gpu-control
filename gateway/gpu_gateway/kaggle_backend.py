@@ -171,6 +171,10 @@ class KaggleBackend:
             self._command("kernels", "status", kernel, "--format", "json"), "status",
         )
 
+    def quota_snapshot(self) -> Mapping[str, Any]:
+        """Read-only official CLI quota snapshot for signed worker evidence."""
+        return self._json(self._command("quota", "--format", "json"), "quota")
+
     @staticmethod
     def _version(status: Mapping[str, Any]) -> int:
         version = status.get("versionNumber", status.get("version"))
@@ -182,7 +186,7 @@ class KaggleBackend:
         if not self.settings.enable_kaggle:
             raise RuntimeError("Kaggle submission is disabled")
         prepared = self.prepare(run)
-        quota = self._json(self._command("quota", "--format", "json"), "quota")
+        quota = self.quota_snapshot()
         remaining = _remaining_gpu_seconds(quota)
         required = run.get("plan", {}).get("runtime_seconds")
         if type(required) is not int or remaining is None or remaining < required:
