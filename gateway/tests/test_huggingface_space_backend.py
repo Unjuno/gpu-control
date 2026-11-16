@@ -23,11 +23,13 @@ class Quota:
 class SpaceInfo:
     sha: str = "e" * 40
     sdk: str = "gradio"
+    private: bool = True
 
 
 class FakeApi:
-    def __init__(self, quota):
+    def __init__(self, quota, space_info=None):
         self.quota = quota
+        self.space_info_value = space_info or SpaceInfo()
         self.calls = []
 
     def get_zero_gpu_quota(self, **kwargs):
@@ -36,7 +38,7 @@ class FakeApi:
 
     def space_info(self, **kwargs):
         self.calls.append(kwargs)
-        return SpaceInfo()
+        return self.space_info_value
 
 
 class FakeClient:
@@ -183,5 +185,18 @@ def test_space_endpoint_contract_must_be_exact_before_evaluation():
     )
 
     with pytest.raises(RuntimeError, match="endpoint set changed"):
+        backend.start(run())
+    assert client.calls == []
+
+
+def test_public_space_is_rejected_before_evaluation():
+    client = FakeClient([])
+    backend = HuggingFaceSpaceBackend(
+        settings(),
+        api=FakeApi(Quota(), SpaceInfo(private=False)),
+        client_factory=lambda _space, _token: client,
+    )
+
+    with pytest.raises(RuntimeError, match="private visibility changed"):
         backend.start(run())
     assert client.calls == []

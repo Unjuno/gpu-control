@@ -1,8 +1,9 @@
 # Orbitune ZeroGPU evaluation Space
 
 This is the reviewed three-endpoint contract consumed by
-`HuggingFaceSpaceBackend`. Before deploying it to an allowlisted private or
-public Space:
+`HuggingFaceSpaceBackend`. Deploy it only to an allowlisted private Space.
+Public visibility would let direct callers bypass Gateway approval and quota
+checks and consume the owner's ZeroGPU allocation. Before deployment:
 
 1. Vendor the `orbitune/` package from commit
    `44a1b806160ab5bc721a370d034a6dfcb28f27a8` into the Space repository.

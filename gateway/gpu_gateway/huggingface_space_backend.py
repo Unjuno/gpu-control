@@ -137,8 +137,12 @@ class HuggingFaceSpaceBackend:
             info = self.api.space_info(repo_id=space_id, token=self.settings.hf_token)
         except Exception as exc:
             raise RuntimeError("approved Hugging Face Space is unavailable") from exc
-        if getattr(info, "sha", None) != revision or getattr(info, "sdk", None) != "gradio":
-            raise RuntimeError("approved Hugging Face Space revision or SDK changed")
+        if (getattr(info, "sha", None) != revision or
+                getattr(info, "sdk", None) != "gradio" or
+                getattr(info, "private", None) is not True):
+            raise RuntimeError(
+                "approved Hugging Face Space revision, SDK, or private visibility changed"
+            )
 
     def verify_contract(self, space_id: str) -> None:
         try:

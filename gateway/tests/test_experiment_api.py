@@ -192,6 +192,12 @@ def test_capabilities_do_not_describe_demo_as_executable(system):
     result = invoke(system.service, system.owner, "experiment_capabilities", {})
     assert result["status"] == "blocked"
     assert result["blocking_reason"] == "NO_QUEUEABLE_RESOURCE"
+    assert {item["id"] for item in result["machine_state"]["providers"]} >= {
+        "demo", "modal", "runpod", "kaggle", "huggingface_space",
+    }
+    assert {item["id"] for item in result["machine_state"]["artifact_services"]} == {
+        "huggingface_hub",
+    }
 
 
 @pytest.mark.parametrize(("stale_role", "blocking_reason"), [

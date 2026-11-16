@@ -358,6 +358,7 @@ def _capabilities(service: ExperimentService, principal: Principal) -> dict:
                  "現在受付可能な実験環境はありません。blockerを確認してください。"),
         machine_state={
             "providers": data["providers"],
+            "artifact_services": data["artifact_services"],
             "resources": resources,
             "control_store": {"available": control_store_available},
             "artifact_storage": artifact_storage,
