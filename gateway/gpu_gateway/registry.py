@@ -110,6 +110,7 @@ def default_registry() -> dict[str, ProviderRegistration]:
     # Lazy imports keep provider SDKs out of the API process.
     from .backends import DemoBackend, ExistingRunPodBridge, ModalSandboxBackend
     from .local_backend import LocalContainerBackend
+    from .kaggle_backend import KaggleBackend
     from .admission import local_cpu_policy_enabled
     entries = (
         ProviderRegistration("demo", "local_simulation_no_gpu", lambda s: True, lambda s: DemoBackend()),
@@ -121,5 +122,11 @@ def default_registry() -> dict[str, ProviderRegistration]:
             lambda s: s.enable_runpod_bridge and bool(s.runpod_factory),
             lambda s: ExistingRunPodBridge(s.runpod_factory),
             "Existing RunPod CI is unchanged; this gateway does not dispatch it."),
+        ProviderRegistration(
+            "kaggle", "official_cli_worker",
+            lambda s: s.enable_kaggle and bool(s.kaggle_username and s.kaggle_staging_root),
+            KaggleBackend,
+            "Free-quota Kernel versions only; official CLI has no reliable cancellation command.",
+        ),
     )
     return {entry.name: entry for entry in entries}

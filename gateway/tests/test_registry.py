@@ -3,7 +3,10 @@ from gpu_gateway.registry import (
     candidate_plan_authorization_kind,
     candidate_plan_requires_paid_authorization,
     supports_candidate_execution,
+    default_registry,
 )
+from gpu_gateway.config import Settings
+from gpu_gateway.kaggle_backend import KaggleBackend
 
 
 def test_candidate_execution_requires_reviewed_registration_and_full_lifecycle():
@@ -183,3 +186,19 @@ def test_runpod_candidate_requires_durable_account_lease_contract():
 
     lease_backend = LeaseCapableBackend()
     assert supports_candidate_execution(registration, lease_backend, plan)
+
+
+def test_kaggle_is_registered_but_not_falsely_candidate_or_cancel_ready(tmp_path):
+    registration = default_registry()["kaggle"]
+    disabled = Settings()
+    enabled = Settings(
+        enable_kaggle=True,
+        kaggle_username="owner",
+        kaggle_staging_root=str(tmp_path),
+    )
+
+    assert registration.enabled(disabled) is False
+    assert registration.enabled(enabled) is True
+    assert isinstance(registration.factory(enabled), KaggleBackend)
+    assert registration.supports_candidate_binding is False
+    assert "cancellation" in registration.note.lower()

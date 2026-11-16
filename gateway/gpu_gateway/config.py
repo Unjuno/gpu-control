@@ -121,9 +121,12 @@ class Settings:
     enable_modal: bool = False
     enable_runpod_bridge: bool = False
     enable_runpod_evidence: bool = False
+    enable_kaggle: bool = False
     runpod_api_key: str = field(default="", repr=False, compare=False)
     runpod_account_scope_id: str = field(default="", repr=False, compare=False)
     runpod_factory: str = ""
+    kaggle_username: str = ""
+    kaggle_staging_root: str = ""
     modal_app: str = "gpu-control"
     max_inflight: int = 1
     approval_ttl_seconds: int = 900
@@ -348,6 +351,12 @@ class Settings:
                 raise ValueError("RunPod evidence collection requires a worker-only API key")
             if self.provider_evidence_signing_key_pem is None:
                 raise ValueError("RunPod evidence collection requires a worker signing key")
+        if self.enable_kaggle:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,49}", self.kaggle_username):
+                raise ValueError("Kaggle execution requires a canonical account username")
+            root = Path(self.kaggle_staging_root)
+            if not root.is_absolute():
+                raise ValueError("Kaggle staging root must be an absolute operator path")
 
     def validate_api_security(self) -> None:
         """Validate public HTTP login source handling; worker processes don't need this secret."""
@@ -394,9 +403,12 @@ class Settings:
             enable_modal=e.get("GATEWAY_ENABLE_MODAL") == "true",
             enable_runpod_bridge=e.get("GATEWAY_ENABLE_RUNPOD_BRIDGE") == "true",
             enable_runpod_evidence=e.get("GATEWAY_ENABLE_RUNPOD_EVIDENCE") == "true",
+            enable_kaggle=e.get("GATEWAY_ENABLE_KAGGLE") == "true",
             runpod_api_key=e.get("RUNPOD_API_KEY", ""),
             runpod_account_scope_id=e.get("GATEWAY_RUNPOD_ACCOUNT_SCOPE_ID", ""),
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),
+            kaggle_username=e.get("GATEWAY_KAGGLE_USERNAME", ""),
+            kaggle_staging_root=e.get("GATEWAY_KAGGLE_STAGING_ROOT", ""),
             modal_app=e.get("GATEWAY_MODAL_APP", "gpu-control"),
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
             max_job_cost_usd=Decimal(e.get("GATEWAY_MAX_JOB_COST_USD", "1")),
