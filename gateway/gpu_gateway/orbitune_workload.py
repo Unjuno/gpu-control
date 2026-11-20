@@ -2,16 +2,21 @@
 from __future__ import annotations
 
 import json
+import base64
 import hashlib
+import io
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import zipfile
 
 
 ORBITUNE_REPOSITORY = "Unjuno/orbitune"
 ORBITUNE_SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
+_BUNDLE_MARKER = "__GPU_CONTROL_ORBITUNE_BUNDLE_B64__"
+_BUNDLE_SHA_MARKER = "__GPU_CONTROL_ORBITUNE_BUNDLE_SHA256__"
 
 
 def staged_bundle_digest(target: str | Path) -> str:
@@ -42,6 +47,18 @@ def _git(checkout: Path, *args: str) -> str:
     if completed.returncode != 0:
         raise ValueError("Orbitune source checkout is not a readable Git checkout")
     return completed.stdout.strip()
+
+
+def _package_bundle(package: Path, files: list[Path]) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        for path in sorted(files):
+            relative = Path("orbitune") / path.relative_to(package)
+            info = zipfile.ZipInfo(relative.as_posix(), (1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100600 << 16
+            archive.writestr(info, path.read_bytes())
+    return output.getvalue()
 
 
 def stage_orbitune_checkout(
@@ -82,7 +99,13 @@ def stage_orbitune_checkout(
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
     entrypoint = Path(__file__).parents[1] / "workloads" / "orbitune-kaggle-100" / "train.py"
-    shutil.copyfile(entrypoint, target / "train.py")
+    template = entrypoint.read_text(encoding="utf-8")
+    if template.count(_BUNDLE_MARKER) != 1 or template.count(_BUNDLE_SHA_MARKER) != 1:
+        raise ValueError("registered Orbitune entrypoint bundle markers are invalid")
+    bundle = _package_bundle(package, files)
+    rendered = template.replace(_BUNDLE_MARKER, base64.b64encode(bundle).decode("ascii"))
+    rendered = rendered.replace(_BUNDLE_SHA_MARKER, hashlib.sha256(bundle).hexdigest())
+    (target / "train.py").write_text(rendered, encoding="utf-8")
     provenance = {
         "schema_version": 1,
         "workload_id": "orbitune-kaggle-100-step-v1",

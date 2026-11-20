@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -16,6 +17,31 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+
+
+_ORBITUNE_BUNDLE_B64 = "__GPU_CONTROL_ORBITUNE_BUNDLE_B64__"
+_ORBITUNE_BUNDLE_SHA256 = "__GPU_CONTROL_ORBITUNE_BUNDLE_SHA256__"
+
+
+def _install_embedded_orbitune() -> None:
+    try:
+        bundle = base64.b64decode(_ORBITUNE_BUNDLE_B64, validate=True)
+    except ValueError as exc:
+        raise RuntimeError("embedded Orbitune bundle is invalid") from exc
+    if hashlib.sha256(bundle).hexdigest() != _ORBITUNE_BUNDLE_SHA256:
+        raise RuntimeError("embedded Orbitune bundle checksum mismatch")
+    path = Path(f"/tmp/gpu-control-orbitune-{_ORBITUNE_BUNDLE_SHA256}.zip")
+    if path.exists():
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != _ORBITUNE_BUNDLE_SHA256:
+            raise RuntimeError("embedded Orbitune bundle path is unsafe")
+    else:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(bundle)
+    sys.path.insert(0, str(path))
+
+
+_install_embedded_orbitune()
 
 import torch
 
@@ -64,8 +90,8 @@ def evaluate(checkpoint: Path, output: Path) -> None:
 def train() -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required; training will not silently fall back to CPU")
-    provenance = json.loads(Path("gpu-control-provenance.json").read_text(encoding="utf-8"))
-    if provenance.get("source_sha") != SOURCE_SHA or provenance.get("steps") != STEPS:
+    if (SOURCE_SHA != "44a1b806160ab5bc721a370d034a6dfcb28f27a8" or
+            STEPS != 100 or len(_ORBITUNE_BUNDLE_SHA256) != 64):
         raise RuntimeError("trusted workload provenance does not match the registered contract")
     device = torch.device("cuda")
     torch.manual_seed(SEED)

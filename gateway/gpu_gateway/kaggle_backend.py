@@ -7,13 +7,17 @@ journal beside the trusted staging directory before provider submission.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import sys
+import tempfile
 import zipfile
 from typing import Any, Callable, Mapping
 
@@ -63,8 +67,32 @@ def _duration_seconds(value: object) -> int | None:
     return None
 
 
+def _displayed_remaining_seconds(value: object) -> int | None:
+    """Conservative lower bound for the CLI's two-decimal duration display."""
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"(\d+(?:\.\d{1,2})?)([smhd])", value)
+    if match is None:
+        return None
+    factors = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    try:
+        displayed = Decimal(match.group(1)) * factors[match.group(2)]
+    except InvalidOperation:
+        return None
+    # Kaggle formats quota hours to two decimals. Subtract half one display
+    # unit before flooring so rounding can never inflate our usable estimate.
+    rounding_error = Decimal("0.005") * factors[match.group(2)]
+    return max(0, int((displayed - rounding_error).to_integral_value(rounding=ROUND_FLOOR)))
+
+
 def _remaining_gpu_seconds(payload: object) -> int | None:
     """Accept reviewed CLI JSON shapes and reject everything else as unknown."""
+    if isinstance(payload, list):
+        rows = [item for item in payload if isinstance(item, Mapping) and
+                str(item.get("resource", "")).strip().lower() == "gpu"]
+        if len(rows) != 1:
+            return None
+        return _displayed_remaining_seconds(rows[0].get("remaining"))
     if not isinstance(payload, Mapping):
         return None
     gpu = payload.get("gpu")
@@ -112,6 +140,14 @@ class KaggleBackend:
         if not isinstance(result, KaggleCommandResult):
             raise TypeError("Kaggle runner returned an invalid result")
         return result
+
+    def _bridge(self, operation: str, kernel: str) -> Mapping[str, Any]:
+        result = self.runner((
+            sys.executable, "-m", "gpu_gateway.kaggle_bridge", operation, kernel,
+        ))
+        if not isinstance(result, KaggleCommandResult):
+            raise TypeError("Kaggle bridge runner returned an invalid result")
+        return self._json(result, f"{operation} snapshot")
 
     def _manifest(self, run: Mapping[str, Any]) -> tuple[str, str, str, str]:
         try:
@@ -174,41 +210,53 @@ class KaggleBackend:
             "kernel_type": "script",
             "is_private": True,
             "enable_gpu": True,
+            "enable_tpu": False,
             "enable_internet": False,
-            "accelerator": accelerator,
+            "docker_image": "",
+            "machine_shape": accelerator,
             "dataset_sources": [],
             "competition_sources": [],
             "kernel_sources": [],
+            "model_sources": [],
         }
         (stage / "kernel-metadata.json").write_text(
             json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8",
         )
-        return {"kernel": f"{owner}/{slug}", "source_sha": source_sha, "stage": str(stage)}
+        return {
+            "kernel": f"{owner}/{slug}", "source_sha": source_sha,
+            "accelerator": accelerator, "stage": str(stage),
+        }
 
-    def _json(self, result: KaggleCommandResult, label: str) -> Mapping[str, Any]:
+    def _json(
+        self, result: KaggleCommandResult, label: str, *, require_mapping: bool = True,
+    ) -> Any:
         if result.returncode != 0:
             raise RuntimeError(f"Kaggle {label} failed")
         try:
             payload = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"Kaggle {label} returned invalid JSON") from exc
-        if not isinstance(payload, Mapping):
+        if require_mapping and not isinstance(payload, Mapping):
             raise RuntimeError(f"Kaggle {label} returned an invalid object")
         return payload
 
     def _status(self, kernel: str) -> Mapping[str, Any]:
+        return self._bridge("status", kernel)
+
+    def _latest(self, kernel: str) -> Mapping[str, Any]:
+        return self._bridge("latest", kernel)
+
+    def quota_snapshot(self) -> object:
+        """Read-only official CLI quota snapshot for signed worker evidence."""
         return self._json(
-            self._command("kernels", "status", kernel, "--format", "json"), "status",
+            self._command("quota", "--format", "json"), "quota", require_mapping=False,
         )
 
-    def quota_snapshot(self) -> Mapping[str, Any]:
-        """Read-only official CLI quota snapshot for signed worker evidence."""
-        return self._json(self._command("quota", "--format", "json"), "quota")
-
     @staticmethod
-    def _version(status: Mapping[str, Any]) -> int:
+    def _version(status: Mapping[str, Any], *, allow_missing: bool = False) -> int:
         version = status.get("versionNumber", status.get("version"))
-        if type(version) is not int or version < 1:
+        minimum = 0 if allow_missing else 1
+        if type(version) is not int or version < minimum:
             raise RuntimeError("Kaggle status did not identify an exact version")
         return version
 
@@ -216,26 +264,39 @@ class KaggleBackend:
         if not self.settings.enable_kaggle:
             raise RuntimeError("Kaggle submission is disabled")
         prepared = self.prepare(run)
+        required = run.get("plan", {}).get("runtime_seconds")
+        if type(required) is not int or not 1 <= required <= 3600:
+            raise ValueError("Kaggle runtime limit is invalid")
         quota = self.quota_snapshot()
         remaining = _remaining_gpu_seconds(quota)
-        required = run.get("plan", {}).get("runtime_seconds")
-        if type(required) is not int or remaining is None or remaining < required:
+        if remaining is None or remaining < required:
             raise KaggleQuotaError("Kaggle GPU quota is unknown or insufficient")
-        baseline = self._version(self._status(str(prepared["kernel"])))
+        baseline = self._version(
+            self._latest(str(prepared["kernel"])), allow_missing=True,
+        )
         journal = {
             "kernel": prepared["kernel"], "source_sha": prepared["source_sha"],
-            "baseline_version": baseline,
+            "baseline_version": baseline, "plan_fingerprint": run.get("fingerprint"),
+            "image_digest": run.get("plan", {}).get("image_digest"),
+            "runtime_seconds": required, "accelerator": prepared["accelerator"],
         }
         Path(str(prepared["stage"]), ".gpu-control-submission.json").write_text(
             json.dumps(journal, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8",
         )
-        pushed = self._command("kernels", "push", "-p", str(prepared["stage"]))
+        pushed = self._command(
+            "kernels", "push", "-p", str(prepared["stage"]),
+            "--accelerator", str(prepared["accelerator"]),
+            "--timeout", str(required),
+        )
         if pushed.returncode != 0:
             raise RuntimeError("Kaggle submission outcome unknown")
-        current = self._status(str(prepared["kernel"]))
-        version = self._version(current)
+        match = re.search(r"\bKernel version ([1-9][0-9]*) successfully pushed\b", pushed.stdout)
+        if match is None:
+            raise RuntimeError("Kaggle submission outcome unknown")
+        version = int(match.group(1))
         if version <= baseline:
             raise RuntimeError("Kaggle submission outcome unknown")
+        self._status(f'{prepared["kernel"]}/{version}')
         owner, slug = str(prepared["kernel"]).split("/", 1)
         return self._handle(run, owner=owner, slug=slug, version=version,
                             source_sha=str(prepared["source_sha"]))
@@ -272,16 +333,84 @@ class KaggleBackend:
         if not journal_path.is_file():
             return None
         journal = json.loads(journal_path.read_text(encoding="utf-8"))
-        if journal.get("kernel") != prepared["kernel"] or journal.get("source_sha") != prepared["source_sha"]:
+        if (journal.get("kernel") != prepared["kernel"] or
+                journal.get("source_sha") != prepared["source_sha"] or
+                journal.get("plan_fingerprint") != run.get("fingerprint") or
+                journal.get("image_digest") != run.get("plan", {}).get("image_digest") or
+                journal.get("runtime_seconds") != run.get("plan", {}).get("runtime_seconds") or
+                journal.get("accelerator") != prepared["accelerator"]):
             raise RuntimeError("Kaggle reconciliation journal does not match the run")
         baseline = journal.get("baseline_version")
-        current = self._status(str(prepared["kernel"]))
+        current = self._latest(str(prepared["kernel"]))
         version = self._version(current)
-        if type(baseline) is not int or version <= baseline:
+        if type(baseline) is not int or version != baseline + 1:
             return None
+        self._verify_provider_source(prepared, version)
         owner, slug = str(prepared["kernel"]).split("/", 1)
         return self._handle(run, owner=owner, slug=slug, version=version,
                             source_sha=str(prepared["source_sha"]))
+
+    def _verify_provider_source(self, prepared: Mapping[str, Any], version: int) -> None:
+        """Bind an ambiguously submitted provider version to the staged bytes."""
+        stage = Path(str(prepared["stage"])).resolve()
+        temporary = Path(tempfile.mkdtemp(prefix=".provider-source-", dir=stage))
+        try:
+            ref = f'{prepared["kernel"]}/{version}'
+            pulled = self._command("kernels", "pull", ref, "-p", str(temporary), "-m")
+            if pulled.returncode != 0:
+                raise RuntimeError("Kaggle reconciliation source download failed")
+            if any(item.is_symlink() for item in temporary.rglob("*")):
+                raise RuntimeError("Kaggle reconciliation source contains a symlink")
+            remote_script = temporary / "train.py"
+            local_script = stage / "train.py"
+            if (not remote_script.is_file() or remote_script.is_symlink() or
+                    hashlib.sha256(remote_script.read_bytes()).digest() !=
+                    hashlib.sha256(local_script.read_bytes()).digest()):
+                raise RuntimeError("Kaggle reconciliation source does not match the staged bundle")
+            try:
+                remote_metadata = json.loads(
+                    (temporary / "kernel-metadata.json").read_text(encoding="utf-8"))
+                local_metadata = json.loads(
+                    (stage / "kernel-metadata.json").read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise RuntimeError("Kaggle reconciliation metadata is unavailable") from exc
+            if (self._metadata_projection(remote_metadata) !=
+                    self._metadata_projection(local_metadata)):
+                raise RuntimeError("Kaggle reconciliation metadata does not match")
+        finally:
+            shutil.rmtree(temporary, ignore_errors=True)
+
+    @staticmethod
+    def _metadata_projection(metadata: object) -> dict[str, object]:
+        if not isinstance(metadata, Mapping):
+            raise RuntimeError("Kaggle reconciliation metadata is invalid")
+
+        def boolean(name: str) -> bool:
+            value = metadata.get(name)
+            if type(value) is bool:
+                return value
+            if isinstance(value, str) and value.lower() in {"true", "false"}:
+                return value.lower() == "true"
+            raise RuntimeError("Kaggle reconciliation metadata boolean is invalid")
+
+        projection: dict[str, object] = {}
+        for name in ("id", "title", "code_file", "language", "kernel_type", "machine_shape"):
+            value = metadata.get(name)
+            if not isinstance(value, str) or not value:
+                raise RuntimeError("Kaggle reconciliation metadata identity is invalid")
+            projection[name] = value
+        for name in ("is_private", "enable_gpu", "enable_tpu", "enable_internet"):
+            projection[name] = boolean(name)
+        docker_image = metadata.get("docker_image")
+        if docker_image not in (None, ""):
+            raise RuntimeError("Kaggle reconciliation custom image is not allowed")
+        projection["docker_image"] = ""
+        for name in ("dataset_sources", "competition_sources", "kernel_sources", "model_sources"):
+            value = metadata.get(name)
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise RuntimeError("Kaggle reconciliation metadata sources are invalid")
+            projection[name] = value
+        return projection
 
     def inspect(self, handle: dict) -> Observation:
         ref = f'{handle["owner"]}/{handle["kernel_slug"]}/{handle["version"]}'
@@ -412,7 +541,7 @@ class KaggleBackend:
         return {
             "provider_execution_id": ref,
             "device_id": f'kaggle:{ref}:{observation.result.get("device")}',
-            "evidence_source": "kaggle.cli.status-and-output",
+            "evidence_source": "kaggle.official-client-status-and-cli-output",
             "provider_object_projection": projection,
         }
 

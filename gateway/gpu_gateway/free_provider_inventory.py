@@ -15,7 +15,7 @@ from gpu_control.workloads import AcceleratorKind, NetworkRequirement, ResultTra
 from .kaggle_backend import _remaining_gpu_seconds
 
 KAGGLE_SOURCE = "kaggle-cli-quota"
-KAGGLE_SOURCE_REVISION = "official-cli-quota-json-v1"
+KAGGLE_SOURCE_REVISION = "official-cli-2.2.5-quota-json-v2"
 HF_SPACE_SOURCE = "huggingface-hub-zero-gpu-quota"
 HF_SPACE_SOURCE_REVISION = "huggingface-hub-get-zero-gpu-quota-v1"
 OBSERVATION_TTL_SECONDS = 120

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import ast
+import base64
+import io
 import json
 from pathlib import Path
 import subprocess
+import zipfile
 
 import pytest
 
@@ -22,6 +26,11 @@ def fake_checkout(tmp_path: Path) -> tuple[Path, str]:
     checkout = tmp_path / "orbitune"
     (checkout / "orbitune").mkdir(parents=True)
     (checkout / "orbitune" / "__init__.py").write_text("VERSION = 'test'\n", encoding="utf-8")
+    (checkout / "orbitune" / "model.py").write_text("MODEL = 'test'\n", encoding="utf-8")
+    (checkout / "orbitune" / "tokenizer").mkdir()
+    (checkout / "orbitune" / "tokenizer" / "__init__.py").write_text("", encoding="utf-8")
+    (checkout / "orbitune" / "tokenizer" / "vocab.py").write_text(
+        "VOCAB = 'test'\n", encoding="utf-8")
     (checkout / "README.md").write_text("not copied\n", encoding="utf-8")
     _git(checkout, "init", "-q")
     _git(checkout, "config", "user.email", "test@example.invalid")
@@ -64,6 +73,23 @@ def test_stage_builder_copies_only_exact_clean_orbitune_package_and_registered_e
     assert provenance["source_sha"] == sha
     assert (stage / "orbitune" / "__init__.py").is_file()
     assert (stage / "train.py").is_file()
+    rendered = (stage / "train.py").read_text(encoding="utf-8")
+    assert "__GPU_CONTROL_ORBITUNE_BUNDLE_B64__" not in rendered
+    assert "__GPU_CONTROL_ORBITUNE_BUNDLE_SHA256__" not in rendered
+    assert "_ORBITUNE_BUNDLE_B64" in rendered
+    assignments = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in ast.parse(rendered).body
+        if isinstance(node, ast.Assign) and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"_ORBITUNE_BUNDLE_B64", "_ORBITUNE_BUNDLE_SHA256"}
+    }
+    bundle = base64.b64decode(assignments["_ORBITUNE_BUNDLE_B64"], validate=True)
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        assert "orbitune/model.py" in archive.namelist()
+        assert "orbitune/tokenizer/vocab.py" in archive.namelist()
+        assert all(not name.startswith("/") and ".." not in Path(name).parts
+                   for name in archive.namelist())
     assert not (stage / "README.md").exists()
     assert json.loads((stage / "gpu-control-provenance.json").read_text()) == provenance
 

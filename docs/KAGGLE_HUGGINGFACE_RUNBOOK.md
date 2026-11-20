@@ -84,6 +84,24 @@ runtime fingerprint, while `source_revision` must be the exact 40-character
 Hub Space commit returned by `space_info`. Zero placeholders are intentionally
 non-runnable.
 
+The worker writes the official `machine_shape` metadata field and also passes
+the reviewed accelerator plus runtime ceiling explicitly to `kaggle kernels
+push`. Kaggle CLI 2.2.5 does not support JSON output for `kernels status`, so a
+narrow worker-internal bridge uses the same official Kaggle client package for
+only two structured read operations: latest exact version and exact-version
+status. It cannot submit, delete, or modify a Kernel. After an ambiguous push,
+the worker does not resubmit: it pulls the candidate version read-only and
+requires the exact rendered script and its security-relevant Kernel metadata
+to match before recovery. The candidate must be exactly `baseline + 1`;
+private visibility, GPU enabled, TPU disabled, network disabled, no custom
+image, empty data/model/kernel/competition sources, machine shape, language,
+and script identity are all compared.
+
+Kaggle CLI 2.2.5 emits quota JSON as a list containing `resource`, `used`,
+`remaining`, and `total` strings in hours. The worker accepts exactly one GPU
+row and subtracts half of the CLI's two-decimal display unit before flooring to
+seconds. Missing, duplicated, malformed, or insufficient quota remains blocked.
+
 Capability constants are derived from the current official provider documents:
 
 - Kaggle CLI accelerator and Kernel metadata: https://github.com/Kaggle/kaggle-cli/blob/main/docs/kernels.md and https://github.com/Kaggle/kaggle-cli/blob/main/docs/kernels_metadata.md

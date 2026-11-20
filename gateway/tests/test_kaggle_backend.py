@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from gpu_gateway.config import Settings
 from gpu_gateway import kaggle_backend
-from gpu_gateway.kaggle_backend import KaggleBackend, KaggleCommandResult, KaggleQuotaError
+from gpu_gateway.kaggle_backend import (
+    KaggleBackend, KaggleCommandResult, KaggleQuotaError, _remaining_gpu_seconds,
+)
 from gpu_gateway.orbitune_workload import staged_bundle_digest
 
 
@@ -31,6 +35,26 @@ def result(payload=None, *, stdout="", returncode=0):
     if payload is not None:
         stdout = json.dumps(payload)
     return KaggleCommandResult(returncode=returncode, stdout=stdout, stderr="")
+
+
+def test_current_cli_quota_json_is_parsed_conservatively():
+    payload = [
+        {"resource": "GPU", "used": "3.00h", "remaining": "1.25h",
+         "total": "4.25h", "refreshAt": "2026-11-20T00:00:00+00:00"},
+        {"resource": "TPU", "used": "0.00h", "remaining": "20.00h",
+         "total": "20.00h", "refreshAt": "2026-11-20T00:00:00+00:00"},
+    ]
+    # 1.25h minus the CLI's half-unit (0.005h) rounding uncertainty.
+    assert _remaining_gpu_seconds(payload) == 4482
+
+
+@pytest.mark.parametrize("payload", [
+    [], [{"resource": "GPU", "remaining": "unknown"}],
+    [{"resource": "GPU", "remaining": "1.00h"},
+     {"resource": "gpu", "remaining": "1.00h"}],
+])
+def test_current_cli_quota_json_fails_closed_when_ambiguous(payload):
+    assert _remaining_gpu_seconds(payload) is None
 
 
 def run(tmp_path: Path):
@@ -106,7 +130,8 @@ def test_prepare_is_offline_and_binds_owned_kernel_and_source(tmp_path):
     metadata = json.loads((tmp_path / "run-1" / "kernel-metadata.json").read_text())
     assert metadata["id"] == "owner/orbitune-100-step"
     assert metadata["enable_gpu"] is True
-    assert metadata["accelerator"] == "NvidiaTeslaT4"
+    assert metadata["machine_shape"] == "NvidiaTeslaT4"
+    assert "accelerator" not in metadata
 
 
 def test_prepare_recomputes_staged_bundle_digest_and_rejects_tampering(tmp_path):
@@ -118,9 +143,32 @@ def test_prepare_recomputes_staged_bundle_digest_and_rejects_tampering(tmp_path)
         backend.prepare(submitted)
 
 
+def test_reconciliation_metadata_projection_covers_security_controls():
+    approved = {
+        "id": "owner/orbitune-100-step", "title": "orbitune-100-step",
+        "code_file": "train.py", "language": "python", "kernel_type": "script",
+        "machine_shape": "NvidiaTeslaT4", "is_private": True,
+        "enable_gpu": True, "enable_tpu": False, "enable_internet": False,
+        "docker_image": "", "dataset_sources": [],
+        "competition_sources": [], "kernel_sources": [], "model_sources": [],
+    }
+    remote = approved | {"is_private": "true", "enable_gpu": "true",
+                         "enable_internet": "true"}
+
+    approved_projection = KaggleBackend._metadata_projection(approved)
+    remote_projection = KaggleBackend._metadata_projection(remote)
+
+    assert approved_projection["enable_internet"] is False
+    assert remote_projection["enable_internet"] is True
+    assert remote_projection != approved_projection
+
+    with pytest.raises(RuntimeError, match="custom image"):
+        KaggleBackend._metadata_projection(approved | {"docker_image": "custom:latest"})
+
+
 def test_start_checks_quota_and_persists_exact_new_version(tmp_path):
     runner = ScriptedRunner([
-        result({"gpu": {"remainingSeconds": 3600}}),
+        result([{"resource": "GPU", "remaining": "1.00h"}]),
         result({"versionNumber": 7, "status": "complete"}),
         result(stdout="Kernel version 8 successfully pushed"),
         result({"versionNumber": 8, "status": "running"}),
@@ -138,9 +186,12 @@ def test_start_checks_quota_and_persists_exact_new_version(tmp_path):
     }
     assert runner.calls == [
         ("kaggle", "quota", "--format", "json"),
-        ("kaggle", "kernels", "status", "owner/orbitune-100-step", "--format", "json"),
-        ("kaggle", "kernels", "push", "-p", str(tmp_path / "run-1")),
-        ("kaggle", "kernels", "status", "owner/orbitune-100-step", "--format", "json"),
+        (sys.executable, "-m", "gpu_gateway.kaggle_bridge", "latest",
+         "owner/orbitune-100-step"),
+        ("kaggle", "kernels", "push", "-p", str(tmp_path / "run-1"),
+         "--accelerator", "NvidiaTeslaT4", "--timeout", "120"),
+        (sys.executable, "-m", "gpu_gateway.kaggle_bridge", "status",
+         "owner/orbitune-100-step/8"),
     ]
 
 
@@ -157,11 +208,27 @@ def test_start_fails_closed_when_gpu_quota_is_unknown_or_insufficient(tmp_path, 
 
 
 def test_ambiguous_push_is_not_retried_and_reconcile_discovers_version(tmp_path):
-    runner = ScriptedRunner([
-        result({"gpu": {"remainingSeconds": 3600}}),
+    class ReconcileRunner(ScriptedRunner):
+        def __call__(self, argv):
+            self.calls.append(tuple(argv))
+            response = self.responses.pop(0)
+            if tuple(argv[1:3]) == ("kernels", "pull"):
+                target = Path(argv[argv.index("-p") + 1])
+                source = tmp_path / "run-1"
+                shutil.copytree(source / "orbitune", target / "orbitune")
+                shutil.copyfile(source / "train.py", target / "train.py")
+                shutil.copyfile(source / "gpu-control-provenance.json",
+                                target / "gpu-control-provenance.json")
+                shutil.copyfile(source / "kernel-metadata.json",
+                                target / "kernel-metadata.json")
+            return response
+
+    runner = ReconcileRunner([
+        result([{"resource": "GPU", "remaining": "1.00h"}]),
         result({"versionNumber": 7, "status": "complete"}),
         result(stdout="connection closed", returncode=1),
         result({"versionNumber": 8, "status": "running"}),
+        result(stdout="downloaded"),
     ])
     backend = KaggleBackend(settings(tmp_path), runner=runner)
     submitted = run(tmp_path)
@@ -172,6 +239,20 @@ def test_ambiguous_push_is_not_retried_and_reconcile_discovers_version(tmp_path)
 
     assert handle["version"] == 8
     assert sum(call[1:3] == ("kernels", "push") for call in runner.calls) == 1
+    assert sum(call[1:3] == ("kernels", "pull") for call in runner.calls) == 1
+
+
+@pytest.mark.parametrize("runtime", [None, True, 0, 3601, "120"])
+def test_start_rejects_invalid_runtime_before_provider_call(tmp_path, runtime):
+    runner = ScriptedRunner([])
+    backend = KaggleBackend(settings(tmp_path), runner=runner)
+    submitted = run(tmp_path)
+    submitted["plan"]["runtime_seconds"] = runtime
+
+    with pytest.raises(ValueError, match="runtime limit"):
+        backend.start(submitted)
+
+    assert runner.calls == []
 
 
 def test_logs_are_bounded_and_cancel_is_not_advertised(tmp_path):
