@@ -157,10 +157,10 @@ def cancel(request_id: str) -> dict:
 
 with gr.Blocks() as demo:
     gr.Markdown("GPU Control approved Orbitune evaluation endpoint")
-    request = gr.Textbox(visible=False)
-    parameters = gr.Textbox(visible=False)
-    source = gr.Textbox(visible=False)
-    output = gr.JSON()
+    request = gr.Textbox(label="request_id", visible=False)
+    parameters = gr.Textbox(label="parameters_json", visible=False)
+    source = gr.Textbox(label="source_sha", visible=False)
+    output = gr.JSON(label="result")
     gr.Button("Evaluate", visible=False).click(
         evaluate, [request, parameters, source], output, api_name="evaluate",
     )

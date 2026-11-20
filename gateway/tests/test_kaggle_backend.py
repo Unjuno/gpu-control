@@ -101,7 +101,8 @@ def test_default_runner_passes_only_kaggle_and_process_environment(monkeypatch):
         return SimpleNamespace(returncode=0, stdout="{}", stderr="")
 
     monkeypatch.setenv("KAGGLE_API_TOKEN", "kaggle-token")
-    monkeypatch.setenv("HF_TOKEN", "hub-token")
+    monkeypatch.setenv("HF_ARTIFACT_WRITE_TOKEN", "hub-write-token")
+    monkeypatch.setenv("HF_SPACE_READ_TOKEN", "hub-read-token")
     monkeypatch.setenv("RUNPOD_API_KEY", "runpod-token")
     monkeypatch.setenv("MODAL_TOKEN_SECRET", "modal-token")
     monkeypatch.setenv("GATEWAY_DATABASE_URL", "postgresql://secret")
@@ -112,7 +113,7 @@ def test_default_runner_passes_only_kaggle_and_process_environment(monkeypatch):
 
     assert response.returncode == 0
     assert captured["env"]["KAGGLE_API_TOKEN"] == "kaggle-token"
-    for key in ("HF_TOKEN", "RUNPOD_API_KEY", "MODAL_TOKEN_SECRET",
+    for key in ("HF_ARTIFACT_WRITE_TOKEN", "HF_SPACE_READ_TOKEN", "RUNPOD_API_KEY", "MODAL_TOKEN_SECRET",
                 "GATEWAY_DATABASE_URL", "GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64"):
         assert key not in captured["env"]
     assert captured["shell"] is False

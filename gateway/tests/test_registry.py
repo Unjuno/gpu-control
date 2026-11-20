@@ -210,7 +210,7 @@ def test_huggingface_hub_is_a_separate_artifact_service_not_execution_provider()
     artifacts = default_artifact_registry()
     providers = default_registry()
     settings = Settings(
-        hf_token="hf_worker_secret",
+        hf_artifact_write_token="hf_worker_secret",
         hf_artifact_repositories=("owner/private-artifacts",),
     )
 

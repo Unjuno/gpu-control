@@ -22,14 +22,19 @@ class CommitInfo:
 
 
 class FakeApi:
-    def __init__(self, *, private=True, existing=False):
+    def __init__(self, *, private=True, existing=False, revision_private=True,
+                 revision_sha="c" * 40):
         self.private = private
         self.existing = existing
+        self.revision_private = revision_private
+        self.revision_sha = revision_sha
         self.calls = []
         self.uploaded = b""
 
     def repo_info(self, **kwargs):
         self.calls.append(("repo_info", kwargs))
+        if "revision" in kwargs:
+            return RepoInfo(private=self.revision_private, sha=self.revision_sha)
         return RepoInfo(private=self.private)
 
     def file_exists(self, **kwargs):
@@ -44,7 +49,7 @@ class FakeApi:
 
 def settings():
     return Settings(
-        hf_token="hf_secret_test_value",
+        hf_artifact_write_token="hf_secret_test_value",
         hf_artifact_repositories=("owner/private-artifacts",),
     )
 
@@ -118,6 +123,24 @@ def test_publish_detects_redownload_checksum_mismatch(tmp_path):
     )
 
     with pytest.raises(RuntimeError, match="checksum"):
+        store.publish(
+            artifact, repo_id="owner/private-artifacts",
+            path_in_repo="runs/run/checkpoint.pt", run_id="run", source_sha="a" * 40,
+        )
+
+
+@pytest.mark.parametrize("api", [
+    FakeApi(revision_private=False),
+    FakeApi(revision_sha="d" * 40),
+])
+def test_publish_rejects_revision_that_is_not_exact_and_private(tmp_path, api):
+    artifact = tmp_path / "checkpoint.pt"
+    artifact.write_bytes(b"checkpoint")
+    store = HuggingFaceArtifactStore(
+        settings(), api=api, downloader=lambda **_: str(artifact),
+    )
+
+    with pytest.raises(RuntimeError, match="exact and private"):
         store.publish(
             artifact, repo_id="owner/private-artifacts",
             path_in_repo="runs/run/checkpoint.pt", run_id="run", source_sha="a" * 40,

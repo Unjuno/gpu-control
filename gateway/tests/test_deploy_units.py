@@ -277,7 +277,10 @@ def test_authentication_and_capacity_settings_are_environment_isolated():
     assert not {"GATEWAY_DATABASE_URL", "GATEWAY_COOKIE_KEY", "GATEWAY_OIDC_CLIENT_SECRET"} & capacity.keys()
     assert set(capacity) == {"GATEWAY_ARTIFACT_DIR", "GATEWAY_ARTIFACT_MIN_FREE_BYTES"}
     for name in ("gpu-control-worker.service", "gpu-control-supervisor.service"):
-        assert "/etc/gpu-control/api.env" not in (DEPLOY / name).read_text(encoding="utf-8")
+        unit_text = (DEPLOY / name).read_text(encoding="utf-8")
+        assert "/etc/gpu-control/api.env" not in unit_text
+        assert "Environment=GRADIO_ANALYTICS_ENABLED=False" in unit_text
+        assert "Environment=HF_HUB_DISABLE_TELEMETRY=1" in unit_text
     for name in ("gpu-control-api.service", "gpu-control-artifact-capacity.service",
                  "gpu-control-db-check.service", "gpu-control-db-migrate.service",
                  "gpu-control-capacity-bridge.service"):
@@ -285,7 +288,9 @@ def test_authentication_and_capacity_settings_are_environment_isolated():
     secret_example = (DEPLOY / "worker-secrets.env.example").read_text(encoding="utf-8")
     assert "MODAL_TOKEN_ID" in secret_example and "MODAL_TOKEN_SECRET" in secret_example
     assert "KAGGLE_API_TOKEN" in secret_example
-    assert "HF_TOKEN" in secret_example
+    assert "HF_ARTIFACT_WRITE_TOKEN" in secret_example
+    assert "HF_SPACE_READ_TOKEN" in secret_example
+    assert "HF_TOKEN" not in secret_example
     assert "GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64" not in secret_example
     evidence_example = (DEPLOY / "provider-evidence.env.example").read_text(encoding="utf-8")
     assert "GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64" in evidence_example

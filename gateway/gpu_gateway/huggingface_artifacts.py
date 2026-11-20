@@ -43,10 +43,21 @@ class HuggingFaceArtifactStore:
         self.max_bytes = max_bytes
         if api is None or downloader is None:
             hub = importlib.import_module("huggingface_hub")
-            api = api or hub.HfApi(token=settings.hf_token)
+            api = api or hub.HfApi(token=settings.hf_artifact_write_token)
             downloader = downloader or hub.hf_hub_download
         self.api = api
         self.downloader = downloader
+
+    def _verify_private_revision(self, repo_id: str, revision: str) -> None:
+        try:
+            info = self.api.repo_info(
+                repo_id=repo_id, repo_type="model", revision=revision,
+                token=self.settings.hf_artifact_write_token,
+            )
+        except Exception as exc:
+            raise RuntimeError("immutable Hugging Face artifact revision is unavailable") from exc
+        if getattr(info, "private", None) is not True or getattr(info, "sha", None) != revision:
+            raise RuntimeError("Hugging Face artifact revision is not exact and private")
 
     @staticmethod
     def _remote_path(path_in_repo: str) -> str:
@@ -68,7 +79,7 @@ class HuggingFaceArtifactStore:
         run_id: str,
         source_sha: str,
     ) -> dict[str, object]:
-        if not self.settings.hf_token:
+        if not self.settings.hf_artifact_write_token:
             raise RuntimeError("Hugging Face worker token is not configured")
         if (_REPO_RE.fullmatch(repo_id or "") is None or
                 repo_id not in self.settings.hf_artifact_repositories):
@@ -84,13 +95,15 @@ class HuggingFaceArtifactStore:
         size = local_path.stat().st_size
         if size < 1 or size > self.max_bytes:
             raise ValueError("artifact size exceeds the configured bound")
-        info = self.api.repo_info(repo_id=repo_id, repo_type="model", token=self.settings.hf_token)
+        info = self.api.repo_info(
+            repo_id=repo_id, repo_type="model", token=self.settings.hf_artifact_write_token,
+        )
         if getattr(info, "private", None) is not True:
             raise ValueError("Hugging Face artifact repository must be private")
         checksum = _sha256(local_path)
         exists = self.api.file_exists(
             repo_id=repo_id, filename=remote_path, repo_type="model",
-            token=self.settings.hf_token,
+            token=self.settings.hf_artifact_write_token,
         )
         if type(exists) is not bool:
             raise RuntimeError("Hugging Face file existence result is invalid")
@@ -100,7 +113,7 @@ class HuggingFaceArtifactStore:
                 raise RuntimeError("Hugging Face repository did not return an immutable revision")
             existing = Path(self.downloader(
                 repo_id=repo_id, filename=remote_path, repo_type="model",
-                revision=revision, token=self.settings.hf_token,
+                revision=revision, token=self.settings.hf_artifact_write_token,
             ))
             if not existing.is_file() or _sha256(existing) != checksum:
                 raise RuntimeError("immutable artifact path already contains different content")
@@ -110,21 +123,23 @@ class HuggingFaceArtifactStore:
                 path_in_repo=remote_path,
                 repo_id=repo_id,
                 repo_type="model",
-                token=self.settings.hf_token,
+                token=self.settings.hf_artifact_write_token,
                 commit_message=f"gpu-control artifact {run_id}",
             )
             revision = getattr(commit, "oid", None)
         if not isinstance(revision, str) or _SHA40_RE.fullmatch(revision) is None:
             raise RuntimeError("Hugging Face upload did not return an immutable revision")
+        self._verify_private_revision(repo_id, revision)
         downloaded = Path(self.downloader(
             repo_id=repo_id,
             filename=remote_path,
             repo_type="model",
             revision=revision,
-            token=self.settings.hf_token,
+            token=self.settings.hf_artifact_write_token,
         ))
         if not downloaded.is_file() or _sha256(downloaded) != checksum:
             raise RuntimeError("Hugging Face artifact re-download checksum mismatch")
+        self._verify_private_revision(repo_id, revision)
         return {
             "service": "huggingface_hub",
             "repo_id": repo_id,

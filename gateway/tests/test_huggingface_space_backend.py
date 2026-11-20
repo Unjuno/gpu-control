@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
+from gpu_gateway import huggingface_space_backend as space_module
 from gpu_gateway.config import Settings
 from gpu_gateway.huggingface_space_backend import (
     HuggingFaceSpaceBackend, ZeroGpuQuotaError, space_contract_digest,
@@ -57,19 +59,58 @@ class FakeClient:
 
     def view_api(self, **_kwargs):
         return {"named_endpoints": {
-            "/evaluate": {"parameters": [{}, {}, {}]},
-            "/status": {"parameters": [{}]},
-            "/cancel": {"parameters": [{}]},
-        }}
+            "/evaluate": {
+                "parameters": [
+                    {"label": "request_id", "component": "Textbox"},
+                    {"label": "parameters_json", "component": "Textbox"},
+                    {"label": "source_sha", "component": "Textbox"},
+                ],
+                "returns": [{"label": "result", "component": "Json"}],
+            },
+            "/status": {
+                "parameters": [{"label": "request_id", "component": "Textbox"}],
+                "returns": [{"label": "result", "component": "Json"}],
+            },
+            "/cancel": {
+                "parameters": [{"label": "request_id", "component": "Textbox"}],
+                "returns": [{"label": "result", "component": "Json"}],
+            },
+        }, "unnamed_endpoints": {}}
 
 
 def settings():
     return Settings(
         enable_huggingface_space=True,
-        hf_token="hf_read_token",
+        hf_space_read_token="hf_read_token",
         hf_artifact_repositories=("owner/private-artifacts",),
         hf_space_allowlist=("owner/approved-zero-gpu",),
     )
+
+
+def test_default_gradio_client_uses_supported_private_token_contract(monkeypatch):
+    captured = {}
+
+    def client(src, **kwargs):
+        captured["src"] = src
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        space_module.importlib, "import_module",
+        lambda name: SimpleNamespace(Client=client) if name == "gradio_client" else None,
+    )
+    backend = HuggingFaceSpaceBackend(settings(), api=FakeApi(Quota()))
+
+    backend._client("owner/approved-zero-gpu")
+
+    assert captured == {
+        "src": "owner/approved-zero-gpu",
+        "token": "hf_read_token",
+        "verbose": False,
+        "analytics_enabled": False,
+        "download_files": False,
+    }
+    assert "hf_token" not in captured
 
 
 def run():
@@ -175,17 +216,47 @@ def test_space_must_be_allowlisted_and_registry_does_not_enable_paid_jobs():
 
 def test_space_endpoint_contract_must_be_exact_before_evaluation():
     client = FakeClient([])
-    client.view_api = lambda **_kwargs: {"named_endpoints": {
-        "/evaluate": {"parameters": [{}, {}, {}]},
-        "/status": {"parameters": [{}]},
-        "/unexpected": {"parameters": []},
-    }}
+    contract = FakeClient([]).view_api()
+    contract["named_endpoints"]["/unexpected"] = {"parameters": [], "returns": []}
+    del contract["named_endpoints"]["/cancel"]
+    client.view_api = lambda **_kwargs: contract
     backend = HuggingFaceSpaceBackend(
         settings(), api=FakeApi(Quota()), client_factory=lambda _space, _token: client,
     )
 
     with pytest.raises(RuntimeError, match="endpoint set changed"):
         backend.start(run())
+    assert client.calls == []
+
+
+def test_space_parameter_contract_must_be_exact_before_any_remote_operation():
+    client = FakeClient([])
+    contract = client.view_api()
+    contract["named_endpoints"]["/evaluate"]["parameters"][1]["label"] = "payload"
+    client.view_api = lambda **_kwargs: contract
+    backend = HuggingFaceSpaceBackend(
+        settings(), api=FakeApi(Quota()), client_factory=lambda _space, _token: client,
+    )
+
+    with pytest.raises(RuntimeError, match="parameter contract changed"):
+        backend.reconcile(run())
+    assert client.calls == []
+
+
+def test_cancel_verifies_revision_and_contract_before_call():
+    client = FakeClient([])
+    backend = HuggingFaceSpaceBackend(
+        settings(), api=FakeApi(Quota(), SpaceInfo(sha="0" * 40)),
+        client_factory=lambda _space, _token: client,
+    )
+    handle = {
+        "space_id": "owner/approved-zero-gpu",
+        "space_revision": "e" * 40,
+        "request_id": "run-1-" + "f" * 12,
+    }
+
+    with pytest.raises(RuntimeError, match="revision"):
+        backend.cancel(handle)
     assert client.calls == []
 
 

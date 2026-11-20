@@ -138,7 +138,8 @@ class Settings:
     kaggle_username: str = ""
     kaggle_staging_root: str = ""
     kaggle_source_cache_root: str = ""
-    hf_token: str = field(default="", repr=False, compare=False)
+    hf_artifact_write_token: str = field(default="", repr=False, compare=False)
+    hf_space_read_token: str = field(default="", repr=False, compare=False)
     hf_artifact_repositories: tuple[str, ...] = ()
     hf_space_allowlist: tuple[str, ...] = ()
     modal_app: str = "gpu-control"
@@ -411,9 +412,13 @@ class Settings:
                 raise ValueError("RunPod evidence collection requires a worker signing key")
         if self.enable_kaggle_evidence and self.provider_evidence_signing_key_pem is None:
             raise ValueError("Kaggle evidence collection requires a worker signing key")
+        if (self.hf_artifact_write_token and self.hf_space_read_token and
+                self.hf_artifact_write_token == self.hf_space_read_token):
+            raise ValueError("Hugging Face artifact and Space tokens must be distinct")
         if self.enable_huggingface_space_evidence:
-            if not self.hf_token or any(character.isspace() for character in self.hf_token):
-                raise ValueError("Hugging Face evidence collection requires a worker-only token")
+            if (not self.hf_space_read_token or
+                    any(character.isspace() for character in self.hf_space_read_token)):
+                raise ValueError("Hugging Face evidence collection requires a Space read token")
             if self.provider_evidence_signing_key_pem is None:
                 raise ValueError("Hugging Face evidence collection requires a worker signing key")
         if self.enable_kaggle:
@@ -425,15 +430,17 @@ class Settings:
             if self.kaggle_source_cache_root and not Path(self.kaggle_source_cache_root).is_absolute():
                 raise ValueError("Kaggle source cache root must be an absolute operator path")
         if self.hf_artifact_repositories:
-            if self.hf_token and any(character.isspace() for character in self.hf_token):
-                raise ValueError("Hugging Face worker token must not contain whitespace")
+            if (self.hf_artifact_write_token and
+                    any(character.isspace() for character in self.hf_artifact_write_token)):
+                raise ValueError("Hugging Face artifact write token must not contain whitespace")
             if (len(set(self.hf_artifact_repositories)) != len(self.hf_artifact_repositories) or
                     any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) is None
                         for repo in self.hf_artifact_repositories)):
                 raise ValueError("Hugging Face artifact repository allowlist is invalid")
         if self.enable_huggingface_space:
-            if self.hf_token and any(character.isspace() for character in self.hf_token):
-                raise ValueError("Hugging Face worker token must not contain whitespace")
+            if (self.hf_space_read_token and
+                    any(character.isspace() for character in self.hf_space_read_token)):
+                raise ValueError("Hugging Face Space read token must not contain whitespace")
             if (not self.hf_space_allowlist or
                     len(set(self.hf_space_allowlist)) != len(self.hf_space_allowlist) or
                     any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", space) is None
@@ -498,7 +505,8 @@ class Settings:
             kaggle_username=e.get("GATEWAY_KAGGLE_USERNAME", ""),
             kaggle_staging_root=e.get("GATEWAY_KAGGLE_STAGING_ROOT", ""),
             kaggle_source_cache_root=e.get("GATEWAY_KAGGLE_SOURCE_CACHE_ROOT", ""),
-            hf_token=e.get("HF_TOKEN", ""),
+            hf_artifact_write_token=e.get("HF_ARTIFACT_WRITE_TOKEN", ""),
+            hf_space_read_token=e.get("HF_SPACE_READ_TOKEN", ""),
             hf_artifact_repositories=tuple(
                 item.strip() for item in e.get("GATEWAY_HF_ARTIFACT_REPOSITORIES", "").split(",")
                 if item.strip()),

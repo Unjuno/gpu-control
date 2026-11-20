@@ -274,3 +274,18 @@ def test_artifact_minimum_free_bytes_must_be_nonnegative_integer():
         Settings(artifact_min_free_bytes=-1).validate()
     with pytest.raises(ValueError, match="artifact_min_free_bytes"):
         Settings(artifact_min_free_bytes=True).validate()
+
+
+def test_hugging_face_credentials_are_distinct_and_load_from_environment(monkeypatch):
+    monkeypatch.setenv("HF_ARTIFACT_WRITE_TOKEN", "hf_artifact_only")
+    monkeypatch.setenv("HF_SPACE_READ_TOKEN", "hf_space_and_billing_read")
+
+    settings = Settings.from_env()
+
+    assert settings.hf_artifact_write_token == "hf_artifact_only"
+    assert settings.hf_space_read_token == "hf_space_and_billing_read"
+    with pytest.raises(ValueError, match="must be distinct"):
+        Settings(
+            hf_artifact_write_token="hf_reused",
+            hf_space_read_token="hf_reused",
+        ).validate()

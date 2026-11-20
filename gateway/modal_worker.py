@@ -11,6 +11,7 @@ import modal
 ROOT = Path(__file__).parent
 app = modal.App('gpu-control-worker')
 image = (modal.Image.debian_slim(python_version='3.12')
+         .env({'GRADIO_ANALYTICS_ENABLED': 'False', 'HF_HUB_DISABLE_TELEMETRY': '1'})
          .pip_install_from_requirements(str(ROOT / 'requirements-worker.txt'))
          .add_local_python_source('gpu_gateway'))
 

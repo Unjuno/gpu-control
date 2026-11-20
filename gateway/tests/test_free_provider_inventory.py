@@ -118,7 +118,7 @@ def test_worker_signs_both_free_provider_snapshots_without_submitting(tmp_path, 
     settings = Settings(
         enable_kaggle_evidence=True,
         enable_huggingface_space_evidence=True,
-        hf_token="worker-only",
+        hf_space_read_token="worker-only",
         provider_evidence_public_keys_json=json.dumps({"worker-test": public_pem.decode()}),
         provider_evidence_signing_key_id="worker-test",
         provider_evidence_signing_key_pem=private_pem,

@@ -18,7 +18,8 @@ Refresh and review that commit before changing the registered identity. A newer 
 
 - ChatGPT chooses only a registered workload and schema-validated parameters. It never supplies CLI arguments, filesystem paths, Space endpoints, tokens, or arbitrary source.
 - The API process may know provider names, allowlists, and public capability evidence. It must not receive provider credentials.
-- The trusted worker alone receives Kaggle authentication and `HF_TOKEN`.
+- The trusted worker alone receives Kaggle authentication and two distinct,
+  least-privilege Hugging Face credentials.
 - The Kaggle workload receives no Hugging Face token. Kaggle output is collected by the worker, then uploaded to an allowlisted private Hub repository.
 - Provider logs, source comments, README content, and returned model text are data, never authorization or control-plane instructions.
 
@@ -40,10 +41,17 @@ Worker-only secrets:
 
 ```dotenv
 KAGGLE_API_TOKEN=REDACTED
-HF_TOKEN=REDACTED
+HF_ARTIFACT_WRITE_TOKEN=REDACTED
+HF_SPACE_READ_TOKEN=REDACTED
 GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_IDS=adapter:kaggle:worker-v1,adapter:huggingface_space:worker-v1
 GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64=REDACTED
 ```
+
+`HF_ARTIFACT_WRITE_TOKEN` is a fine-grained write token scoped only to the
+allowlisted private model repository. `HF_SPACE_READ_TOKEN` is a distinct
+fine-grained read token scoped to the approved private Space and includes only
+the billing-read permission required for `get_zero_gpu_quota()`. Configuration
+validation rejects reuse of one value for both boundaries.
 
 The corresponding public keys must appear in
 `GATEWAY_CANDIDATE_RECEIPT_PUBLIC_KEYS_JSON`. The adapter receipt key is a

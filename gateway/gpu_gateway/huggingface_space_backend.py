@@ -44,11 +44,17 @@ class HuggingFaceSpaceBackend:
         self.settings = settings
         if api is None:
             hub = importlib.import_module("huggingface_hub")
-            api = hub.HfApi(token=settings.hf_token)
+            api = hub.HfApi(token=settings.hf_space_read_token)
         self.api = api
         if client_factory is None:
             gradio = importlib.import_module("gradio_client")
-            client_factory = lambda space, token: gradio.Client(space, hf_token=token)
+            client_factory = lambda space, token: gradio.Client(
+                space,
+                token=token,
+                verbose=False,
+                analytics_enabled=False,
+                download_files=False,
+            )
         self.client_factory = client_factory
 
     def _identity(self, run: Mapping[str, Any]) -> tuple[str, str, str, dict[str, Any], int]:
@@ -101,7 +107,7 @@ class HuggingFaceSpaceBackend:
 
     def quota_snapshot(self) -> Any:
         try:
-            return self.api.get_zero_gpu_quota(token=self.settings.hf_token)
+            return self.api.get_zero_gpu_quota(token=self.settings.hf_space_read_token)
         except Exception as exc:
             raise ZeroGpuQuotaError("Hugging Face ZeroGPU quota is unavailable") from exc
 
@@ -130,11 +136,11 @@ class HuggingFaceSpaceBackend:
         return value
 
     def _client(self, space_id: str) -> Any:
-        return self.client_factory(space_id, self.settings.hf_token)
+        return self.client_factory(space_id, self.settings.hf_space_read_token)
 
     def verify_space(self, space_id: str, revision: str) -> None:
         try:
-            info = self.api.space_info(repo_id=space_id, token=self.settings.hf_token)
+            info = self.api.space_info(repo_id=space_id, token=self.settings.hf_space_read_token)
         except Exception as exc:
             raise RuntimeError("approved Hugging Face Space is unavailable") from exc
         if (getattr(info, "sha", None) != revision or
@@ -150,12 +156,31 @@ class HuggingFaceSpaceBackend:
         except Exception as exc:
             raise RuntimeError("approved Hugging Face Space API is unavailable") from exc
         named = info.get("named_endpoints") if isinstance(info, Mapping) else None
-        expected = {"/evaluate": 3, "/status": 1, "/cancel": 1}
+        unnamed = info.get("unnamed_endpoints") if isinstance(info, Mapping) else None
+        expected = {
+            "/evaluate": (
+                (("request_id", "Textbox"), ("parameters_json", "Textbox"),
+                 ("source_sha", "Textbox")),
+                (("result", "Json"),),
+            ),
+            "/status": ((("request_id", "Textbox"),), (("result", "Json"),)),
+            "/cancel": ((("request_id", "Textbox"),), (("result", "Json"),)),
+        }
         if not isinstance(named, Mapping) or set(named) != set(expected):
             raise RuntimeError("approved Hugging Face Space endpoint set changed")
-        for endpoint, count in expected.items():
-            parameters = named[endpoint].get("parameters") if isinstance(named[endpoint], Mapping) else None
-            if not isinstance(parameters, list) or len(parameters) != count:
+        if not isinstance(unnamed, Mapping) or unnamed:
+            raise RuntimeError("approved Hugging Face Space unnamed endpoint set changed")
+        for endpoint, (expected_parameters, expected_returns) in expected.items():
+            details = named[endpoint]
+            parameters = details.get("parameters") if isinstance(details, Mapping) else None
+            returns = details.get("returns") if isinstance(details, Mapping) else None
+            if (not isinstance(parameters, list) or not isinstance(returns, list) or
+                    tuple((item.get("label"), item.get("component"))
+                          for item in parameters if isinstance(item, Mapping)) != expected_parameters or
+                    len(parameters) != len(expected_parameters) or
+                    tuple((item.get("label"), item.get("component"))
+                          for item in returns if isinstance(item, Mapping)) != expected_returns or
+                    len(returns) != len(expected_returns)):
                 raise RuntimeError("approved Hugging Face Space parameter contract changed")
 
     def verified_space_ids(self, workloads: Mapping[str, Any]) -> set[str]:
@@ -175,7 +200,7 @@ class HuggingFaceSpaceBackend:
     def start(self, run: dict) -> dict:
         if not self.settings.enable_huggingface_space:
             raise RuntimeError("Hugging Face Space submission is disabled")
-        if not self.settings.hf_token:
+        if not self.settings.hf_space_read_token:
             raise RuntimeError("Hugging Face worker token is not configured")
         space_id, request_id, source_sha, parameters, runtime = self._identity(run)
         manifest = run["plan"].get("workload_manifest") or run["registered_workload_manifest"]
@@ -191,6 +216,7 @@ class HuggingFaceSpaceBackend:
             ),
             request_id,
         )
+        self.verify_space(space_id, manifest["source_revision"])
         handle = self._handle(run, space_id, request_id, source_sha)
         handle["space_revision"] = manifest["source_revision"]
         if response["state"] not in {"queued", "running"}:
@@ -225,28 +251,35 @@ class HuggingFaceSpaceBackend:
 
     def reconcile(self, run: dict) -> dict | None:
         space_id, request_id, source_sha, _parameters, _runtime = self._identity(run)
-        response = self._response(
-            self._client(space_id).predict(request_id, api_name="/status"), request_id,
-        )
-        handle = self._handle(run, space_id, request_id, source_sha)
         manifest = run["plan"].get("workload_manifest") or run["registered_workload_manifest"]
         self.verify_space(space_id, manifest["source_revision"])
         self.verify_contract(space_id)
+        response = self._response(
+            self._client(space_id).predict(request_id, api_name="/status"), request_id,
+        )
+        self.verify_space(space_id, manifest["source_revision"])
+        handle = self._handle(run, space_id, request_id, source_sha)
         handle["space_revision"] = manifest["source_revision"]
         handle["observation"] = response
         return handle
 
     def inspect(self, handle: dict) -> Observation:
         request_id = handle.get("request_id")
-        if not isinstance(request_id, str) or _REQUEST_RE.fullmatch(request_id) is None:
+        space_id = handle.get("space_id")
+        revision = handle.get("space_revision")
+        if (not isinstance(request_id, str) or _REQUEST_RE.fullmatch(request_id) is None or
+                not isinstance(space_id, str) or space_id not in self.settings.hf_space_allowlist or
+                not isinstance(revision, str) or _SHA_RE.fullmatch(revision) is None):
             raise ValueError("Hugging Face Space handle is invalid")
-        self.verify_space(handle["space_id"], handle["space_revision"])
+        self.verify_space(space_id, revision)
+        self.verify_contract(space_id)
         response = handle.get("observation")
         if response is None:
             response = self._response(
-                self._client(handle["space_id"]).predict(request_id, api_name="/status"),
+                self._client(space_id).predict(request_id, api_name="/status"),
                 request_id,
             )
+            self.verify_space(space_id, revision)
         state = response["state"]
         if state in {"queued", "running"}:
             return Observation("running")
@@ -322,6 +355,15 @@ class HuggingFaceSpaceBackend:
         return self.inspect(handle).state != "running"
 
     def cancel(self, handle: dict) -> None:
-        request_id = handle["request_id"]
-        response = self._client(handle["space_id"]).predict(request_id, api_name="/cancel")
+        request_id = handle.get("request_id")
+        space_id = handle.get("space_id")
+        revision = handle.get("space_revision")
+        if (not isinstance(request_id, str) or _REQUEST_RE.fullmatch(request_id) is None or
+                not isinstance(space_id, str) or space_id not in self.settings.hf_space_allowlist or
+                not isinstance(revision, str) or _SHA_RE.fullmatch(revision) is None):
+            raise ValueError("Hugging Face Space handle is invalid")
+        self.verify_space(space_id, revision)
+        self.verify_contract(space_id)
+        response = self._client(space_id).predict(request_id, api_name="/cancel")
         self._response(response, request_id)
+        self.verify_space(space_id, revision)

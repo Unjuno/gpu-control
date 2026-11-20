@@ -15,6 +15,8 @@ EnvironmentFile=/etc/gpu-control/gateway.env
 EnvironmentFile=/etc/gpu-control/worker-db.env
 EnvironmentFile=-/etc/gpu-control/worker-secrets.env
 EnvironmentFile=-/etc/gpu-control/provider-evidence.env
+Environment=GRADIO_ANALYTICS_ENABLED=False
+Environment=HF_HUB_DISABLE_TELEMETRY=1
 ExecStart=/opt/gpu-control/venv/bin/python -m gpu_gateway.worker --poll-seconds 3
 Restart=always
 RestartSec=3
