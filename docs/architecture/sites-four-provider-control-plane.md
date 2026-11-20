@@ -29,6 +29,11 @@ credentials and exposes only the registered experiment protocol. Chat input
 cannot supply a command, image, URL, repository, credential, provider resource,
 or arbitrary environment variable.
 
+The deployed adapter image packages only the reviewed provider modules
+(`kaggle_backend`, `huggingface_space_backend`, artifact handling, their bounded
+workload helpers, and shared validation types). It does not package the legacy
+Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
+
 ## Trust and persistence boundaries
 
 - Sites authenticates the ChatGPT user and enforces the owner allowlist.

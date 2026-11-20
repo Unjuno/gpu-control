@@ -36,8 +36,22 @@ REPOSITORY_ROOT = next(
     (parent for parent in Path(__file__).resolve().parents if (parent / "gateway" / "gpu_gateway").is_dir()),
     Path("/root"),
 )
-GATEWAY_ROOT = REPOSITORY_ROOT / "gateway"
+PROVIDER_MODULE_ROOT = REPOSITORY_ROOT / "gateway" / "gpu_gateway"
 MODAL_ROOT = REPOSITORY_ROOT / "sites" / "gpu-control-sites" / "modal"
+
+# The provider adapter deliberately vendors only the reviewed Kaggle/Hugging
+# Face implementation modules.  Copying the old Gateway tree would also ship
+# PostgreSQL, OAuth, worker, and service code that is not part of the Sites
+# control plane and must never become an accidental deployment dependency.
+PROVIDER_MODULES = (
+    "__init__.py",
+    "backends.py",
+    "config.py",
+    "huggingface_artifacts.py",
+    "huggingface_space_backend.py",
+    "kaggle_backend.py",
+    "orbitune_workload.py",
+)
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name("gpu-control-provider-adapter-data", create_if_missing=True)
@@ -59,9 +73,44 @@ adapter_image = (
         f"test \"$(git -C /opt/orbitune-cache/{SOURCE_SHA} rev-parse HEAD)\" = {SOURCE_SHA}",
         f"test -z \"$(git -C /opt/orbitune-cache/{SOURCE_SHA} status --porcelain --untracked-files=all)\"",
     )
-    .add_local_dir(str(GATEWAY_ROOT), remote_path="/root/gateway", copy=True)
+    .run_commands("mkdir -p /root/provider-runtime/gpu_gateway")
+    .add_local_file(
+        str(PROVIDER_MODULE_ROOT / "__init__.py"),
+        remote_path="/root/provider-runtime/gpu_gateway/__init__.py",
+        copy=True,
+    )
+    .add_local_file(
+        str(PROVIDER_MODULE_ROOT / "backends.py"),
+        remote_path="/root/provider-runtime/gpu_gateway/backends.py",
+        copy=True,
+    )
+    .add_local_file(
+        str(PROVIDER_MODULE_ROOT / "config.py"),
+        remote_path="/root/provider-runtime/gpu_gateway/config.py",
+        copy=True,
+    )
+    .add_local_file(
+        str(PROVIDER_MODULE_ROOT / "huggingface_artifacts.py"),
+        remote_path="/root/provider-runtime/gpu_gateway/huggingface_artifacts.py",
+        copy=True,
+    )
+    .add_local_file(
+        str(PROVIDER_MODULE_ROOT / "huggingface_space_backend.py"),
+        remote_path="/root/provider-runtime/gpu_gateway/huggingface_space_backend.py",
+        copy=True,
+    )
+    .add_local_file(
+        str(PROVIDER_MODULE_ROOT / "kaggle_backend.py"),
+        remote_path="/root/provider-runtime/gpu_gateway/kaggle_backend.py",
+        copy=True,
+    )
+    .add_local_file(
+        str(PROVIDER_MODULE_ROOT / "orbitune_workload.py"),
+        remote_path="/root/provider-runtime/gpu_gateway/orbitune_workload.py",
+        copy=True,
+    )
     .add_local_dir(str(MODAL_ROOT), remote_path="/root/site-modal", copy=True)
-    .env({"PYTHONPATH": "/root/gateway:/root/site-modal"})
+    .env({"PYTHONPATH": "/root/provider-runtime:/root/site-modal"})
 )
 
 api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -123,8 +172,8 @@ def _verify(raw: bytes, signature: str | None, expected_tool: str) -> tuple[str,
 
 
 def _service():
-    if "/root/gateway" not in sys.path:
-        sys.path.insert(0, "/root/gateway")
+    if "/root/provider-runtime" not in sys.path:
+        sys.path.insert(0, "/root/provider-runtime")
     if "/root/site-modal" not in sys.path:
         sys.path.insert(0, "/root/site-modal")
     from gpu_gateway.config import Settings
