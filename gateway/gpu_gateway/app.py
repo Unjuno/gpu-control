@@ -20,7 +20,7 @@ from .artifacts import inspect_artifact_storage
 from .config import Settings, load_workloads
 from .client_ip import resolve_login_source
 from .protocol import dispatch, error, required_chatgpt_scope, tools, validate_headers
-from .sites_delegation import principal_for, verify_and_claim
+from .sites_delegation import consume_submit_authorization, principal_for, verify_and_claim
 from .service import ExperimentService, GatewayError
 from .store import Store, control
 from .migrations import SCHEMA_VERSION, schema_version
@@ -460,18 +460,13 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
             expected_tool=name,
         )
         if name == "experiment_submit":
-            # A signed transport request is not itself proof that the owner
-            # confirmed the exact execution plan.  The next bridge slice binds
-            # the consumed Sites authorization record before enabling submit.
-            raise GatewayError(
-                "delegated_authorization_required",
-                "Delegated submit requires a consumed exact-plan Sites authorization",
-                409,
-            )
+            principal, arguments = await run_in_threadpool(
+                consume_submit_authorization, request=delegated, service=service)
+        else:
+            principal, arguments = principal_for(delegated), delegated.arguments
         from .experiment_api import invoke as invoke_experiment
         return await run_in_threadpool(
-            invoke_experiment, service, principal_for(delegated), name,
-            delegated.arguments,
+            invoke_experiment, service, principal, name, arguments,
         )
 
     @app.post("/api/approvals/{run_id}")

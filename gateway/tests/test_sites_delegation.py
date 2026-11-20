@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, func, select
 from gpu_gateway.app import create_app
 from gpu_gateway.config import Settings
 from gpu_gateway.migrations import migrate, sites_delegation_nonces
-from gpu_gateway.service import GatewayError
+from gpu_gateway.service import GatewayError, Prepare
 from gpu_gateway.sites_delegation import (
     canonical_payload,
     principal_for,
@@ -154,17 +154,41 @@ def test_internal_http_boundary_dispatches_read_and_rejects_replay(web):
     assert replay.json()["code"] == "delegation_replayed"
 
 
-def test_internal_http_boundary_never_treats_transport_signature_as_submit_approval(web):
+def test_internal_http_boundary_requires_and_consumes_exact_plan_authorization(web):
     configured = replace(
         web.settings,
         sites_delegation_key_id="sites-v1",
         sites_delegation_hmac_key_b64=base64.b64encode(KEY).decode(),
     )
     client = TestClient(create_app(configured, service=web.service, auth=web.auth))
-    now = int(time.time())
+    now = int(web.clock())
+    owner_request = payload(
+        owner="owner-123", tool="experiment_submit", nonce="f" * 32,
+        arguments={}, issued_at=now, expires_at=now + 60,
+    )
+    from gpu_gateway.sites_delegation import DelegatedRequest, principal_for
+    principal = principal_for(DelegatedRequest(
+        key_id="sites-v1", owner=owner_request["owner"], tool="experiment_submit",
+        arguments={}, nonce=owner_request["nonce"], issued_at=now, expires_at=now + 60,
+    ))
+    prepared = web.service.prepare(principal, Prepare(
+        workload="demo", parameters={}, runtime_seconds=30,
+        max_cost_usd="0.10", idempotency_key="sites-submit-approval",
+    ))
+    authorization_id = "1" * 32
+    submit_arguments = {
+        "run_id": prepared["id"], "plan_fingerprint": prepared["fingerprint"],
+        "approved_plan": prepared["plan"],
+        "authorization": {
+            "authorization_id": authorization_id,
+            "source": "chatgpt_mcp_write_confirmation",
+            "authorized_at": now,
+            "expires_at": now + 60,
+        },
+    }
     value = payload(
         tool="experiment_submit", nonce="f" * 32,
-        arguments={"run_id": "b" * 32, "plan_fingerprint": "c" * 64},
+        owner="owner-123", arguments=submit_arguments,
         issued_at=now, expires_at=now + 60,
     )
     response = client.post(
@@ -172,8 +196,55 @@ def test_internal_http_boundary_never_treats_transport_signature_as_submit_appro
         headers={"content-type": "application/json",
                  "x-gpu-control-sites-signature": signature_for(value, KEY)},
     )
-    assert response.status_code == 409
-    assert response.json()["code"] == "delegated_authorization_required"
+    assert response.status_code == 200
+    assert response.json()["machine_state"]["state"] == "queued"
+
+    # A transport retry needs a new nonce but reuses the same one-use approval
+    # and resolves to the already-queued run rather than creating another run.
+    retry = {**value, "nonce": "2" * 32}
+    retry_response = client.post(
+        "/internal/sites/v1/tools/experiment_submit", content=canonical_payload(retry),
+        headers={"content-type": "application/json",
+                 "x-gpu-control-sites-signature": signature_for(retry, KEY)},
+    )
+    assert retry_response.status_code == 200
+    assert retry_response.json()["machine_state"]["run_id"] == prepared["id"]
+
+    second = web.service.prepare(principal, Prepare(
+        workload="demo", parameters={}, runtime_seconds=20,
+        max_cost_usd="0.10", idempotency_key="sites-submit-approval-2",
+    ))
+    reused = {**value, "nonce": "4" * 32, "arguments": {
+        **submit_arguments, "run_id": second["id"],
+        "plan_fingerprint": second["fingerprint"], "approved_plan": second["plan"],
+    }}
+    reused_response = client.post(
+        "/internal/sites/v1/tools/experiment_submit", content=canonical_payload(reused),
+        headers={"content-type": "application/json",
+                 "x-gpu-control-sites-signature": signature_for(reused, KEY)},
+    )
+    assert reused_response.status_code == 409
+    assert reused_response.json()["code"] == "delegated_authorization_reused"
+
+
+def test_transport_signature_without_exact_plan_authorization_is_rejected(web):
+    configured = replace(
+        web.settings,
+        sites_delegation_key_id="sites-v1",
+        sites_delegation_hmac_key_b64=base64.b64encode(KEY).decode(),
+    )
+    client = TestClient(create_app(configured, service=web.service, auth=web.auth))
+    now = int(time.time())
+    value = payload(tool="experiment_submit", nonce="3" * 32,
+                    arguments={"run_id": "b" * 32, "plan_fingerprint": "c" * 64},
+                    issued_at=now, expires_at=now + 60)
+    response = client.post(
+        "/internal/sites/v1/tools/experiment_submit", content=canonical_payload(value),
+        headers={"content-type": "application/json",
+                 "x-gpu-control-sites-signature": signature_for(value, KEY)},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_arguments"
 
 
 def test_signature_verification_uses_exact_received_bytes_not_cross_language_number_formatting():

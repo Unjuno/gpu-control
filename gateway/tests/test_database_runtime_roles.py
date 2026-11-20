@@ -128,6 +128,11 @@ def test_postgresql_runtime_roles_enforce_api_worker_and_migration_boundaries():
             "api_inserts_sites_nonces": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_sites_delegation_nonces_v1', 'INSERT')",
             "api_deletes_sites_nonces": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_sites_delegation_nonces_v1', 'DELETE')",
             "worker_reads_sites_nonces": "SELECT has_table_privilege('gpu_control_worker', 'public.gateway_sites_delegation_nonces_v1', 'SELECT')",
+            "api_reads_sites_authorizations": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_sites_delegation_authorizations_v1', 'SELECT')",
+            "api_inserts_sites_authorizations": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_sites_delegation_authorizations_v1', 'INSERT')",
+            "api_updates_sites_authorizations": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_sites_delegation_authorizations_v1', 'UPDATE')",
+            "api_deletes_sites_authorizations": "SELECT has_table_privilege('gpu_control_api', 'public.gateway_sites_delegation_authorizations_v1', 'DELETE')",
+            "worker_reads_sites_authorizations": "SELECT has_table_privilege('gpu_control_worker', 'public.gateway_sites_delegation_authorizations_v1', 'SELECT')",
             "api_executes_release": "SELECT has_function_privilege('gpu_control_api', 'public.gpu_control_release_finished_slot(text,text)', 'EXECUTE')",
             "unpriv_executes_release": "SELECT has_function_privilege('gpu_control_unpriv', 'public.gpu_control_release_finished_slot(text,text)', 'EXECUTE')",
         }
@@ -190,6 +195,11 @@ def test_postgresql_runtime_roles_enforce_api_worker_and_migration_boundaries():
             "api_inserts_sites_nonces": True,
             "api_deletes_sites_nonces": True,
             "worker_reads_sites_nonces": False,
+            "api_reads_sites_authorizations": True,
+            "api_inserts_sites_authorizations": True,
+            "api_updates_sites_authorizations": False,
+            "api_deletes_sites_authorizations": False,
+            "worker_reads_sites_authorizations": False,
             "api_executes_release": False,
             "unpriv_executes_release": False,
         }
@@ -579,7 +589,7 @@ def test_check_db_is_read_only_and_reports_current_pr58_schema():
                             capture_output=True, text=True, check=False, timeout=20)
     assert result.returncode == 0, result.stderr
     report = __import__("json").loads(result.stdout)
-    assert report["current_version"] == report["target_version"] == 16
+    assert report["current_version"] == report["target_version"] == 17
     assert report["planned_versions"] == []
     with store.engine.connect() as connection:
         connection.execute(text("SET ROLE gpu_control_migrate"))

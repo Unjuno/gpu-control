@@ -118,6 +118,7 @@ export async function delegateGatewayTool(env, owner, tool, argumentsValue, fetc
     return value;
   } catch (error) {
     if (error?.name === "AbortError") throw new Error("GATEWAY_DELEGATION_TIMEOUT");
-    throw error;
+    if (typeof error?.message === "string" && error.message.startsWith("GATEWAY_DELEGATION_")) throw error;
+    throw new Error("GATEWAY_DELEGATION_FAILED");
   } finally { clearTimeout(timeout); }
 }

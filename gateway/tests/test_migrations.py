@@ -331,7 +331,7 @@ def test_migration_repairs_provider_tables_missing_from_p1_v10_lineage(tmp_path)
 
     status = migration_status(store.engine)
     assert status["current_version"] == 10
-    assert status["planned_versions"] == [11, 12, 13, 14, 15, 16]
+    assert status["planned_versions"] == [11, 12, 13, 14, 15, 16, 17]
     assert migrate(store.engine) == SCHEMA_VERSION
     assert "gateway_provider_observations_v1" in inspect(store.engine).get_table_names()
     assert "gateway_provider_account_leases_v1" in inspect(store.engine).get_table_names()

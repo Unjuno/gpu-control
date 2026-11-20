@@ -12,7 +12,7 @@ import time
 from sqlalchemy import (JSON, Column, Integer, MetaData, String, Table,
                         UniqueConstraint, inspect, insert, select, update)
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -65,6 +65,18 @@ sites_delegation_nonces = Table(
     Column("tool", String(64), nullable=False),
     Column("issued_at", Integer, nullable=False),
     Column("expires_at", Integer, nullable=False),
+)
+sites_delegation_authorizations = Table(
+    "gateway_sites_delegation_authorizations_v1", MetaData(),
+    Column("authorization_id", String(64), primary_key=True),
+    Column("owner", String(128), nullable=False),
+    Column("run_id", String(40), nullable=False, unique=True),
+    Column("plan_fingerprint", String(64), nullable=False),
+    Column("approved_plan_sha256", String(64), nullable=False),
+    Column("source", String(64), nullable=False),
+    Column("authorized_at", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=False),
+    Column("consumed_at", Integer, nullable=False),
 )
 
 
@@ -344,4 +356,10 @@ def migrate(engine) -> int:
             sites_delegation_nonces.create(connection, checkfirst=True)
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=16))
             current = 16
+        if current < 17:
+            # Preserve exact-plan Sites authorization as an immutable audit row.
+            # authorization_id and run_id are both one-use identities.
+            sites_delegation_authorizations.create(connection, checkfirst=True)
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=17))
+            current = 17
     return current

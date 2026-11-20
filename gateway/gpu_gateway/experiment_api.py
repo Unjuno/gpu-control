@@ -414,6 +414,7 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                     machine_state=machine_state,
                     next_actions=next_actions,
                     blocker=blocker,
+                    approved_plan=existing.get("plan"),
                 )
             workload = service.workloads.get(request.workload)
             if workload is None:
@@ -495,6 +496,7 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                                    "selection_binding": gpu_plan.selection_binding.model_dump(mode="json")},
                     next_actions=["approve_exact_plan_in_browser"],
                     blocker="APPROVAL_REQUIRED",
+                    approved_plan=prepared["plan"],
                 )
             if workload.provider != "local_cpu":
                 return _envelope(status="blocked", summary="現在、free_firstで実行できるCPU backendが有効ではありません。",
@@ -540,7 +542,8 @@ def invoke(service: ExperimentService, principal: Principal, name: str, argument
                                             "plan_fingerprint": prepared["fingerprint"],
                                             "policy_digest": decision.policy_digest,
                                             "valid_until": decision.valid_until},
-                             next_actions=["experiment_submit"])
+                             next_actions=["experiment_submit"],
+                             approved_plan=prepared["plan"])
 
         if name == "experiment_submit":
             request = SubmitInput.model_validate(arguments)

@@ -12,22 +12,22 @@ ChatGPT.
 
 ### Kaggle and Hugging Face extension boundary
 
-The Sites deployment does not currently advertise Kaggle or Hugging Face.
-Those providers are implemented in the maintained FastAPI/PostgreSQL Gateway,
-whose existing Remote MCP exposes the same canonical experiment tool names.
-For the integration acceptance, deploy that Gateway as a durable API plus
-worker/supervisor, connect its OAuth-protected `/mcp` endpoint to ChatGPT, and
-use only the registered Orbitune workloads. Do not claim that the existing
-Sites connector gained these providers merely because the Gateway code or its
-offline tests exist.
+The current live Sites deployment does not advertise Kaggle or Hugging Face.
+The candidate source now routes the existing canonical experiment tools from
+Sites to those providers in the maintained FastAPI/PostgreSQL Gateway. The
+bridge is disabled unless its HTTPS origin, shared HMAC identity, D1 schema 14,
+Gateway schema 17, durable Gateway API, PostgreSQL, and worker are configured.
+Do not claim live support merely because this source and its offline tests
+exist.
 
-The long-term user experience may keep Sites as the primary control plane and
-route provider work to the Gateway execution service, but such delegation must
-have an authenticated owner binding, one-use plan authorization, durable run
-routing, and replay protection. No unsigned header-forwarding or generic proxy
-is supported. Until that bridge is implemented and accepted, ChatGPT connects
-to the Gateway Remote MCP directly for the Kaggle/Hugging Face vertical while
-the Sites MCP remains available for its accepted Modal CPU path.
+Sites remains the primary ChatGPT control plane. Delegation binds the
+authenticated owner, exact registered plan and workload, a one-use ChatGPT
+write confirmation, durable run routing, a short signed request window, and a
+durably claimed replay nonce. A lost response may retry only the same
+authorization ID and run. No unsigned header-forwarding, generic proxy, paid
+fallback, arbitrary provider URL, or chat-supplied credential is supported.
+Live acceptance still requires deployment and one explicitly approved free
+Kaggle run plus one private ZeroGPU evaluation.
 
 The Worker does not run Docker or model inference. The personal-host Runner
 has been retired. The fixed Modal CPU adapter and the Sites Worker with

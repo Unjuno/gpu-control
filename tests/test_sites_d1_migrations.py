@@ -54,6 +54,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0011_chatgpt_tool_authorization.sql",
         "0012_provider_runtime_state.sql",
         "0013_provider_budgets.sql",
+            "0014_gateway_delegation.sql",
     ]
 
     db = sqlite3.connect(":memory:")
