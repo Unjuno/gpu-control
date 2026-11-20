@@ -11,7 +11,10 @@ import zipfile
 import pytest
 
 from gpu_gateway.config import Workload
-from gpu_gateway.orbitune_workload import stage_orbitune_checkout
+from gpu_gateway.orbitune_workload import (
+    stage_orbitune_checkout, stage_orbitune_zero_gpu_space,
+    staged_space_payload_digest,
+)
 
 
 def _git(directory: Path, *args: str) -> str:
@@ -102,3 +105,80 @@ def test_stage_builder_rejects_wrong_dirty_or_symlinked_checkout(tmp_path):
     (checkout / "orbitune" / "dirty.py").write_text("dirty\n", encoding="utf-8")
     with pytest.raises(ValueError, match="clean"):
         stage_orbitune_checkout(checkout, tmp_path / "dirty", expected_sha=sha)
+
+
+def test_zero_gpu_space_stage_is_reviewable_deterministic_and_upload_ready(tmp_path):
+    checkout, sha = fake_checkout(tmp_path)
+    first = tmp_path / "space-a"
+    second = tmp_path / "space-b"
+
+    first_provenance = stage_orbitune_zero_gpu_space(checkout, first, expected_sha=sha)
+    second_provenance = stage_orbitune_zero_gpu_space(checkout, second, expected_sha=sha)
+
+    assert first_provenance == second_provenance
+    assert first_provenance["source_sha"] == sha
+    assert first_provenance["space_payload_digest"] == staged_space_payload_digest(first)
+    assert (first / "orbitune" / "model.py").is_file()
+    assert (first / "app.py").is_file()
+    assert (first / "README.md").is_file()
+    assert (first / "requirements.txt").is_file()
+    assert not (first / ".git").exists()
+    assert not (first / "gpu-control-provenance.json").exists()
+
+
+def test_zero_gpu_space_stage_rejects_dirty_checkout_and_existing_target(tmp_path):
+    checkout, sha = fake_checkout(tmp_path)
+    target = tmp_path / "space"
+    target.mkdir()
+    with pytest.raises(ValueError, match="must not already exist"):
+        stage_orbitune_zero_gpu_space(checkout, target, expected_sha=sha)
+
+    (checkout / "orbitune" / "dirty.py").write_text("dirty\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="clean"):
+        stage_orbitune_zero_gpu_space(checkout, tmp_path / "dirty-space", expected_sha=sha)
+
+
+def test_stage_builders_reject_symlinked_package_entries(tmp_path):
+    checkout, _sha = fake_checkout(tmp_path)
+    linked = checkout / "orbitune" / "linked.py"
+    linked.symlink_to(checkout / "README.md")
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "tracked symlink fixture")
+    sha = _git(checkout, "rev-parse", "HEAD")
+
+    for builder, name in (
+        (stage_orbitune_checkout, "kaggle-symlink"),
+        (stage_orbitune_zero_gpu_space, "space-symlink"),
+    ):
+        with pytest.raises(ValueError, match="symlink"):
+            builder(checkout, tmp_path / name, expected_sha=sha)
+
+
+def test_stage_builders_reject_ignored_untracked_package_files(tmp_path):
+    checkout, _sha = fake_checkout(tmp_path)
+    (checkout / ".gitignore").write_text("orbitune/ignored-secret.py\n", encoding="utf-8")
+    _git(checkout, "add", ".gitignore")
+    _git(checkout, "commit", "-qm", "ignore fixture")
+    (checkout / "orbitune" / "ignored-secret.py").write_text("SECRET = 1\n", encoding="utf-8")
+    sha = _git(checkout, "rev-parse", "HEAD")
+    assert _git(checkout, "status", "--porcelain", "--untracked-files=all") == ""
+
+    for builder, name in (
+        (stage_orbitune_checkout, "kaggle-ignored"),
+        (stage_orbitune_zero_gpu_space, "space-ignored"),
+    ):
+        with pytest.raises(ValueError, match="exactly tracked"):
+            builder(checkout, tmp_path / name, expected_sha=sha)
+
+
+def test_space_payload_digest_rejects_unhashed_root_content(tmp_path):
+    checkout, sha = fake_checkout(tmp_path)
+    target = tmp_path / "space"
+    stage_orbitune_zero_gpu_space(checkout, target, expected_sha=sha)
+    original = staged_space_payload_digest(target)
+
+    (target / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unexpected root entries"):
+        staged_space_payload_digest(target)
+    assert original.startswith("sha256:")

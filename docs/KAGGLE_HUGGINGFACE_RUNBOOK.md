@@ -80,6 +80,14 @@ it. The worker container includes Git solely for local `rev-parse` and
 clean-worktree checks; it does not fetch source from the network. Source
 materialization remains a separate operator action.
 
+The same trusted checkout feeds `stage_orbitune_zero_gpu_space()`, which builds
+a deterministic, upload-ready directory containing only the reviewed
+`orbitune/` package, the registered Space app, pinned Space metadata and pinned
+requirements. It records `space_payload_digest` before any Hub mutation. Space
+provenance is retained outside the upload directory so the digest covers every
+uploaded byte. Space creation/upload remains a separately authorized operator
+action.
+
 The source cache directory for a commit is `<cache-root>/<40-character-sha>`. It must be a clean Git checkout at that exact commit. Staging copies only the `orbitune` Python package and the registered training entrypoint. Preparation performs no provider call; `kaggle kernels push` occurs only after approval, quota verification, and the durable submission intent.
 
 Start from `gateway/examples/kaggle-hf-workloads.template.json`. Replace `OWNER`,

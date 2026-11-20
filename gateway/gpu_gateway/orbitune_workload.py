@@ -39,6 +39,33 @@ def staged_bundle_digest(target: str | Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def staged_space_payload_digest(target: str | Path) -> str:
+    root = Path(target)
+    required = (root / "README.md", root / "app.py", root / "requirements.txt")
+    package = root / "orbitune"
+    allowed_root_names = {"README.md", "app.py", "requirements.txt", "orbitune"}
+    root_entries = list(root.iterdir()) if root.is_dir() and not root.is_symlink() else []
+    if ({path.name for path in root_entries} != allowed_root_names or
+            any(path.is_symlink() for path in root_entries)):
+        raise ValueError("staged ZeroGPU Space payload contains unexpected root entries")
+    if (any(not path.is_file() or path.is_symlink() for path in required) or
+            not package.is_dir() or package.is_symlink()):
+        raise ValueError("staged ZeroGPU Space payload is incomplete")
+    package_entries = list(package.rglob("*"))
+    if any(path.is_symlink() for path in package_entries):
+        raise ValueError("staged ZeroGPU Space payload contains a symlink")
+    staged_files = list(required) + sorted(path for path in package_entries if path.is_file())
+    digest = hashlib.sha256()
+    for path in staged_files:
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        content = path.read_bytes()
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return "sha256:" + digest.hexdigest()
+
+
 def _git(checkout: Path, *args: str) -> str:
     completed = subprocess.run(
         ("git", "-C", str(checkout), *args),
@@ -47,6 +74,33 @@ def _git(checkout: Path, *args: str) -> str:
     if completed.returncode != 0:
         raise ValueError("Orbitune source checkout is not a readable Git checkout")
     return completed.stdout.strip()
+
+
+def _tracked_package_paths(checkout: Path, package: Path) -> set[str]:
+    completed = subprocess.run(
+        ("git", "-C", str(checkout), "ls-files", "-z", "--", "orbitune"),
+        check=False, capture_output=True, timeout=15,
+    )
+    if completed.returncode != 0:
+        raise ValueError("Orbitune tracked source inventory is unavailable")
+    try:
+        tracked = {
+            item.decode("utf-8") for item in completed.stdout.split(b"\0") if item
+        }
+    except UnicodeDecodeError as exc:
+        raise ValueError("Orbitune tracked source paths must be UTF-8") from exc
+    actual = {
+        path.relative_to(checkout).as_posix()
+        for path in package.rglob("*")
+        if path.is_file() or path.is_symlink()
+    }
+    if not tracked or actual != tracked:
+        raise ValueError("Orbitune package must contain exactly tracked source files")
+    for relative in sorted(tracked):
+        if (_git(checkout, "rev-parse", f"HEAD:{relative}") !=
+                _git(checkout, "hash-object", "--no-filters", "--", relative)):
+            raise ValueError("Orbitune package content differs from the registered commit")
+    return tracked
 
 
 def _package_bundle(package: Path, files: list[Path]) -> bytes:
@@ -83,9 +137,11 @@ def stage_orbitune_checkout(
         raise ValueError("Orbitune checkout SHA does not match the registered source SHA")
     if _git(source, "status", "--porcelain", "--untracked-files=all"):
         raise ValueError("Orbitune checkout must be clean before staging")
-    files = [path for path in package.rglob("*") if path.is_file()]
-    if any(path.is_symlink() for path in files):
-        raise ValueError("Orbitune package may not contain symlinked files")
+    entries = list(package.rglob("*"))
+    if any(path.is_symlink() for path in entries):
+        raise ValueError("Orbitune package may not contain symlinked entries")
+    _tracked_package_paths(source, package)
+    files = [path for path in entries if path.is_file()]
     total = sum(path.stat().st_size for path in files)
     if total < 1 or total > MAX_SOURCE_BYTES:
         raise ValueError("Orbitune package exceeds the staging size bound")
@@ -119,4 +175,58 @@ def stage_orbitune_checkout(
         json.dumps(provenance, sort_keys=True, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
+    return provenance
+
+
+def stage_orbitune_zero_gpu_space(
+    checkout: str | Path,
+    stage: str | Path,
+    *,
+    expected_sha: str = ORBITUNE_SOURCE_SHA,
+) -> dict[str, object]:
+    """Build an upload-ready private Space payload from one reviewed checkout.
+
+    This function is offline and never creates or updates a Hub repository. The
+    resulting directory can be reviewed before a separately authorized upload.
+    """
+    if re.fullmatch(r"[0-9a-f]{40}", expected_sha or "") is None:
+        raise ValueError("expected Orbitune source SHA is invalid")
+    source = Path(checkout).resolve()
+    package = source / "orbitune"
+    if not package.is_dir() or package.is_symlink():
+        raise ValueError("Orbitune package directory is unavailable")
+    if _git(source, "rev-parse", "HEAD") != expected_sha:
+        raise ValueError("Orbitune checkout SHA does not match the registered source SHA")
+    if _git(source, "status", "--porcelain", "--untracked-files=all"):
+        raise ValueError("Orbitune checkout must be clean before staging")
+    entries = list(package.rglob("*"))
+    if any(path.is_symlink() for path in entries):
+        raise ValueError("Orbitune package may not contain symlinked entries")
+    _tracked_package_paths(source, package)
+    files = [path for path in entries if path.is_file()]
+    total = sum(path.stat().st_size for path in files)
+    if total < 1 or total > MAX_SOURCE_BYTES:
+        raise ValueError("Orbitune package exceeds the staging size bound")
+    target = Path(stage)
+    if target.exists():
+        raise ValueError("Orbitune staging target must not already exist")
+    target.mkdir(parents=True, mode=0o700)
+    shutil.copytree(
+        package,
+        target / "orbitune",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+    )
+    template_root = Path(__file__).parents[1] / "workloads" / "orbitune-zero-gpu-eval"
+    for name in ("README.md", "app.py", "requirements.txt"):
+        template = template_root / name
+        if not template.is_file() or template.is_symlink():
+            raise ValueError("registered ZeroGPU Space template is incomplete")
+        (target / name).write_bytes(template.read_bytes())
+    provenance = {
+        "schema_version": 1,
+        "workload_id": "orbitune-zero-gpu-eval-v1",
+        "source_repository": ORBITUNE_REPOSITORY,
+        "source_sha": expected_sha,
+        "space_payload_digest": staged_space_payload_digest(target),
+    }
     return provenance

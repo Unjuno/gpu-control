@@ -17,8 +17,8 @@ This is the reviewed three-endpoint contract consumed by
 Public visibility would let direct callers bypass Gateway approval and quota
 checks and consume the owner's ZeroGPU allocation. Before deployment:
 
-1. Vendor the `orbitune/` package from commit
-   `44a1b806160ab5bc721a370d034a6dfcb28f27a8` into the Space repository.
+1. Build the upload payload with `stage_orbitune_zero_gpu_space()` from a clean
+   checkout at `44a1b806160ab5bc721a370d034a6dfcb28f27a8`; do not vendor a floating tree.
 2. Use the checked-in `requirements.txt` with the README `sdk_version`. ZeroGPU
    supplies a supported PyTorch runtime, so do not add an independently floating
    or incompatible PyTorch requirement.
