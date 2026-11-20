@@ -25,13 +25,16 @@ payloads from that clean detached checkout produced:
   `sha256:3f764ee4d610edfbe6b07769538ffbae8413b9df47c05af783245d65c7c21bed`
 - ZeroGPU Space payload digest:
   `sha256:381d661e4ed646df2e7110df23f80a4dab554af5d3abea333c1c3127bcd9e209`
-- Registered Space contract digest for the pending revision:
+- Original registered Space contract digest before the upload refresh:
   `sha256:f0c1b097b3ed4a7cc356d77f1d9b8fbaffc8445b9168f02dba2a713741be6537`
 
-The Kaggle digest and Space contract digest match the candidate registry. The
-Space payload digest is staging evidence; it does not become an approved Space
-revision until those exact bytes are uploaded and the resulting immutable Hub
-commit is written back to the registry.
+The Kaggle digest matched the candidate registry. The exact reviewed Space
+root payload was uploaded through the authenticated private-repository UI. The
+resulting immutable Space revision is
+`2e9df7dcd8815cf3059ae94ce6504315e63a85ab`; the contract digest recomputed
+from that revision is
+`sha256:5d0757c0c6d35514bdd26618a11e028b635d766612c18404551007b2c168ac68`.
+Both values are now pinned in the candidate registry.
 
 ## Hugging Face
 
@@ -48,8 +51,11 @@ commit is written back to the registry.
 - The public Space variable `GPU_CONTROL_HF_ARTIFACT_REPO` exists. The Space
   reports no configured secrets, so it cannot yet read the private artifact
   repository.
-- No payload, artifact, provider token, or Space secret was uploaded.
-- No evaluation request or GPU function was started.
+- The reviewed app/requirements/README payload is uploaded, the existing
+  vendored Orbitune package remains present, and the private Gradio app reached
+  `Running on ZERO` with its expected bounded UI. No artifact, provider token,
+  or Space secret was uploaded.
+- No `/evaluate` request or GPU function was started.
 
 ## Kaggle
 
@@ -61,14 +67,11 @@ commit is written back to the registry.
 
 ## Current blockers
 
-1. Upload the exact staged Space payload using a write-capable Hub session,
-   then replace the placeholder Space revision and recompute the contract
-   digest from the observed immutable revision.
-2. Configure distinct read-only Space and worker-only artifact credentials
+1. Configure distinct read-only Space and worker-only artifact credentials
    without exposing them to ChatGPT, Git, logs, or Kaggle.
-3. Create the fixed private Kaggle Notebook from the staged payload and record
+2. Create the fixed private Kaggle Notebook from the staged payload and record
    its exact version without submitting a run.
-4. Configure the authenticated Modal adapter and re-read four-provider Sites
+3. Configure the authenticated Modal adapter and re-read four-provider Sites
    capabilities before any owner-confirmed free-quota canary.
 
 Until those steps and the separate one-use execution confirmations are

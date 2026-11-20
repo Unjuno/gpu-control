@@ -79,7 +79,7 @@ def test_deploy_registry_is_runnable_and_pins_live_private_resources():
     assert kaggle.provider_resource_id == "UnjunoOrg/orbitune-100-step"
     assert kaggle.image_digest == "sha256:3f764ee4d610edfbe6b07769538ffbae8413b9df47c05af783245d65c7c21bed"
     assert space.provider_resource_id == "Unjuno/gpu-control-orbitune-zero-gpu"
-    assert space.source_revision == "ce27a09881be902b2de3f6b1ce28c48355bd56df"
+    assert space.source_revision == "2e9df7dcd8815cf3059ae94ce6504315e63a85ab"
     assert space.image_digest == space_contract_digest(
         space.provider_resource_id, space.source_revision,
     )
