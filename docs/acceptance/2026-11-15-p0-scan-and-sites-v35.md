@@ -51,4 +51,3 @@ exact plan, show the destructive write confirmation, and run the bounded CPU
 inference. Completion still requires a verified result, R2 artifact digest,
 confirmed cleanup, and a post-run budget check. No provider health request,
 Sandbox, RunPod call, GPU allocation, or new spend occurred in this checkpoint.
-

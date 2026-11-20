@@ -64,4 +64,3 @@ This accepts repeatability of the fixed owner-confirmed Sites to Modal CPU
 vertical and the asynchronous submit repair. It does not yet accept a forced
 live cancellation/restart drill, a separate-account denial/distribution flow,
 real GPU execution, or RunPod. Those remain separately gated.
-

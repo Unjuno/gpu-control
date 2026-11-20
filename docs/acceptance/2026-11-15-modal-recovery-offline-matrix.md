@@ -66,4 +66,3 @@ enabled, explicit one-use plan confirmation, one physical CPU core, 512 MiB,
 This proves only the owner-visible Site/D1 state at the observation time. It
 does not replace a provider-side Modal active-Sandbox inventory or billing
 refresh, and no provider health call or spend was triggered by this read.
-
