@@ -1,5 +1,36 @@
 # Project status
 
+## Sites v46 four-provider control plane — 2026-11-21
+
+- Production Sites v46 deployed successfully at
+  `https://gpu-control-sites.unjuno.chatgpt.site` with MCP enabled. The exact
+  Site source commit is `b425de54315dedb88a0303d5cce2f47a3e026834`.
+- Hosted D1 applied migrations through `0017_free_provider_policies.sql`.
+  `provider_free_policies` contains independent Kaggle and Hugging Face rows
+  with `max_cost_microusd=0` and `paid_fallback_allowed=0`.
+- A live owner-authenticated `experiment_capabilities` call reports exactly
+  Modal, RunPod, Kaggle and Hugging Face. Modal CPU is enabled. RunPod is
+  unconfigured and closed. Kaggle and Hugging Face are unconfigured and closed
+  until the authenticated Modal adapter is deployed.
+- Railway, Vercel, Neon, an external PostgreSQL database and a separately
+  hosted Gateway are not part of the production execution path.
+- GitHub PR #68 head `6bb16a5ed44a0237717e7459d51a98d9372af69a`
+  has seven successful exact-head checks. Local root tests at the preceding
+  runtime head reported 599 passed, 1 skipped and 5 subtests; the Site Worker
+  reported 63 passed and the adapter core reported 5 passed.
+- The current independent diff security review is **not complete**. The Codex
+  Security scanner rejected both the linked worktree and a normal temporary
+  clone with `Review changes requires a non-bare Git worktree with a resolvable
+  HEAD`. The older sealed scan does not cover this final head.
+- No new provider credential, RunPod Pod, Kaggle run or ZeroGPU run was created
+  during this checkpoint. Completion still requires adapter credentials,
+  bounded live Kaggle/HF canaries, RunPod completion-transport acceptance and
+  canary, cross-account denial, cleanup evidence and exact-head independent
+  review.
+
+Operational setup, rotation, removal, emergency stop and the first ChatGPT
+verification prompt are in [ChatGPT Sites setup](CHATGPT_SETUP.md).
+
 ## Modal asynchronous repeat accepted — 2026-11-15
 
 - Sites Version 39 and the matching Modal `unjuno/main` app were published from

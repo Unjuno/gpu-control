@@ -1,58 +1,52 @@
 # Current release matrix — ChatGPT Sites + D1
 
-Live status last refreshed 2026-11-15. The production Site and the
-unmerged PR candidate are reported separately below.
+Live state last refreshed 2026-11-21. The product path has exactly four compute
+providers: Modal, RunPod, Kaggle and Hugging Face. Railway, Vercel, Neon, an
+external PostgreSQL database and a separately hosted Gateway are not runtime
+dependencies.
 
-This matrix describes the supported Sites path plus the maintained Gateway
-extension. Historical Vercel and older Gateway deployment evidence is preserved in
-[`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-gateway.md).
-Passing a local test or publishing a Site does not close a separate runtime,
-identity, recovery, or provider acceptance gate.
+Passing tests or publishing a Site proves only that layer. Provider acceptance
+requires an owner-confirmed real run, terminal result validation and cleanup.
 
-| Gate | State | Evidence and remaining work |
+| Gate | Current state | Evidence and remaining work |
 | --- | --- | --- |
-| ChatGPT Sites MCP | Version 38 deployed; public audience; CPU admission enabled | Production deployment `appgdep_6af9098cab5881919f443a82f6650f31` succeeded from Site source `e851595` with environment revision 40. The connected owner completed the fixed Modal CPU vertical. Cross-account denial remains unverified. Evidence: [`Modal CPU success`](acceptance/2026-11-15-sites-modal-cpu-success.md). |
-| In-chat exact-plan approval | ACCEPTED for the owner-confirmed Modal CPU path | Version 38 retains migration `0011` and the destructive `experiment_submit` write whose arguments contain the exact reviewed plan. One owner-confirmed plan completed without a separate browser login and produced a verified result and cleanup. Trusted edge identity provenance and authenticated cross-account denial remain separate gates. Evidence: [`Modal CPU success`](acceptance/2026-11-15-sites-modal-cpu-success.md). |
-| D1/R2 control plane | PASS for prior bounded lifecycles; preservation and recovery gates remain | D1/R2 hold owner-bound run and artifact records from earlier accepted runs. Preserve these records during migration. Backup/restore, current provider lifecycle/reconciliation, and separate-account owner isolation remain open. |
-| Real CPU model inference | ACCEPTED for the fixed Modal workload | Owner-confirmed run `245d0349…6232f` succeeded from ChatGPT Sites through Modal, generated `Once upon`, stored a 931-byte R2 artifact whose SHA-256 was independently verified, and reported confirmed cleanup. The provider dashboard showed status `Done` and zero concurrent Sandboxes. This does not establish GPU or arbitrary workloads. Evidence: [`Modal CPU success`](acceptance/2026-11-15-sites-modal-cpu-success.md). |
-| Local Runner / Keychain | RETIRED | LaunchAgent, local runtime, Worker routes, and obsolete Site secret are removed. D1/R2 history is preserved. |
-| Modal CPU execution | ACCEPTED for one bounded registered run | Sites advertises fingerprint `8a786eb7…b09c5`. Run `245d0349…6232f` completed with the expected image/result bindings, CPU-only inference, nine isolation checks, verified R2 artifact, confirmed cleanup, and zero concurrent Sandboxes. Repeatability and recovery drills remain operational gates. Evidence: [`Modal CPU success`](acceptance/2026-11-15-sites-modal-cpu-success.md). |
-| Result artifacts | PARTIAL; nine bounded R2 results accepted | A production R2 binding stores the verified result JSON. D1 records its artifact ID, digest and byte size; the ChatGPT artifact tool checks owner/run binding, metadata and content digest before returning bounded base64 chunks. The latest 931-byte Modal artifact was independently SHA-256 verified. R2 retention and orphan cleanup policy, larger artifacts and a broader lifecycle remain open. |
-| Owner isolation and revocation | NOT ACCEPTED | Local Worker unit checks cover owner-bound prepare, submit, list, status, result, cancel, and artifact queries using a D1-shaped fake. An unauthenticated direct request with a forged owner header received HTTP 401. These checks do not prove cross-owner separation between authenticated Site users. Test a genuinely separate Site account and verify access revocation. Evidence: [`Sites owner-scope checks`](acceptance/2026-11-12-sites-owner-scope-unit-tests.md). |
-| GPU provider execution | NOT ACCEPTED | RunPod REST v2, the root-owned completion signer contract, fixed-origin Network Volume result authentication, and ambiguous create/cleanup reconciliation exist in the offline core library. Submission now refuses incomplete signer/result/recovery configuration. No RunPod provider route is exposed through the Sites MCP Worker, and no real GPU run has been accepted through ChatGPT. Keep GPU admission disabled until the D1 lease is wired atomically to provider intent and the live provider identity, secret scrubbing, result, recovery, and cleanup path is verified. |
-| Kaggle GPU training | READY OFFLINE; LIVE BLOCKED | The Gateway implements official-CLI submission, exact Kernel/version/source identity, quota evidence, no retry after an ambiguous push, recovery, exact-version output retrieval, and the fixed 100-step Orbitune workload. The live Sites connector does not advertise it. Authentication, included GPU quota, one-use owner approval, a deployed Gateway worker, real GPU evidence, and cleanup are still required. |
-| Private Hugging Face artifacts | READY OFFLINE; LIVE BLOCKED | The trusted worker implements private-repository upload, exact revision recording, checksum-bound re-download, and non-overwrite semantics. A write token is never passed to Kaggle or returned through MCP. No live private repository round trip has been accepted. |
-| Private ZeroGPU evaluation | READY OFFLINE; LIVE BLOCKED | The Gateway requires an allowlisted private Space, exact Space commit and API contract, finite included quota and explicit zero overquota use. Public Spaces, paid credit extension and Hugging Face Jobs are rejected. No live private Space evaluation has been accepted. |
-| Kaggle/HF ChatGPT Remote MCP | NOT ACCEPTED | Gateway OAuth and the canonical Remote MCP tools exist and pass offline tests, but the deployed Sites connector still exposes only Modal CPU and a disabled RunPod canary. Deploy and connect the Gateway `/mcp`, then prove prepare/submit/status/result/artifacts from a separate ChatGPT session before PASS. |
-| RunPod API contract | v2 reviewed offline; provider execution unverified | Canonical transport and pricing now use REST v2, including cursor-complete account inventory and exact Network Volume datacenter stock. REST v1 and its GraphQL pricing path are legacy offline-only. Live RunPod calls remain disabled until separate account, security, result, recovery, and cleanup acceptance. |
-| Paid execution | One usage-billed Modal CPU run accepted; RunPod parked | The authorized project testing budget is `$1` aggregate through completion, not per run. The post-run dashboard still showed `$0.10` credit usage, `$0` charges and the `$1` Workspace limit, but billing may lag. Credits may offset eligible compute and the `$0.01` Sandbox ceiling excludes separately billed control-function calls. Check current billing before another provider call. |
-| Repository P0 security audit | PASS for revision `26c1def` | Codex Security Standard scan `622fe374-d961-4ee7-8ced-15281ac89ebe` completed and sealed with zero source-backed findings. It used the 348-file inventory, three independent review packets, and Semgrep security/secrets rules over 295 parsable tracked targets. Live Sites identity provenance and provider behavior remain separate runtime gates. Evidence: [`P0 scan and Sites Version 35`](acceptance/2026-11-15-p0-scan-and-sites-v35.md). |
-| Vercel and Neon retirement | PARTIAL; Vercel project deleted, Neon soft-deleted | Neither is a target dependency. Vercel project `gpu-control` has been deleted and is absent from the Vercel project list. Its pre-deletion optional failure remains only on older PR commits; latest head `6f31aa5` has all six Actions checks successful and no external statuses. Neon project `delicate-smoke-00521013` is removed from the active project list and remains recoverable until `2026-11-19T05:19:58Z`, after which permanent purge is expected. No Neon row contents were read or exported. Evidence: [`2026-11-12-resource-retirement-inventory.md`](acceptance/2026-11-12-resource-retirement-inventory.md). |
+| ChatGPT Sites MCP | DEPLOYED | Public Site v46 is active at `gpu-control-sites.unjuno.chatgpt.site`; its authenticated MCP endpoint and generated plugin are available. Site visibility does not grant execution authority. |
+| Source provenance | PASS for v46 | Site source commit `b425de54315dedb88a0303d5cce2f47a3e026834` was built from pushed GitHub candidate `6fb1be4`; the later GitHub commits update migration coverage and operations documentation only. |
+| GitHub candidate | PASSING; DRAFT | PR #68 head `6bb16a5` has seven successful exact-head checks. It remains Draft and has no current independent security approval. |
+| D1 control plane | DEPLOYED | Migrations through `0017_free_provider_policies.sql` are applied. D1 owns plans, one-use authorization, budgets, provider handles, run state and cleanup evidence. |
+| R2 result artifacts | ACCEPTED FOR BOUNDED MODAL RESULTS | Prior Modal result JSON was stored and digest-verified through owner-scoped bounded reads. Retention and orphan cleanup remain operational work. |
+| Owner-only execution | IMPLEMENTED; CROSS-ACCOUNT ACCEPTANCE OPEN | Every stateful tool requires Sites authentication plus `GPU_CONTROL_ALLOWED_USER_IDS`; D1 operations are owner-scoped. A genuinely separate authenticated account and later revocation still need live verification. |
+| Exact-plan confirmation | ACCEPTED FOR MODAL; IMPLEMENTED FOR ADAPTER | The destructive submit contains the reviewed plan and records a short-lived one-use authorization. Kaggle/HF live acceptance remains open. |
+| Modal CPU | ENABLED; ONE BOUNDED RUN ACCEPTED | Earlier ChatGPT run `245d0349…6232f` produced a digest-verified artifact and confirmed cleanup. Fresh v46 repeatability/recovery acceptance is still open. Modal account billing is an independent boundary. |
+| RunPod | DISABLED; LIVE BLOCKED | REST v2, fixed workload and D1 lease primitives exist. No API key is configured in Sites. Admission also requires a registered image, current price evidence, exact-plan confirmation and an authenticated live completion transport. No real RunPod run is accepted. |
+| Kaggle | DISABLED; CONNECTION BLOCKED | The fixed private 100-step workload, exact source/resource identity, reconciliation and cleanup contract are implemented behind the Modal adapter. The adapter is not connected. D1 enforces a separate `$0` policy with paid fallback forbidden. No live Kaggle canary is accepted. |
+| Hugging Face artifact path | DISABLED; CONNECTION BLOCKED | Private artifact write/read tokens remain inside the Modal adapter boundary and are never supplied to Kaggle or ChatGPT. The adapter is not connected and no current private round trip is accepted. |
+| Hugging Face ZeroGPU | DISABLED; CONNECTION BLOCKED | The fixed private Space/revision and free-only plan contract are implemented. D1 enforces a separate `$0` policy with paid fallback forbidden. No live ZeroGPU canary is accepted. |
+| Provider adapter transport | IMPLEMENTED; NOT CONFIGURED | Modal proxy authentication plus a second short-lived nonce-bound HMAC envelope are implemented. `PROVIDER_ADAPTER_*` settings and the adapter deployment are still missing. |
+| Provider-specific budgets | DEPLOYED | Modal: `$1.00` monthly internal ceiling and `$0.01` per Sandbox run; RunPod: `$1.00` per run with no internal monthly cap; Kaggle/HF: `$0` and no paid fallback. Provider-account billing limits remain independent. |
+| Local Runner / Keychain | RETIRED | The former macOS Runner, Keychain bearer path and `/runner/*` routes must not be restored. Historical D1/R2 evidence is preserved. |
+| Independent security review | CURRENT DIFF NOT COMPLETED | The historical repository scan covered revision `26c1def`, not the current head. The current Codex Security diff scanner twice rejected valid worktrees with `Review changes requires a non-bare Git worktree with a resolvable HEAD`; do not claim a current independent pass. |
+| Legacy hosting retirement | NOT A RELEASE DEPENDENCY | Do not recreate Railway, Vercel, Neon or an external PostgreSQL Gateway. Historical evidence is retained under `docs/archive/` and dated acceptance records. |
 
-## Current implementation boundary
+## Current activation order
 
-The current product path is the public ChatGPT Sites Worker → authenticated
-owner-scoped MCP → D1/R2 → ChatGPT. The former Runner has been retired. The
-Modal API is deployed and the fixed CPU workload is gated by owner-bound
-one-use plan confirmation; admission is currently reported enabled. The
-recorded Modal failures predate the deployed Docker `CMD` correction. No
-post-correction run has verified the fix. Authenticated health, image digest
-reconciliation, successful inference and cleanup remain unverified. The target path
-uses Modal as the first fixed compute provider and
-RunPod later for GPU execution. Modal is already the Sites compute path;
-RunPod remains an offline core library plus an unwired D1 lease primitive and
-is gated independently. D1 is the current database, and R2 stores bounded
-artifacts.
-
-No Vercel deployment status is a required check or evidence for this release
-path. Historical Actions/Vercel/PostgreSQL results are not erased; they remain
-available in the archived matrix and dated acceptance records.
+1. Keep all currently unconfigured providers fail-closed.
+2. Create and connect the Modal adapter HMAC and proxy credentials.
+3. Deploy the adapter without starting a provider workload.
+4. Verify read-only capabilities and exact blockers.
+5. Run one explicitly approved free Kaggle canary through result and cleanup.
+6. Run one explicitly approved private ZeroGPU canary through result and cleanup.
+7. Configure RunPod only after its completion transport is verified against the
+   live account; then run one explicitly approved canary under the `$1` cap.
+8. Complete an independent security review of the exact final head.
+9. Verify another authenticated account is denied before treating owner
+   isolation as accepted.
 
 ## Evidence sources
 
-- [Current operations](OPERATIONS.md)
-- [ChatGPT Sites setup](CHATGPT_SETUP.md)
-- [Sites + D1 architecture decision](decisions/2026-11-11-sites-d1-architecture-pivot.md)
-- [Project status](STATUS.md)
-- [Sites, Modal, and Runpod delivery plan](SITES_MODAL_RUNPOD_DELIVERY.md)
-- [Sites source and Runner contract](../sites/gpu-control-sites/README.md)
+- [ChatGPT Sites setup and operations](CHATGPT_SETUP.md)
+- [Four-provider architecture](architecture/sites-four-provider-control-plane.md)
+- [Current project history](STATUS.md)
+- [Modal CPU acceptance](acceptance/2026-11-15-sites-modal-cpu-success.md)
+- [Sites Worker source](../sites/gpu-control-sites/README.md)
+- [Historical release matrix](archive/RELEASE_MATRIX-legacy-gateway.md)
