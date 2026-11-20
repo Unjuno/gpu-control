@@ -74,41 +74,15 @@ adapter_image = (
         f"test -z \"$(git -C /opt/orbitune-cache/{SOURCE_SHA} status --porcelain --untracked-files=all)\"",
     )
     .run_commands("mkdir -p /root/provider-runtime/gpu_gateway")
-    .add_local_file(
-        str(PROVIDER_MODULE_ROOT / "__init__.py"),
-        remote_path="/root/provider-runtime/gpu_gateway/__init__.py",
+)
+for provider_module in PROVIDER_MODULES:
+    adapter_image = adapter_image.add_local_file(
+        str(PROVIDER_MODULE_ROOT / provider_module),
+        remote_path=f"/root/provider-runtime/gpu_gateway/{provider_module}",
         copy=True,
     )
-    .add_local_file(
-        str(PROVIDER_MODULE_ROOT / "backends.py"),
-        remote_path="/root/provider-runtime/gpu_gateway/backends.py",
-        copy=True,
-    )
-    .add_local_file(
-        str(PROVIDER_MODULE_ROOT / "config.py"),
-        remote_path="/root/provider-runtime/gpu_gateway/config.py",
-        copy=True,
-    )
-    .add_local_file(
-        str(PROVIDER_MODULE_ROOT / "huggingface_artifacts.py"),
-        remote_path="/root/provider-runtime/gpu_gateway/huggingface_artifacts.py",
-        copy=True,
-    )
-    .add_local_file(
-        str(PROVIDER_MODULE_ROOT / "huggingface_space_backend.py"),
-        remote_path="/root/provider-runtime/gpu_gateway/huggingface_space_backend.py",
-        copy=True,
-    )
-    .add_local_file(
-        str(PROVIDER_MODULE_ROOT / "kaggle_backend.py"),
-        remote_path="/root/provider-runtime/gpu_gateway/kaggle_backend.py",
-        copy=True,
-    )
-    .add_local_file(
-        str(PROVIDER_MODULE_ROOT / "orbitune_workload.py"),
-        remote_path="/root/provider-runtime/gpu_gateway/orbitune_workload.py",
-        copy=True,
-    )
+adapter_image = (
+    adapter_image
     .add_local_dir(str(MODAL_ROOT), remote_path="/root/site-modal", copy=True)
     .env({"PYTHONPATH": "/root/provider-runtime:/root/site-modal"})
 )
