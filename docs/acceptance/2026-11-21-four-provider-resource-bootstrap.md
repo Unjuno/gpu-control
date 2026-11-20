@@ -42,6 +42,12 @@ commit is written back to the registry.
 - The authenticated browser account created these resources as private:
   - model repository `Unjuno/gpu-control-orbitune-artifacts`
   - Space `Unjuno/gpu-control-orbitune-zero-gpu`, configured as ZeroGPU Free
+- A follow-up settings read confirmed the Space access control is `Private`,
+  its current hardware is `ZeroGPU` marked `Free`, and the analytics view has
+  no recorded ZeroGPU runs.
+- The public Space variable `GPU_CONTROL_HF_ARTIFACT_REPO` exists. The Space
+  reports no configured secrets, so it cannot yet read the private artifact
+  repository.
 - No payload, artifact, provider token, or Space secret was uploaded.
 - No evaluation request or GPU function was started.
 
