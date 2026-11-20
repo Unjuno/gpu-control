@@ -15,6 +15,7 @@ from gpu_gateway.orbitune_workload import (
     stage_orbitune_checkout, stage_orbitune_zero_gpu_space,
     staged_space_payload_digest,
 )
+from gpu_gateway.huggingface_space_backend import space_contract_digest
 
 
 def _git(directory: Path, *args: str) -> str:
@@ -64,6 +65,24 @@ def test_kaggle_and_space_workloads_use_provider_specific_resource_identity():
 
     assert kaggle.provider_data_center_id is None
     assert space.provider_data_center_id is None
+
+
+def test_deploy_registry_is_runnable_and_pins_live_private_resources():
+    registry_path = Path(__file__).parents[1] / "deploy" / "workloads.json"
+    registry = {
+        name: Workload.model_validate(value)
+        for name, value in json.loads(registry_path.read_text(encoding="utf-8")).items()
+    }
+    kaggle = registry["orbitune-kaggle-100-step-v1"]
+    space = registry["orbitune-zero-gpu-eval-v1"]
+
+    assert kaggle.provider_resource_id == "UnjunoOrg/orbitune-100-step"
+    assert kaggle.image_digest == "sha256:3f764ee4d610edfbe6b07769538ffbae8413b9df47c05af783245d65c7c21bed"
+    assert space.provider_resource_id == "Unjuno/gpu-control-orbitune-zero-gpu"
+    assert space.source_revision == "ce27a09881be902b2de3f6b1ce28c48355bd56df"
+    assert space.image_digest == space_contract_digest(
+        space.provider_resource_id, space.source_revision,
+    )
 
 
 def test_stage_builder_copies_only_exact_clean_orbitune_package_and_registered_entrypoint(tmp_path):
