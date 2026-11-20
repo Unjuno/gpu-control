@@ -842,6 +842,10 @@ async function capabilities(env, owner) {
         blocker: runpodEnabled ? null : (!runpodProviderConfigured ? "RUNPOD_PROVIDER_NOT_CONFIGURED" :
           !runpodCompletionTransportVerified ? "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED" :
           "RUNPOD_WORKLOAD_ADMISSION_DISABLED") },
+      { id: "kaggle", enabled: false, configured: false, free: true, paid: false,
+        paid_fallback_allowed: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" },
+      { id: "huggingface_space", enabled: false, configured: false, free: true, paid: false,
+        paid_fallback_allowed: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" },
     ],
     workloads: [
       { id: WORKLOAD, enabled: available, providers: ["modal_cpu"], requires_gpu: false,
@@ -849,12 +853,20 @@ async function capabilities(env, owner) {
       { id: "runpod-gpu-canary-v1", enabled: runpodEnabled, providers: ["runpod_gpu"], requires_gpu: true,
         parameters: {},
         image: env.RUNPOD_WORKLOAD_IMAGE || null },
+      { id: KAGGLE_WORKLOAD, enabled: false, providers: ["kaggle"], requires_gpu: true,
+        max_cost_usd: "0.00", paid_fallback_allowed: false },
+      { id: ZERO_GPU_WORKLOAD, enabled: false, providers: ["huggingface_space"], requires_gpu: true,
+        max_cost_usd: "0.00", paid_fallback_allowed: false },
     ],
     provider_budgets: [
       { provider: "modal_cpu", monthly_limit_usd: MODAL_MONTHLY_BUDGET_USD,
         per_run_limit_usd: MODAL_SANDBOX_COST_CEILING_USD },
       { provider: "runpod_gpu", monthly_limit_usd: null,
         per_run_limit_usd: RUNPOD_PER_RUN_BUDGET_USD },
+      { provider: "kaggle", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
+        paid_fallback_allowed: false },
+      { provider: "huggingface_space", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
+        paid_fallback_allowed: false },
     ],
     paid_execution: "parked",
   };
@@ -865,10 +877,34 @@ async function capabilities(env, owner) {
   try {
     const delegated = await delegateGatewayTool(env, owner, "experiment_capabilities", {});
     result.provider_adapter = { configured: true, available: true, capabilities: delegated };
+    const adapterProviders = Array.isArray(delegated?.machine_state?.providers)
+      ? delegated.machine_state.providers : [];
+    for (const providerId of ["kaggle", "huggingface_space"]) {
+      const adapterProvider = adapterProviders.find((item) => item?.id === providerId);
+      const provider = result.providers.find((item) => item.id === providerId);
+      provider.configured = adapterProvider?.configured === true;
+      provider.enabled = provider.configured && adapterProvider?.paid_fallback === false;
+      provider.blocker = provider.enabled ? null : "FREE_PROVIDER_NOT_CONFIGURED";
+      const workload = result.workloads.find((item) => item.providers.includes(providerId));
+      workload.enabled = provider.enabled;
+    }
   } catch {
     result.provider_adapter = { configured: true, available: false, blocker: "PROVIDER_ADAPTER_UNAVAILABLE" };
   }
   return result;
+}
+
+async function authorizeFreeProviderPolicy(env, { runId, provider, fingerprint, now }) {
+  const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO provider_free_run_authorizations
+      (run_id, provider, plan_fingerprint, authorized_microusd, created_at)
+    SELECT ?, p.provider, ?, 0, ? FROM provider_free_policies p
+    WHERE p.provider=? AND p.max_cost_microusd=0 AND p.paid_fallback_allowed=0`)
+    .bind(runId, fingerprint, now, provider).run();
+  const authorization = await env.DB.prepare(`SELECT provider, plan_fingerprint, authorized_microusd
+    FROM provider_free_run_authorizations WHERE run_id=?`).bind(runId).first();
+  return inserted?.meta?.changes === 1 ||
+    (authorization?.provider === provider && authorization?.plan_fingerprint === fingerprint &&
+      authorization?.authorized_microusd === 0);
 }
 
 function utcMonthKey(epochSeconds) {
@@ -1147,6 +1183,25 @@ async function submitDelegatedExperiment(env, owner, args) {
       machine_state: { run_id: args.run_id, plan_valid: false }, next_allowed_actions: [],
       blocking_reason: "APPROVED_PLAN_MISMATCH_OR_EXPIRED" };
   }
+  const approvedPlan = args.provider_approved_plan;
+  const provider = approvedPlan?.provider;
+  if (!["kaggle", "huggingface_space"].includes(provider) || approvedPlan.max_cost_usd !== "0" ||
+      approvedPlan.known_cost_usd !== "0" || approvedPlan.paid_fallback_allowed !== false) {
+    return { schema_version: 2, status: "blocked",
+      human_summary: "無料provider policyとplanが一致しないため、providerには接続していません。",
+      machine_state: { run_id: args.run_id, provider_policy_authorized: false }, next_allowed_actions: [],
+      blocking_reason: "FREE_PROVIDER_PLAN_POLICY_MISMATCH" };
+  }
+  let policyAuthorized = false;
+  try {
+    policyAuthorized = await authorizeFreeProviderPolicy(env, {
+      runId: args.run_id, provider, fingerprint: args.plan_fingerprint, now,
+    });
+  } catch {}
+  if (!policyAuthorized) return { schema_version: 2, status: "blocked",
+    human_summary: "無料providerのD1 policyを確保できないため、providerには接続していません。",
+    machine_state: { run_id: args.run_id, provider_policy_authorized: false }, next_allowed_actions: [],
+    blocking_reason: "FREE_PROVIDER_POLICY_UNAVAILABLE" };
   let authorization = await env.DB.prepare(`SELECT authorization_id, authorization_source, authorized_at, expires_at, consumed_at
     FROM gateway_delegated_authorizations WHERE owner_id=? AND plan_id=? AND fingerprint=?`)
     .bind(owner, args.run_id, args.plan_fingerprint).first();

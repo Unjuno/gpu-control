@@ -77,4 +77,10 @@ assert.match(gatewayDelegationMigration, /CREATE TABLE IF NOT EXISTS gateway_del
 assert.ok(migrations.includes("0015_modal_starter_budget.sql"));
 const modalStarterBudgetMigration = readFileSync(join(root, ".openai/drizzle/0015_modal_starter_budget.sql"), "utf8");
 assert.match(modalStarterBudgetMigration, /UPDATE provider_budget_policies/);
+assert.ok(migrations.includes("0017_free_provider_policies.sql"));
+const freeProviderPolicyMigration = readFileSync(join(root, ".openai/drizzle/0017_free_provider_policies.sql"), "utf8");
+assert.match(freeProviderPolicyMigration, /CREATE TABLE provider_free_policies/);
+assert.match(freeProviderPolicyMigration, /'kaggle', 0, 0/);
+assert.match(freeProviderPolicyMigration, /'huggingface_space', 0, 0/);
+assert.match(freeProviderPolicyMigration, /CREATE TABLE provider_free_run_authorizations/);
 console.log("Site Worker artifact is complete.");

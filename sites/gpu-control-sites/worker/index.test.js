@@ -596,11 +596,51 @@ test("read-only capabilities do not call Modal", async () => {
     assert.equal(result.machine_state.provider_configured, true);
     assert.deepEqual(result.machine_state.provider_health_checks, { configured: true, deferred_until_authorized_submit: true });
     assert.equal(result.machine_state.available, true);
-    assert.deepEqual(result.providers.map((provider) => provider.id), ["modal_cpu", "runpod_gpu"]);
+    assert.deepEqual(result.providers.map((provider) => provider.id),
+      ["modal_cpu", "runpod_gpu", "kaggle", "huggingface_space"]);
     assert.equal(result.providers[1].enabled, false);
     assert.equal(result.providers[1].configured, false);
-    assert.deepEqual(result.workloads.map((workload) => workload.id), ["tiny-stories-inference-v1", "runpod-gpu-canary-v1"]);
+    assert.deepEqual(result.workloads.map((workload) => workload.id),
+      ["tiny-stories-inference-v1", "runpod-gpu-canary-v1",
+        "orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"]);
+    assert.deepEqual(result.provider_budgets.slice(2), [
+      { provider: "kaggle", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
+        paid_fallback_allowed: false },
+      { provider: "huggingface_space", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
+        paid_fallback_allowed: false },
+    ]);
     assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("capabilities exposes all four providers and enables only configured free routes", async () => {
+  const env = environment();
+  env.PROVIDER_ADAPTER_URL = "https://adapter.example";
+  env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
+  env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      schema_version: 2, status: "ok", human_summary: "Configured.",
+      next_allowed_actions: ["experiment_prepare"], blocking_reason: null,
+      machine_state: { providers: [
+        { id: "kaggle", configured: true, paid_fallback: false },
+        { id: "huggingface_space", configured: false, paid_fallback: false },
+      ], workloads: ["orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"] },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    const result = await capabilities(env);
+    assert.deepEqual(result.providers.map((provider) => provider.id),
+      ["modal_cpu", "runpod_gpu", "kaggle", "huggingface_space"]);
+    assert.equal(result.providers[2].enabled, true);
+    assert.equal(result.providers[2].blocker, null);
+    assert.equal(result.providers[3].enabled, false);
+    assert.equal(result.providers[3].blocker, "FREE_PROVIDER_NOT_CONFIGURED");
+    assert.equal(result.workloads.find((item) => item.id === "orbitune-kaggle-100-step-v1").enabled, true);
+    assert.equal(result.workloads.find((item) => item.id === "orbitune-zero-gpu-eval-v1").enabled, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1744,12 +1784,14 @@ test("retired Runner routes stay closed even when a legacy bearer is supplied", 
 test("provider adapter submit retries reuse one owner-bound ChatGPT authorization", async () => {
   const plans = new Map();
   const authorizations = new Map();
+  const freePolicyAuthorizations = new Map();
   const delegatedBodies = [];
   const runId = "9".repeat(32);
   const gatewayPlan = {
     schema_version: 2, workload: "orbitune-kaggle-100-step-v1", provider: "kaggle",
     repository: "Unjuno/orbitune", source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
-    parameters: {}, runtime_seconds: 300, max_cost_usd: "0",
+    parameters: {}, runtime_seconds: 300, max_cost_usd: "0", known_cost_usd: "0",
+    cost_classification: "FREE_QUOTA", paid_fallback_allowed: false,
   };
   const fingerprint = createHash("sha256").update(canonicalJson(gatewayPlan)).digest("hex");
   const env = environment();
@@ -1779,6 +1821,13 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
               expires_at: expiresAt, consumed_at: consumedAt, fingerprint: storedFingerprint });
             return { meta: { changes: 1 } };
           }
+          if (sql.includes("INSERT OR IGNORE INTO provider_free_run_authorizations")) {
+            const [id, storedFingerprint, createdAt, provider] = values;
+            if (!freePolicyAuthorizations.has(id)) freePolicyAuthorizations.set(id, {
+              provider, plan_fingerprint: storedFingerprint, authorized_microusd: 0, created_at: createdAt,
+            });
+            return { meta: { changes: 1 } };
+          }
           if (sql.includes("UPDATE gateway_delegated_plans SET state='submitted'")) {
             const [owner, id] = values;
             plans.get(`${owner}:${id}`).state = "submitted";
@@ -1803,6 +1852,7 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
           }
           if (sql.includes("gateway_delegated_plans")) return plans.get(`${values[0]}:${values[1]}`) || null;
           if (sql.includes("gateway_delegated_authorizations")) return authorizations.get(`${values[0]}:${values[1]}`) || null;
+          if (sql.includes("provider_free_run_authorizations")) return freePolicyAuthorizations.get(values[0]) || null;
           return null;
         },
         async all() { return { results: [] }; },
@@ -1851,6 +1901,8 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
     assert.equal(submits[0].arguments.authorization.authorization_id,
       submits[1].arguments.authorization.authorization_id);
     assert.equal(authorizations.size, 1);
+    assert.equal(freePolicyAuthorizations.size, 1);
+    assert.equal(freePolicyAuthorizations.get(runId).authorized_microusd, 0);
     const listed = await toolCall(env, "test-owner", "experiment_list", {});
     const listedValue = JSON.parse((await listed.json()).result.content[0].text);
     assert.equal(listedValue.error, undefined, JSON.stringify(listedValue));
