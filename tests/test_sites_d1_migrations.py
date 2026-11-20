@@ -57,6 +57,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0014_gateway_delegation.sql",
         "0015_modal_starter_budget.sql",
         "0016_provider_adapter_state.sql",
+        "0017_free_provider_policies.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -128,7 +129,14 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         row[0]
         for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
-    assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events", "modal_authorized_health_checks", "modal_status_check_limits"} <= tables
+    assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events", "modal_authorized_health_checks", "modal_status_check_limits", "provider_free_policies", "provider_free_run_authorizations"} <= tables
+    assert db.execute(
+        """SELECT provider, max_cost_microusd, paid_fallback_allowed
+        FROM provider_free_policies ORDER BY provider"""
+    ).fetchall() == [
+        ("huggingface_space", 0, 0),
+        ("kaggle", 0, 0),
+    ]
     delegated_columns = {
         row[1] for row in db.execute("PRAGMA table_info(gateway_delegated_plans)")
     }
