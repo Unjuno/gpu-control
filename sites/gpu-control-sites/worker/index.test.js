@@ -777,6 +777,8 @@ test("capabilities reports configured Modal without a health probe while admissi
     });
     assert.equal(result.providers[0].paid, true);
     assert.equal(result.providers[0].credit_eligible, true);
+    assert.equal(result.provider_budgets[0].monthly_limit_usd, "1.00");
+    assert.equal(result.provider_budgets[0].per_run_limit_usd, "0.01");
     assert.equal(result.blocking_reason, "CPU_WORKLOAD_ADMISSION_DISABLED");
   } finally {
     globalThis.fetch = originalFetch;

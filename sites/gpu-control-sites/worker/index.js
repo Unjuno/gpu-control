@@ -36,7 +36,7 @@ const MODAL_SANDBOX_CPU_USD_PER_CORE_SECOND = 0.00003942;
 const MODAL_SANDBOX_MEMORY_USD_PER_GIB_SECOND = 0.00000667;
 const MODAL_SANDBOX_MEMORY_GIB = MODAL_SANDBOX_MEMORY_LIMIT_MIB / 1024;
 const MODAL_SANDBOX_COST_CEILING_USD = "0.01";
-const MODAL_MONTHLY_BUDGET_USD = "30.00";
+const MODAL_MONTHLY_BUDGET_USD = "1.00";
 const RUNPOD_PER_RUN_BUDGET_USD = "1.00";
 const MODAL_PRICING_SOURCE = "https://modal.com/pricing";
 const MODAL_PRICING_CHECKED_AT = "2026-11-14";
@@ -1256,7 +1256,7 @@ async function callTool(name, args, request, env) {
         next_allowed_actions: [], blocking_reason: "PROVIDER_BUDGET_LEDGER_UNAVAILABLE" };
     }
     if (!budgetReserved) return { schema_version: 2, status: "blocked",
-      human_summary: "Modalの月次30ドル上限または1回0.01ドル上限に達したため、Modalには接続していません。",
+      human_summary: "Modalの月次1ドル上限または1回0.01ドル上限に達したため、Modalには接続していません。",
       machine_state: { run_id: args.run_id, provider: "modal_cpu", monthly_limit_usd: MODAL_MONTHLY_BUDGET_USD,
         per_run_limit_usd: MODAL_SANDBOX_COST_CEILING_USD, sandbox_started: false },
       next_allowed_actions: [], blocking_reason: "PROVIDER_BUDGET_EXHAUSTED" };
