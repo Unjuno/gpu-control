@@ -1,122 +1,238 @@
-# ChatGPT Sites setup
+# ChatGPT Sites setup and operations
 
-## Supported architecture
+## Supported production architecture
 
-The supported ChatGPT control plane is the public Sites MCP Worker at
-`https://gpu-control-sites.unjuno.chatgpt.site`. Sites supplies the hosted
-Worker, ChatGPT sign-in boundary, MCP publication, and D1 binding. D1 stores
-plans, run state, and leases. Large immutable result files
-are stored in R2; the Worker returns bounded chunks after owner/run and digest
-verification. Eight complete result artifacts have been retrieved through
-ChatGPT.
+The only ChatGPT-facing control plane is the authenticated MCP endpoint at:
 
-### Kaggle and Hugging Face extension boundary
+`https://gpu-control-sites.unjuno.chatgpt.site/mcp`
 
-The current live Sites deployment does not advertise Kaggle or Hugging Face.
-The candidate source now routes the existing canonical experiment tools from
-Sites to those providers in the maintained FastAPI/PostgreSQL Gateway. The
-bridge is disabled unless its HTTPS origin, shared HMAC identity, D1 schema 14,
-Gateway schema 17, durable Gateway API, PostgreSQL, and worker are configured.
-Do not claim live support merely because this source and its offline tests
-exist.
+The compute providers are exactly:
 
-Sites remains the primary ChatGPT control plane. Delegation binds the
-authenticated owner, exact registered plan and workload, a one-use ChatGPT
-write confirmation, durable run routing, a short signed request window, and a
-durably claimed replay nonce. A lost response may retry only the same
-authorization ID and run. No unsigned header-forwarding, generic proxy, paid
-fallback, arbitrary provider URL, or chat-supplied credential is supported.
-Live acceptance still requires deployment and one explicitly approved free
-Kaggle run plus one private ZeroGPU evaluation.
+1. Modal
+2. RunPod
+3. Kaggle
+4. Hugging Face
 
-The Worker does not run Docker or model inference. The personal-host Runner
-has been retired. The fixed Modal CPU adapter and the Sites Worker with
-exact-plan human authorization are deployed. The current ChatGPT capability
-response reports `provider_configured=true`, `provider_ready=null`,
-`admission_enabled=false`, and `CPU_WORKLOAD_ADMISSION_DISABLED`; live provider
-health is deferred until an authorized submit. No successful inference against
-the current Modal deployment has been accepted through ChatGPT. RunPod GPU
-execution remains a separately gated future path; paid execution is parked.
+Railway, Vercel, Neon, an external PostgreSQL database, and a separately hosted
+Gateway are not production dependencies. Historical documents may mention
+those systems, but they must not be recreated for this path.
 
-The Vercel deployment of the FastAPI/PostgreSQL Gateway is archived and must
-not be recreated. The Gateway source itself is maintained again for the
-Kaggle/Hugging Face Remote MCP extension described above; it needs a reviewed
-durable host and PostgreSQL rather than Vercel or Neon. Do not configure new
-Vercel or Neon resources for this product. Historical setup evidence is preserved in
-[`archive/CHATGPT_SETUP-legacy-vercel-gateway.md`](archive/CHATGPT_SETUP-legacy-vercel-gateway.md)
-and [`archive/RELEASE_MATRIX-legacy-gateway.md`](archive/RELEASE_MATRIX-legacy-gateway.md).
+```text
+ChatGPT authenticated user
+  -> Sites MCP Worker
+     -> D1: plans, owner binding, one-use authorization, budgets, run state
+     -> R2: bounded immutable result artifacts
+     -> Modal fixed CPU control API
+     -> RunPod REST v2 (disabled until live completion transport is accepted)
+     -> authenticated Modal provider adapter
+        -> Kaggle fixed private training workload
+        -> Hugging Face private artifact and ZeroGPU evaluation
+```
 
-## Connect and use the Site MCP
+The Modal provider adapter is secret-bearing infrastructure, not a fifth
+provider. Chat input cannot select a command, image, repository, provider URL,
+credential, owner ID, or arbitrary environment variable.
 
-1. Open the public Site from the ChatGPT account where its generated plugin is
-   connected.
-2. Install or connect the Site's generated `gpu-control` plugin when ChatGPT
-   offers the plugin card.
-3. In a ChatGPT conversation, select or mention `gpu-control` and call
-   `experiment_capabilities` before preparing a run. The owner-only
-   `experiment_provider_health` diagnostic checks the authenticated Modal
-   endpoint and image identity without starting inference or a Sandbox; Modal
-   control-function charges may apply separately from the Sandbox ceiling.
-4. Prepare only the advertised fixed workload and review its exact source,
-   usage estimate, and `$0.01` Sandbox-only ceiling. Modal control-function
-   calls are billed separately. Credits are not a zero-cost guarantee. Site
-   Version 30 added an owner-authenticated Modal health diagnostic and the
-   exact-plan authorization implementation; Version 31 republishes the same
-   Worker archive. The live D1 overview includes
-   `authorization_challenges`, `human_authorizations`, and
-   `modal_health_check_limits`. However, this ChatGPT connector still exposes
-   the older tool schema without `experiment_provider_health`, and the current
-   production confirmation flow has not been exercised end to end. Admission
-   remains disabled. Do not submit until the connector schema is refreshed, the
-   exact-plan confirmation flow is verified through ChatGPT, and the registered
-   Modal image identity and readiness are reconciled. See the [Version 30
-   acceptance record](acceptance/2026-11-13-sites-v30-modal-health-diagnostic.md)
-   and [current release matrix](RELEASE_MATRIX.md). Once those gates pass, poll
-   `experiment_status` and retrieve the terminal value with `experiment_result`.
+## Current verified state
 
-The Site and plugin are separate access controls. The Site is public, while
-stateful tools must use ChatGPT's authenticated Sites identity and server-side
-owner checks on every data or execution operation. A successful call in the
-owner's current ChatGPT connection does not prove another ChatGPT account or
-process can install or use the plugin. Cross-account acceptance remains open.
+As of the Sites v46 publication:
 
-## Current acceptance boundary
+- the Site and generated MCP plugin are published;
+- D1 migrations through `0017_free_provider_policies.sql` are applied;
+- `experiment_capabilities` reports all four providers;
+- Modal CPU is configured and admitted;
+- RunPod remains disabled until its API credential, registered image, paid
+  admission and authenticated live completion transport all pass;
+- Kaggle and Hugging Face remain disabled until the authenticated Modal adapter
+  is deployed and connected;
+- Kaggle and Hugging Face each have an independent D1 policy of exactly `$0`
+  per run and `$0` per month, with paid fallback prohibited;
+- the former macOS Keychain Runner is retired and must not be restored.
 
-Historical TinyStories 15M CPU inferences through ChatGPT, Sites, D1, and the
-now-retired local Runner produced provenance-checked results and retrievable
-R2 artifacts. They establish that earlier CPU route only. They do not establish
-current Modal inference, general model quality, or GPU execution. The latest
-live capability read reports `provider_configured=true`,
-`human_authorization_store_ready=true`, `available=true`, and
-`admission_enabled=true`; readiness is checked during the normal submit path
-after the exact plan is confirmed. Site Version 32 is active at environment
-revision 34, and D1 includes the authorization and health-check tables. The
-separate `experiment_provider_health` connector schema is still empty, but a
-fresh submit calls the same authenticated Modal health endpoint internally.
-The Modal digest remains unreconciled with the rebuilt local image, and no
-post-deploy inference has been accepted. Use the ordinary prepare → exact
-owner confirmation → submit flow; each authorization expires and is usable
-once. The 30-second Sandbox ceiling is $0.01 and excludes separately billed
-Modal control-function calls. The latest recorded exit-code-2 runs predate the
-current Modal deployment; no result or artifact from a post-deploy test exists.
+This is deployment and control-plane evidence. It is not a substitute for a
+fresh bounded canary, terminal result validation and cleanup evidence for each
+enabled provider.
 
-The former local Runner path is removed. Keep paid RunPod/GPU experiments
-parked until their Sites route and security, result, recovery and cleanup gates
-are accepted. The exact runtime keys and controlled publication steps are
-in [`sites/gpu-control-sites/README.md`](../sites/gpu-control-sites/README.md);
-current gates are in [`RELEASE_MATRIX.md`](RELEASE_MATRIX.md) and
-[`STATUS.md`](STATUS.md).
-The latest live-state evidence is recorded in
-[`acceptance/2026-11-13-sites-modal-live-state-refresh.md`](acceptance/2026-11-13-sites-modal-live-state-refresh.md).
+## ChatGPT connection
 
-## Data and resource retirement
+Publishing a Site with the `mcp` capability creates its ChatGPT plugin. No
+local MCP process, `codex mcp add`, Vercel app, or separate OAuth server is
+needed.
 
-D1 is the selected database for the Sites product path. PostgreSQL is required
-only when operating the separately maintained Gateway Remote MCP/worker; it is
-not a dependency of Sites itself. The Vercel `gpu-control` project has been deleted. The
-legacy Neon project is soft-deleted and remains recoverable until
-`2026-11-19T05:19:58Z`; verify that the recovery window expires and the project
-is absent afterward. Neither service is a serving or rollback dependency.
-Current retirement evidence is in
-[`acceptance/2026-11-12-resource-retirement-inventory.md`](acceptance/2026-11-12-resource-retirement-inventory.md).
-Keep historical evidence in the repository without recreating either runtime.
+1. In ChatGPT, open Plugins and select the personal plugin created by
+   **GPU Control — ChatGPT実験管理**.
+2. Install or connect it if it is not already connected.
+3. Start a new chat after installation if the tools do not appear immediately.
+4. Call `experiment_capabilities` before every new experiment session.
+
+The public Site and execution authority are separate boundaries. Anonymous
+visitors may view the Site, but every stateful MCP tool requires the Sites
+authenticated user ID and the server-side `GPU_CONTROL_ALLOWED_USER_IDS`
+allowlist. D1 reads and writes are owner-scoped.
+
+## First verification prompt
+
+Use this prompt after all intended provider credentials have been connected:
+
+```text
+GPU Controlのexperiment_capabilitiesを呼び出して、Modal、RunPod、Kaggle、
+Hugging Faceの4プロバイダーについて、configured、enabled、blocker、予算、
+利用可能な登録済みworkloadを表にしてください。
+
+まだ実験は開始しないでください。秘密値を表示せず、Railway、Vercel、
+Neon、外部PostgreSQLが実行経路に含まれていないことも確認してください。
+```
+
+For a real run, ask ChatGPT to prepare one named registered workload first.
+Review the returned source revision, immutable workload identity, parameters,
+provider, cost ceiling and cleanup behavior. Submit only after ChatGPT presents
+the exact destructive tool confirmation. One confirmation may authorize one
+exact plan only and expires after a bounded interval.
+
+## Provider configuration inventory
+
+Secret values belong only in their named hosted secret stores. Never put them
+in Git, chat messages, screenshots, local committed `.env` files, D1, R2, logs,
+plan JSON or result JSON.
+
+### Modal fixed CPU route
+
+Sites runtime configuration:
+
+- `MODAL_API_URL`
+- `MODAL_PROXY_TOKEN_ID` (secret)
+- `MODAL_PROXY_TOKEN_SECRET` (secret)
+- `MODAL_WORKLOAD_IMAGE_FINGERPRINT`
+- `CPU_WORKLOAD_ADMISSION_ENABLED`
+
+The D1 policy is independent of Modal account billing. Both must remain within
+the operator-approved ceiling. Credits are not a guarantee of zero charges.
+
+### Kaggle and Hugging Face adapter
+
+Modal secret `gpu-control-worker` contains only provider credentials needed by
+the fixed adapter, such as:
+
+- `KAGGLE_API_TOKEN`
+- `HF_ARTIFACT_WRITE_TOKEN`
+- `HF_SPACE_READ_TOKEN`
+
+Modal secret `gpu-control-provider-adapter-auth` contains:
+
+- `PROVIDER_ADAPTER_KEY_ID`
+- `PROVIDER_ADAPTER_HMAC_KEY_B64`
+
+Sites contains the matching adapter transport settings:
+
+- `PROVIDER_ADAPTER_URL`
+- `PROVIDER_ADAPTER_KEY_ID`
+- `PROVIDER_ADAPTER_HMAC_KEY_B64` (secret)
+- `PROVIDER_ADAPTER_PROXY_TOKEN_ID` (secret)
+- `PROVIDER_ADAPTER_PROXY_TOKEN_SECRET` (secret)
+
+The adapter requires Modal proxy authentication and a second HMAC envelope.
+Every envelope binds the authenticated owner, tool and exact arguments to a
+short expiry and nonce. D1 remains the authoritative plan and run store.
+
+### RunPod
+
+Sites configuration is separate from every other provider:
+
+- `RUNPOD_API_KEY` (secret)
+- `RUNPOD_WORKLOAD_IMAGE`
+- `RUNPOD_ACCOUNT_SCOPE_ID` (secret or protected configuration)
+- `RUNPOD_STATE_KEY_B64` (secret)
+- `RUNPOD_WORKLOAD_ADMISSION_ENABLED`
+- `RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED`
+
+Creating an API key is not sufficient to enable RunPod. The Worker requires the
+registered image, exact current pricing, one-use plan authorization, D1 account
+lease, paid admission and verified authenticated completion transport. Provider
+configuration alone must fail closed.
+
+## Rotation procedure
+
+Rotate one trust boundary at a time. Do not rotate a provider credential and
+the Sites-to-adapter HMAC in the same unobserved change.
+
+1. Close the affected provider's admission flag.
+2. Confirm there is no active or cleanup-pending run for that provider.
+3. Create the replacement credential at the provider.
+4. Update only the matching hosted secret.
+5. Deploy or restart only the affected adapter when required.
+6. Run `experiment_capabilities`; perform a non-executing authenticated health
+   check when the provider supports one.
+7. Revoke the old credential.
+8. Re-read capabilities and provider inventory.
+9. Reopen admission only after a separately approved bounded canary.
+
+For HMAC rotation, update the Modal adapter secret and Sites secret as one
+controlled maintenance operation while adapter-backed admission is closed.
+There is no intentional dual-key grace period.
+
+## Disable or remove a provider
+
+Disabling a provider must be reversible and must preserve historical D1/R2
+records.
+
+1. Set its admission flag to false or remove the minimum credential required by
+   its configuration predicate.
+2. Confirm `experiment_capabilities` reports `enabled=false` and a concrete
+   blocker.
+3. Reconcile every active or uncertain provider resource and record cleanup.
+4. Revoke the provider credential after cleanup.
+5. Remove the corresponding hosted secret values.
+6. Do not delete D1 plans, runs, authorization, budget or cleanup evidence.
+
+Removing Kaggle or Hugging Face does not require removing the other provider.
+Their provider credentials and D1 free policies are separate. Removing the
+shared Modal adapter transport disables both adapter-backed routes, so use that
+only for an emergency stop or complete adapter retirement.
+
+## Add another ChatGPT account
+
+Do not make execution open to every Site visitor. To authorize another account:
+
+1. grant that account access through the supported Sites access policy;
+2. obtain its Site-scoped authenticated user ID through the supported signed-in
+   flow, without accepting a user-supplied claimed ID;
+3. append that exact ID to `GPU_CONTROL_ALLOWED_USER_IDS`;
+4. verify the new account sees no existing owner's runs;
+5. verify a third, unlisted account receives `SITE_USER_NOT_AUTHORIZED`;
+6. perform a new-account prepare-only check before any real execution.
+
+User IDs are Site-scoped and must not be copied from another Site.
+
+## Emergency stop
+
+When cost, credential exposure, ambiguous provider state or cleanup failure is
+suspected:
+
+1. close the affected admission flag;
+2. do not retry an ambiguous create request;
+3. inventory provider resources directly in the provider account;
+4. terminate only the exact resource bound to the persisted run;
+5. record cleanup or uncertainty in D1;
+6. revoke the affected credential;
+7. keep admission closed until recovery and a fresh bounded canary pass.
+
+Never bypass a blocked route with SSH, Jupyter, public ports, arbitrary shell
+execution, unrestricted networking, a different provider, or a higher budget.
+
+## Acceptance required before calling the system complete
+
+For each enabled provider, retain evidence of:
+
+- authenticated ChatGPT tool discovery;
+- owner-bound prepare and exact one-use confirmation;
+- provider-side resource identity;
+- bounded execution under the provider-specific cost policy;
+- status and terminal result validation;
+- artifact digest verification when artifacts exist;
+- cancellation behavior or an explicit unsupported-cancellation state;
+- exact cleanup and absence of leaked resources;
+- successful retry/recovery behavior for an intentionally lost response;
+- secret non-disclosure in model-visible output and logs.
+
+Passing tests, a health endpoint, a successful deployment, or a configured API
+key proves only that layer. It does not prove an end-to-end provider route.
