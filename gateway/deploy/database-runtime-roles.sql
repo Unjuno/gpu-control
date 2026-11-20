@@ -1,7 +1,7 @@
 -- Apply as gpu_control_migrate after migrations, then after each migration.
 -- Login roles must be distinct, NOINHERIT, non-superuser, with no incoming or
 -- outgoing memberships. Provision passwords out of band; never put them here.
--- This allowlist matches the current schema v15 and its OAuth/P5 tables.
+-- This allowlist matches the current schema v16 and its OAuth/P5/delegation tables.
 BEGIN;
 
 DO $$ BEGIN
@@ -31,7 +31,8 @@ REVOKE ALL ON TABLE
   public.gateway_oauth_tokens_v1,
   public.gateway_provider_observations_v1,
   public.gateway_provider_account_leases_v1,
-  public.gateway_paid_authorizations_v1
+  public.gateway_paid_authorizations_v1,
+  public.gateway_sites_delegation_nonces_v1
 FROM PUBLIC;
 
 REVOKE ALL ON TABLE
@@ -49,7 +50,8 @@ REVOKE ALL ON TABLE
   public.gateway_oauth_tokens_v1,
   public.gateway_provider_observations_v1,
   public.gateway_provider_account_leases_v1,
-  public.gateway_paid_authorizations_v1
+  public.gateway_paid_authorizations_v1,
+  public.gateway_sites_delegation_nonces_v1
 FROM gpu_control_api, gpu_control_worker;
 
 -- Table-level revocation does not remove existing column UPDATE grants.
@@ -91,6 +93,12 @@ REVOKE SELECT (run_id, owner, plan_fingerprint, approval_id, authorization_id,
   issuer, envelope, envelope_sha256, created_at)
 ON TABLE public.gateway_paid_authorizations_v1
 FROM PUBLIC, gpu_control_api, gpu_control_worker;
+REVOKE SELECT (nonce, key_id, owner, tool, issued_at, expires_at),
+  INSERT (nonce, key_id, owner, tool, issued_at, expires_at),
+  UPDATE (nonce, key_id, owner, tool, issued_at, expires_at),
+  REFERENCES (nonce, key_id, owner, tool, issued_at, expires_at)
+ON TABLE public.gateway_sites_delegation_nonces_v1
+FROM PUBLIC, gpu_control_api, gpu_control_worker;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC, gpu_control_api, gpu_control_worker;
 GRANT USAGE ON SCHEMA public TO gpu_control_api, gpu_control_worker, gpu_control_migrate;
@@ -101,6 +109,8 @@ GRANT UPDATE (state, approval_id, approved_until, slot_reserved, cancel_requeste
   ON TABLE public.gateway_runs_v1 TO gpu_control_api;
 GRANT SELECT ON TABLE public.gateway_control_v1 TO gpu_control_api;
 GRANT UPDATE (active_count) ON TABLE public.gateway_control_v1 TO gpu_control_api;
+GRANT SELECT, INSERT, DELETE ON TABLE public.gateway_sites_delegation_nonces_v1
+TO gpu_control_api;
 
 -- Workers observe and advance leased records, but do not create or delete runs
 -- or control state. Keep destructive record operations with the API/migration

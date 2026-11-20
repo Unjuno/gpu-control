@@ -12,7 +12,7 @@ import time
 from sqlalchemy import (JSON, Column, Integer, MetaData, String, Table,
                         UniqueConstraint, inspect, insert, select, update)
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 versions_metadata = MetaData()
 schema_version = Table(
     "gateway_schema_version", versions_metadata,
@@ -56,6 +56,15 @@ paid_authorizations = Table(
     Column("envelope", JSON, nullable=False),
     Column("envelope_sha256", String(64), nullable=False),
     Column("created_at", Integer, nullable=False),
+)
+sites_delegation_nonces = Table(
+    "gateway_sites_delegation_nonces_v1", MetaData(),
+    Column("nonce", String(64), primary_key=True),
+    Column("key_id", String(64), nullable=False),
+    Column("owner", String(256), nullable=False),
+    Column("tool", String(64), nullable=False),
+    Column("issued_at", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=False),
 )
 
 
@@ -328,4 +337,11 @@ def migrate(engine) -> int:
                 ))
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=15))
             current = 15
+        if current < 16:
+            # Sites-to-Gateway delegation requests are signed at the Sites
+            # boundary and each nonce is accepted at most once.  Keep replay
+            # state in the same durable database as experiment ownership.
+            sites_delegation_nonces.create(connection, checkfirst=True)
+            connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=16))
+            current = 16
     return current

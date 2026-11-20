@@ -84,6 +84,26 @@ first bounded compute provider; Runpod is a later GPU provider that stays behind
 separate authorization, pricing, availability, result-integrity, and cleanup
 gates. D1/R2 lifecycle data must be preserved through the transition.
 
+### Gateway delegation (staged, disabled by default)
+
+The source includes a fail-closed Sites-to-Gateway transport for the
+Kaggle/Hugging Face extension. It is not enabled merely by publishing this
+Site. A reviewed durable Gateway must first be deployed and migrated through
+schema v16. Configure the Site with `GATEWAY_DELEGATION_URL` (an HTTPS origin),
+`GATEWAY_DELEGATION_KEY_ID`, and secret
+`GATEWAY_DELEGATION_HMAC_KEY_B64`. Install the same key ID and secret only in
+the Gateway API environment as `GATEWAY_SITES_DELEGATION_KEY_ID` and
+`GATEWAY_SITES_DELEGATION_HMAC_KEY_B64`; worker processes do not need it.
+
+Every delegated request binds the authenticated Sites owner, canonical tool
+name, exact arguments, a 60-second validity window, and a random nonce. The
+Gateway durably claims the nonce before dispatch and pseudonymizes the Sites
+owner in run rows. Transport authentication alone is deliberately insufficient
+for `experiment_submit`; delegated submit stays closed until a later reviewed
+slice atomically binds and consumes the exact owner-confirmed Sites plan
+authorization. Do not advertise Kaggle/Hugging Face through the Site before
+that authorization bridge and live recovery acceptance are complete.
+
 ```text
 ChatGPT -> Sites MCP Worker -> owner-scoped D1/R2
                     -> exact-plan ChatGPT write approval -> one-use D1 authorization

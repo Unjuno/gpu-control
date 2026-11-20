@@ -27,7 +27,7 @@ DO $$ DECLARE relation_name text; BEGIN
       'gateway_oauth_bootstrap_v1', 'gateway_oauth_sessions_v1',
       'gateway_oauth_clients_v1', 'gateway_oauth_codes_v1', 'gateway_oauth_tokens_v1',
       'gateway_provider_observations_v1', 'gateway_provider_account_leases_v1',
-      'gateway_paid_authorizations_v1'
+      'gateway_paid_authorizations_v1', 'gateway_sites_delegation_nonces_v1'
     )
   LOOP
     EXECUTE format('ALTER TABLE public.%I OWNER TO gpu_control_migrate', relation_name);
@@ -36,7 +36,7 @@ DO $$ DECLARE relation_name text; BEGIN
     SELECT tablename FROM pg_tables
     WHERE schemaname = 'public' AND tablename IN (
       'gateway_provider_observations_v1', 'gateway_provider_account_leases_v1',
-      'gateway_paid_authorizations_v1'
+      'gateway_paid_authorizations_v1', 'gateway_sites_delegation_nonces_v1'
     )
   LOOP
     EXECUTE format('ALTER TABLE public.%I OWNER TO gpu_control_migrate', relation_name);

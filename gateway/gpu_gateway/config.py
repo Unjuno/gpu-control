@@ -168,6 +168,8 @@ class Settings:
     credit_authorization_policy_version: str = ""
     credit_authorization_public_keys_json: str = "{}"
     provider_account_scope_hmac_key_b64: str = field(default="", repr=False, compare=False)
+    sites_delegation_key_id: str = ""
+    sites_delegation_hmac_key_b64: str = field(default="", repr=False, compare=False)
     provider_evidence_signing_key_id: str = ""
     provider_evidence_signing_key_pem: bytes | None = field(default=None, repr=False, compare=False)
 
@@ -186,6 +188,19 @@ class Settings:
             raise ValueError("provider account scope HMAC key must be valid base64") from exc
         if not 32 <= len(key) <= 4096:
             raise ValueError("provider account scope HMAC key must decode to 32-4096 bytes")
+        return key
+
+    @property
+    def sites_delegation_hmac_key(self) -> bytes | None:
+        encoded = self.sites_delegation_hmac_key_b64
+        if not encoded:
+            return None
+        try:
+            key = base64.b64decode(encoded, validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("Sites delegation HMAC key must be valid base64") from exc
+        if len(key) < 32 or len(key) > 4096:
+            raise ValueError("Sites delegation HMAC key must decode to 32-4096 bytes")
         return key
 
     @property
@@ -372,6 +387,12 @@ class Settings:
         elif self.candidate_receipt_signing_key_id or self.candidate_receipt_signing_key_ids:
             raise ValueError("candidate receipt signing key ID is set without a private key")
         self.provider_account_scope_hmac_key
+        delegation_key = self.sites_delegation_hmac_key
+        if delegation_key is not None:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.sites_delegation_key_id):
+                raise ValueError("Sites delegation key ID is required with the HMAC key")
+        elif self.sites_delegation_key_id:
+            raise ValueError("Sites delegation key ID is set without an HMAC key")
         paid_keys = self.paid_authorization_trusted_keys
         if paid_keys or self.paid_authorization_issuer or self.paid_authorization_policy_version:
             if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.paid_authorization_issuer) or
@@ -539,6 +560,8 @@ class Settings:
             credit_authorization_policy_version=e.get("GATEWAY_CREDIT_AUTHORIZATION_POLICY_VERSION", ""),
             credit_authorization_public_keys_json=e.get("GATEWAY_CREDIT_AUTHORIZATION_PUBLIC_KEYS_JSON", "{}"),
             provider_account_scope_hmac_key_b64=e.get("GATEWAY_PROVIDER_ACCOUNT_SCOPE_HMAC_KEY_B64", ""),
+            sites_delegation_key_id=e.get("GATEWAY_SITES_DELEGATION_KEY_ID", ""),
+            sites_delegation_hmac_key_b64=e.get("GATEWAY_SITES_DELEGATION_HMAC_KEY_B64", ""),
             provider_evidence_signing_key_id=e.get("GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_ID", ""),
             provider_evidence_signing_key_pem=evidence_private_pem,
         )

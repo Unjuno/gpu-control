@@ -20,6 +20,7 @@ from .artifacts import inspect_artifact_storage
 from .config import Settings, load_workloads
 from .client_ip import resolve_login_source
 from .protocol import dispatch, error, required_chatgpt_scope, tools, validate_headers
+from .sites_delegation import principal_for, verify_and_claim
 from .service import ExperimentService, GatewayError
 from .store import Store, control
 from .migrations import SCHEMA_VERSION, schema_version
@@ -69,7 +70,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-        if request.url.path.startswith(("/api", "/mcp", "/auth", "/oauth")):
+        if request.url.path.startswith(("/api", "/mcp", "/auth", "/oauth", "/internal/sites/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -95,10 +96,7 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
                 raise GatewayError("request_too_large", "Request exceeds size limit", 413)
         return bytes(data)
 
-    async def body(request):
-        if not request.headers.get("content-type", "").startswith("application/json"):
-            raise GatewayError("content_type", "application/json is required", 415)
-        data = await raw_body(request)
+    def parse_json_body(data):
         try:
             def reject_constant(_):
                 raise ValueError()
@@ -111,6 +109,11 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
             return json.loads(data, parse_constant=reject_constant, object_pairs_hook=pairs)
         except (ValueError, UnicodeDecodeError, RecursionError):
             raise GatewayError("invalid_json", "Valid JSON with unique keys is required", 400)
+
+    async def body(request):
+        if not request.headers.get("content-type", "").startswith("application/json"):
+            raise GatewayError("content_type", "application/json is required", 415)
+        return parse_json_body(await raw_body(request))
 
     async def form(request):
         if not request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
@@ -433,6 +436,43 @@ def create_app(settings: Settings | None = None, *, service=None, auth=None) -> 
         if not isinstance(arguments, dict):
             raise GatewayError("invalid_arguments", "An argument object is required")
         return await run_in_threadpool(service.invoke, principal, name, arguments)
+
+    @app.post("/internal/sites/v1/tools/{name}")
+    async def invoke_from_sites(request: Request, name: str):
+        """Invoke one canonical tool from the authenticated Sites boundary.
+
+        This endpoint does not trust forwarded identity headers.  The exact
+        owner, tool and arguments are signed, time-bounded and replay-claimed
+        in PostgreSQL before dispatch.
+        """
+        ready()
+        if not request.headers.get("content-type", "").startswith("application/json"):
+            raise GatewayError("content_type", "application/json is required", 415)
+        signed_body = await raw_body(request)
+        payload = parse_json_body(signed_body)
+        delegated = await run_in_threadpool(
+            verify_and_claim,
+            payload=payload,
+            signed_body=signed_body,
+            signature=request.headers.get("x-gpu-control-sites-signature"),
+            settings=settings,
+            engine=service.store.engine,
+            expected_tool=name,
+        )
+        if name == "experiment_submit":
+            # A signed transport request is not itself proof that the owner
+            # confirmed the exact execution plan.  The next bridge slice binds
+            # the consumed Sites authorization record before enabling submit.
+            raise GatewayError(
+                "delegated_authorization_required",
+                "Delegated submit requires a consumed exact-plan Sites authorization",
+                409,
+            )
+        from .experiment_api import invoke as invoke_experiment
+        return await run_in_threadpool(
+            invoke_experiment, service, principal_for(delegated), name,
+            delegated.arguments,
+        )
 
     @app.post("/api/approvals/{run_id}")
     async def approve(request: Request, run_id: str):
