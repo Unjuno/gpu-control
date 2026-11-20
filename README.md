@@ -83,8 +83,11 @@ prove current Modal readiness. The latest Modal attempts failed with exit
 code 2 and confirmed cleanup. The old local Runner and Keychain credentials
 are retired. The target compute order is Modal for a small fixed workload,
 then RunPod for separately gated GPU experiments. Vercel and Neon/PostgreSQL
-are not target dependencies. The legacy FastAPI/PostgreSQL Gateway source and
-runtime dependencies have been removed from the tracked tree; historical
+are not target dependencies. The legacy FastAPI/PostgreSQL Gateway is not a
+deployed service or runtime path. Some provider implementation modules remain
+under `gateway/gpu_gateway/` for offline compatibility, but the Modal adapter
+packages only an explicit Kaggle/Hugging Face module allowlist and excludes the
+Gateway API, OAuth, worker, store, migration, and service modules. Historical
 acceptance evidence remains under `docs/acceptance/` and in Git history.
 
 See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the ChatGPT integration,
