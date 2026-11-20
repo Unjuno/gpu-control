@@ -44,18 +44,26 @@ def _default_runner(argv: tuple[str, ...]) -> KaggleCommandResult:
     # The worker can hold credentials for several providers.  The Kaggle CLI
     # needs only its own token and basic process/transport configuration; do
     # not inherit HF, Modal, RunPod, database, OAuth, or signing secrets.
+    token = os.environ.get("KAGGLE_API_TOKEN", "")
+    if not token or token != token.strip() or any(character.isspace() for character in token):
+        raise RuntimeError("Kaggle worker token is not configured")
     allowed = {
-        "HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "TZ",
+        "PATH", "TMPDIR", "LANG", "LC_ALL", "TZ",
         "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
         "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
         "http_proxy", "https_proxy", "no_proxy",
-        "KAGGLE_API_TOKEN",
     }
     environment = {key: value for key, value in os.environ.items() if key in allowed}
-    completed = subprocess.run(
-        argv, shell=False, capture_output=True, text=True, timeout=60, check=False,
-        env=environment,
-    )
+    environment["KAGGLE_API_TOKEN"] = token
+    # Kaggle also supports the legacy ~/.kaggle/kaggle.json credential.  Give
+    # every invocation a fresh empty HOME so a host or service-account file can
+    # never silently replace the worker-only token boundary.
+    with tempfile.TemporaryDirectory(prefix="gpu-control-kaggle-home-") as home:
+        environment["HOME"] = home
+        completed = subprocess.run(
+            argv, shell=False, capture_output=True, text=True, timeout=60, check=False,
+            env=environment,
+        )
     return KaggleCommandResult(completed.returncode, completed.stdout, completed.stderr)
 
 

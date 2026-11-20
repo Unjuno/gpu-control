@@ -88,6 +88,7 @@ def run(tmp_path: Path):
 def settings(tmp_path: Path):
     return Settings(
         enable_kaggle=True,
+        kaggle_api_token="kaggle-token",
         kaggle_username="owner",
         kaggle_staging_root=str(tmp_path),
     )
@@ -113,10 +114,27 @@ def test_default_runner_passes_only_kaggle_and_process_environment(monkeypatch):
 
     assert response.returncode == 0
     assert captured["env"]["KAGGLE_API_TOKEN"] == "kaggle-token"
+    assert captured["env"]["HOME"] != str(Path.home())
+    assert not Path(captured["env"]["HOME"]).exists()
     for key in ("HF_ARTIFACT_WRITE_TOKEN", "HF_SPACE_READ_TOKEN", "RUNPOD_API_KEY", "MODAL_TOKEN_SECRET",
                 "GATEWAY_DATABASE_URL", "GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64"):
         assert key not in captured["env"]
     assert captured["shell"] is False
+
+
+@pytest.mark.parametrize("token", [None, "", " token", "token ", "token value"])
+def test_default_runner_requires_one_explicit_worker_token(monkeypatch, token):
+    if token is None:
+        monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("KAGGLE_API_TOKEN", token)
+    monkeypatch.setattr(
+        kaggle_backend.subprocess, "run",
+        lambda *_args, **_kwargs: pytest.fail("Kaggle CLI must not run without its worker token"),
+    )
+
+    with pytest.raises(RuntimeError, match="worker token"):
+        kaggle_backend._default_runner(("kaggle", "quota", "--format", "json"))
 
 
 def test_prepare_is_offline_and_binds_owned_kernel_and_source(tmp_path):

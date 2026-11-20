@@ -144,7 +144,8 @@ def default_registry() -> dict[str, ProviderRegistration]:
             "Existing RunPod CI is unchanged; this gateway does not dispatch it."),
         ProviderRegistration(
             "kaggle", "official_cli_worker",
-            lambda s: s.enable_kaggle and bool(s.kaggle_username and s.kaggle_staging_root),
+            lambda s: s.enable_kaggle and bool(
+                s.kaggle_api_token and s.kaggle_username and s.kaggle_staging_root),
             KaggleBackend,
             "Free-quota Kernel versions only; official CLI has no reliable cancellation command.",
             supports_candidate_binding=True,

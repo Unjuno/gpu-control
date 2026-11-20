@@ -135,6 +135,7 @@ class Settings:
     runpod_api_key: str = field(default="", repr=False, compare=False)
     runpod_account_scope_id: str = field(default="", repr=False, compare=False)
     runpod_factory: str = ""
+    kaggle_api_token: str = field(default="", repr=False, compare=False)
     kaggle_username: str = ""
     kaggle_staging_root: str = ""
     kaggle_source_cache_root: str = ""
@@ -431,8 +432,12 @@ class Settings:
                 raise ValueError("RunPod evidence collection requires a worker-only API key")
             if self.provider_evidence_signing_key_pem is None:
                 raise ValueError("RunPod evidence collection requires a worker signing key")
-        if self.enable_kaggle_evidence and self.provider_evidence_signing_key_pem is None:
-            raise ValueError("Kaggle evidence collection requires a worker signing key")
+        if self.enable_kaggle_evidence:
+            if (not self.kaggle_api_token or
+                    any(character.isspace() for character in self.kaggle_api_token)):
+                raise ValueError("Kaggle evidence collection requires a worker-only API token")
+            if self.provider_evidence_signing_key_pem is None:
+                raise ValueError("Kaggle evidence collection requires a worker signing key")
         if (self.hf_artifact_write_token and self.hf_space_read_token and
                 self.hf_artifact_write_token == self.hf_space_read_token):
             raise ValueError("Hugging Face artifact and Space tokens must be distinct")
@@ -443,6 +448,9 @@ class Settings:
             if self.provider_evidence_signing_key_pem is None:
                 raise ValueError("Hugging Face evidence collection requires a worker signing key")
         if self.enable_kaggle:
+            if (not self.kaggle_api_token or
+                    any(character.isspace() for character in self.kaggle_api_token)):
+                raise ValueError("Kaggle execution requires a worker-only API token")
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,49}", self.kaggle_username):
                 raise ValueError("Kaggle execution requires a canonical account username")
             root = Path(self.kaggle_staging_root)
@@ -523,6 +531,7 @@ class Settings:
             runpod_api_key=e.get("RUNPOD_API_KEY", ""),
             runpod_account_scope_id=e.get("GATEWAY_RUNPOD_ACCOUNT_SCOPE_ID", ""),
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),
+            kaggle_api_token=e.get("KAGGLE_API_TOKEN", ""),
             kaggle_username=e.get("GATEWAY_KAGGLE_USERNAME", ""),
             kaggle_staging_root=e.get("GATEWAY_KAGGLE_STAGING_ROOT", ""),
             kaggle_source_cache_root=e.get("GATEWAY_KAGGLE_SOURCE_CACHE_ROOT", ""),

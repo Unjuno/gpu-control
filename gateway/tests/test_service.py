@@ -289,3 +289,18 @@ def test_hugging_face_credentials_are_distinct_and_load_from_environment(monkeyp
             hf_artifact_write_token="hf_reused",
             hf_space_read_token="hf_reused",
         ).validate()
+
+
+def test_kaggle_worker_token_is_required_for_execution_and_evidence(monkeypatch):
+    monkeypatch.setenv("KAGGLE_API_TOKEN", "kaggle-worker-token")
+    loaded = Settings.from_env()
+    assert loaded.kaggle_api_token == "kaggle-worker-token"
+
+    with pytest.raises(ValueError, match="execution requires a worker-only API token"):
+        Settings(
+            enable_kaggle=True,
+            kaggle_username="owner",
+            kaggle_staging_root="/var/lib/gpu-control/kaggle-stage",
+        ).validate()
+    with pytest.raises(ValueError, match="evidence collection requires a worker-only API token"):
+        Settings(enable_kaggle_evidence=True).validate()

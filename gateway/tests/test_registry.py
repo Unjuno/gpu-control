@@ -194,6 +194,7 @@ def test_kaggle_is_registered_but_not_falsely_candidate_or_cancel_ready(tmp_path
     disabled = Settings()
     enabled = Settings(
         enable_kaggle=True,
+        kaggle_api_token="kaggle-token",
         kaggle_username="owner",
         kaggle_staging_root=str(tmp_path),
     )
