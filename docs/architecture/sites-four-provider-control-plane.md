@@ -66,6 +66,9 @@ configuration uses only `PROVIDER_ADAPTER_URL`, `PROVIDER_ADAPTER_KEY_ID`, and
 - Sites reports all four registered providers and the real blocker for each.
 - Kaggle and Hugging Face calls work through the authenticated Modal adapter.
 - RunPod cannot start without an exact price-bound plan and one-use confirmation.
+- RunPod also remains disabled until the authenticated completion transport has
+  been verified against the live account; provider configuration alone cannot
+  enable it.
 - Status, result, artifact, cancel, retry, and cleanup survive Site restarts
   because provider handles and state are in D1.
 - A real bounded canary is observed for each enabled route; a passing unit test

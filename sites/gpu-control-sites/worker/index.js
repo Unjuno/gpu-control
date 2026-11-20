@@ -822,8 +822,9 @@ async function capabilities(env, owner) {
   const authorizationStoreReady = await humanAuthorizationStoreReady(env);
   const providerConfigured = modalConfigured(env);
   const runpodProviderConfigured = runpodConfigured(env);
+  const runpodCompletionTransportVerified = env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED === "true";
   const runpodEnabled = env.RUNPOD_WORKLOAD_ADMISSION_ENABLED === "true" &&
-    runpodProviderConfigured && authorizationStoreReady;
+    runpodProviderConfigured && authorizationStoreReady && runpodCompletionTransportVerified;
   // Capabilities is read-only. Defer the billable live health probe until submit,
   // after the exact plan's one-use human authorization has been verified.
   const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady;
@@ -836,7 +837,11 @@ async function capabilities(env, owner) {
     providers: [
       { id: "modal_cpu", enabled: available, configured: providerConfigured, free: false, paid: true, credit_eligible: true },
       { id: "runpod_gpu", enabled: runpodEnabled, configured: runpodProviderConfigured, free: false, paid: true,
-        credit_eligible: false, gpu_count: 1, api_version: "v2", execution_interface: "registered_workload_only" },
+        credit_eligible: false, gpu_count: 1, api_version: "v2", execution_interface: "registered_workload_only",
+        completion_transport_verified: runpodCompletionTransportVerified,
+        blocker: runpodEnabled ? null : (!runpodProviderConfigured ? "RUNPOD_PROVIDER_NOT_CONFIGURED" :
+          !runpodCompletionTransportVerified ? "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED" :
+          "RUNPOD_WORKLOAD_ADMISSION_DISABLED") },
     ],
     workloads: [
       { id: WORKLOAD, enabled: available, providers: ["modal_cpu"], requires_gpu: false,
