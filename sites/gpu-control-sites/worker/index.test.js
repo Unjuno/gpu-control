@@ -1756,6 +1756,8 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
   env.PROVIDER_ADAPTER_URL = "https://adapter.example";
   env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
   env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
   env.DB.prepare = (sql) => ({
     bind(...values) {
       return {
@@ -1824,7 +1826,8 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
     if (submitCalls === 1) throw new TypeError("lost response");
     return new Response(JSON.stringify({ schema_version: 2, status: "pending", human_summary: "Queued.",
       next_allowed_actions: ["experiment_status"], blocking_reason: null,
-      machine_state: { run_id: runId, state: "queued" } }),
+      machine_state: { run_id: runId, state: "queued",
+        provider_handle: { provider: "kaggle", run_id: runId, version: 7 } } }),
     { status: 200, headers: { "content-type": "application/json" } });
   };
   try {
@@ -1838,7 +1841,11 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
     const lost = await toolCall(env, "test-owner", "experiment_submit", submit);
     assert.equal(JSON.parse((await lost.json()).result.content[0].text).error, "GATEWAY_DELEGATION_FAILED");
     const retried = await toolCall(env, "test-owner", "experiment_submit", submit);
-    assert.equal(JSON.parse((await retried.json()).result.content[0].text).machine_state.state, "queued");
+    const retriedValue = JSON.parse((await retried.json()).result.content[0].text);
+    assert.equal(retriedValue.machine_state.state, "queued");
+    assert.equal(retriedValue.machine_state.provider_handle, undefined);
+    assert.equal(plans.get(`test-owner:${runId}`).provider_handle_json,
+      canonicalJson({ provider: "kaggle", run_id: runId, version: 7 }));
     const submits = delegatedBodies.filter((body) => body.tool === "experiment_submit");
     assert.equal(submits.length, 2);
     assert.equal(submits[0].arguments.authorization.authorization_id,

@@ -89,7 +89,11 @@ export function gatewayDelegationConfigured(env) {
     endpoint(adapterEnv, "experiment_capabilities");
     decodeBase64(adapterEnv.GATEWAY_DELEGATION_HMAC_KEY_B64);
     return typeof adapterEnv.GATEWAY_DELEGATION_KEY_ID === "string" &&
-      /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(adapterEnv.GATEWAY_DELEGATION_KEY_ID);
+      /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(adapterEnv.GATEWAY_DELEGATION_KEY_ID) &&
+      typeof env.PROVIDER_ADAPTER_PROXY_TOKEN_ID === "string" &&
+      /^wk-[A-Za-z0-9_-]{8,}$/.test(env.PROVIDER_ADAPTER_PROXY_TOKEN_ID) &&
+      typeof env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET === "string" &&
+      /^ws-[A-Za-z0-9_-]{8,}$/.test(env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET);
   } catch { return false; }
 }
 
@@ -119,6 +123,7 @@ export async function delegateGatewayTool(env, owner, tool, argumentsValue, fetc
       method: "POST", redirect: "manual", signal: controller.signal,
       headers: {
         "content-type": "application/json",
+        "authorization": `Bearer ${env.PROVIDER_ADAPTER_PROXY_TOKEN_ID}.${env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET}`,
         "x-gpu-control-sites-signature": await signature(payload, adapterEnv.GATEWAY_DELEGATION_HMAC_KEY_B64),
       },
       body: canonical(payload),

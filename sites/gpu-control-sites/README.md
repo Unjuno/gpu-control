@@ -91,7 +91,8 @@ Kaggle/Hugging Face extension. It is not enabled merely by publishing this
 Site. D1 must be migrated through `0016_provider_adapter_state.sql`. Configure
 the Site only with `PROVIDER_ADAPTER_URL` (the authenticated Modal HTTPS
 origin), `PROVIDER_ADAPTER_KEY_ID`, and secret
-`PROVIDER_ADAPTER_HMAC_KEY_B64`. Legacy `GATEWAY_*` configuration is rejected.
+`PROVIDER_ADAPTER_HMAC_KEY_B64`, plus the adapter-specific Modal proxy token
+pair. Legacy `GATEWAY_*` configuration is rejected.
 Railway, Neon, Vercel, PostgreSQL, and a separately hosted Gateway are not part
 of this execution path.
 

@@ -420,7 +420,7 @@ function validGatewayPrepare(input) {
       Object.keys(input).sort().join(",") !== "commit,idempotency_key,max_cost_usd,parameters,repository,runtime_seconds,workload" ||
       input.repository !== ORBITUNE_REPOSITORY || input.commit !== ORBITUNE_SOURCE_SHA ||
       typeof input.idempotency_key !== "string" || !/^[A-Za-z0-9_.:-]{8,128}$/.test(input.idempotency_key) ||
-      typeof input.max_cost_usd !== "string" || !/^(?:0(?:\.0{1,6})?|1(?:\.0{1,6})?)$/.test(input.max_cost_usd) ||
+      typeof input.max_cost_usd !== "string" || !/^0(?:\.0{1,6})?$/.test(input.max_cost_usd) ||
       !Number.isSafeInteger(input.runtime_seconds) || !input.parameters ||
       typeof input.parameters !== "object" || Array.isArray(input.parameters)) return false;
   if (input.workload === KAGGLE_WORKLOAD) {
