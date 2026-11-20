@@ -78,15 +78,29 @@ async function boundedJson(response) {
 
 export function gatewayDelegationConfigured(env) {
   try {
-    endpoint(env, "experiment_capabilities");
-    decodeBase64(env.GATEWAY_DELEGATION_HMAC_KEY_B64);
-    return typeof env.GATEWAY_DELEGATION_KEY_ID === "string" &&
-      /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(env.GATEWAY_DELEGATION_KEY_ID);
+    // The provider adapter is an authenticated Modal endpoint.  Do not fall
+    // back to the old externally hosted Gateway/PostgreSQL deployment path.
+    const adapterEnv = {
+      ...env,
+      GATEWAY_DELEGATION_URL: env.PROVIDER_ADAPTER_URL,
+      GATEWAY_DELEGATION_KEY_ID: env.PROVIDER_ADAPTER_KEY_ID,
+      GATEWAY_DELEGATION_HMAC_KEY_B64: env.PROVIDER_ADAPTER_HMAC_KEY_B64,
+    };
+    endpoint(adapterEnv, "experiment_capabilities");
+    decodeBase64(adapterEnv.GATEWAY_DELEGATION_HMAC_KEY_B64);
+    return typeof adapterEnv.GATEWAY_DELEGATION_KEY_ID === "string" &&
+      /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(adapterEnv.GATEWAY_DELEGATION_KEY_ID);
   } catch { return false; }
 }
 
 export async function delegateGatewayTool(env, owner, tool, argumentsValue, fetchImpl = fetch, now = null) {
   if (!gatewayDelegationConfigured(env)) throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED");
+  const adapterEnv = {
+    ...env,
+    GATEWAY_DELEGATION_URL: env.PROVIDER_ADAPTER_URL,
+    GATEWAY_DELEGATION_KEY_ID: env.PROVIDER_ADAPTER_KEY_ID,
+    GATEWAY_DELEGATION_HMAC_KEY_B64: env.PROVIDER_ADAPTER_HMAC_KEY_B64,
+  };
   if (typeof owner !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$/.test(owner) ||
       !argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) {
     throw new Error("GATEWAY_DELEGATION_INVALID_ARGUMENTS");
@@ -94,18 +108,18 @@ export async function delegateGatewayTool(env, owner, tool, argumentsValue, fetc
   const issuedAt = now === null ? Math.floor(Date.now() / 1000) : now;
   if (!Number.isSafeInteger(issuedAt) || issuedAt < 0) throw new Error("GATEWAY_DELEGATION_INVALID_ARGUMENTS");
   const payload = {
-    version: 1, key_id: env.GATEWAY_DELEGATION_KEY_ID, owner, tool,
+    version: 1, key_id: adapterEnv.GATEWAY_DELEGATION_KEY_ID, owner, tool,
     arguments: argumentsValue, nonce: randomHex(16), issued_at: issuedAt,
     expires_at: issuedAt + DELEGATION_TTL_SECONDS,
   };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetchImpl(endpoint(env, tool), {
+    const response = await fetchImpl(endpoint(adapterEnv, tool), {
       method: "POST", redirect: "manual", signal: controller.signal,
       headers: {
         "content-type": "application/json",
-        "x-gpu-control-sites-signature": await signature(payload, env.GATEWAY_DELEGATION_HMAC_KEY_B64),
+        "x-gpu-control-sites-signature": await signature(payload, adapterEnv.GATEWAY_DELEGATION_HMAC_KEY_B64),
       },
       body: canonical(payload),
     });

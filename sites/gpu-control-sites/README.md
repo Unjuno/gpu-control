@@ -79,44 +79,41 @@ cleanup before publishing.
 
 ## Target execution architecture
 
-The Site remains the only ChatGPT-facing product and control plane. Modal is the
-first bounded compute provider; Runpod is a later GPU provider that stays behind
-separate authorization, pricing, availability, result-integrity, and cleanup
-gates. D1/R2 lifecycle data must be preserved through the transition.
+The Site remains the only ChatGPT-facing product and control plane. The compute
+providers are exactly Modal, RunPod, Kaggle, and Hugging Face. Each stays behind
+separate authorization, pricing or free-quota, availability, result-integrity,
+and cleanup gates. D1/R2 lifecycle data is authoritative.
 
-### Gateway delegation (staged, disabled by default)
+### Modal provider adapter (staged, disabled by default)
 
-The source includes a fail-closed Sites-to-Gateway transport for the
+The source includes a fail-closed Sites-to-Modal-adapter transport for the
 Kaggle/Hugging Face extension. It is not enabled merely by publishing this
-Site. A reviewed durable Gateway must first be deployed and migrated through
-schema v17, and the Site D1 must be migrated through
-`0014_gateway_delegation.sql`. Configure the Site with
-`GATEWAY_DELEGATION_URL` (an HTTPS origin),
-`GATEWAY_DELEGATION_KEY_ID`, and secret
-`GATEWAY_DELEGATION_HMAC_KEY_B64`. Install the same key ID and secret only in
-the Gateway API environment as `GATEWAY_SITES_DELEGATION_KEY_ID` and
-`GATEWAY_SITES_DELEGATION_HMAC_KEY_B64`; worker processes do not need it.
+Site. D1 must be migrated through `0016_provider_adapter_state.sql`. Configure
+the Site only with `PROVIDER_ADAPTER_URL` (the authenticated Modal HTTPS
+origin), `PROVIDER_ADAPTER_KEY_ID`, and secret
+`PROVIDER_ADAPTER_HMAC_KEY_B64`. Legacy `GATEWAY_*` configuration is rejected.
+Railway, Neon, Vercel, PostgreSQL, and a separately hosted Gateway are not part
+of this execution path.
 
 Every delegated request binds the authenticated Sites owner, canonical tool
 name, exact arguments, a 60-second validity window, and a random nonce. The
-Gateway durably claims the nonce before dispatch and pseudonymizes the Sites
-owner in run rows. Transport authentication alone is deliberately insufficient
-for `experiment_submit`. The candidate stores an owner-bound copy of the exact
-Gateway plan in D1, creates one short-lived ChatGPT write authorization, and
-binds it to the Gateway run before the normal submit path can queue provider
-work. Transport retries reuse that same authorization and cannot bind it to
-another run. Do not advertise live Kaggle/Hugging Face support before
+adapter rejects replay before dispatch. Transport authentication alone is
+deliberately insufficient for `experiment_submit`. Sites stores the exact
+owner-bound provider plan and opaque provider handle in D1, creates one
+short-lived ChatGPT write authorization, and binds it to the run before the
+provider can queue work. Transport retries reuse that same authorization and
+cannot bind it to another run. Do not advertise live Kaggle/Hugging Face before
 deployment, quota checks, private artifact/Space checks, and end-to-end
 recovery acceptance are complete.
 
 ```text
 ChatGPT -> Sites MCP Worker -> owner-scoped D1/R2
                     -> exact-plan ChatGPT write approval -> one-use D1 authorization
-                                    -> signed/replay-safe Gateway API -> PostgreSQL worker
-                                    -> Kaggle training -> private Hugging Face artifact
-                                    -> private ZeroGPU evaluation
-                                    -> authenticated Modal function
-                                    -> Runpod only after live gates pass
+                                    -> authenticated Modal CPU function
+                                    -> RunPod REST v2 after paid gates pass
+                                    -> signed/replay-safe Modal provider adapter
+                                       -> Kaggle training -> private HF artifact
+                                       -> private ZeroGPU evaluation
 ```
 
 The browser confirmation page remains as a fallback. The new ChatGPT path must

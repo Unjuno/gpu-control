@@ -6,9 +6,9 @@ import { canonical, delegateGatewayTool, gatewayDelegationConfigured } from "./g
 
 const key = Buffer.from("sites-delegation-test-key-material-32-bytes");
 const env = {
-  GATEWAY_DELEGATION_URL: "https://gateway.example",
-  GATEWAY_DELEGATION_KEY_ID: "sites-v1",
-  GATEWAY_DELEGATION_HMAC_KEY_B64: key.toString("base64"),
+  PROVIDER_ADAPTER_URL: "https://adapter.example",
+  PROVIDER_ADAPTER_KEY_ID: "sites-v1",
+  PROVIDER_ADAPTER_HMAC_KEY_B64: key.toString("base64"),
 };
 
 test("delegation signs the exact owner, tool, arguments and bounded validity window", async () => {
@@ -21,7 +21,7 @@ test("delegation signs the exact owner, tool, arguments and bounded validity win
     });
   }, 1000);
   assert.equal(result.status, "ok");
-  assert.equal(observed.url, "https://gateway.example/internal/sites/v1/tools/experiment_capabilities");
+  assert.equal(observed.url, "https://adapter.example/internal/sites/v1/tools/experiment_capabilities");
   assert.equal(observed.init.redirect, "manual");
   assert.equal(observed.payload.owner, "owner-123");
   assert.equal(observed.payload.issued_at, 1000);
@@ -33,9 +33,9 @@ test("delegation signs the exact owner, tool, arguments and bounded validity win
 
 test("configuration rejects non-HTTPS origins, URL credentials and weak keys", () => {
   assert.equal(gatewayDelegationConfigured(env), true);
-  assert.equal(gatewayDelegationConfigured({ ...env, GATEWAY_DELEGATION_URL: "http://gateway.example" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, GATEWAY_DELEGATION_URL: "https://u:p@gateway.example" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, GATEWAY_DELEGATION_HMAC_KEY_B64: Buffer.from("weak").toString("base64") }), false);
+  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "http://adapter.example" }), false);
+  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://u:p@adapter.example" }), false);
+  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_HMAC_KEY_B64: Buffer.from("weak").toString("base64") }), false);
 });
 
 test("delegation rejects an oversized response before JSON parsing", async () => {

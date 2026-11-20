@@ -1741,7 +1741,7 @@ test("retired Runner routes stay closed even when a legacy bearer is supplied", 
   }
 });
 
-test("Gateway submit retries reuse one owner-bound ChatGPT authorization", async () => {
+test("provider adapter submit retries reuse one owner-bound ChatGPT authorization", async () => {
   const plans = new Map();
   const authorizations = new Map();
   const delegatedBodies = [];
@@ -1753,9 +1753,9 @@ test("Gateway submit retries reuse one owner-bound ChatGPT authorization", async
   };
   const fingerprint = createHash("sha256").update(canonicalJson(gatewayPlan)).digest("hex");
   const env = environment();
-  env.GATEWAY_DELEGATION_URL = "https://gateway.example";
-  env.GATEWAY_DELEGATION_KEY_ID = "sites-v1";
-  env.GATEWAY_DELEGATION_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
+  env.PROVIDER_ADAPTER_URL = "https://adapter.example";
+  env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
+  env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
   env.DB.prepare = (sql) => ({
     bind(...values) {
       return {
@@ -1780,6 +1780,16 @@ test("Gateway submit retries reuse one owner-bound ChatGPT authorization", async
           if (sql.includes("UPDATE gateway_delegated_plans SET state='submitted'")) {
             const [owner, id] = values;
             plans.get(`${owner}:${id}`).state = "submitted";
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes("SET provider_handle_json=COALESCE")) {
+            const [handleJson, providerState, responseJson, updatedAt, owner, id] = values;
+            Object.assign(plans.get(`${owner}:${id}`), {
+              provider_handle_json: handleJson,
+              provider_state: providerState,
+              provider_response_json: responseJson,
+              updated_at: updatedAt,
+            });
             return { meta: { changes: 1 } };
           }
           throw new Error(`unexpected run query: ${sql}`);
@@ -1822,9 +1832,9 @@ test("Gateway submit retries reuse one owner-bound ChatGPT authorization", async
       commit: "44a1b806160ab5bc721a370d034a6dfcb28f27a8", parameters: {}, runtime_seconds: 300,
       max_cost_usd: "0", idempotency_key: "kaggle-retry-001" };
     const prepared = await toolCall(env, "test-owner", "experiment_prepare", prepareArgs);
-    assert.equal(JSON.parse((await prepared.json()).result.content[0].text).gateway_approved_plan.workload,
+    assert.equal(JSON.parse((await prepared.json()).result.content[0].text).provider_approved_plan.workload,
       "orbitune-kaggle-100-step-v1");
-    const submit = { run_id: runId, plan_fingerprint: fingerprint, gateway_approved_plan: gatewayPlan };
+    const submit = { run_id: runId, plan_fingerprint: fingerprint, provider_approved_plan: gatewayPlan };
     const lost = await toolCall(env, "test-owner", "experiment_submit", submit);
     assert.equal(JSON.parse((await lost.json()).result.content[0].text).error, "GATEWAY_DELEGATION_FAILED");
     const retried = await toolCall(env, "test-owner", "experiment_submit", submit);
@@ -1837,7 +1847,7 @@ test("Gateway submit retries reuse one owner-bound ChatGPT authorization", async
     const listed = await toolCall(env, "test-owner", "experiment_list", {});
     const listedValue = JSON.parse((await listed.json()).result.content[0].text);
     assert.equal(listedValue.error, undefined, JSON.stringify(listedValue));
-    assert.equal(listedValue.machine_state.gateway_delegation.available, true);
+    assert.equal(listedValue.machine_state.provider_adapter.available, true);
     assert.equal(listedValue.machine_state.experiments[0].run_id, runId);
   } finally {
     globalThis.fetch = originalFetch;
