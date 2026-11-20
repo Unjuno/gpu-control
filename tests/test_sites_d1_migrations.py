@@ -54,8 +54,9 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0011_chatgpt_tool_authorization.sql",
         "0012_provider_runtime_state.sql",
         "0013_provider_budgets.sql",
-            "0014_gateway_delegation.sql",
-            "0015_modal_starter_budget.sql",
+        "0014_gateway_delegation.sql",
+        "0015_modal_starter_budget.sql",
+        "0016_provider_adapter_state.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -128,6 +129,10 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
     assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events", "modal_authorized_health_checks", "modal_status_check_limits"} <= tables
+    delegated_columns = {
+        row[1] for row in db.execute("PRAGMA table_info(gateway_delegated_plans)")
+    }
+    assert {"provider_handle_json", "provider_state", "provider_response_json", "updated_at"} <= delegated_columns
     assert db.execute("SELECT provider, provider_plan_json FROM plans WHERE id=?", ("plan-existing",)).fetchone() == ("modal_cpu", None)
     assert db.execute("SELECT provider_job_id, provider_phase, provider_nonce, completion_key_ciphertext_b64 FROM runs WHERE id=?", ("run-existing",)).fetchone() == (None, "not_started", None, None)
     db.execute(
