@@ -1,5 +1,5 @@
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
-const RUNPOD_RELAY_PATH = "/internal/runpod/v1";
+const RUNPOD_RELAY_PATH = "/internal/runpod/v1/proxy";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
 // RunPod's queue API can take longer than a typical control-plane request to
 // acknowledge a cold endpoint. Keep the client timeout aligned with the
@@ -31,7 +31,7 @@ export function runpodConfigured(env) {
 
 function jobTransport(env) {
   const configured = env?.RUNPOD_JOB_ORIGIN;
-  if (configured === undefined || configured === "") return { origin: RUNPOD_JOB_ORIGIN, headers: {} };
+  if (configured === undefined || configured === "") return { origin: RUNPOD_JOB_ORIGIN, headers: {}, relay: false };
   if (typeof configured !== "string" || typeof env?.PROVIDER_ADAPTER_URL !== "string" ||
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_ID ||
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET)
@@ -42,7 +42,7 @@ function jobTransport(env) {
   if (relay.protocol !== "https:" || relay.origin !== adapter.origin || relay.pathname !== RUNPOD_RELAY_PATH ||
       relay.search || relay.hash || relay.username || relay.password)
     throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
-  return { origin: relay.href.replace(/\/$/, ""), headers: {
+  return { origin: relay.href.replace(/\/$/, ""), relay: true, headers: {
     authorization: `Bearer ${env.PROVIDER_ADAPTER_PROXY_TOKEN_ID}.${env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET}`,
   } };
 }
@@ -101,18 +101,19 @@ export class RunpodV2Client {
     // evidence. Current Serverless list price comes from REST v2 Catalog.
     this.maximumHourlyPriceUsd = Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD);
     this.gpuPoolId = env.RUNPOD_SERVERLESS_GPU_POOL_ID; this.sourceSha = env.RUNPOD_WORKLOAD_SOURCE_SHA;
-    const transport = jobTransport(env); this.jobOrigin = transport.origin; this.jobHeaders = transport.headers;
+    const transport = jobTransport(env); this.jobOrigin = transport.origin; this.jobHeaders = transport.headers; this.jobRelay = transport.relay;
     this.fetchImpl = fetchImpl; this.timeoutMs = timeoutMs;
   }
   async request(path, { method = "GET", body = null, expectedStatus = 200 } = {}) {
     if (typeof path !== "string" || !path.startsWith(`/v2/${this.endpointId}/`) || path.includes("..") || path.includes("//"))
       throw new RunpodProviderError("RUNPOD_INVALID_PATH");
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), this.timeoutMs); let response;
-    try { response = await this.fetchImpl(`${this.jobOrigin}${path}`, { method, redirect: "manual",
-      headers: { ...(this.jobOrigin === RUNPOD_JOB_ORIGIN ? { authorization: `Bearer ${this.apiKey}` } :
-        { "x-runpod-authorization": `Bearer ${this.apiKey}` }), accept: "application/json", ...this.jobHeaders,
-        ...(body === null ? {} : { "content-type": "application/json" }) },
-      ...(body === null ? {} : { body: JSON.stringify(body) }), signal: controller.signal });
+    const relayBody = this.jobRelay ? { method, path, authorization: `Bearer ${this.apiKey}`, body } : null;
+    try { response = await this.fetchImpl(this.jobRelay ? this.jobOrigin : `${this.jobOrigin}${path}`, {
+      method: this.jobRelay ? "POST" : method, redirect: "manual",
+      headers: { ...(this.jobRelay ? {} : { authorization: `Bearer ${this.apiKey}` }), accept: "application/json", ...this.jobHeaders,
+        ...((body === null && !this.jobRelay) ? {} : { "content-type": "application/json" }) },
+      ...((body === null && !this.jobRelay) ? {} : { body: JSON.stringify(this.jobRelay ? relayBody : body) }), signal: controller.signal });
       if (response.status >= 300 && response.status <= 399) { await response.body?.cancel(); throw new RunpodProviderError("RUNPOD_REDIRECT_REJECTED", response.status); }
       if (response.status !== expectedStatus) { await response.body?.cancel();
         if (response.ok) throw new RunpodProviderError("RUNPOD_UNEXPECTED_SUCCESS_STATUS", response.status);

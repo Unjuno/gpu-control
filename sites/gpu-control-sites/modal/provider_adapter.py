@@ -387,29 +387,32 @@ async def invoke(tool: str, request: Request):
         return _error("provider_operation_failed", 503)
 
 
-@api.api_route("/internal/runpod/v1/v2/{endpoint_id}/{operation}", methods=["POST"])
-@api.api_route("/internal/runpod/v1/v2/{endpoint_id}/{operation}/{job_id}", methods=["GET", "POST"])
-async def runpod_queue_relay(endpoint_id: str, operation: str, request: Request, job_id: str | None = None):
+@api.post("/internal/runpod/v1/proxy")
+async def runpod_queue_relay(request: Request):
     """Relay only the one registered RunPod endpoint's queue lifecycle."""
-    if endpoint_id != RUNPOD_ENDPOINT_ID:
-        return _error("runpod_endpoint_not_allowed", 403)
     content_length = request.headers.get("content-length")
     if content_length is not None and (not content_length.isdigit() or int(content_length) > MAX_BODY_BYTES):
         return _error("request_too_large", 413)
     body = await request.body()
     if len(body) > MAX_BODY_BYTES:
         return _error("request_too_large", 413)
-    if request.method == "POST" and body:
-        try:
-            if not isinstance(json.loads(body), dict):
-                raise ValueError
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
-            return _error("invalid_json", 400)
     try:
         from runpod_relay import relay, upstream_path
-        path = upstream_path(endpoint_id, operation, job_id)
-        status, response_body, headers = relay(
-            request.method, path, request.headers.get("x-runpod-authorization", ""), body)
+        envelope = json.loads(body)
+        if not isinstance(envelope, dict) or set(envelope) != {"method", "path", "authorization", "body"}:
+            raise ValueError("invalid_request")
+        path_parts = str(envelope["path"]).split("/")
+        if len(path_parts) not in {4, 5} or path_parts[:3] != ["", "v2", RUNPOD_ENDPOINT_ID]:
+            raise ValueError("invalid_endpoint")
+        operation = path_parts[3]
+        job_id = path_parts[4] if len(path_parts) == 5 and operation in {"status", "cancel"} else None
+        if operation == "run" and len(path_parts) == 4:
+            job_id = None
+        path = upstream_path(RUNPOD_ENDPOINT_ID, operation, job_id)
+        if path != envelope["path"] or envelope["method"] not in {"GET", "POST"}:
+            raise ValueError("invalid_request")
+        upstream_body = b"" if envelope["body"] is None else _canonical(envelope["body"])
+        status, response_body, headers = relay(envelope["method"], path, envelope["authorization"], upstream_body)
         return Response(response_body, status_code=status, headers=headers)
     except ValueError as exc:
         code = str(exc)
