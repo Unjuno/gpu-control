@@ -34,27 +34,11 @@ NONCE = re.compile(r"^[0-9a-f]{32}$")
 RUNPOD_ENDPOINT_ID = "wwlos460xbfw5q"
 
 REPOSITORY_ROOT = next(
-    (parent for parent in Path(__file__).resolve().parents if (parent / "gateway" / "gpu_gateway").is_dir()),
+    (parent for parent in Path(__file__).resolve().parents if (parent / "sites" / "gpu-control-sites" / "modal").is_dir()),
     Path("/root"),
 )
-PROVIDER_MODULE_ROOT = REPOSITORY_ROOT / "gateway" / "gpu_gateway"
 MODAL_ROOT = REPOSITORY_ROOT / "sites" / "gpu-control-sites" / "modal"
 WORKLOAD_ROOT = REPOSITORY_ROOT / "gateway" / "workloads"
-
-# The provider adapter deliberately vendors only the reviewed Kaggle/Hugging
-# Face implementation modules.  Copying the old Gateway tree would also ship
-# PostgreSQL, OAuth, worker, and service code that is not part of the Sites
-# control plane and must never become an accidental deployment dependency.
-PROVIDER_MODULES = (
-    "__init__.py",
-    "backends.py",
-    "config.py",
-    "huggingface_artifacts.py",
-    "huggingface_space_backend.py",
-    "kaggle_backend.py",
-    "kaggle_bridge.py",
-    "orbitune_workload.py",
-)
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name("gpu-control-provider-adapter-data", create_if_missing=True)
@@ -77,14 +61,7 @@ adapter_image = (
         f"test \"$(git -C /opt/orbitune-cache/{SOURCE_SHA} rev-parse HEAD)\" = {SOURCE_SHA}",
         f"test -z \"$(git -C /opt/orbitune-cache/{SOURCE_SHA} status --porcelain --untracked-files=all)\"",
     )
-    .run_commands("mkdir -p /root/provider-runtime/gpu_gateway")
 )
-for provider_module in PROVIDER_MODULES:
-    adapter_image = adapter_image.add_local_file(
-        str(PROVIDER_MODULE_ROOT / provider_module),
-        remote_path=f"/root/provider-runtime/gpu_gateway/{provider_module}",
-        copy=True,
-    )
 adapter_image = (
     adapter_image
     .add_local_dir(str(WORKLOAD_ROOT), remote_path="/root/provider-runtime/workloads", copy=True)
@@ -167,17 +144,17 @@ def _service():
         sys.path.insert(0, "/root/provider-runtime")
     if "/root/site-modal" not in sys.path:
         sys.path.insert(0, "/root/site-modal")
-    from gpu_gateway.config import Settings
-    from gpu_gateway.huggingface_artifacts import HuggingFaceArtifactStore
-    from gpu_gateway.huggingface_space_backend import HuggingFaceSpaceBackend
-    from gpu_gateway.kaggle_backend import KaggleBackend
     from modal_gpu_backend import ModalGpuBackend
     from provider_adapter_core import ProviderAdapter
+    from provider_runtime.huggingface_artifacts import HuggingFaceArtifactStore
+    from provider_runtime.huggingface_space_backend import HuggingFaceSpaceBackend
+    from provider_runtime.kaggle_backend import KaggleBackend
+    from provider_runtime.settings import ProviderSettings
 
     kaggle_token = os.environ.get("KAGGLE_API_TOKEN", "")
     hf_write = os.environ.get("HF_ARTIFACT_WRITE_TOKEN", "")
     hf_read = os.environ.get("HF_SPACE_READ_TOKEN", "")
-    settings = Settings(
+    settings = ProviderSettings(
         enable_kaggle=bool(kaggle_token), kaggle_api_token=kaggle_token,
         kaggle_username="UnjunoOrg", kaggle_staging_root="/data/kaggle-stage",
         kaggle_source_cache_root="/opt/orbitune-cache",

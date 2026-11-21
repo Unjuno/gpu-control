@@ -6,45 +6,36 @@ from pathlib import Path
 
 
 ADAPTER = Path(__file__).with_name("provider_adapter.py")
-ALLOWED_PROVIDER_MODULES = {
-    "__init__.py",
-    "backends.py",
-    "config.py",
+PROVIDER_RUNTIME_MODULES = {
+    "contracts.py",
     "huggingface_artifacts.py",
     "huggingface_space_backend.py",
     "kaggle_backend.py",
     "kaggle_bridge.py",
     "orbitune_workload.py",
+    "settings.py",
 }
 
 
-def test_adapter_packages_only_reviewed_provider_modules() -> None:
+def test_adapter_packages_sites_owned_provider_runtime() -> None:
     source = ADAPTER.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    assignments = {
-        node.targets[0].id: ast.literal_eval(node.value)
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id == "PROVIDER_MODULES"
-    }
-
-    assert set(assignments["PROVIDER_MODULES"]) == ALLOWED_PROVIDER_MODULES
-    assert '.add_local_dir(str(GATEWAY_ROOT)' not in source
+    assert "PROVIDER_MODULES" not in source
+    assert "PROVIDER_MODULE_ROOT" not in source
+    assert "gateway/gpu_gateway" not in source
     assert 'remote_path="/root/gateway"' not in source
-    assert "/root/provider-runtime" in source
+    assert 'from provider_runtime.settings import ProviderSettings' in source
+    assert '.add_local_dir(str(MODAL_ROOT), remote_path="/root/site-modal", copy=True)' in source
     assert '.add_local_dir(str(WORKLOAD_ROOT), remote_path="/root/provider-runtime/workloads", copy=True)' in source
 
 
 def test_packaged_modules_do_not_import_gateway_services_or_databases() -> None:
-    repository_root = ADAPTER.parents[3]
-    module_root = repository_root / "gateway" / "gpu_gateway"
+    module_root = ADAPTER.with_name("provider_runtime")
     forbidden = {
         "api", "auth", "database", "local_oauth", "migrations", "service",
         "store", "worker",
     }
-    for name in ALLOWED_PROVIDER_MODULES:
+    assert {path.name for path in module_root.glob("*.py")} >= PROVIDER_RUNTIME_MODULES
+    for name in PROVIDER_RUNTIME_MODULES:
         tree = ast.parse((module_root / name).read_text(encoding="utf-8"))
         imported = set()
         for node in ast.walk(tree):
