@@ -1,6 +1,11 @@
 name: Publish Runpod canary image
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/publish-runpod-canary.yml"
+      - "workloads/runpod-gpu-canary/**"
   workflow_dispatch:
 
 permissions:
@@ -9,7 +14,10 @@ permissions:
 
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    env:
+      SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -25,10 +33,10 @@ jobs:
           file: workloads/runpod-gpu-canary/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/unjuno/gpu-control-runpod-canary:${{ github.sha }}
+          tags: ghcr.io/unjuno/gpu-control-runpod-canary:${{ env.SOURCE_REVISION }}
           build-args: |
             SOURCE_REPOSITORY=${{ github.repository }}
-            SOURCE_REVISION=${{ github.sha }}
+            SOURCE_REVISION=${{ env.SOURCE_REVISION }}
           provenance: mode=max
           sbom: true
       - name: Record immutable digest
