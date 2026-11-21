@@ -8,6 +8,7 @@ export const RUNPOD_RUNTIME_SECONDS = 30;
 export const RUNPOD_BILLABLE_CEILING_SECONDS = 305;
 export const RUNPOD_COST_CEILING_USD = "1.00";
 export const RUNPOD_COST_CEILING_MICROUSD = 1_000_000;
+export const RUNPOD_PLAN_TTL_SECONDS = 600;
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -61,7 +62,7 @@ function configuredOffer(env, checkedAt) {
     availability: "CONFIGURED",
     dataCenterId: env.RUNPOD_SERVERLESS_ENDPOINT_ID,
     checkedAt,
-    validForSeconds: 300,
+    validForSeconds: RUNPOD_PLAN_TTL_SECONDS,
     source: "sites-operator-pinned-serverless-maximum",
   };
 }
@@ -74,7 +75,8 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
   // conservative maximum; submit/result still use the endpoint API and the
   // owner-bound authenticated completion receipt.
   const offer = client === null ? configuredOffer(env, checkedAt) : await client.getVerifiedOffer();
-  if (offer.checkedAt < checkedAt - 30 || offer.checkedAt > checkedAt + 30 || offer.validForSeconds > 300) {
+  if (offer.checkedAt < checkedAt - 30 || offer.checkedAt > checkedAt + 30 ||
+      offer.validForSeconds > RUNPOD_PLAN_TTL_SECONDS) {
     throw new Error("RUNPOD_PRICING_EVIDENCE_INVALID");
   }
   const cost = estimatedCost(offer.hourlyPriceUsd);
@@ -94,7 +96,7 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
   };
   const fingerprint = await sha256(canonical(plan));
   const planId = crypto.randomUUID().replaceAll("-", "");
-  const expiresAt = Math.min(checkedAt + 300, plan.pricing_valid_until);
+  const expiresAt = Math.min(checkedAt + RUNPOD_PLAN_TTL_SECONDS, plan.pricing_valid_until);
   await env.DB.prepare(`INSERT OR IGNORE INTO plans
       (id, owner_id, idempotency_key, fingerprint, workload, repository, source_sha, image_digest,
        parameters_json, runtime_seconds, max_cost_usd, state, created_at, expires_at, provider,
@@ -110,7 +112,7 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
   }
   return {
     schema_version: 2, status: "ok",
-    human_summary: `Runpodの登録済みServerless GPU canary planを準備しました。まだジョブは送信していません。cold start・再試行を含む5分TTLと5秒idleの最悪窓見積りは$${cost.usd}、損失上限は$1.00です。`,
+    human_summary: `Runpodの登録済みServerless GPU canary planを準備しました。まだジョブは送信していません。承認窓は10分、送信後のprovider側実行TTLは5分、5秒idleを含む最悪窓見積りは$${cost.usd}、損失上限は$1.00です。`,
     machine_state: { run_id: persisted.id, state: persisted.state, provider: "runpod_gpu",
       plan_fingerprint: persisted.fingerprint },
     next_allowed_actions: ["experiment_submit"], blocking_reason: null,

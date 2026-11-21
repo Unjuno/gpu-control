@@ -53,6 +53,10 @@ test("default prepare uses the pinned maximum without management API access", as
   assert.equal(result.provider_approved_plan.hourly_price_usd, "0.240000");
   assert.equal(result.provider_approved_plan.pricing_source, "sites-operator-pinned-serverless-maximum");
   assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.020334");
+  assert.equal(result.provider_approved_plan.pricing_valid_until, 1600);
+  assert.equal(result.expires_at, 1600);
+  assert.equal(result.authorization_validity_seconds, 600);
+  assert.match(result.human_summary, /承認窓は10分/);
 });
 
 test("rejects floating images, wrong source, and estimates above the ceiling", async () => {
