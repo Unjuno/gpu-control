@@ -38,7 +38,6 @@ REPOSITORY_ROOT = next(
     Path("/root"),
 )
 MODAL_ROOT = REPOSITORY_ROOT / "sites" / "gpu-control-sites" / "modal"
-WORKLOAD_ROOT = REPOSITORY_ROOT / "gateway" / "workloads"
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name("gpu-control-provider-adapter-data", create_if_missing=True)
@@ -64,7 +63,6 @@ adapter_image = (
 )
 adapter_image = (
     adapter_image
-    .add_local_dir(str(WORKLOAD_ROOT), remote_path="/root/provider-runtime/workloads", copy=True)
     .add_local_dir(str(MODAL_ROOT), remote_path="/root/site-modal", copy=True)
     .env({"PYTHONPATH": "/root/provider-runtime:/root/site-modal"})
 )

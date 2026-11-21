@@ -25,7 +25,10 @@ def test_adapter_packages_sites_owned_provider_runtime() -> None:
     assert 'remote_path="/root/gateway"' not in source
     assert 'from provider_runtime.settings import ProviderSettings' in source
     assert '.add_local_dir(str(MODAL_ROOT), remote_path="/root/site-modal", copy=True)' in source
-    assert '.add_local_dir(str(WORKLOAD_ROOT), remote_path="/root/provider-runtime/workloads", copy=True)' in source
+    assert "WORKLOAD_ROOT" not in source
+    runtime = ADAPTER.with_name("provider_runtime")
+    assert (runtime / "workloads" / "orbitune-kaggle-100" / "train.py").is_file()
+    assert (runtime / "workloads" / "orbitune-zero-gpu-eval" / "app.py").is_file()
 
 
 def test_packaged_modules_do_not_import_gateway_services_or_databases() -> None:
@@ -44,6 +47,18 @@ def test_packaged_modules_do_not_import_gateway_services_or_databases() -> None:
             elif isinstance(node, ast.Import):
                 imported.update(alias.name.rsplit(".", 1)[-1] for alias in node.names)
         assert imported.isdisjoint(forbidden), f"{name} imports a legacy service module"
+
+
+def test_legacy_gateway_compatibility_uses_a_private_fixed_package() -> None:
+    repository_root = ADAPTER.parents[3]
+    helper = (repository_root / "gateway" / "gpu_gateway" / "_sites_provider_runtime.py").read_text(
+        encoding="utf-8",
+    )
+    assert "sys.path.insert" not in helper
+    assert '_PACKAGE = "gpu_gateway._provider_runtime"' in helper
+    for dockerfile in ("Dockerfile", "Dockerfile.worker"):
+        source = (repository_root / "gateway" / dockerfile).read_text(encoding="utf-8")
+        assert "COPY sites/gpu-control-sites/modal/provider_runtime ./provider_runtime" in source
 
 
 def test_slow_submission_uses_durable_idempotent_modal_spawn() -> None:

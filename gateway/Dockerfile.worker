@@ -10,6 +10,7 @@ COPY pyproject.toml README.md /app/
 COPY src/ /app/src/
 RUN pip install --no-cache-dir -r requirements-worker.txt
 COPY gateway/gpu_gateway ./gpu_gateway
+COPY sites/gpu-control-sites/modal/provider_runtime ./provider_runtime
 COPY gateway/workloads ./workloads
 RUN useradd --uid 10001 --create-home worker
 USER worker

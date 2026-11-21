@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN useradd --uid 10001 --create-home gateway
 
 COPY gateway/gpu_gateway ./gpu_gateway
+COPY sites/gpu-control-sites/modal/provider_runtime ./provider_runtime
 COPY gateway/app.py ./app.py
 
 USER gateway

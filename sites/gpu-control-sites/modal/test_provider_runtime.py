@@ -28,6 +28,20 @@ def test_provider_settings_accept_only_fixed_secret_bearing_boundaries(tmp_path:
     settings.validate()
 
 
+def test_provider_settings_redacts_and_separates_secrets() -> None:
+    settings = ProviderSettings(
+        kaggle_api_token="kaggle-secret",
+        hf_space_read_token="hf-secret",
+        hf_artifact_write_token="hf-secret",
+        hf_artifact_repositories=("Unjuno/artifacts",),
+    )
+    rendered = repr(settings)
+    assert "kaggle-secret" not in rendered
+    assert "hf-secret" not in rendered
+    with pytest.raises(ValueError, match="must be distinct"):
+        settings.validate()
+
+
 @pytest.mark.parametrize("change", [
     {"kaggle_staging_root": "relative"},
     {"kaggle_api_token": "token with spaces"},

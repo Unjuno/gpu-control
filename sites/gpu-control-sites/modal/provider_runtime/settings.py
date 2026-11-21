@@ -1,7 +1,7 @@
 """Validated settings required only by Kaggle and Hugging Face adapters."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
@@ -13,13 +13,13 @@ _KAGGLE_USERNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$")
 @dataclass(frozen=True)
 class ProviderSettings:
     enable_kaggle: bool = False
-    kaggle_api_token: str = ""
+    kaggle_api_token: str = field(default="", repr=False, compare=False)
     kaggle_username: str = ""
     kaggle_staging_root: str = ""
     kaggle_source_cache_root: str = ""
     enable_huggingface_space: bool = False
-    hf_space_read_token: str = ""
-    hf_artifact_write_token: str = ""
+    hf_space_read_token: str = field(default="", repr=False, compare=False)
+    hf_artifact_write_token: str = field(default="", repr=False, compare=False)
     hf_artifact_repositories: tuple[str, ...] = ()
     hf_space_allowlist: tuple[str, ...] = ()
     max_output_bytes: int = 65_536
@@ -45,6 +45,9 @@ class ProviderSettings:
                     raise ValueError(f"Kaggle {label} root must be absolute")
         if self.enable_huggingface_space and not self.hf_space_read_token:
             raise ValueError("enabled Hugging Face Space requires a read token")
+        if (self.hf_artifact_write_token and self.hf_space_read_token and
+                self.hf_artifact_write_token == self.hf_space_read_token):
+            raise ValueError("Hugging Face artifact and Space tokens must be distinct")
         for label, resources in (("artifact repository", self.hf_artifact_repositories),
                                  ("Space", self.hf_space_allowlist)):
             if len(resources) > 32 or len(set(resources)) != len(resources) or any(

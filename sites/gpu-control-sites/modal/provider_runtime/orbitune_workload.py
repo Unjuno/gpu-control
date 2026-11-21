@@ -154,7 +154,7 @@ def stage_orbitune_checkout(
         target / "orbitune",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
-    entrypoint = Path(__file__).parents[1] / "workloads" / "orbitune-kaggle-100" / "train.py"
+    entrypoint = Path(__file__).parent / "workloads" / "orbitune-kaggle-100" / "train.py"
     template = entrypoint.read_text(encoding="utf-8")
     if template.count(_BUNDLE_MARKER) != 1 or template.count(_BUNDLE_SHA_MARKER) != 1:
         raise ValueError("registered Orbitune entrypoint bundle markers are invalid")
@@ -216,7 +216,7 @@ def stage_orbitune_zero_gpu_space(
         target / "orbitune",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
-    template_root = Path(__file__).parents[1] / "workloads" / "orbitune-zero-gpu-eval"
+    template_root = Path(__file__).parent / "workloads" / "orbitune-zero-gpu-eval"
     for name in ("README.md", "app.py", "requirements.txt"):
         template = template_root / name
         if not template.is_file() or template.is_symlink():

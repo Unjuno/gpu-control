@@ -1,6 +1,6 @@
 """Compatibility import; production ownership moved to Sites/Modal."""
 import sys
 from . import _sites_provider_runtime  # noqa: F401
-from provider_runtime import huggingface_space_backend as _implementation
+from gpu_gateway._provider_runtime import huggingface_space_backend as _implementation
 
 sys.modules[__name__] = _implementation
