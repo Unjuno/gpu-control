@@ -11,6 +11,8 @@ The reviewed Orbitune source identity for this integration is:
 - workload: `orbitune-kaggle-100-step-v1`
 - data classification: synthetic training fixture
 - steps: exactly 100
+- accelerator: `NvidiaTeslaT4` (Kaggle's generally available GPU T4 x2 pool;
+  the workload uses CUDA device 0 and records the actual device name)
 
 Refresh and review that commit before changing the registered identity. A newer branch tip is never adopted automatically.
 
