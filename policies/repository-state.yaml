@@ -47,6 +47,56 @@ while_parked:
   scheduled_paid_execution_allowed: false
   repository_dispatch_paid_execution_allowed: false
 
+# Credential provisioning is separated from execution activation. This narrow
+# exception permits one least-privilege key to be stored at the trusted Modal
+# adapter boundary so the final deployment can be reviewed without ever
+# placing the key in Sites, GitHub, source, logs, or workload code. It does not
+# enable or authorize a RunPod API call, adapter deployment, admission change,
+# GPU allocation, or spend.
+runpod_credential_provisioning_exception:
+  allowed_while_parked: true
+  purpose: store_one_nonexecuting_endpoint_scoped_runpod_key
+  provider: runpod
+  fixed_resource:
+    type: serverless_endpoint
+    endpoint_id: wwlos460xbfw5q
+  credential:
+    name: gpu-control-modal-relay-wwlos460xbfw5q
+    storage_boundary: modal_secret
+    modal_workspace: unjuno
+    modal_environment: main
+    modal_secret_name: gpu-control-worker
+    modal_secret_key: RUNPOD_API_KEY
+    sites_secret_allowed: false
+    github_secret_allowed: false
+    source_or_log_disclosure_allowed: false
+    workload_access_allowed: false
+  permissions:
+    serverless_endpoint_scope_required: true
+    endpoint_read: true
+    endpoint_write: true
+    rest_api_permissions_allowed: false
+    graphql_permissions_allowed: false
+    account_or_billing_permissions_allowed: false
+    pod_permissions_allowed: false
+    network_volume_permissions_allowed: false
+  activation_boundary:
+    adapter_deploy_allowed: false
+    provider_probe_allowed: false
+    runpod_api_call_allowed: false
+    admission_enable_allowed: false
+    gpu_allocation_allowed: false
+    spend_allowed: false
+    configuration_is_not_execution_authorization: true
+  gates:
+    explicit_current_owner_request_required: true
+    exact_head_ci_required: true
+    independent_security_review_required: true
+    browser_session_must_already_be_owner_authenticated: true
+    secret_value_must_not_be_returned_to_chat_or_tool_output: true
+    post_write_verification_must_use_key_name_and_masked_value_only: true
+    revoke_on_exposure_or_scope_mismatch: true
+
 # Narrow exception for the ChatGPT Sites CPU vertical slice. This does not
 # activate the RunPod/GPU or paid-training path above.
 modal_cpu_smoke_exception:

@@ -29,7 +29,7 @@ Defensive controls must preserve the user's objective whenever a safer path rema
 
 Read `policies/repository-state.yaml` before proposing execution changes. When it says `mode: parked`, the repository is intentionally being held without a fully authorized live GPU path.
 
-While parked, do not create a paid workflow, configure or reference provider secrets for GPU/paid paths, enable RunPod live calls, enable generic external Dockerfile execution, or treat implementation progress as a reason to activate paid compute. Documentation, policy, offline tests, mock-provider work, source validation, and the repository-owned trusted container are still allowed.
+While parked, do not create a paid workflow, configure or reference provider secrets for GPU/paid paths, enable RunPod live calls, enable generic external Dockerfile execution, or treat implementation progress as a reason to activate paid compute. The sole credential-provisioning exception is the exact non-executing, endpoint-scoped RunPod key ceremony in `policies/repository-state.yaml`; it permits storage only after its review gates pass and does not permit an adapter deployment, provider probe, admission change, or paid call. Documentation, policy, offline tests, mock-provider work, source validation, and the repository-owned trusted container are still allowed.
 
 The only external-compute exceptions while parked are the exact lanes in
 `policies/repository-state.yaml`. `modal_cpu_smoke_exception` permits the

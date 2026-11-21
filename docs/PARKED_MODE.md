@@ -32,6 +32,12 @@ While `policies/repository-state.yaml` says `mode: parked`:
 - bare or copied authorization must not become live spend authorization;
 - PR, fork, issue, comment, schedule, `repository_dispatch`, and `pull_request_target` events must not become paid-compute entrypoints.
 
+The only credential exception is the reviewed RunPod provisioning ceremony
+recorded in `policies/repository-state.yaml`. It permits one endpoint-scoped
+key to be stored only in the `unjuno/main` Modal secret boundary, with no value
+returned to chat or logs. It does not permit deploying the RunPod adapter,
+probing the provider, enabling admission, allocating a GPU, or spending funds.
+
 CI cross-checks these invariants against the existing paid, RunPod, agent, context-trust, container, and workflow configuration.
 
 Two exact, non-general exceptions are machine-readable in that policy. The

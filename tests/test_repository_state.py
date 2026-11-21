@@ -87,6 +87,36 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
     assert cpu["credentials"]["deploy_command_must_target_environment"] == "main"
     assert cpu["credentials"]["revoke_deploy_token_immediately_after_deploy"] is True
     assert cpu["credentials"]["credentials_exposed_to_sandbox"] is False
+    provisioning = state["runpod_credential_provisioning_exception"]
+    assert provisioning["allowed_while_parked"] is True
+    assert provisioning["fixed_resource"] == {
+        "type": "serverless_endpoint", "endpoint_id": "wwlos460xbfw5q"}
+    credential = provisioning["credential"]
+    assert credential["storage_boundary"] == "modal_secret"
+    assert credential["modal_workspace"] == "unjuno"
+    assert credential["modal_environment"] == "main"
+    assert credential["modal_secret_name"] == "gpu-control-worker"
+    assert credential["modal_secret_key"] == "RUNPOD_API_KEY"
+    assert credential["sites_secret_allowed"] is False
+    assert credential["github_secret_allowed"] is False
+    assert credential["source_or_log_disclosure_allowed"] is False
+    assert credential["workload_access_allowed"] is False
+    permissions = provisioning["permissions"]
+    assert permissions["serverless_endpoint_scope_required"] is True
+    assert permissions["endpoint_read"] is True
+    assert permissions["endpoint_write"] is True
+    assert all(permissions[name] is False for name in (
+        "rest_api_permissions_allowed", "graphql_permissions_allowed",
+        "account_or_billing_permissions_allowed", "pod_permissions_allowed",
+        "network_volume_permissions_allowed"))
+    activation = provisioning["activation_boundary"]
+    assert activation["configuration_is_not_execution_authorization"] is True
+    assert all(value is False for name, value in activation.items()
+               if name != "configuration_is_not_execution_authorization")
+    gates = provisioning["gates"]
+    assert gates["exact_head_ci_required"] is True
+    assert gates["independent_security_review_required"] is True
+    assert gates["secret_value_must_not_be_returned_to_chat_or_tool_output"] is True
     free_gpu = state["free_gpu_acceptance_exception"]
     assert free_gpu["allowed_while_parked"] is True
     assert free_gpu["purpose"] == "one_authenticated_kaggle_huggingface_vertical"
