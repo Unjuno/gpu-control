@@ -260,8 +260,17 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
   const provider = client ?? new RunpodV2Client(env, { owner });
   const now = Math.floor(Date.now() / 1000);
   if (row.provider_phase === "uncertain") {
-    const recovered = typeof provider.getSubmissionReceipt === "function"
-      ? await provider.getSubmissionReceipt({ runId, planFingerprint: row.fingerprint }) : null;
+    let recovered = null;
+    try {
+      recovered = typeof provider.getSubmissionReceipt === "function"
+        ? await provider.getSubmissionReceipt({ runId, planFingerprint: row.fingerprint }) : null;
+    } catch {
+      // Before the provider-enforced 300 second TTL, retain the uncertain
+      // state: the original submit may have succeeded and must never be sent
+      // twice. After that TTL, no submitted Serverless job can remain live, so
+      // a missing relay receipt cannot prevent deterministic cleanup.
+      if (now <= row.provider_started_at + 300) return row;
+    }
     if (recovered !== null) {
       const receipt = validateSubmittedJob(recovered);
       lease = await transitionProviderAccountLease(env.DB, { accountScopeSha256,

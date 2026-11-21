@@ -154,3 +154,24 @@ test("an ambiguous Serverless submit is never retried and releases after provide
     assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "released");
   } finally { raw.close(); }
 });
+
+test("an unavailable relay receipt cannot strand an ambiguous run after provider TTL", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  client.submitJob = async () => { client.creates += 1; throw new Error("lost response"); };
+  client.getSubmissionReceipt = async () => { throw new Error("receipt unavailable"); };
+  try {
+    const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-receipt-unavailable" }, { client, now: 100 });
+    const submitted = await submitRunpodExperiment(env, "site-owner", {
+      run_id: prepared.run_id, plan_fingerprint: prepared.plan_fingerprint,
+      provider_approved_plan: prepared.provider_approved_plan,
+    }, { client, now: 101, reserveBudget: async () => true });
+    assert.equal(submitted.machine_state.provider_phase, "uncertain");
+    const reconciled = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client });
+    assert.equal(reconciled.state, "failed");
+    assert.equal(reconciled.failure_code, "RUNPOD_AMBIGUOUS_SUBMIT_TTL_ELAPSED");
+    assert.equal(client.creates, 1);
+    assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "released");
+  } finally { raw.close(); }
+});
