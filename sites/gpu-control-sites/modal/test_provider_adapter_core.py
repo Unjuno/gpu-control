@@ -87,6 +87,20 @@ def test_submit_reconciles_kaggle_before_create_and_returns_handle():
     assert result["machine_state"]["provider_handle"] == kaggle.reconciled
 
 
+def test_submission_validation_has_no_provider_side_effect():
+    kaggle = FakeBackend("kaggle")
+    value = prepared()
+    args = submission(value)
+    adapter = ProviderAdapter(kaggle, FakeBackend("huggingface_space"), clock=lambda: 1000)
+    run = adapter.validate_submission("owner-1", args)
+    assert run["id"] == args["run_id"]
+    assert run["fingerprint"] == args["plan_fingerprint"]
+    assert kaggle.started == 0
+    result = adapter.submit_validated(run)
+    assert result["machine_state"]["provider_handle"]["run_id"] == args["run_id"]
+    assert kaggle.started == 1
+
+
 def test_modified_plan_and_expired_authorization_are_rejected():
     value = prepared()
     args = submission(value)

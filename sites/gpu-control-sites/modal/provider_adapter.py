@@ -56,6 +56,7 @@ PROVIDER_MODULES = (
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name("gpu-control-provider-adapter-data", create_if_missing=True)
 nonce_store = modal.Dict.from_name("gpu-control-provider-adapter-nonces", create_if_missing=True)
+submission_store = modal.Dict.from_name("gpu-control-provider-adapter-submissions", create_if_missing=True)
 provider_secret = modal.Secret.from_name("gpu-control-worker")
 adapter_auth_secret = modal.Secret.from_name("gpu-control-provider-adapter-auth")
 
@@ -175,6 +176,139 @@ def _service():
     return ProviderAdapter(kaggle, huggingface)
 
 
+def _submission_binding(owner: str) -> str:
+    return hashlib.sha256(owner.encode("utf-8")).hexdigest()
+
+
+def _queued_handle(run: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "provider": run["plan"]["provider"],
+        "run_id": run["id"],
+        "plan_fingerprint": run["fingerprint"],
+        "transport": "modal_spawn_v1",
+    }
+
+
+def _queued_response(run: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "status": "pending",
+        "human_summary": "登録済み無料providerへの投入を受け付けました。",
+        "machine_state": {
+            "run_id": run["id"], "state": "queued",
+            "provider": run["plan"]["provider"],
+            "provider_handle": _queued_handle(run),
+        },
+        "next_allowed_actions": ["experiment_status", "experiment_cancel"],
+        "blocking_reason": None,
+    }
+
+
+@app.function(
+    image=adapter_image, secrets=[provider_secret, adapter_auth_secret],
+    volumes={"/data": data_volume}, timeout=120, cpu=1, memory=1024,
+    max_containers=1,
+)
+def provider_submit_worker(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Run slow provider submission outside the bounded Sites HTTP request."""
+    run_id = arguments.get("run_id", "")
+    try:
+        service = _service()
+        run = service.validate_submission(owner, arguments)
+        record = submission_store.get(run_id)
+        expected = {
+            "owner_binding_sha256": _submission_binding(owner),
+            "plan_fingerprint": run["fingerprint"],
+        }
+        if not isinstance(record, dict) or any(record.get(key) != value for key, value in expected.items()):
+            raise RuntimeError("submission claim mismatch")
+        submission_store.put(run_id, {**record, "state": "running"})
+        response = service.submit_validated(run)
+        submission_store.put(run_id, {**record, "state": "submitted", "response": response})
+        data_volume.commit()
+        return response
+    except Exception as exc:
+        from provider_adapter_core import AdapterError
+        code = exc.code if isinstance(exc, AdapterError) else "provider_operation_failed"
+        record = submission_store.get(run_id, {})
+        submission_store.put(run_id, {**record, "state": "failed", "error_code": code})
+        return {"schema_version": 2, "status": "error", "code": code}
+
+
+def _async_submit(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    service = _service()
+    run = service.validate_submission(owner, arguments)
+    run_id = run["id"]
+    binding = _submission_binding(owner)
+    claim = {
+        "schema_version": 1, "state": "claimed", "run_id": run_id,
+        "provider": run["plan"]["provider"],
+        "plan_fingerprint": run["fingerprint"],
+        "owner_binding_sha256": binding, "claimed_at": int(time.time()),
+    }
+    inserted = submission_store.put(run_id, claim, skip_if_exists=True)
+    record = claim if inserted else submission_store.get(run_id)
+    if (not isinstance(record, dict) or record.get("owner_binding_sha256") != binding or
+            record.get("plan_fingerprint") != run["fingerprint"] or
+            record.get("provider") != run["plan"]["provider"]):
+        from provider_adapter_core import AdapterError
+        raise AdapterError("submission_identity_conflict", 409)
+    if inserted:
+        try:
+            provider_submit_worker.spawn(owner, arguments)
+        except Exception:
+            submission_store.put(run_id, {**claim, "state": "failed", "error_code": "provider_spawn_failed"})
+            raise
+    if record.get("state") == "submitted" and isinstance(record.get("response"), dict):
+        return record["response"]
+    if record.get("state") == "failed":
+        from provider_adapter_core import AdapterError
+        raise AdapterError(str(record.get("error_code", "provider_operation_failed")), 503)
+    return _queued_response(run)
+
+
+def _async_observe(owner: str, tool: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    handle = arguments.get("provider_handle")
+    if not isinstance(handle, dict) or handle.get("transport") != "modal_spawn_v1":
+        return None
+    run_id = arguments.get("run_id")
+    record = submission_store.get(run_id)
+    if (not isinstance(record, dict) or record.get("owner_binding_sha256") != _submission_binding(owner) or
+            record.get("plan_fingerprint") != handle.get("plan_fingerprint") or
+            record.get("provider") != handle.get("provider")):
+        from provider_adapter_core import AdapterError
+        raise AdapterError("provider_handle_mismatch", 409)
+    if record.get("state") == "failed":
+        return {
+            "schema_version": 2, "status": "error",
+            "human_summary": "providerへの投入に失敗しました。",
+            "machine_state": {"run_id": run_id, "state": "failed", "provider": record["provider"]},
+            "next_allowed_actions": [],
+            "blocking_reason": str(record.get("error_code", "PROVIDER_OPERATION_FAILED")).upper(),
+        }
+    response = record.get("response")
+    actual = response.get("machine_state", {}).get("provider_handle") if isinstance(response, dict) else None
+    if isinstance(actual, dict):
+        return _service().observe(tool, {**arguments, "provider_handle": actual})
+    if tool == "experiment_cancel":
+        return {
+            "schema_version": 2, "status": "blocked",
+            "human_summary": "provider投入処理中のため、状態確定後に取消を再試行してください。",
+            "machine_state": {"run_id": run_id, "state": record.get("state", "queued"),
+                              "provider": record["provider"], "provider_handle": handle},
+            "next_allowed_actions": ["experiment_status"],
+            "blocking_reason": "SUBMISSION_IN_PROGRESS",
+        }
+    return {
+        "schema_version": 2, "status": "pending",
+        "human_summary": "provider投入処理中です。",
+        "machine_state": {"run_id": run_id, "state": record.get("state", "queued"),
+                          "provider": record["provider"], "provider_handle": handle},
+        "next_allowed_actions": ["experiment_status", "experiment_cancel"],
+        "blocking_reason": None,
+    }
+
+
 @api.get("/v1/health")
 def health() -> dict[str, Any]:
     try:
@@ -195,7 +329,14 @@ async def invoke(tool: str, request: Request):
     try:
         owner, verified_tool, arguments = _verify(
             raw, request.headers.get("x-gpu-control-sites-signature"), tool)
-        result = _service().invoke(owner, verified_tool, arguments)
+        if verified_tool == "experiment_submit":
+            result = _async_submit(owner, arguments)
+        elif verified_tool in {"experiment_status", "experiment_result", "experiment_cancel"}:
+            result = _async_observe(owner, verified_tool, arguments)
+            if result is None:
+                result = _service().invoke(owner, verified_tool, arguments)
+        else:
+            result = _service().invoke(owner, verified_tool, arguments)
         if len(_canonical(result)) > MAX_BODY_BYTES:
             return _error("response_too_large", 502)
         data_volume.commit()

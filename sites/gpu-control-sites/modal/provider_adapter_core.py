@@ -198,9 +198,18 @@ class ProviderAdapter:
             next_actions=["experiment_prepare"],
         )
 
-    def submit(self, owner: str, arguments: object) -> dict[str, Any]:
+    def validate_submission(self, owner: str, arguments: object) -> dict[str, Any]:
+        """Validate a submission without contacting an external provider."""
         now = int(self.clock())
-        run = _validated_run(owner, arguments, now)
+        return _validated_run(owner, arguments, now)
+
+    def submit_validated(self, run: Mapping[str, Any]) -> dict[str, Any]:
+        """Perform the slow provider operation for an already validated run.
+
+        The hosted adapter invokes this method in a durable background Modal
+        Function.  Keeping validation separate lets the HTTP request return a
+        bounded queued handle before Kaggle or Hugging Face CLI work begins.
+        """
         provider = run["plan"]["provider"]
         backend = self.kaggle if provider == "kaggle" else self.huggingface
         if backend is None:
@@ -217,6 +226,9 @@ class ProviderAdapter:
             state={"run_id": run["id"], "state": "running", "provider": provider,
                    "provider_handle": handle}, next_actions=["experiment_status", "experiment_cancel"],
         )
+
+    def submit(self, owner: str, arguments: object) -> dict[str, Any]:
+        return self.submit_validated(self.validate_submission(owner, arguments))
 
     def observe(self, tool: str, arguments: object) -> dict[str, Any]:
         if (not isinstance(arguments, dict) or not isinstance(arguments.get("run_id"), str) or
