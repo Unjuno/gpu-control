@@ -13,7 +13,8 @@ SOURCE = HERE / "gpu_canary.py"
 def load_result():
     function = next(node for node in ast.parse(SOURCE.read_text(encoding="utf-8")).body
                     if isinstance(node, ast.FunctionDef) and node.name == "_result")
-    namespace = {"Any": object, "hashlib": hashlib, "json": json, "WORKLOAD": "modal-gpu-vector-add-v1"}
+    namespace = {"Any": object, "hashlib": hashlib, "json": json, "WORKLOAD": "modal-gpu-vector-add-v1",
+                 "CANARY_IMAGE_DIGEST": "sha256:" + "f" * 64}
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(SOURCE), "exec"), namespace)
     return namespace["_result"]
 
@@ -29,8 +30,10 @@ def test_result_binds_gpu_evidence_to_exact_plan() -> None:
     result = load_result()("1" * 32, "3" * 40, "2" * 64, metrics)
 
     assert result["provider"] == "modal_gpu"
+    assert result["image_digest"].startswith("sha256:")
+    assert len(result["image_digest"]) == 71
     assert result["gpu_used"] is True
-    identity = {key: result[key] for key in ("run_id", "source_sha", "plan_fingerprint", "metrics")}
+    identity = {key: result[key] for key in ("run_id", "source_sha", "plan_fingerprint", "image_digest", "metrics")}
     expected = hashlib.sha256(json.dumps(
         identity, sort_keys=True, separators=(",", ":"), allow_nan=False,
     ).encode()).hexdigest()

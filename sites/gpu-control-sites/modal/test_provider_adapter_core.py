@@ -7,13 +7,22 @@ from types import SimpleNamespace
 import pytest
 
 from provider_adapter_core import (
-    AdapterError, HF_WORKLOAD, KAGGLE_WORKLOAD, ProviderAdapter, REPOSITORY,
+    AdapterError, GPU_CONTROL_REPOSITORY, HF_WORKLOAD, KAGGLE_WORKLOAD,
+    MODAL_GPU_IMAGE_DIGEST, MODAL_GPU_SOURCE_SHA, MODAL_GPU_WORKLOAD, ProviderAdapter, REPOSITORY,
     SOURCE_SHA, prepare,
 )
 
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def provider_evidence():
+    value = {"schema_version": 1, "workspace": "unjuno", "environment": "main",
+        "usage_limit_usd": "1.00", "credits_used_usd": "0.15", "charges_usd": "0.00",
+        "gpu": "T4", "hourly_price_usd": "0.000164", "price_source": "https://modal.com/pricing",
+        "verified_at": 900, "expires_at": 1200}
+    return {**value, "evidence_id": hashlib.sha256(canonical(value)).hexdigest()}
 
 
 class FakeBackend:
@@ -136,3 +145,35 @@ def test_terminal_observation_requires_cleanup_and_kaggle_cancel_is_blocked():
     assert observed["machine_state"]["result"]["cleanup_state"] == "confirmed"
     cancelled = adapter.observe("experiment_cancel", {"run_id": args["run_id"], "provider_handle": handle})
     assert cancelled["blocking_reason"] == "CANCELLATION_UNSUPPORTED"
+
+
+def test_modal_gpu_plan_is_fixed_paid_bounded_and_owner_bound():
+    value = prepare("owner-1", {
+        "workload": MODAL_GPU_WORKLOAD, "repository": GPU_CONTROL_REPOSITORY,
+        "commit": MODAL_GPU_SOURCE_SHA, "parameters": {}, "runtime_seconds": 30,
+        "max_cost_usd": "0.01", "idempotency_key": "modal-gpu-test-001",
+        "provider_evidence": provider_evidence(),
+    })
+    plan = value["approved_plan"]
+    assert plan["provider"] == "modal_gpu"
+    assert plan["cost_classification"] == "PAID_BOUNDED"
+    assert plan["max_cost_usd"] == "0.01"
+    assert plan["known_cost_usd"] is None
+    assert plan["image_digest"] == MODAL_GPU_IMAGE_DIGEST
+    assert plan["workload_manifest"]["gpu"] == "T4"
+    assert plan["workload_manifest"]["network"] == "blocked"
+    assert plan["workload_manifest"]["max_runtime_seconds"] == 30
+
+    args = submission(value)
+    modal_gpu = FakeBackend("modal_gpu")
+    result = ProviderAdapter(None, None, modal_gpu, clock=lambda: 1000).submit("owner-1", args)
+    assert result["machine_state"]["provider"] == "modal_gpu"
+    assert modal_gpu.started == 1
+
+    with pytest.raises(AdapterError, match="invalid_arguments"):
+        prepare("owner-1", {
+            "workload": MODAL_GPU_WORKLOAD, "repository": GPU_CONTROL_REPOSITORY,
+            "commit": MODAL_GPU_SOURCE_SHA, "parameters": {}, "runtime_seconds": 30,
+            "max_cost_usd": "1.00", "idempotency_key": "modal-gpu-test-002",
+            "provider_evidence": provider_evidence(),
+        })

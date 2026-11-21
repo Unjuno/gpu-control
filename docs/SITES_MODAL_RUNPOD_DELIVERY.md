@@ -36,6 +36,28 @@ provide model compute. Compute remains an explicitly configured provider.
   admission activation, paid execution, and ChatGPT result retrieval remain
   gated by exact-head review and fresh authorization.
 
+## Current Modal GPU candidate — refreshed 2026-11-21
+
+- `modal-gpu-vector-add-v1` is integrated into the same ChatGPT
+  prepare/submit/status/result/cancel surface through the authenticated Modal
+  provider adapter. It invokes only the separately deployed
+  `gpu-control-modal-gpu-canary/run_canary` function.
+- The function fixes one T4, one embedded CUDA vector-add kernel, one GPU,
+  blocked networking, no attached secrets, single-use containers, and a
+  30-second provider timeout. Result validation binds the Modal call, run ID,
+  plan fingerprint, source revision, workload, GPU evidence, and checksum.
+- D1 keeps a Modal-GPU-specific `$0.01` per-run reservation and `$1` monthly
+  project ceiling plus one active workspace lease. A maximum one-hour structured
+  account record binds the observed Workspace limit, credit usage, charges,
+  exact T4 price, source, and validity window into the approved plan and is
+  rechecked at submit. `MODAL_GPU_WORKLOAD_ADMISSION_ENABLED` is an additional
+  fail-closed environment gate; the Modal Workspace hard limit remains an
+  independent outer stop. Cancellation remains pending until Modal reports the
+  call cancelled; a local cancel request is never treated as cleanup evidence.
+- Offline tests and forward-only migration replay pass. Live deployment remains
+  blocked by Modal's payment-method requirement. No T4 call has been made, so
+  this is implementation evidence, not real-GPU acceptance.
+
 ## Current live state — refreshed 2026-11-15
 
 - ChatGPT Site Version 38 is active at the published URL with public

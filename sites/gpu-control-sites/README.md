@@ -111,11 +111,32 @@ recovery acceptance are complete.
 ChatGPT -> Sites MCP Worker -> owner-scoped D1/R2
                     -> exact-plan ChatGPT write approval -> one-use D1 authorization
                                     -> authenticated Modal CPU function
+                                    -> fixed Modal T4 canary function
                                     -> RunPod REST v2 after paid gates pass
                                     -> signed/replay-safe Modal provider adapter
                                        -> Kaggle training -> private HF artifact
                                        -> private ZeroGPU evaluation
 ```
+
+### Modal GPU candidate
+
+The candidate source registers `modal-gpu-vector-add-v1` as a fifth execution
+route across the four target services. It is not a generic GPU shell: the
+separately deployed Modal app embeds one reviewed CUDA vector-add kernel, fixes
+the GPU to one T4, blocks networking, attaches no secrets, uses single-use
+containers, pins the amd64 Debian base manifest, binds a deterministic build
+digest into the plan/result, and has a 30-second timeout. Sites prepares an
+owner-bound exact plan, requires ChatGPT write confirmation, binds a maximum
+one-hour Workspace usage/charge/limit/T4-price evidence record, reserves
+`$0.01` in a separate Modal-GPU ledger with a `$1` monthly project ceiling, and
+holds one workspace lease through provider-confirmed terminal cleanup. Admission
+stays closed unless `MODAL_GPU_WORKLOAD_ADMISSION_ENABLED=true`. The Modal
+Workspace hard limit remains the independent outer stop.
+
+Offline Worker, adapter, GPU-backend, canary, packaging, migration, and artifact
+tests pass for this candidate. This is not live acceptance: Modal currently
+requires a payment method before the T4 app can be deployed, and no GPU call is
+authorized merely by publishing the Site.
 
 The browser confirmation page remains as a fallback. The new ChatGPT path must
 not infer approval from a prompt or plan preparation alone; the submit tool is

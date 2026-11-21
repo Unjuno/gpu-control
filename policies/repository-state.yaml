@@ -96,6 +96,61 @@ modal_cpu_smoke_exception:
     revoke_deploy_token_immediately_after_deploy: true
     credentials_exposed_to_sandbox: false
 
+# Narrow paid Modal GPU acceptance lane for one fixed CUDA canary. This does
+# not activate generic paid workflows, RunPod, arbitrary images, or training.
+# The exception becomes usable only after this exact policy change and its
+# implementation receive independent security review and exact-head CI.
+modal_gpu_canary_exception:
+  allowed_while_parked: true
+  purpose: one_authenticated_fixed_modal_t4_canary
+  provider: modal
+  environment: main
+  workload:
+    repository: Unjuno/gpu-control
+    source_sha: 7114de2dc2318180ebf2bcc56eaa577e04402858
+    workload_id: modal-gpu-vector-add-v1
+    provider_resource_id: gpu-control-modal-gpu-canary/run_canary
+    image_digest: sha256:b0840d8b2a13e573141e158c50f1f8375a7eb853529172effea49cacfc10c919
+    fixed_gpu: T4
+    fixed_operation: u32_vector_add_4
+  execution_bounds:
+    max_runs_per_authorization: 1
+    max_runtime_seconds: 30
+    max_gpu_count: 1
+    network_egress: blocked
+    provider_secrets_attached_to_gpu_function: false
+    single_use_container: true
+    automatic_retry_after_ambiguous_submit: false
+    require_confirmed_terminal_state_before_next_run: true
+    single_workspace_active_lease_required: true
+    per_run_cost_ceiling_usd: "0.01"
+    monthly_project_cost_ceiling_usd: "1.00"
+    cost_is_usage_billed: true
+  account_guard:
+    require_current_modal_workspace_usage_limit_usd_at_most: "1.00"
+    require_usage_and_charge_state_rechecked_before_run: true
+    provider_evidence_validity_seconds_at_most: 3600
+    exact_plan_must_bind_provider_evidence: true
+    payment_method_change_is_separate_human_action: true
+  authorization:
+    explicit_current_human_request_required: true
+    authenticated_sites_owner_required: true
+    exact_plan_fingerprint_required: true
+    exact_source_sha_required: true
+    chatgpt_mcp_write_confirmation_required: true
+    confirmation_validity_seconds_at_most: 600
+    authorization_consumed_once: true
+    configuration_does_not_authorize_execution: true
+    exact_head_ci_required: true
+    independent_security_review_required: true
+  credentials:
+    allow_existing_sites_provider_adapter_proxy_secret: true
+    allow_temporary_workspace_deploy_token: true
+    maximum_deploy_token_lifetime_minutes: 60
+    deploy_command_must_target_environment: main
+    revoke_deploy_token_immediately_after_deploy: true
+    credentials_exposed_to_gpu_function: false
+
 # Narrow free-provider acceptance lane for the Kaggle/Hugging Face integration.
 # This leaves the repository parked and never authorizes a paid fallback. Each
 # external job/call still requires a fresh, exact owner confirmation after live

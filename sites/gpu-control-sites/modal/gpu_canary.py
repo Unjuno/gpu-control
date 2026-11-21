@@ -17,6 +17,7 @@ import modal
 
 APP_NAME = "gpu-control-modal-gpu-canary"
 WORKLOAD = "modal-gpu-vector-add-v1"
+BASE_IMAGE_DIGEST = "sha256:c67e92c8099ba22853ab4cfda7cfb494d253d6012ca82dee98ba8976772af018"
 RUN_ID = re.compile(r"^[0-9a-f]{32}$")
 SOURCE_SHA = re.compile(r"^[0-9a-f]{40}$")
 FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
@@ -57,7 +58,9 @@ DONE:
 """
 
 app = modal.App(APP_NAME)
-image = modal.Image.debian_slim(python_version="3.12")
+image = modal.Image.from_registry(
+    f"debian:bookworm-slim@{BASE_IMAGE_DIGEST}", add_python="3.12",
+)
 
 
 class CudaError(RuntimeError):
@@ -134,6 +137,7 @@ def _result(run_id: str, source_sha: str, plan_fingerprint: str,
         "run_id": run_id,
         "source_sha": source_sha,
         "plan_fingerprint": plan_fingerprint,
+        "image_digest": CANARY_IMAGE_DIGEST,
         "metrics": metrics,
     }
     return {
@@ -147,6 +151,30 @@ def _result(run_id: str, source_sha: str, plan_fingerprint: str,
             identity, sort_keys=True, separators=(",", ":"), allow_nan=False,
         ).encode("utf-8")).hexdigest(),
     }
+
+
+def _canary_image_digest() -> str:
+    manifest = {
+        "schema_version": 1,
+        "base_image_digest": BASE_IMAGE_DIGEST,
+        "python": "3.12",
+        "ptx_sha256": hashlib.sha256(PTX).hexdigest(),
+        "gpu": "T4",
+        "gpu_count": 1,
+        "cpu": 1,
+        "memory_mib": 512,
+        "timeout_seconds": 30,
+        "max_containers": 1,
+        "network": "blocked",
+        "modal_access": "restricted",
+        "single_use_containers": True,
+    }
+    return "sha256:" + hashlib.sha256(json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+
+
+CANARY_IMAGE_DIGEST = _canary_image_digest()
 
 
 @app.function(

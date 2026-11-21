@@ -60,6 +60,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0017_free_provider_policies.sql",
         "0018_provider_cost_ceiling.sql",
         "0019_runpod_reconciliation_heartbeat.sql",
+        "0020_modal_gpu_budget.sql",
     ]
 
     db = sqlite3.connect(":memory:")

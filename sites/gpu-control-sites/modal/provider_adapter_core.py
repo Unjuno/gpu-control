@@ -1,8 +1,8 @@
 """Stateless registered-provider protocol for the Modal adapter.
 
 Sites/D1 owns plans, authorization and durable run state.  This module accepts
-only the two reviewed free-provider manifests and returns an opaque handle that
-Sites persists.  It deliberately has no database or arbitrary execution API.
+only reviewed fixed-provider manifests and returns an opaque handle that Sites
+persists.  It deliberately has no database or arbitrary execution API.
 """
 from __future__ import annotations
 
@@ -16,8 +16,12 @@ from typing import Any, Mapping
 
 KAGGLE_WORKLOAD = "orbitune-kaggle-100-step-v1"
 HF_WORKLOAD = "orbitune-zero-gpu-eval-v1"
+MODAL_GPU_WORKLOAD = "modal-gpu-vector-add-v1"
 REPOSITORY = "Unjuno/orbitune"
 SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
+GPU_CONTROL_REPOSITORY = "Unjuno/gpu-control"
+MODAL_GPU_SOURCE_SHA = "7114de2dc2318180ebf2bcc56eaa577e04402858"
+MODAL_GPU_IMAGE_DIGEST = "sha256:b0840d8b2a13e573141e158c50f1f8375a7eb853529172effea49cacfc10c919"
 KAGGLE_IMAGE = "sha256:3f764ee4d610edfbe6b07769538ffbae8413b9df47c05af783245d65c7c21bed"
 HF_IMAGE = "sha256:5d0757c0c6d35514bdd26618a11e028b635d766612c18404551007b2c168ac68"
 HF_REVISION = "2e9df7dcd8815cf3059ae94ce6504315e63a85ab"
@@ -65,28 +69,60 @@ def _envelope(*, status: str, summary: str, state: Mapping[str, Any],
 def _validate_prepare(arguments: object) -> dict[str, Any]:
     required = {"workload", "repository", "commit", "parameters",
                 "runtime_seconds", "max_cost_usd", "idempotency_key"}
-    if not isinstance(arguments, dict) or set(arguments) != required:
+    if not isinstance(arguments, dict) or frozenset(arguments) not in {frozenset(required), frozenset(required | {"provider_evidence"})}:
         raise AdapterError("invalid_arguments")
-    if (arguments["repository"] != REPOSITORY or arguments["commit"] != SOURCE_SHA or
-            not isinstance(arguments["idempotency_key"], str) or
+    if (not isinstance(arguments["idempotency_key"], str) or
             _IDEMPOTENCY.fullmatch(arguments["idempotency_key"]) is None or
-            arguments["max_cost_usd"] not in {"0", "0.0", "0.00", "0.000", "0.0000", "0.00000", "0.000000"} or
             type(arguments["runtime_seconds"]) is not int or
             not isinstance(arguments["parameters"], dict)):
         raise AdapterError("invalid_arguments")
     workload = arguments["workload"]
     if workload == KAGGLE_WORKLOAD:
-        if arguments["parameters"] or not 1 <= arguments["runtime_seconds"] <= 1800:
+        if (arguments["repository"] != REPOSITORY or arguments["commit"] != SOURCE_SHA or
+                "provider_evidence" in arguments or
+                arguments["max_cost_usd"] not in {"0", "0.0", "0.00", "0.000", "0.0000", "0.00000", "0.000000"} or
+                arguments["parameters"] or not 1 <= arguments["runtime_seconds"] <= 1800):
             raise AdapterError("invalid_arguments")
     elif workload == HF_WORKLOAD:
         parameters = arguments["parameters"]
-        if (not 1 <= arguments["runtime_seconds"] <= 60 or
+        if (arguments["repository"] != REPOSITORY or arguments["commit"] != SOURCE_SHA or
+                "provider_evidence" in arguments or
+                arguments["max_cost_usd"] not in {"0", "0.0", "0.00", "0.000", "0.0000", "0.00000", "0.000000"} or
+                not 1 <= arguments["runtime_seconds"] <= 60 or
                 set(parameters) != {"artifact_repo_id", "artifact_revision", "artifact_path", "artifact_sha256"} or
                 not isinstance(parameters["artifact_repo_id"], str) or _REPO.fullmatch(parameters["artifact_repo_id"]) is None or
                 parameters["artifact_repo_id"] != "Unjuno/gpu-control-orbitune-artifacts" or
                 not isinstance(parameters["artifact_revision"], str) or re.fullmatch(r"[0-9a-f]{40}", parameters["artifact_revision"]) is None or
                 not isinstance(parameters["artifact_path"], str) or _ARTIFACT_PATH.fullmatch(parameters["artifact_path"]) is None or
                 not isinstance(parameters["artifact_sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", parameters["artifact_sha256"]) is None):
+            raise AdapterError("invalid_arguments")
+    elif workload == MODAL_GPU_WORKLOAD:
+        evidence = arguments.get("provider_evidence")
+        if (arguments["repository"] != GPU_CONTROL_REPOSITORY or
+                arguments["commit"] != MODAL_GPU_SOURCE_SHA or
+                arguments["max_cost_usd"] != "0.01" or arguments["parameters"] or
+                arguments["runtime_seconds"] != 30 or
+                not isinstance(evidence, dict) or
+                set(evidence) != {"schema_version", "workspace", "environment", "usage_limit_usd",
+                                  "credits_used_usd", "charges_usd", "gpu", "hourly_price_usd",
+                                  "price_source", "verified_at", "expires_at", "evidence_id"} or
+                evidence["schema_version"] != 1 or evidence["workspace"] != "unjuno" or
+                evidence["environment"] != "main" or evidence["usage_limit_usd"] != "1.00" or
+                not isinstance(evidence["credits_used_usd"], str) or
+                re.fullmatch(r"(?:0|[1-9][0-9]*)\.[0-9]{2}", evidence["credits_used_usd"]) is None or
+                not isinstance(evidence["charges_usd"], str) or
+                re.fullmatch(r"(?:0|[1-9][0-9]*)\.[0-9]{2}", evidence["charges_usd"]) is None or
+                evidence["gpu"] != "T4" or not isinstance(evidence["hourly_price_usd"], str) or
+                re.fullmatch(r"0\.[0-9]{6}", evidence["hourly_price_usd"]) is None or
+                float(evidence["hourly_price_usd"]) <= 0 or evidence["price_source"] != "https://modal.com/pricing" or
+                type(evidence["verified_at"]) is not int or type(evidence["expires_at"]) is not int or
+                evidence["verified_at"] < 0 or evidence["expires_at"] <= evidence["verified_at"] or
+                evidence["expires_at"] - evidence["verified_at"] > 3600 or
+                not isinstance(evidence["evidence_id"], str) or
+                re.fullmatch(r"[0-9a-f]{64}", evidence["evidence_id"]) is None):
+            raise AdapterError("invalid_arguments")
+        evidence_body = {key: value for key, value in evidence.items() if key != "evidence_id"}
+        if hashlib.sha256(canonical(evidence_body)).hexdigest() != evidence["evidence_id"]:
             raise AdapterError("invalid_arguments")
     else:
         raise AdapterError("workload_not_registered", 404)
@@ -100,11 +136,18 @@ def _manifest(workload: str) -> dict[str, Any]:
             "source_repository": REPOSITORY, "source_sha": SOURCE_SHA,
             "provider_resource_id": KAGGLE_RESOURCE, "gpu": "NvidiaL4",
         }
-    return {
+    if workload == HF_WORKLOAD:
+        return {
         "provider": "huggingface_space", "image_digest": HF_IMAGE,
         "source_repository": REPOSITORY, "source_sha": SOURCE_SHA,
         "source_revision": HF_REVISION, "provider_resource_id": HF_RESOURCE,
         "gpu": "zero-gpu-large",
+        }
+    return {
+        "provider": "modal_gpu", "source_repository": GPU_CONTROL_REPOSITORY,
+        "source_sha": MODAL_GPU_SOURCE_SHA, "provider_resource_id": "gpu-control-modal-gpu-canary/run_canary",
+        "image_digest": MODAL_GPU_IMAGE_DIGEST, "gpu": "T4", "gpu_count": 1,
+        "network": "blocked", "max_runtime_seconds": 30,
     }
 
 
@@ -113,11 +156,13 @@ def prepare(owner: str, arguments: object) -> dict[str, Any]:
     manifest = _manifest(args["workload"])
     plan = {
         "schema_version": 2, "workload": args["workload"],
-        "provider": manifest["provider"], "repository": REPOSITORY,
-        "source_sha": SOURCE_SHA, "parameters": args["parameters"],
-        "runtime_seconds": args["runtime_seconds"], "max_cost_usd": "0",
-        "known_cost_usd": "0", "cost_classification": "FREE_QUOTA",
-        "paid_fallback_allowed": False, "image_digest": manifest["image_digest"],
+        "provider": manifest["provider"], "repository": args["repository"],
+        "source_sha": args["commit"], "parameters": args["parameters"],
+        "runtime_seconds": args["runtime_seconds"], "max_cost_usd": args["max_cost_usd"],
+        "known_cost_usd": "0" if manifest["provider"] != "modal_gpu" else None,
+        "cost_classification": "FREE_QUOTA" if manifest["provider"] != "modal_gpu" else "PAID_BOUNDED",
+        "paid_fallback_allowed": False, "image_digest": manifest.get("image_digest"),
+        "provider_evidence": args.get("provider_evidence"),
         "workload_manifest": manifest,
         "owner_binding_sha256": hashlib.sha256(owner.encode("utf-8")).hexdigest(),
     }
@@ -127,7 +172,8 @@ def prepare(owner: str, arguments: object) -> dict[str, Any]:
         "plan_fingerprint": fingerprint,
     })).hexdigest()[:32]
     return _envelope(
-        status="ok", summary="無料枠だけを使う登録済み実験planを準備しました。",
+        status="ok", summary=("上限付きModal GPU実験planを準備しました。" if manifest["provider"] == "modal_gpu"
+                              else "無料枠だけを使う登録済み実験planを準備しました。"),
         state={"run_id": run_id, "state": "prepared", "plan_fingerprint": fingerprint},
         next_actions=["experiment_submit"], approved_plan=plan,
     )
@@ -144,18 +190,19 @@ def _validated_run(owner: str, arguments: object, now: int) -> dict[str, Any]:
     expected_keys = {"schema_version", "workload", "provider", "repository", "source_sha",
                      "parameters", "runtime_seconds", "max_cost_usd", "known_cost_usd",
                      "cost_classification", "paid_fallback_allowed", "image_digest",
-                     "workload_manifest", "owner_binding_sha256"}
+                     "provider_evidence", "workload_manifest", "owner_binding_sha256"}
     if (not isinstance(run_id, str) or _RUN_ID.fullmatch(run_id) is None or
             not isinstance(fingerprint, str) or _FINGERPRINT.fullmatch(fingerprint) is None or
             not isinstance(plan, dict) or set(plan) != expected_keys or _fingerprint(plan) != fingerprint or
-            plan.get("workload") not in {KAGGLE_WORKLOAD, HF_WORKLOAD} or
-            plan.get("repository") != REPOSITORY or plan.get("source_sha") != SOURCE_SHA or
+            plan.get("workload") not in {KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD} or
             plan.get("workload_manifest") != _manifest(plan.get("workload")) or
             plan.get("provider") != plan["workload_manifest"]["provider"] or
-            plan.get("image_digest") != plan["workload_manifest"]["image_digest"] or
-            plan.get("schema_version") != 2 or plan.get("max_cost_usd") != "0" or
-            plan.get("known_cost_usd") != "0" or plan.get("paid_fallback_allowed") is not False or
-            plan.get("cost_classification") != "FREE_QUOTA" or
+            plan.get("image_digest") != plan["workload_manifest"].get("image_digest") or
+            plan.get("schema_version") != 2 or plan.get("paid_fallback_allowed") is not False or
+            ((plan.get("provider") == "modal_gpu" and (plan.get("max_cost_usd") != "0.01" or
+              plan.get("known_cost_usd") is not None or plan.get("cost_classification") != "PAID_BOUNDED")) or
+             (plan.get("provider") != "modal_gpu" and (plan.get("max_cost_usd") != "0" or
+              plan.get("known_cost_usd") != "0" or plan.get("cost_classification") != "FREE_QUOTA"))) or
             plan.get("owner_binding_sha256") != hashlib.sha256(owner.encode("utf-8")).hexdigest() or
             not isinstance(authorization, dict) or
             set(authorization) != {"authorization_id", "source", "authorized_at", "expires_at"} or
@@ -172,10 +219,16 @@ def _validated_run(owner: str, arguments: object, now: int) -> dict[str, Any]:
             "workload": plan["workload"], "repository": plan["repository"],
             "commit": plan["source_sha"], "parameters": plan["parameters"],
             "runtime_seconds": plan["runtime_seconds"], "max_cost_usd": plan["max_cost_usd"],
+            **({"provider_evidence": plan["provider_evidence"]} if plan["provider"] == "modal_gpu" else {}),
             "idempotency_key": "adapter-validation",
         })
     except AdapterError as exc:
         raise AdapterError("plan_or_authorization_invalid", 409) from exc
+    if plan["provider"] == "modal_gpu":
+        evidence = plan["provider_evidence"]
+        if (evidence["verified_at"] > now or evidence["expires_at"] < now or
+                round((float(evidence["credits_used_usd"]) + float(evidence["charges_usd"]) + 0.01) * 100) > 100):
+            raise AdapterError("provider_evidence_expired_or_exhausted", 409)
     return {
         "id": run_id, "fingerprint": fingerprint, "plan": plan,
         "registered_workload_manifest": plan["workload_manifest"], "started_at": now,
@@ -186,6 +239,7 @@ def _validated_run(owner: str, arguments: object, now: int) -> dict[str, Any]:
 class ProviderAdapter:
     kaggle: Any
     huggingface: Any
+    modal_gpu: Any = None
     clock: Any = time.time
 
     def capabilities(self) -> dict[str, Any]:
@@ -194,7 +248,8 @@ class ProviderAdapter:
             state={"providers": [
                 {"id": "kaggle", "configured": self.kaggle is not None, "paid_fallback": False},
                 {"id": "huggingface_space", "configured": self.huggingface is not None, "paid_fallback": False},
-            ], "workloads": [KAGGLE_WORKLOAD, HF_WORKLOAD]},
+                {"id": "modal_gpu", "configured": self.modal_gpu is not None, "paid_fallback": False},
+            ], "workloads": [KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD]},
             next_actions=["experiment_prepare"],
         )
 
@@ -211,7 +266,8 @@ class ProviderAdapter:
         bounded queued handle before Kaggle or Hugging Face CLI work begins.
         """
         provider = run["plan"]["provider"]
-        backend = self.kaggle if provider == "kaggle" else self.huggingface
+        backend = (self.kaggle if provider == "kaggle" else self.huggingface
+                   if provider == "huggingface_space" else self.modal_gpu if provider == "modal_gpu" else None)
         if backend is None:
             raise AdapterError("provider_not_configured", 503)
         handle = None
@@ -237,7 +293,8 @@ class ProviderAdapter:
             raise AdapterError("invalid_arguments")
         handle = arguments["provider_handle"]
         provider = handle.get("provider")
-        backend = self.kaggle if provider == "kaggle" else self.huggingface if provider == "huggingface_space" else None
+        backend = (self.kaggle if provider == "kaggle" else self.huggingface
+                   if provider == "huggingface_space" else self.modal_gpu if provider == "modal_gpu" else None)
         if backend is None:
             raise AdapterError("provider_not_configured", 503)
         if handle.get("run_id") != arguments["run_id"]:
@@ -264,7 +321,9 @@ class ProviderAdapter:
         actions = ["experiment_result"] if state == "succeeded" else ["experiment_status"] if state == "running" else []
         return _envelope(status=status, summary="provider状態を確認しました。",
             state={"run_id": arguments["run_id"], "state": state, "provider": provider,
-                   "provider_handle": handle, **({"result": result} if result is not None else {})},
+                   "provider_handle": handle,
+                   **({"cleanup_state": "confirmed"} if state != "running" else {}),
+                   **({"result": result} if result is not None else {})},
             next_actions=actions, **({"result": result} if tool == "experiment_result" and result is not None else {}))
 
     def invoke(self, owner: str, tool: str, arguments: object) -> dict[str, Any]:

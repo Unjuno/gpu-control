@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import worker from "./index.js";
+import worker, { modalGpuProviderEvidence, reserveModalGpuLease } from "./index.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
@@ -597,13 +597,13 @@ test("read-only capabilities do not call Modal", async () => {
     assert.deepEqual(result.machine_state.provider_health_checks, { configured: true, deferred_until_authorized_submit: true });
     assert.equal(result.machine_state.available, true);
     assert.deepEqual(result.providers.map((provider) => provider.id),
-      ["modal_cpu", "runpod_gpu", "kaggle", "huggingface_space"]);
+      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space"]);
     assert.equal(result.providers[1].enabled, false);
     assert.equal(result.providers[1].configured, false);
     assert.deepEqual(result.workloads.map((workload) => workload.id),
-      ["tiny-stories-inference-v1", "runpod-gpu-canary-v1",
+      ["tiny-stories-inference-v1", "runpod-gpu-canary-v1", "modal-gpu-vector-add-v1",
         "orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"]);
-    assert.deepEqual(result.provider_budgets.slice(2), [
+    assert.deepEqual(result.provider_budgets.slice(3), [
       { provider: "kaggle", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
         paid_fallback_allowed: false },
       { provider: "huggingface_space", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
@@ -615,7 +615,7 @@ test("read-only capabilities do not call Modal", async () => {
   }
 });
 
-test("capabilities exposes all four providers and enables only configured free routes", async () => {
+test("capabilities exposes all provider routes and enables only configured routes", async () => {
   const env = environment();
   env.PROVIDER_ADAPTER_URL = "https://adapter.example";
   env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
@@ -630,20 +630,57 @@ test("capabilities exposes all four providers and enables only configured free r
       machine_state: { providers: [
         { id: "kaggle", configured: true, paid_fallback: false },
         { id: "huggingface_space", configured: false, paid_fallback: false },
-      ], workloads: ["orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"] },
+        { id: "modal_gpu", configured: true, paid_fallback: false },
+      ], workloads: ["orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1", "modal-gpu-vector-add-v1"] },
     }), { status: 200, headers: { "content-type": "application/json" } });
     const result = await capabilities(env);
     assert.deepEqual(result.providers.map((provider) => provider.id),
-      ["modal_cpu", "runpod_gpu", "kaggle", "huggingface_space"]);
-    assert.equal(result.providers[2].enabled, true);
-    assert.equal(result.providers[2].blocker, null);
-    assert.equal(result.providers[3].enabled, false);
-    assert.equal(result.providers[3].blocker, "FREE_PROVIDER_NOT_CONFIGURED");
+      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space"]);
+    assert.equal(result.providers[1].configured, true);
+    assert.equal(result.providers[1].enabled, false);
+    assert.equal(result.providers[1].blocker, "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED");
+    assert.equal(result.providers[3].enabled, true);
+    assert.equal(result.providers[3].blocker, null);
+    assert.equal(result.providers[4].enabled, false);
+    assert.equal(result.providers[4].blocker, "FREE_PROVIDER_NOT_CONFIGURED");
     assert.equal(result.workloads.find((item) => item.id === "orbitune-kaggle-100-step-v1").enabled, true);
     assert.equal(result.workloads.find((item) => item.id === "orbitune-zero-gpu-eval-v1").enabled, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("Modal GPU account evidence is exact, short-lived, and leaves one cent of headroom", async () => {
+  const body = { schema_version: 1, workspace: "unjuno", environment: "main",
+    usage_limit_usd: "1.00", credits_used_usd: "0.15", charges_usd: "0.00",
+    gpu: "T4", hourly_price_usd: "0.000164", price_source: "https://modal.com/pricing",
+    verified_at: 900, expires_at: 1200 };
+  const evidence = { ...body, evidence_id: createHash("sha256").update(canonicalJson(body)).digest("hex") };
+  assert.deepEqual(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON: JSON.stringify(evidence) }, 1000), evidence);
+  assert.equal(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON: JSON.stringify(evidence) }, 1201), null);
+  const exhausted = { ...body, credits_used_usd: "1.00" };
+  exhausted.evidence_id = createHash("sha256").update(canonicalJson(exhausted)).digest("hex");
+  assert.equal(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON: JSON.stringify(exhausted) }, 1000), null);
+  assert.equal(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON: JSON.stringify({ ...evidence,
+    hourly_price_usd: "0.000165" }) }, 1000), null);
+});
+
+test("Modal GPU active lease serializes distinct plans and permits exact retry", async () => {
+  let lease = null;
+  const env = { DB: { prepare(sql) { return {
+    bind(...values) { return { async run() {
+      if (sql.includes("INSERT OR IGNORE INTO modal_gpu_active_lease")) {
+        if (lease) return { meta: { changes: 0 } };
+        lease = { run_id: values[0], plan_fingerprint: values[1], state: "submitting" };
+        return { meta: { changes: 1 } };
+      }
+      throw new Error("unexpected lease write");
+    } }; },
+    async first() { return lease; },
+  }; } } };
+  assert.equal(await reserveModalGpuLease(env, { runId: "a".repeat(32), fingerprint: "b".repeat(64), now: 1000 }), true);
+  assert.equal(await reserveModalGpuLease(env, { runId: "a".repeat(32), fingerprint: "b".repeat(64), now: 1001 }), true);
+  assert.equal(await reserveModalGpuLease(env, { runId: "c".repeat(32), fingerprint: "d".repeat(64), now: 1002 }), false);
 });
 
 test("authorized submission still bounds and cancels oversized Modal health responses", async () => {
@@ -1391,7 +1428,8 @@ test("advertises the bounded registered inference contract", async () => {
   const tools = await listTools(environment());
   const prepare = tools.find((tool) => tool.name === "experiment_prepare");
   assert.deepEqual(prepare.inputSchema.properties.workload.enum,
-    ["tiny-stories-inference-v1", "runpod-gpu-canary-v1", "orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"]);
+    ["tiny-stories-inference-v1", "runpod-gpu-canary-v1", "orbitune-kaggle-100-step-v1",
+      "orbitune-zero-gpu-eval-v1", "modal-gpu-vector-add-v1"]);
   assert.equal(prepare.inputSchema.properties.max_cost_usd.pattern, "^(?:0(?:\\.[0-9]{1,6})?|1(?:\\.0{1,6})?)$");
   const modalParameters = prepare.inputSchema.properties.parameters.oneOf[0];
   assert.deepEqual(modalParameters.required, ["max_new_tokens", "prompt", "seed"]);

@@ -1,4 +1,4 @@
-"""Authenticated Modal adapter for registered Kaggle and Hugging Face work.
+"""Authenticated Modal adapter for registered external and Modal GPU work.
 
 This is infrastructure for two of the four compute providers, not another
 provider or a general Gateway.  It has no PostgreSQL dependency and no API for
@@ -170,6 +170,7 @@ def _service():
     from gpu_gateway.huggingface_artifacts import HuggingFaceArtifactStore
     from gpu_gateway.huggingface_space_backend import HuggingFaceSpaceBackend
     from gpu_gateway.kaggle_backend import KaggleBackend
+    from modal_gpu_backend import ModalGpuBackend
     from provider_adapter_core import ProviderAdapter
 
     kaggle_token = os.environ.get("KAGGLE_API_TOKEN", "")
@@ -188,7 +189,7 @@ def _service():
     settings.validate()
     kaggle = KaggleBackend(settings, artifact_store=HuggingFaceArtifactStore(settings)) if kaggle_token else None
     huggingface = HuggingFaceSpaceBackend(settings) if hf_read else None
-    return ProviderAdapter(kaggle, huggingface)
+    return ProviderAdapter(kaggle, huggingface, ModalGpuBackend())
 
 
 def _submission_binding(owner: str) -> str:
@@ -345,7 +346,7 @@ def health() -> dict[str, Any]:
     except RuntimeError:
         return {"ready": False, "provider_adapter": True, "auth_configured": False}
     return {"ready": True, "provider_adapter": True, "auth_configured": True,
-            "key_id": key_id, "providers": ["kaggle", "huggingface_space"],
+            "key_id": key_id, "providers": ["kaggle", "huggingface_space", "modal_gpu"],
             "paid_fallback": False}
 
 
