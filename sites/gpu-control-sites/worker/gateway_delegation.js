@@ -1,5 +1,10 @@
 const DELEGATION_TTL_SECONDS = 60;
-const REQUEST_TIMEOUT_MS = 10000;
+// The authenticated Modal adapter can cold-start in roughly the same window as
+// the Modal control API.  Keep the request bounded, but allow the adapter to
+// finish authentication, volume initialization, and its idempotent submission
+// claim before the Sites edge aborts the transport.  Provider work itself is
+// spawned asynchronously and is not covered by this HTTP timeout.
+const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const TOOL = /^experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)$/;
 
