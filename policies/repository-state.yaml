@@ -113,6 +113,67 @@ runpod_credential_provisioning_exception:
     provider_call_after_provisioning: false
     gpu_allocation_after_provisioning: false
 
+# Narrow live exception for the registered ChatGPT Sites RunPod serverless
+# canary.  This does not activate the legacy generic Pod/training path above,
+# CI-triggered execution, arbitrary images, or account-wide RunPod access.
+# Every run remains owner-bound, exact-plan-bound, one-use, and subject to the
+# provider-specific D1 lease and cleanup gates.
+runpod_serverless_canary_exception:
+  allowed_while_parked: true
+  purpose: authenticated_fixed_runpod_serverless_gpu_canary
+  provider: runpod
+  control_plane: chatgpt_sites
+  fixed_resource:
+    type: serverless_endpoint
+    endpoint_id: wwlos460xbfw5q
+  workload:
+    repository: Unjuno/gpu-control
+    source_sha: 44cc4501afeb6c1fd2d977859980c05f830f58a1
+    workload_id: runpod-gpu-canary-v1
+    image_digest: sha256:0f952ae240e6044bb75ebca29c11dd4c526cd69aeea35decbba76c2d516b1c49
+    gpu_count: 1
+    reviewed_gpu: NVIDIA RTX 2000 Ada Generation
+  execution_bounds:
+    max_runs_per_authorization: 1
+    max_runtime_seconds: 30
+    per_run_cost_ceiling_usd: "1.00"
+    max_inflight: 1
+    generic_pod_creation_allowed: false
+    arbitrary_image_allowed: false
+    automatic_retry_after_ambiguous_submit: false
+    require_confirmed_cleanup_before_next_run: true
+  authorization:
+    explicit_current_human_request_required: true
+    authenticated_sites_owner_required: true
+    exact_plan_fingerprint_required: true
+    chatgpt_mcp_write_confirmation_required: true
+    confirmation_validity_seconds_at_most: 600
+    authorization_consumed_atomically_with_run_reservation: true
+    max_runs_per_authorization: 1
+  transport_security:
+    endpoint_scoped_key_required: true
+    credential_storage_boundary: modal_secret
+    sites_secret_allowed: false
+    short_lived_hmac_envelope_required: true
+    nonce_replay_rejection_required: true
+    owner_run_plan_binding_required: true
+    one_use_submission_claim_required: true
+    provider_credential_returned_to_chat: false
+  release_gates:
+    exact_head_ci_required: true
+    independent_security_review_required: true
+    immutable_source_and_image_required: true
+    confirmed_cleanup_required: true
+  accepted_live_evidence:
+    observed_at: "2026-11-22"
+    run_id: a4284e1e08cf458db708647893e31d71
+    provider_job_id: 712b3b99-439a-4d9a-80a0-fd95067ffa25-u1
+    gpu_used: true
+    device_name: NVIDIA RTX 2000 Ada Generation
+    compute_capability: "8.9"
+    cleanup_state: confirmed
+    acceptance_record: docs/acceptance/2026-11-22-runpod-live-gpu-canary.md
+
 # Narrow exception for the ChatGPT Sites CPU vertical slice. This does not
 # activate the RunPod/GPU or paid-training path above.
 modal_cpu_smoke_exception:

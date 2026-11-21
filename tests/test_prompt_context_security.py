@@ -244,6 +244,40 @@ def test_runpod_v2_source_review_does_not_activate_live_provider_calls() -> None
     assert completion["live_collection_enabled"] is False
 
 
+def test_parked_mode_allows_only_the_fixed_sites_runpod_canary() -> None:
+    state = load(REPOSITORY_STATE)
+    exception = state["runpod_serverless_canary_exception"]
+
+    assert state["mode"] == "parked"
+    assert state["while_parked"]["runpod_live_calls_allowed"] is False
+    assert exception["allowed_while_parked"] is True
+    assert exception["control_plane"] == "chatgpt_sites"
+    assert exception["fixed_resource"] == {
+        "type": "serverless_endpoint",
+        "endpoint_id": "wwlos460xbfw5q",
+    }
+    assert exception["workload"]["workload_id"] == "runpod-gpu-canary-v1"
+    assert exception["workload"]["source_sha"] == "44cc4501afeb6c1fd2d977859980c05f830f58a1"
+    assert exception["workload"]["image_digest"] == (
+        "sha256:0f952ae240e6044bb75ebca29c11dd4c526cd69aeea35decbba76c2d516b1c49"
+    )
+    bounds = exception["execution_bounds"]
+    assert bounds["max_runs_per_authorization"] == 1
+    assert bounds["max_runtime_seconds"] == 30
+    assert bounds["per_run_cost_ceiling_usd"] == "1.00"
+    assert bounds["max_inflight"] == 1
+    assert bounds["generic_pod_creation_allowed"] is False
+    assert bounds["arbitrary_image_allowed"] is False
+    assert bounds["automatic_retry_after_ambiguous_submit"] is False
+    assert bounds["require_confirmed_cleanup_before_next_run"] is True
+    assert exception["authorization"]["authenticated_sites_owner_required"] is True
+    assert exception["authorization"]["max_runs_per_authorization"] == 1
+    assert exception["transport_security"]["short_lived_hmac_envelope_required"] is True
+    assert exception["transport_security"]["nonce_replay_rejection_required"] is True
+    assert exception["transport_security"]["owner_run_plan_binding_required"] is True
+    assert exception["accepted_live_evidence"]["cleanup_state"] == "confirmed"
+
+
 def test_agent_contexts_explicitly_demote_external_instructions_to_data() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     copilot = (ROOT / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")

@@ -32,11 +32,16 @@ While `policies/repository-state.yaml` says `mode: parked`:
 - bare or copied authorization must not become live spend authorization;
 - PR, fork, issue, comment, schedule, `repository_dispatch`, and `pull_request_target` events must not become paid-compute entrypoints.
 
-The only credential exception is the reviewed RunPod provisioning ceremony
-recorded in `policies/repository-state.yaml`. It permits one endpoint-scoped
-key to be stored only in the `unjuno/main` Modal secret boundary, with no value
-returned to chat or logs. It does not permit deploying the RunPod adapter,
-probing the provider, enabling admission, allocating a GPU, or spending funds.
+The reviewed RunPod provisioning ceremony recorded in
+`policies/repository-state.yaml` permits one endpoint-scoped key to be stored
+only in the `unjuno/main` Modal secret boundary, with no value returned to chat
+or logs. A separate, narrow `runpod_serverless_canary_exception` permits only
+the fixed Sites-owned serverless GPU canary: immutable source and image,
+endpoint-scoped credentials, short-lived HMAC and nonce protection, exact
+owner/run/plan binding, one-use confirmation, one in-flight run, a 30-second
+runtime, a `$1.00` per-run ceiling, and confirmed cleanup. It does not enable
+the legacy generic Pod/training workflow, arbitrary images, CI-triggered
+execution, or account-wide RunPod access.
 
 CI cross-checks these invariants against the existing paid, RunPod, agent, context-trust, container, and workflow configuration.
 
@@ -46,8 +51,8 @@ Kaggle/Hugging Face lane permits only the fixed 100-step Orbitune acceptance
 job and one private ZeroGPU evaluation after current included-quota evidence
 and exact one-use owner confirmation. It forbids paid fallback, public
 artifacts/Spaces, Hugging Face Jobs, write credentials in provider workloads,
-and retrying an ambiguous submission. Neither exception changes `mode` or
-authorizes RunPod.
+and retrying an ambiguous submission. These exceptions do not change `mode` or
+authorize any RunPod operation beyond the fixed serverless canary above.
 
 ## Selected workload
 
