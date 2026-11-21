@@ -1,5 +1,6 @@
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, validRunpodPrepare } from "./runpod_plan.js";
+import { submitRunpodExperiment, synchronizeRunpodExperiment, validRunpodApprovedPlan } from "./runpod_lifecycle.js";
 import { delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
@@ -449,12 +450,16 @@ function validGatewayApprovedPlan(value) {
   } catch { return false; }
 }
 
+function validProviderApprovedPlan(value) {
+  return validGatewayApprovedPlan(value) || validRunpodApprovedPlan(value);
+}
+
 function validToolArguments(name, args, env) {
   if (name === "experiment_prepare") return validPlan(args, env) || validRunpodPrepare(args, env) || validGatewayPrepare(args);
   if (name === "experiment_submit" && args.provider_approved_plan !== undefined) return Object.keys(args).sort().join(",") === "plan_fingerprint,provider_approved_plan,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     typeof args.plan_fingerprint === "string" && /^[0-9a-f]{64}$/.test(args.plan_fingerprint) &&
-    validGatewayApprovedPlan(args.provider_approved_plan);
+    validProviderApprovedPlan(args.provider_approved_plan);
   if (name === "experiment_submit") return Object.keys(args).sort().join(",") === "approved_plan,plan_fingerprint,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     typeof args.plan_fingerprint === "string" && /^[0-9a-f]{64}$/.test(args.plan_fingerprint) &&
@@ -1277,6 +1282,11 @@ async function callTool(name, args, request, env) {
   }
   if (name === "experiment_submit") {
     if (!validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
+    if (args.provider_approved_plan?.provider === "runpod_gpu") {
+      return submitRunpodExperiment(env, owner, args, {
+        reserveBudget: (input) => reserveProviderBudget(env, input),
+      });
+    }
     if (args.provider_approved_plan !== undefined) return submitDelegatedExperiment(env, owner, args);
     const now = Math.floor(Date.now() / 1000);
     const existing = await env.DB.prepare("SELECT id, state, created_at FROM runs WHERE owner_id=? AND plan_id=?")
@@ -1494,6 +1504,19 @@ async function callTool(name, args, request, env) {
       FROM runs r JOIN plans p ON p.id = r.plan_id WHERE r.id = ? AND r.owner_id = ?`)
       .bind(args.run_id, owner).first();
     if (!row) throw new Error("RUN_NOT_FOUND");
+    let runProvider = null;
+    try {
+      runProvider = await env.DB.prepare(`SELECT p.provider FROM plans p JOIN runs r ON r.plan_id=p.id
+        WHERE r.id=? AND r.owner_id=?`).bind(args.run_id, owner).first();
+    } catch {}
+    if (runProvider?.provider === "runpod_gpu") {
+      await synchronizeRunpodExperiment(env, owner, args.run_id);
+      row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state, r.cleanup_receipt_json, r.cancel_requested,
+          r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size, r.lease_id,
+          p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json, p.fingerprint,
+          p.runtime_seconds, p.idempotency_key
+        FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id=? AND r.owner_id=?`).bind(args.run_id, owner).first();
+    }
     let providerSyncSkipped = null;
     if (["queued", "running"].includes(row.state) && modalConfigured(env)) {
       let reserved = false;
@@ -1539,6 +1562,17 @@ async function callTool(name, args, request, env) {
       .bind(args.run_id, owner).first();
     let row = await selectRun();
     if (!row) throw new Error("RUN_NOT_FOUND");
+    let cancelProvider = null;
+    try {
+      cancelProvider = await env.DB.prepare(`SELECT p.provider FROM plans p JOIN runs r ON r.plan_id=p.id
+        WHERE r.id=? AND r.owner_id=?`).bind(args.run_id, owner).first();
+    } catch {}
+    if (cancelProvider?.provider === "runpod_gpu") {
+      const runpod = await synchronizeRunpodExperiment(env, owner, args.run_id, { cancel: true });
+      return { schema_version: 2, status: "ok", human_summary: "Runpod cancellation and cleanup completed.",
+        machine_state: { run_id: runpod.id, state: runpod.state, cleanup_state: runpod.cleanup_state },
+        next_allowed_actions: ["experiment_status"], blocking_reason: null };
+    }
     const now = Math.floor(Date.now() / 1000);
     if (row.state === "queued") {
       const cancelled = await env.DB.prepare(`UPDATE runs SET state='cancelled', failure_code='caller_cancelled_before_start',

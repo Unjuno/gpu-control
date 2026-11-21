@@ -91,7 +91,7 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
       plan_fingerprint: persisted.fingerprint },
     next_allowed_actions: ["experiment_submit"], blocking_reason: null,
     run_id: persisted.id, plan_fingerprint: persisted.fingerprint, expires_at: persisted.expires_at,
-    approved_plan: plan, approval_required: true,
+    provider_approved_plan: plan, approval_required: true,
     authorization_surface: "chatgpt_mcp_write_confirmation", authorization_validity_seconds: 600,
     max_runs_per_authorization: 1,
   };
