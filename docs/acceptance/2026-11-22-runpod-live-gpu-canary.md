@@ -23,8 +23,14 @@ source and image, and finished with confirmed cleanup.
 | Cleanup | `confirmed` |
 
 The reviewed plan estimated a worst-window cost of `$0.049139` and enforced a
-`$1.00` per-run ceiling. This record does not claim a provider billing receipt
-or exact billed amount; those remain account-side evidence.
+`$1.00` per-run ceiling.
+
+After completion, the authenticated RunPod endpoint page showed `0` running,
+`0` idle and `0` initializing workers, with `0` jobs in progress and `0` queued.
+The endpoint's past-hour summary showed one total request, one completed, zero
+failed and zero retried. Its billing card displayed total billed `$0.00` and a
+`$0.00000/second` spend rate. The dashboard value is rounded provider UI
+evidence; this record does not promote it into a sub-cent billing receipt.
 
 ## Recovery and migration evidence
 
