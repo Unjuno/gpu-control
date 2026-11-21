@@ -1922,6 +1922,60 @@ test("native RunPod runs take precedence over stale delegated-plan shadows", asy
   assert.equal(delegatedPlanReads, 0);
 });
 
+test("scheduled reconciliation advances one active delegated provider run", async () => {
+  const runId = "6".repeat(32);
+  const plan = {
+    id: runId, owner_id: "test-owner", fingerprint: "a".repeat(64),
+    workload: "orbitune-kaggle-100-step-v1",
+    approved_plan_json: JSON.stringify({ runtime_seconds: 300 }), state: "submitted",
+    provider_handle_json: JSON.stringify({ provider: "kaggle", run_id: runId,
+      plan_fingerprint: "a".repeat(64), version: 7 }),
+    provider_state: "running", provider_response_json: null,
+  };
+  const env = environment();
+  env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
+  env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
+  env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
+  env.DB.prepare = (sql) => ({
+    bind() {
+      return {
+        async first() {
+          if (sql.includes("FROM gateway_delegated_plans")) return plan;
+          if (sql.includes("p.provider='runpod_gpu'")) return null;
+          throw new Error(`unexpected first query: ${sql}`);
+        },
+        async run() {
+          if (sql.includes("UPDATE gateway_delegated_plans")) return { meta: { changes: 1 } };
+          throw new Error(`unexpected write: ${sql}`);
+        },
+      };
+    },
+  });
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (_url, options) => {
+    request = JSON.parse(options.body);
+    return new Response(JSON.stringify({ schema_version: 2, status: "pending",
+      human_summary: "Provider remains active.", next_allowed_actions: ["experiment_status"],
+      blocking_reason: null, machine_state: { run_id: runId, state: "running",
+        provider: "kaggle", provider_handle: request.arguments.provider_handle } }),
+    { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_reconcile", {});
+    const value = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(value.status, "pending");
+    assert.match(value.human_summary, /Scheduled provider reconciliation completed/);
+    assert.equal(request.tool, "experiment_status");
+    assert.equal(request.arguments.run_id, runId);
+    assert.equal(request.arguments.runtime_seconds, 300);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("provider adapter submit retries reuse one owner-bound ChatGPT authorization", async () => {
   const plans = new Map();
   const authorizations = new Map();
