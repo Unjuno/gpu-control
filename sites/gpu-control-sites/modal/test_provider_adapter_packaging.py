@@ -62,3 +62,13 @@ def test_slow_submission_uses_durable_idempotent_modal_spawn() -> None:
     assert "provider_submit_worker.spawn(owner, arguments)" in source
     assert '"transport": "modal_spawn_v1"' in source
     assert "service.validate_submission(owner, arguments)" in source
+
+
+def test_runpod_relay_uses_signed_tool_path_and_one_use_claim() -> None:
+    source = ADAPTER.read_text(encoding="utf-8")
+    assert '@api.post("/internal/runpod/v1/proxy")' not in source
+    assert 'verified_tool == "runpod_queue_request"' in source
+    assert 'claim_key = f"runpod:{run_id}"' in source
+    assert 'skip_if_exists=True' in source
+    assert 'record.get("job_id") != job_id' in source
+    assert '"owner_binding_sha256": _submission_binding(owner)' in source

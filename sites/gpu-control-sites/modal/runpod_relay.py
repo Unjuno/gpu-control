@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 
 RUNPOD_ORIGIN = "https://api.runpod.ai"
+RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io"
 MAX_RESPONSE_BYTES = 1024 * 1024
 ENDPOINT_ID = re.compile(r"^[A-Za-z0-9_-]{4,128}$")
 JOB_ID = re.compile(r"^[A-Za-z0-9_-]{4,128}$")
@@ -28,11 +29,14 @@ def upstream_path(endpoint_id: str, operation: str, job_id: str | None) -> str:
 
 
 def relay(method: str, path: str, authorization: str, body: bytes) -> tuple[int, bytes, dict[str, str]]:
-    expected_method = "GET" if "/status/" in path else "POST"
+    expected_method = "GET" if ("/status/" in path or path.startswith("/v2/serverless/") or
+                                path == "/v2/catalog/gpus") else "POST"
     if method != expected_method or not authorization.startswith("Bearer ") or len(authorization) > 1024:
         raise ValueError("invalid_request")
+    origin = RUNPOD_MANAGEMENT_ORIGIN if (path.startswith("/v2/serverless/") or
+                                          path == "/v2/catalog/gpus") else RUNPOD_ORIGIN
     request = urllib.request.Request(
-        RUNPOD_ORIGIN + path, data=body if method == "POST" else None, method=method,
+        origin + path, data=body if method == "POST" else None, method=method,
         headers={"Authorization": authorization, "Accept": "application/json",
                  **({"Content-Type": "application/json"} if method == "POST" else {})},
     )

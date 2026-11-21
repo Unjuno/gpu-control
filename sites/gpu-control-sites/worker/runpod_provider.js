@@ -1,6 +1,6 @@
+import { delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
+
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
-const PROVIDER_ADAPTER_ORIGIN = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
-const RUNPOD_RELAY_PATH = "/internal/runpod/v1/proxy";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
 // RunPod's queue API can take longer than a typical control-plane request to
 // acknowledge a cold endpoint. Keep the client timeout aligned with the
@@ -40,16 +40,8 @@ function jobTransport(env) {
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_ID ||
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET)
     throw new RunpodProviderError("RUNPOD_RELAY_NOT_CONFIGURED");
-  let relay; let adapter;
-  try { adapter = new URL(env.PROVIDER_ADAPTER_URL); relay = new URL(RUNPOD_RELAY_PATH, `${adapter.origin}/`); }
-  catch { throw new RunpodProviderError("RUNPOD_RELAY_INVALID"); }
-  if (adapter.origin !== PROVIDER_ADAPTER_ORIGIN || adapter.pathname !== "/" || adapter.search || adapter.hash || adapter.username || adapter.password ||
-      relay.protocol !== "https:" || relay.origin !== adapter.origin || relay.pathname !== RUNPOD_RELAY_PATH ||
-      relay.search || relay.hash || relay.username || relay.password)
-    throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
-  return { origin: relay.href.replace(/\/$/, ""), relay: true, headers: {
-    authorization: `Bearer ${env.PROVIDER_ADAPTER_PROXY_TOKEN_ID}.${env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET}`,
-  } };
+  if (!gatewayDelegationConfigured(env)) throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
+  return { origin: RUNPOD_JOB_ORIGIN, relay: true, headers: {} };
 }
 
 function boundedRetryAfter(response) {
@@ -97,7 +89,7 @@ function mapHttpError(status) {
 }
 
 export class RunpodV2Client {
-  constructor(env, { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  constructor(env, { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS, owner = null } = {}) {
     if (!runpodConfigured(env)) throw new RunpodProviderError("RUNPOD_PROVIDER_NOT_CONFIGURED");
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30_000) throw new RunpodProviderError("RUNPOD_INVALID_TIMEOUT");
     this.apiKey = env.RUNPOD_API_KEY || ""; this.image = env.RUNPOD_WORKLOAD_IMAGE; this.gpuId = env.RUNPOD_GPU_ID;
@@ -107,18 +99,45 @@ export class RunpodV2Client {
     this.maximumHourlyPriceUsd = Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD);
     this.gpuPoolId = env.RUNPOD_SERVERLESS_GPU_POOL_ID; this.sourceSha = env.RUNPOD_WORKLOAD_SOURCE_SHA;
     const transport = jobTransport(env); this.jobOrigin = transport.origin; this.jobHeaders = transport.headers; this.jobRelay = transport.relay;
-    this.fetchImpl = fetchImpl; this.timeoutMs = timeoutMs;
+    if (this.jobRelay && (typeof owner !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$/.test(owner)))
+      throw new RunpodProviderError("RUNPOD_RELAY_OWNER_REQUIRED");
+    this.env = env; this.owner = owner; this.fetchImpl = fetchImpl; this.timeoutMs = timeoutMs;
   }
-  async request(path, { method = "GET", body = null, expectedStatus = 200 } = {}) {
+  async relayRequest(argumentsValue, expectedStatus = 200) {
+    let envelope;
+    try { envelope = await delegateGatewayTool(this.env, this.owner, "runpod_queue_request", argumentsValue, this.fetchImpl); }
+    catch (error) {
+      const message = typeof error?.message === "string" ? error.message : "";
+      if (message === "GATEWAY_DELEGATION_TIMEOUT") throw new RunpodProviderError("RUNPOD_PROVIDER_TIMEOUT");
+      if (message.includes("RUNPOD_SUBMISSION_ALREADY_CLAIMED")) throw new RunpodProviderError("RUNPOD_SUBMISSION_ALREADY_CLAIMED", 409);
+      throw new RunpodProviderError("RUNPOD_RELAY_FAILED");
+    }
+    if (!envelope || !Number.isSafeInteger(envelope.status) || !envelope.body ||
+        typeof envelope.body !== "object" || Array.isArray(envelope.body))
+      throw new RunpodProviderError("RUNPOD_INVALID_RESPONSE");
+    if (envelope.status !== expectedStatus) {
+      if (envelope.status >= 200 && envelope.status < 300)
+        throw new RunpodProviderError("RUNPOD_UNEXPECTED_SUCCESS_STATUS", envelope.status);
+      throw new RunpodProviderError(mapHttpError(envelope.status), envelope.status);
+    }
+    return envelope.body;
+  }
+  async request(path, { method = "GET", body = null, expectedStatus = 200, binding = null } = {}) {
     if (typeof path !== "string" || !path.startsWith(`/v2/${this.endpointId}/`) || path.includes("..") || path.includes("//"))
       throw new RunpodProviderError("RUNPOD_INVALID_PATH");
+    const operation = path.split("/")[3];
+    const jobId = path.split("/")[4];
+    if (this.jobRelay) {
+      if (!binding || !/^[0-9a-f]{32}$/.test(binding.runId || "") || !/^[0-9a-f]{64}$/.test(binding.planFingerprint || ""))
+        throw new RunpodProviderError("RUNPOD_INVALID_EXECUTION_BINDING");
+      return this.relayRequest({ operation, run_id: binding.runId, plan_fingerprint: binding.planFingerprint,
+        ...(operation === "run" ? { body } : { job_id: jobId }) }, expectedStatus);
+    }
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), this.timeoutMs); let response;
-    const relayBody = this.jobRelay ? { method, path, body } : null;
-    try { response = await this.fetchImpl(this.jobRelay ? this.jobOrigin : `${this.jobOrigin}${path}`, {
-      method: this.jobRelay ? "POST" : method, redirect: "manual",
-      headers: { ...(this.jobRelay ? {} : { authorization: `Bearer ${this.apiKey}` }), accept: "application/json", ...this.jobHeaders,
-        ...((body === null && !this.jobRelay) ? {} : { "content-type": "application/json" }) },
-      ...((body === null && !this.jobRelay) ? {} : { body: JSON.stringify(this.jobRelay ? relayBody : body) }), signal: controller.signal });
+    try { response = await this.fetchImpl(`${this.jobOrigin}${path}`, {
+      method, redirect: "manual", headers: { authorization: `Bearer ${this.apiKey}`, accept: "application/json", ...this.jobHeaders,
+        ...(body === null ? {} : { "content-type": "application/json" }) },
+      ...(body === null ? {} : { body: JSON.stringify(body) }), signal: controller.signal });
       if (response.status >= 300 && response.status <= 399) { await response.body?.cancel(); throw new RunpodProviderError("RUNPOD_REDIRECT_REJECTED", response.status); }
       if (response.status !== expectedStatus) { await response.body?.cancel();
         if (response.ok) throw new RunpodProviderError("RUNPOD_UNEXPECTED_SUCCESS_STATUS", response.status);
@@ -131,6 +150,7 @@ export class RunpodV2Client {
   async managementRequest(path) {
     if (typeof path !== "string" || !path.startsWith("/v2/") || path.includes("..") || path.includes("//"))
       throw new RunpodProviderError("RUNPOD_INVALID_PATH");
+    if (this.jobRelay) return this.relayRequest({ operation: path === "/v2/catalog/gpus" ? "catalog" : "endpoint" });
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), this.timeoutMs); let response;
     try { response = await this.fetchImpl(`${RUNPOD_MANAGEMENT_ORIGIN}${path}`, { method: "GET", redirect: "manual",
       headers: { authorization: `Bearer ${this.apiKey}`, accept: "application/json" }, signal: controller.signal });
@@ -174,15 +194,15 @@ export class RunpodV2Client {
     if (!/^[0-9a-f]{32}$/.test(runId) || !/^[0-9a-f]{64}$/.test(planFingerprint) || !/^[0-9a-f]{64}$/.test(nonce) ||
         !/^(?:[A-Za-z0-9+/]{43}=)$/.test(completionKeyB64) || !/^[0-9a-f]{32}$/.test(completionKeyId) || !/^[0-9a-f]{40}$/.test(sourceSha))
       throw new RunpodProviderError("RUNPOD_INVALID_EXECUTION_BINDING");
-    return this.request(`/v2/${this.endpointId}/run`, { method: "POST", body: { input: { schema_version: 1, run_id: runId,
+    return this.request(`/v2/${this.endpointId}/run`, { method: "POST", binding: { runId, planFingerprint }, body: { input: { schema_version: 1, run_id: runId,
       plan_fingerprint: planFingerprint, nonce, completion_key_b64: completionKeyB64, completion_key_id: completionKeyId,
       source_sha: sourceSha, image_digest: this.image.slice(this.image.indexOf("@") + 1), execution_name: `gpu-control-${runId.slice(0, 12)}` },
       policy: { executionTimeout: 30_000, ttl: 300_000 } } });
   }
-  getJob(jobId) { if (!JOB_ID_RE.test(jobId)) throw new RunpodProviderError("RUNPOD_INVALID_JOB_ID"); return this.request(`/v2/${this.endpointId}/status/${jobId}`); }
-  async cancelJob(jobId) {
+  getJob(jobId, binding = null) { if (!JOB_ID_RE.test(jobId)) throw new RunpodProviderError("RUNPOD_INVALID_JOB_ID"); return this.request(`/v2/${this.endpointId}/status/${jobId}`, { binding }); }
+  async cancelJob(jobId, binding = null) {
     if (!JOB_ID_RE.test(jobId)) throw new RunpodProviderError("RUNPOD_INVALID_JOB_ID");
-    const value = validateJobStatus(await this.request(`/v2/${this.endpointId}/cancel/${jobId}`, { method: "POST" }), jobId);
+    const value = validateJobStatus(await this.request(`/v2/${this.endpointId}/cancel/${jobId}`, { method: "POST", binding }), jobId);
     if (value.status !== "CANCELLED") throw new RunpodProviderError("RUNPOD_CANCELLATION_NOT_TERMINAL");
     return value;
   }

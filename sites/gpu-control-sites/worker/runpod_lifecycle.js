@@ -60,7 +60,7 @@ async function cancelAndRelease(env, client, row, lease, terminal) {
   const now = Math.floor(Date.now() / 1000);
   let termination = "not_submitted";
   if (JOB_ID.test(row.provider_job_id || "")) {
-    try { await client.cancelJob(row.provider_job_id); termination = "cancelled_or_terminal"; }
+    try { await client.cancelJob(row.provider_job_id, { runId: row.id, planFingerprint: row.fingerprint }); termination = "cancelled_or_terminal"; }
     catch (error) {
       if (!(error instanceof RunpodProviderError) || error.code !== "RUNPOD_NOT_FOUND") throw error;
       termination = "already_expired";
@@ -145,7 +145,7 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
   let lease = await reserveProviderAccountLease(env.DB, { accountScopeSha256, runId: row.id, ownerId: owner,
     planId: row.id, planFingerprint: row.fingerprint, authorizationId: authorization.id,
     challengeSha256: challenge, now: timestamp });
-  const provider = client ?? new RunpodV2Client(env);
+  const provider = client ?? new RunpodV2Client(env, { owner });
   let completionKey; let keyId; let nonce; let currentOffer;
   try {
     completionKey = crypto.getRandomValues(new Uint8Array(32));
@@ -257,7 +257,7 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     }
     return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
   }
-  const provider = client ?? new RunpodV2Client(env);
+  const provider = client ?? new RunpodV2Client(env, { owner });
   const now = Math.floor(Date.now() / 1000);
   if (row.provider_phase === "uncertain") {
     if (now <= row.provider_started_at + 300) return row;
@@ -280,7 +280,8 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
       failureCode: cancel ? "CALLER_CANCELLED" : "RUNPOD_RUNTIME_EXCEEDED" });
     return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
   }
-  const observed = validateJobStatus(await provider.getJob(row.provider_job_id), row.provider_job_id);
+  const observed = validateJobStatus(await provider.getJob(row.provider_job_id,
+    { runId, planFingerprint: row.fingerprint }), row.provider_job_id);
   if (["IN_QUEUE", "IN_PROGRESS"].includes(observed.status)) {
     await env.DB.prepare(`UPDATE runs SET provider_phase=?, updated_at=? WHERE id=? AND owner_id=? AND state='running'`)
       .bind(observed.status === "IN_QUEUE" ? "provisioning" : "executing", now, runId, owner).run();

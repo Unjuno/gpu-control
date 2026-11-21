@@ -21,7 +21,6 @@ from typing import Any
 import modal
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from fastapi.responses import Response
 
 
 APP_NAME = "gpu-control-provider-adapter"
@@ -29,7 +28,7 @@ SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
 MAX_BODY_BYTES = 64 * 1024
 MAX_CLOCK_SKEW_SECONDS = 60
 MAX_LIFETIME_SECONDS = 120
-TOOLS = re.compile(r"^experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)$")
+TOOLS = re.compile(r"^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request)$")
 OWNER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$")
 NONCE = re.compile(r"^[0-9a-f]{32}$")
 RUNPOD_ENDPOINT_ID = "wwlos460xbfw5q"
@@ -342,6 +341,104 @@ def _async_observe(owner: str, tool: str, arguments: dict[str, Any]) -> dict[str
     }
 
 
+def _runpod_key() -> str:
+    key = os.environ.get("RUNPOD_API_KEY", "")
+    if not 20 <= len(key) <= 512 or re.search(r"[\s\x00-\x1f\x7f]", key):
+        raise ValueError("runpod_not_configured")
+    return key
+
+
+def _runpod_relay(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Perform one fixed RunPod operation under the signed Sites envelope.
+
+    A create is claimed before network I/O and is never sent twice. Status and
+    cancellation must match the owner, plan, run and provider job recorded by
+    that claim. Read-only endpoint/catalog checks are also fixed operations;
+    callers cannot supply a URL, endpoint, method or authorization header.
+    """
+    from runpod_relay import relay, upstream_path
+
+    operation = arguments.get("operation")
+    if operation in {"endpoint", "catalog"}:
+        if set(arguments) != {"operation"}:
+            raise ValueError("invalid_request")
+        path = (f"/v2/serverless/{RUNPOD_ENDPOINT_ID}" if operation == "endpoint"
+                else "/v2/catalog/gpus")
+        status, body, _headers = relay("GET", path, f"Bearer {_runpod_key()}", b"")
+        return {"status": status, "body": json.loads(body)}
+
+    required = {"operation", "run_id", "plan_fingerprint"}
+    if operation == "run":
+        required.add("body")
+    elif operation in {"status", "cancel"}:
+        required.add("job_id")
+    else:
+        raise ValueError("invalid_operation")
+    if set(arguments) != required:
+        raise ValueError("invalid_request")
+    run_id = arguments.get("run_id")
+    fingerprint = arguments.get("plan_fingerprint")
+    if (not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None or
+            not isinstance(fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None):
+        raise ValueError("invalid_execution_binding")
+    binding = {
+        "owner_binding_sha256": _submission_binding(owner),
+        "plan_fingerprint": fingerprint,
+    }
+    claim_key = f"runpod:{run_id}"
+
+    if operation == "run":
+        request_body = arguments["body"]
+        expected_input = request_body.get("input") if isinstance(request_body, dict) else None
+        expected_policy = request_body.get("policy") if isinstance(request_body, dict) else None
+        if (not isinstance(request_body, dict) or set(request_body) != {"input", "policy"} or not isinstance(expected_input, dict) or
+                set(expected_input) != {"schema_version", "run_id", "plan_fingerprint", "nonce",
+                                        "completion_key_b64", "completion_key_id", "source_sha",
+                                        "image_digest", "execution_name"} or
+                expected_input.get("schema_version") != 1 or expected_input.get("run_id") != run_id or
+                expected_input.get("plan_fingerprint") != fingerprint or
+                expected_input.get("execution_name") != f"gpu-control-{run_id[:12]}" or
+                not isinstance(expected_policy, dict) or expected_policy != {
+                    "executionTimeout": 30_000, "ttl": 300_000}):
+            raise ValueError("invalid_execution_binding")
+        claim = {**binding, "state": "claimed", "claimed_at": int(time.time())}
+        inserted = submission_store.put(claim_key, claim, skip_if_exists=True)
+        record = claim if inserted else submission_store.get(claim_key)
+        if not isinstance(record, dict) or any(record.get(k) != v for k, v in binding.items()):
+            raise ValueError("submission_identity_conflict")
+        if not inserted:
+            if record.get("state") == "completed" and isinstance(record.get("response"), dict):
+                return record["response"]
+            raise FileExistsError("runpod_submission_already_claimed")
+        try:
+            status, body, _headers = relay(
+                "POST", upstream_path(RUNPOD_ENDPOINT_ID, "run", None),
+                f"Bearer {_runpod_key()}", _canonical(request_body))
+            value = json.loads(body)
+            response = {"status": status, "body": value}
+            job_id = value.get("id") if 200 <= status < 300 and isinstance(value, dict) else None
+            if job_id is not None and (not isinstance(job_id, str) or re.fullmatch(r"[A-Za-z0-9_-]{4,128}", job_id) is None):
+                raise ValueError("invalid_response")
+            submission_store.put(claim_key, {**claim, "state": "completed", "job_id": job_id,
+                                             "response": response})
+            return response
+        except Exception:
+            submission_store.put(claim_key, {**claim, "state": "uncertain"})
+            raise
+
+    record = submission_store.get(claim_key)
+    job_id = arguments.get("job_id")
+    if (not isinstance(record, dict) or any(record.get(k) != v for k, v in binding.items()) or
+            record.get("state") != "completed" or record.get("job_id") != job_id or
+            not isinstance(job_id, str) or re.fullmatch(r"[A-Za-z0-9_-]{4,128}", job_id) is None):
+        raise ValueError("provider_handle_mismatch")
+    method = "GET" if operation == "status" else "POST"
+    status, body, _headers = relay(
+        method, upstream_path(RUNPOD_ENDPOINT_ID, operation, job_id),
+        f"Bearer {_runpod_key()}", b"")
+    return {"status": status, "body": json.loads(body)}
+
+
 @api.get("/v1/health")
 def health() -> dict[str, Any]:
     try:
@@ -362,7 +459,9 @@ async def invoke(tool: str, request: Request):
     try:
         owner, verified_tool, arguments = _verify(
             raw, request.headers.get("x-gpu-control-sites-signature"), tool)
-        if verified_tool == "experiment_submit":
+        if verified_tool == "runpod_queue_request":
+            result = _runpod_relay(owner, arguments)
+        elif verified_tool == "experiment_submit":
             result = _async_submit(owner, arguments)
         elif verified_tool in {"experiment_status", "experiment_result", "experiment_cancel"}:
             result = _async_observe(owner, verified_tool, arguments)
@@ -385,44 +484,6 @@ async def invoke(tool: str, request: Request):
         if isinstance(exc, AdapterError):
             return _error(exc.code, exc.status)
         return _error("provider_operation_failed", 503)
-
-
-@api.post("/internal/runpod/v1/proxy")
-async def runpod_queue_relay(request: Request):
-    """Relay only the one registered RunPod endpoint's queue lifecycle."""
-    content_length = request.headers.get("content-length")
-    if content_length is not None and (not content_length.isdigit() or int(content_length) > MAX_BODY_BYTES):
-        return _error("request_too_large", 413)
-    body = await request.body()
-    if len(body) > MAX_BODY_BYTES:
-        return _error("request_too_large", 413)
-    try:
-        from runpod_relay import relay, upstream_path
-        envelope = json.loads(body)
-        if not isinstance(envelope, dict) or set(envelope) != {"method", "path", "body"}:
-            raise ValueError("invalid_request")
-        path_parts = str(envelope["path"]).split("/")
-        if len(path_parts) not in {4, 5} or path_parts[:3] != ["", "v2", RUNPOD_ENDPOINT_ID]:
-            raise ValueError("invalid_endpoint")
-        operation = path_parts[3]
-        job_id = path_parts[4] if len(path_parts) == 5 and operation in {"status", "cancel"} else None
-        if operation == "run" and len(path_parts) == 4:
-            job_id = None
-        path = upstream_path(RUNPOD_ENDPOINT_ID, operation, job_id)
-        if path != envelope["path"] or envelope["method"] not in {"GET", "POST"}:
-            raise ValueError("invalid_request")
-        upstream_body = b"" if envelope["body"] is None else _canonical(envelope["body"])
-        runpod_key = os.environ.get("RUNPOD_API_KEY", "")
-        if not 20 <= len(runpod_key) <= 512 or re.search(r"[\s\x00-\x1f\x7f]", runpod_key):
-            raise ValueError("runpod_not_configured")
-        status, response_body, headers = relay(envelope["method"], path, f"Bearer {runpod_key}", upstream_body)
-        return Response(response_body, status_code=status, headers=headers)
-    except ValueError as exc:
-        code = str(exc)
-        status = 502 if code in {"redirect_rejected", "response_too_large", "invalid_response"} else 400
-        return _error(code, status)
-    except Exception:
-        return _error("runpod_upstream_unavailable", 503)
 
 
 @app.function(
