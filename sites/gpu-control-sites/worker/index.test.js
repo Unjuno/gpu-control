@@ -2024,13 +2024,15 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
   try {
     const prepareArgs = { workload: "orbitune-kaggle-100-step-v1", repository: "Unjuno/orbitune",
       commit: "44a1b806160ab5bc721a370d034a6dfcb28f27a8", parameters: {}, runtime_seconds: 300,
-      max_cost_usd: "0", idempotency_key: "kaggle-retry-001" };
+      max_cost_usd: "0.00", idempotency_key: "kaggle-retry-001" };
     const prepared = await toolCall(env, "test-owner", "experiment_prepare", prepareArgs);
     const preparedValue = JSON.parse((await prepared.json()).result.content[0].text);
     assert.equal(preparedValue.provider_approved_plan.workload, "orbitune-kaggle-100-step-v1");
     assert.equal(preparedValue.authorization_validity_seconds, 600);
     const storedPlan = plans.get(`test-owner:${runId}`);
     assert.equal(storedPlan.expires_at - storedPlan.created_at, 600);
+    const delegatedPrepare = delegatedBodies.find((body) => body.tool === "experiment_prepare");
+    assert.equal(delegatedPrepare.arguments.max_cost_usd, "0");
     const submit = { run_id: runId, plan_fingerprint: fingerprint, provider_approved_plan: gatewayPlan };
     const lost = await toolCall(env, "test-owner", "experiment_submit", submit);
     assert.equal(JSON.parse((await lost.json()).result.content[0].text).error, "GATEWAY_DELEGATION_FAILED");

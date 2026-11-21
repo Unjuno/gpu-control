@@ -1230,7 +1230,13 @@ function publicProviderAdapterResponse(response) {
 
 async function prepareDelegatedExperiment(env, owner, args) {
   if (!gatewayDelegationConfigured(env)) throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED");
-  let delegatedArgs = args;
+  // The public tool accepts equivalent zero-dollar spellings for usability,
+  // but the adapter and persisted fingerprint use one canonical free value.
+  // Normalize before the adapter prepares the plan so prepare and submit bind
+  // the same exact JSON representation.
+  let delegatedArgs = [KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD].includes(args.workload)
+    ? { ...args, max_cost_usd: "0" }
+    : args;
   if (args.workload === MODAL_GPU_WORKLOAD) {
     const evidence = await modalGpuProviderEvidence(env, Math.floor(Date.now() / 1000));
     if (!evidence) return { schema_version: 2, status: "blocked",
