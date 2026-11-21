@@ -1653,9 +1653,46 @@ test("experiment_list labels historical Runner records separately from Modal and
   const rpc = await response.json();
   const runs = JSON.parse(rpc.result.content[0].text).machine_state.experiments;
   assert.deepEqual(runs.map((run) => [run.run_id, run.execution_origin]), [
-    [localRunId, "retired_local_runner"], [modalRunId, "modal_sandbox"], ["3".repeat(32), "unknown"],
+    ["3".repeat(32), "unknown"], [modalRunId, "modal_sandbox"], [localRunId, "retired_local_runner"],
   ]);
   assert.equal(JSON.stringify(runs).includes("container_id"), false, "raw cleanup receipts stay private");
+});
+
+test("experiment_list includes owner-bound delegated provider runs from D1", async () => {
+  const env = environment();
+  env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
+  env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
+  env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
+  const plan = {
+    schema_version: 2, workload: "orbitune-kaggle-100-step-v1", provider: "kaggle",
+    repository: "Unjuno/orbitune", source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
+    parameters: {}, runtime_seconds: 300, max_cost_usd: "0", known_cost_usd: "0",
+    cost_classification: "FREE_QUOTA", paid_fallback_allowed: false,
+    image_digest: "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd",
+  };
+  env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
+    assert.equal(owner, "test-owner");
+    if (sql.includes("FROM runs r")) return { results: [] };
+    if (sql.includes("FROM gateway_delegated_plans")) return { results: [{
+      run_id: "7".repeat(32), plan_state: "submitted", provider_state: "succeeded",
+      created_at: 20, updated_at: 30, workload: "orbitune-kaggle-100-step-v1",
+      approved_plan_json: JSON.stringify(plan),
+    }] };
+    throw new Error(`unexpected list query: ${sql}`);
+  } }; } });
+
+  const response = await toolCall(env, "test-owner", "experiment_list", {});
+  const value = JSON.parse((await response.json()).result.content[0].text);
+  assert.equal(value.machine_state.experiments.length, 1);
+  assert.deepEqual(value.machine_state.experiments[0], {
+    run_id: "7".repeat(32), state: "succeeded", created_at: 20, updated_at: 30,
+    workload: "orbitune-kaggle-100-step-v1", repository: "Unjuno/orbitune",
+    source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
+    image_digest: "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd",
+    provider: "kaggle", execution_origin: "kaggle",
+  });
 });
 
 test("experiment_status identifies a historical local Runner result from its cleanup receipt", async () => {
@@ -2063,7 +2100,17 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
           if (sql.includes("provider_free_run_authorizations")) return freePolicyAuthorizations.get(values[0]) || null;
           return null;
         },
-        async all() { return { results: [] }; },
+        async all() {
+          if (sql.includes("FROM gateway_delegated_plans")) {
+            const owner = values[0];
+            return { results: [...plans.values()].filter((row) => row.owner_id === owner).map((row) => ({
+              run_id: row.id, plan_state: row.state, provider_state: row.provider_state,
+              created_at: row.created_at, updated_at: row.updated_at || row.created_at,
+              workload: row.workload, approved_plan_json: row.approved_plan_json,
+            })) };
+          }
+          return { results: [] };
+        },
       };
     },
   });
@@ -2130,7 +2177,7 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
     const listed = await toolCall(env, "test-owner", "experiment_list", {});
     const listedValue = JSON.parse((await listed.json()).result.content[0].text);
     assert.equal(listedValue.error, undefined, JSON.stringify(listedValue));
-    assert.equal(listedValue.machine_state.provider_adapter.available, true);
+    assert.equal(listedValue.machine_state.provider_adapter.configured, true);
     assert.equal(listedValue.machine_state.experiments[0].run_id, runId);
   } finally {
     globalThis.fetch = originalFetch;

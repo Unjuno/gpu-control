@@ -1924,16 +1924,32 @@ async function callTool(name, args, request, env, context = null) {
       const { lease_id: _leaseId, cleanup_receipt_json: _receipt, image_digest: _imageDigest, ...experiment } = row;
       return { ...experiment, execution_origin: executionOrigin({ ...row, id: row.run_id }) };
     });
-    if (!gatewayDelegationConfigured(env)) return { schema_version: 2, status: "ok", experiments: localExperiments };
+    let delegatedExperiments = [];
     try {
-      const delegated = await delegateGatewayTool(env, owner, "experiment_list", {});
-      const gatewayExperiments = Array.isArray(delegated?.experiments) ? delegated.experiments : [];
-      return { schema_version: 2, status: "ok", experiments: [...localExperiments, ...gatewayExperiments],
-      provider_adapter: { available: true } };
-    } catch {
-      return { schema_version: 2, status: "ok", experiments: localExperiments,
-      provider_adapter: { available: false, blocker: "PROVIDER_ADAPTER_UNAVAILABLE" } };
+      const { results: delegatedRows } = await env.DB.prepare(`SELECT id AS run_id, state AS plan_state,
+          provider_state, created_at, COALESCE(updated_at, created_at) AS updated_at,
+          workload, approved_plan_json
+        FROM gateway_delegated_plans WHERE owner_id=? ORDER BY created_at DESC LIMIT 50`)
+        .bind(owner).all();
+      delegatedExperiments = delegatedRows.flatMap((row) => {
+        let plan;
+        try { plan = JSON.parse(row.approved_plan_json); } catch { return []; }
+        if (!validGatewayApprovedPlan(plan)) return [];
+        return [{ run_id: row.run_id,
+          state: row.plan_state === "prepared" ? "prepared" : (row.provider_state || "queued"),
+          created_at: row.created_at, updated_at: row.updated_at, workload: row.workload,
+          repository: plan.repository, source_sha: plan.source_sha, image_digest: plan.image_digest,
+          provider: plan.provider, execution_origin: plan.provider }];
+      });
+    } catch {}
+    const byRun = new Map();
+    for (const experiment of [...localExperiments, ...delegatedExperiments]) {
+      if (!byRun.has(experiment.run_id)) byRun.set(experiment.run_id, experiment);
     }
+    const experiments = [...byRun.values()]
+      .sort((left, right) => (right.created_at || 0) - (left.created_at || 0)).slice(0, 50);
+    return { schema_version: 2, status: "ok", experiments,
+      ...(gatewayDelegationConfigured(env) ? { provider_adapter: { configured: true } } : {}) };
   }
   throw new Error("UNKNOWN_TOOL");
 }
