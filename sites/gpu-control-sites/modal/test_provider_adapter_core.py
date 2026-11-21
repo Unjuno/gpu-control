@@ -133,6 +133,15 @@ def test_huggingface_artifact_reference_is_fixed_and_bounded():
         prepared(HF_WORKLOAD, parameters, 30)
 
 
+def test_kaggle_plan_pins_the_reviewed_staged_bundle_digest():
+    """Keep the adapter manifest aligned with the exact staged workload bytes."""
+    plan = prepared()["approved_plan"]
+    assert plan["image_digest"] == (
+        "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd"
+    )
+    assert plan["workload_manifest"]["image_digest"] == plan["image_digest"]
+
+
 def test_terminal_observation_requires_cleanup_and_kaggle_cancel_is_blocked():
     backend = FakeBackend("kaggle")
     adapter = ProviderAdapter(backend, None, clock=lambda: 1000)
