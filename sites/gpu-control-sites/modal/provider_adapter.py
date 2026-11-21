@@ -182,13 +182,16 @@ def _queued_handle(run: dict[str, Any]) -> dict[str, Any]:
 
 
 def _queued_response(run: dict[str, Any]) -> dict[str, Any]:
+    provider = run["plan"]["provider"]
     return {
         "schema_version": 2,
         "status": "pending",
-        "human_summary": "登録済み無料providerへの投入を受け付けました。",
+        "human_summary": ("上限付きModal GPU実験を受け付けました。"
+                          if provider == "modal_gpu"
+                          else "登録済み無料providerへの投入を受け付けました。"),
         "machine_state": {
             "run_id": run["id"], "state": "queued",
-            "provider": run["plan"]["provider"],
+            "provider": provider,
             "provider_handle": _queued_handle(run),
         },
         "next_allowed_actions": ["experiment_status", "experiment_cancel"],

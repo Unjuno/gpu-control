@@ -10,33 +10,35 @@ requires an owner-confirmed real run, terminal result validation and cleanup.
 
 | Gate | Current state | Evidence and remaining work |
 | --- | --- | --- |
-| ChatGPT Sites MCP | DEPLOYED; RUNPOD LIVE GPU ACCEPTED | The authenticated ChatGPT connector returned schema v2 capabilities with all four providers and five registered workloads, then completed the accepted RunPod canary below. Site visibility does not grant execution authority. |
-| Source provenance | PASS for v66 | Site source commit `eb1cc976693e205c9f4140b86ffdbbee02d67448` was saved as version 66 and deployed as `appgdep_6b01fcab16988191b187a2b6dc9b22dd` with `has_mcp=true`. The common one-use plan confirmation window is ten minutes; provider execution bounds are unchanged. |
-| GitHub candidate | DRAFT; EXACT-HEAD CI PASS | PR #68 contains the accepted RunPod lifecycle, policy and migration fixes. All required checks passed at `e68a03b`; focused validation passes 81 Sites Worker tests. |
+| ChatGPT Sites MCP | DEPLOYED; RUNPOD AND MODAL LIVE GPU ACCEPTED | The authenticated ChatGPT connector returned schema v2 capabilities with all four providers and five registered workloads, then completed the accepted RunPod and Modal T4 canaries below. Site visibility does not grant execution authority. |
+| Source provenance | PASS for v72 | Site source commit `fbd59498c33e49c5aea8b3b6713555ac270241a7` was saved as version 72 and deployed with `has_mcp=true`. The common one-use plan confirmation window is ten minutes; provider execution bounds are unchanged. |
+| GitHub candidate | DRAFT; EXACT-HEAD CI PASS | PR #68 contains the accepted provider lifecycle, budget and reconciliation fixes. All required checks passed at `cc27d05`; focused validation passes 82 Sites Worker tests. |
 | D1 control plane | DEPLOYED | Migrations through `0017_free_provider_policies.sql` are applied. D1 owns plans, one-use authorization, budgets, provider handles, run state and cleanup evidence. |
 | R2 result artifacts | ACCEPTED FOR BOUNDED MODAL RESULTS | Prior Modal result JSON was stored and digest-verified through owner-scoped bounded reads. Retention and orphan cleanup remain operational work. |
 | Owner-only execution | IMPLEMENTED; CROSS-ACCOUNT ACCEPTANCE OPEN | Every stateful tool requires Sites authentication plus `GPU_CONTROL_ALLOWED_USER_IDS`; D1 operations are owner-scoped. A genuinely separate authenticated account and later revocation still need live verification. |
 | Exact-plan confirmation | ACCEPTED FOR MODAL; IMPLEMENTED FOR ADAPTER | The destructive submit contains the reviewed plan and records a short-lived one-use authorization. Kaggle/HF live acceptance remains open. |
 | Modal CPU | ENABLED; ONE BOUNDED RUN ACCEPTED | Earlier ChatGPT run `245d0349…6232f` produced a digest-verified artifact and confirmed cleanup. Fresh v46 repeatability/recovery acceptance is still open. Modal account billing is an independent boundary. |
+| Modal GPU | LIVE GPU ACCEPTED | Owner-authorized run `d9df87e1…82be` returned `gpu_used=true` for one Tesla T4 (compute capability 7.5), a bound result checksum and `cleanup_state=confirmed`. The outer Workspace usage limit observed before planning was `$30.00`; D1 independently retained the stricter `$1.00` monthly and `$0.01` per-run project limits. See `docs/acceptance/2026-11-22-modal-live-gpu-canary.md`. |
 | RunPod | LIVE GPU ACCEPTED | Endpoint `wwlos460xbfw5q` remains restricted to RTX 2000 Ada, one GPU, max worker 1, 5-second idle and 30-second execution timeout. Owner-confirmed run `a4284e1e…e31d71` created provider job `712b3b99…ffa25-u1`, returned `gpu_used=true` for one RTX 2000 Ada (compute capability 8.9) with the pinned source/image, succeeded, and confirmed cleanup. The provider page subsequently showed zero running/idle/initializing workers, zero queued/in-progress jobs and a rounded endpoint total billed of `$0.00`. The plan estimate was `$0.049139` under the `$1.00` per-run ceiling. See `docs/acceptance/2026-11-22-runpod-live-gpu-canary.md`. |
-| Kaggle | READY; OWNER CONFIRMATION OPEN | Account `UnjunoOrg` showed 30 included GPU hours and zero used before the earlier test. Run `e3fe8dae…a337` failed closed when Kaggle did not allocate the requested L4; the workload rejected CPU fallback and cleanup was confirmed. The T4 x2 adapter is now deployed, live capabilities are configured/enabled, and Sites v66 prepared an exact `$0` plan with paid fallback forbidden. A successful owner-confirmed GPU run remains open. |
+| Kaggle | LIVE ATTEMPT FAILED; PROVIDER QUEUE BLOCKER | Two owner-authorized T4 x2 versions remained queued beyond the five-minute runtime plus fifteen-minute grace window. Versions 6 and 7 were cancelled in Kaggle, the connector recorded terminal failure with `cleanup_state=confirmed`, and replacement submission stayed disabled until cleanup. No GPU execution evidence was produced; a successful real-GPU run remains open. |
 | Hugging Face artifact path | PRIVATE REPOSITORY AND TOKEN CONFIGURED; ROUND TRIP OPEN | Private repository `Unjuno/gpu-control-orbitune-artifacts` exists. Modal secret `gpu-control-worker` contains a masked `HF_ARTIFACT_WRITE_TOKEN`; provider settings redact it and forbid reuse as the Space read token. No exact revision/SHA-256 artifact round trip is accepted yet. |
 | Hugging Face ZeroGPU | PRIVATE FREE SPACE DEPLOYED; EXECUTION OPEN | Private Space `Unjuno/gpu-control-orbitune-zero-gpu` is `Running on ZERO` at immutable revision `2e9df7d…a85ab`; the recomputed contract digest is pinned. Modal has a separate masked `HF_SPACE_READ_TOKEN`, and live capabilities report the provider configured. No recorded evaluation run is accepted yet. D1 enforces `$0` with paid fallback forbidden. |
 | Provider adapter transport | DEPLOYED; RUNPOD ACCEPTED | Modal proxy authentication plus a second short-lived nonce-bound HMAC envelope are deployed. The RunPod relay completed one authenticated GPU result and cleanup. Kaggle and Hugging Face provider-specific acceptance remain open. |
 | Provider-specific budgets | DEPLOYED | Modal: `$1.00` monthly internal ceiling and `$0.01` per Sandbox run; RunPod: `$1.00` per run with no internal monthly cap; Kaggle/HF: `$0` and no paid fallback. Provider-account billing limits remain independent. |
 | Local Runner / Keychain | RETIRED | The former macOS Runner, Keychain bearer path and `/runner/*` routes must not be restored. Historical D1/R2 evidence is preserved. |
-| Independent security review | PASS FOR CURRENT HEAD | Independent review found no Critical, High or Medium issue at `e68a03b`. It verified the fixed RunPod policy exception, HMAC/replay boundary, PR publish permissions and ten-minute one-use confirmation window. This is source-review evidence, not live provider acceptance. |
+| Independent security review | PASS THROUGH `3adbf6f`; FINAL REFRESH REQUIRED | Independent review found no Critical, High or Medium issue through the scheduled-reconciliation slice at `3adbf6f`. The later account-limit correction and acceptance record require an exact-final-head refresh. This is source-review evidence, not live provider acceptance. |
 | Legacy hosting retirement | NOT A RELEASE DEPENDENCY | Do not recreate Railway, Vercel, Neon or an external PostgreSQL Gateway. Historical evidence is retained under `docs/archive/` and dated acceptance records. |
 
 ## Current activation order
 
 1. Keep all unconfigured or disabled provider lanes fail-closed.
-2. Run the prepared, explicitly approved free Kaggle canary through result and cleanup.
-3. Run one explicitly approved private ZeroGPU canary through result and cleanup.
-4. Run one explicitly approved bounded Modal T4 canary through result and cleanup.
-5. Complete an independent security review of the exact final head after the
+2. Retry the free Kaggle canary only when Kaggle can allocate the registered
+   T4 x2 resource; do not create overlapping replacement versions.
+3. Use its immutable private artifact to run one ZeroGPU canary through result
+   and cleanup.
+4. Complete an independent security review of the exact final head after the
    remaining acceptance records are committed.
-6. Verify another authenticated account is denied before treating owner
+5. Verify another authenticated account is denied before treating owner
    isolation as accepted.
 
 ## Evidence sources

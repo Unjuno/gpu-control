@@ -23,7 +23,7 @@ ChatGPT authenticated user
      -> D1: plans, owner binding, one-use authorization, budgets, run state
      -> R2: bounded immutable result artifacts
      -> Modal fixed CPU control API
-     -> RunPod REST v2 (disabled until live completion transport is accepted)
+     -> RunPod REST v2 through the authenticated provider adapter
      -> authenticated Modal provider adapter
         -> Kaggle fixed private training workload
         -> Hugging Face private artifact and ZeroGPU evaluation
@@ -35,16 +35,19 @@ credential, owner ID, or arbitrary environment variable.
 
 ## Current verified state
 
-As of the Sites v46 publication:
+As of the Sites v72 publication:
 
 - the Site and generated MCP plugin are published;
-- D1 migrations through `0017_free_provider_policies.sql` are applied;
+- D1 migrations through `0020_modal_gpu_budget.sql` are applied;
 - `experiment_capabilities` reports all four providers;
 - Modal CPU is configured and admitted;
-- RunPod remains disabled until its API credential, registered image, paid
-  admission and authenticated live completion transport all pass;
-- Kaggle and Hugging Face remain disabled until the authenticated Modal adapter
-  is deployed and connected;
+- RunPod is configured and its fixed real-GPU canary has completed with
+  authenticated result and cleanup evidence;
+- the fixed Modal T4 canary has completed with authenticated result and cleanup
+  evidence; its admission is closed between explicitly bounded runs;
+- Kaggle and Hugging Face are configured behind the authenticated Modal adapter;
+  Kaggle has not yet obtained a GPU allocation, so the dependent private
+  artifact and ZeroGPU round trip remain open;
 - Kaggle and Hugging Face each have an independent D1 policy of exactly `$0`
   per run and `$0` per month, with paid fallback prohibited;
 - the former macOS Keychain Runner is retired and must not be restored.
@@ -87,7 +90,9 @@ For a real run, ask ChatGPT to prepare one named registered workload first.
 Review the returned source revision, immutable workload identity, parameters,
 provider, cost ceiling and cleanup behavior. Submit only after ChatGPT presents
 the exact destructive tool confirmation. One confirmation may authorize one
-exact plan only and expires after a bounded interval.
+exact plan only and expires after a bounded interval. After that confirmation,
+the same chat may submit, monitor, retrieve the result and confirm cleanup as
+one flow without asking for a new confirmation at every lifecycle step.
 
 ## Provider configuration inventory
 
@@ -107,6 +112,14 @@ Sites runtime configuration:
 
 The D1 policy is independent of Modal account billing. Both must remain within
 the operator-approved ceiling. Credits are not a guarantee of zero charges.
+
+The fixed Modal GPU route additionally uses
+`MODAL_GPU_WORKLOAD_ADMISSION_ENABLED` and a short-lived secret
+`MODAL_GPU_ACCOUNT_EVIDENCE_JSON`. The evidence records the actual outer Modal
+Workspace usage limit, current credit/charge totals and pinned T4 price. D1
+independently enforces the stricter project ceiling (`$1.00` monthly and
+`$0.01` per run). Do not substitute the outer Workspace limit for the internal
+project ledger.
 
 ### Kaggle and Hugging Face adapter
 
