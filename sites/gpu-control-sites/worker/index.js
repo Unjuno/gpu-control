@@ -1377,6 +1377,39 @@ async function submitDelegatedExperiment(env, owner, args) {
 async function maybeDelegateRunTool(env, owner, name, args) {
   const plan = await delegatedPlan(env, owner, args.run_id);
   if (!plan) return null;
+  if (plan.state === "prepared") {
+    const now = Math.floor(Date.now() / 1000);
+    const expired = plan.expires_at < now;
+    const localState = expired ? "expired" : "prepared";
+    if (name === "experiment_status") return {
+      schema_version: 2,
+      status: expired ? "blocked" : "ok",
+      human_summary: expired
+        ? "Prepared provider plan expired before submission; no provider resource was created."
+        : "Prepared provider plan retrieved; no provider resource has been created yet.",
+      machine_state: { run_id: plan.id, state: localState, workload: plan.workload,
+        plan_fingerprint: plan.fingerprint, expires_at: plan.expires_at,
+        provider_resource_created: false, cleanup_state: "not_required" },
+      next_allowed_actions: expired ? [] : ["experiment_submit", "experiment_cancel"],
+      blocking_reason: expired ? "PLAN_EXPIRED_OR_ALREADY_USED" : null,
+    };
+    if (name === "experiment_cancel") {
+      await env.DB.prepare(`UPDATE gateway_delegated_plans SET state='cancelled', updated_at=?
+        WHERE owner_id=? AND id=? AND state='prepared'`)
+        .bind(now, owner, args.run_id).run();
+      return { schema_version: 2, status: "ok",
+        human_summary: "Prepared provider plan cancelled before submission; no provider resource was created.",
+        machine_state: { run_id: plan.id, state: "cancelled", workload: plan.workload,
+          provider_resource_created: false, cleanup_state: "confirmed" },
+        next_allowed_actions: [], blocking_reason: null };
+    }
+    return { schema_version: 2, status: "blocked",
+      human_summary: "The provider run has not been submitted, so no result or artifact exists.",
+      machine_state: { run_id: plan.id, state: localState, workload: plan.workload,
+        provider_resource_created: false, cleanup_state: "not_required" },
+      next_allowed_actions: expired ? [] : ["experiment_status"],
+      blocking_reason: expired ? "PLAN_EXPIRED_OR_ALREADY_USED" : "RESULT_NOT_READY" };
+  }
   const providerHandle = plan.provider_handle_json === null || plan.provider_handle_json === undefined
     ? null : JSON.parse(plan.provider_handle_json);
   const delegatedArgs = name === "experiment_artifact"

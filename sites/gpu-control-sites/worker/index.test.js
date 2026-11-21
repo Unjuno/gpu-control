@@ -1820,6 +1820,55 @@ test("retired Runner routes stay closed even when a legacy bearer is supplied", 
   }
 });
 
+test("prepared delegated plans answer lifecycle reads locally without contacting a provider", async () => {
+  const runId = "8".repeat(32);
+  const now = Math.floor(Date.now() / 1000);
+  const plan = {
+    id: runId, owner_id: "test-owner", fingerprint: "a".repeat(64),
+    workload: "orbitune-kaggle-100-step-v1", approved_plan_json: "{}",
+    state: "prepared", created_at: now, expires_at: now + 300,
+    provider_handle_json: null, provider_state: null, provider_response_json: null,
+    updated_at: null,
+  };
+  const env = environment();
+  env.PROVIDER_ADAPTER_URL = "https://adapter.example";
+  env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
+  env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
+  env.DB.prepare = (sql) => ({
+    bind() {
+      return {
+        async first() {
+          if (sql.includes("FROM gateway_delegated_plans")) return plan;
+          return null;
+        },
+        async run() { throw new Error(`unexpected write: ${sql}`); },
+        async all() { return { results: [] }; },
+      };
+    },
+  });
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = async () => { providerCalls += 1; throw new Error("provider must not be called"); };
+  try {
+    const status = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const statusValue = JSON.parse((await status.json()).result.content[0].text);
+    assert.equal(statusValue.status, "ok");
+    assert.equal(statusValue.machine_state.state, "prepared");
+    assert.equal(statusValue.machine_state.provider_resource_created, false);
+    assert.deepEqual(statusValue.next_allowed_actions, ["experiment_submit", "experiment_cancel"]);
+
+    const result = await toolCall(env, "test-owner", "experiment_result", { run_id: runId });
+    const resultValue = JSON.parse((await result.json()).result.content[0].text);
+    assert.equal(resultValue.status, "blocked");
+    assert.equal(resultValue.blocking_reason, "RESULT_NOT_READY");
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("provider adapter submit retries reuse one owner-bound ChatGPT authorization", async () => {
   const plans = new Map();
   const authorizations = new Map();
