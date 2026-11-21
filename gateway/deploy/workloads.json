@@ -6,7 +6,7 @@
     "source_repository": "Unjuno/orbitune",
     "source_sha": "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
     "provider_resource_id": "UnjunoOrg/orbitune-100-step",
-    "gpu": "NvidiaTeslaT4",
+    "gpu": "NvidiaL4",
     "operating_system": "linux",
     "architecture": "x86_64",
     "gpu_count": 1,

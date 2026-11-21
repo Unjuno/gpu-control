@@ -98,7 +98,7 @@ def _manifest(workload: str) -> dict[str, Any]:
         return {
             "provider": "kaggle", "image_digest": KAGGLE_IMAGE,
             "source_repository": REPOSITORY, "source_sha": SOURCE_SHA,
-            "provider_resource_id": KAGGLE_RESOURCE, "gpu": "NvidiaTeslaT4",
+            "provider_resource_id": KAGGLE_RESOURCE, "gpu": "NvidiaL4",
         }
     return {
         "provider": "huggingface_space", "image_digest": HF_IMAGE,
