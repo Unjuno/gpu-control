@@ -38,6 +38,7 @@ REPOSITORY_ROOT = next(
 )
 PROVIDER_MODULE_ROOT = REPOSITORY_ROOT / "gateway" / "gpu_gateway"
 MODAL_ROOT = REPOSITORY_ROOT / "sites" / "gpu-control-sites" / "modal"
+WORKLOAD_ROOT = REPOSITORY_ROOT / "gateway" / "workloads"
 
 # The provider adapter deliberately vendors only the reviewed Kaggle/Hugging
 # Face implementation modules.  Copying the old Gateway tree would also ship
@@ -50,6 +51,7 @@ PROVIDER_MODULES = (
     "huggingface_artifacts.py",
     "huggingface_space_backend.py",
     "kaggle_backend.py",
+    "kaggle_bridge.py",
     "orbitune_workload.py",
 )
 
@@ -84,6 +86,7 @@ for provider_module in PROVIDER_MODULES:
     )
 adapter_image = (
     adapter_image
+    .add_local_dir(str(WORKLOAD_ROOT), remote_path="/root/provider-runtime/workloads", copy=True)
     .add_local_dir(str(MODAL_ROOT), remote_path="/root/site-modal", copy=True)
     .env({"PYTHONPATH": "/root/provider-runtime:/root/site-modal"})
 )

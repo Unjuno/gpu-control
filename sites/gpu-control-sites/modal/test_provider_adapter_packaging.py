@@ -13,6 +13,7 @@ ALLOWED_PROVIDER_MODULES = {
     "huggingface_artifacts.py",
     "huggingface_space_backend.py",
     "kaggle_backend.py",
+    "kaggle_bridge.py",
     "orbitune_workload.py",
 }
 
@@ -33,6 +34,7 @@ def test_adapter_packages_only_reviewed_provider_modules() -> None:
     assert '.add_local_dir(str(GATEWAY_ROOT)' not in source
     assert 'remote_path="/root/gateway"' not in source
     assert "/root/provider-runtime" in source
+    assert '.add_local_dir(str(WORKLOAD_ROOT), remote_path="/root/provider-runtime/workloads", copy=True)' in source
 
 
 def test_packaged_modules_do_not_import_gateway_services_or_databases() -> None:
