@@ -1,6 +1,10 @@
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
-const DEFAULT_TIMEOUT_MS = 12_000;
+// RunPod's queue API can take longer than a typical control-plane request to
+// acknowledge a cold endpoint. Keep the client timeout aligned with the
+// registered workload's hard 30-second execution limit; ambiguous outcomes
+// still remain non-retriable and are reconciled through the provider TTL.
+const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_JSON_BYTES = 1024 * 1024;
 const JOB_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
 const ENDPOINT_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
