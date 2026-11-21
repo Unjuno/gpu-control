@@ -3,7 +3,7 @@ const PROVIDER_JOB_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const LEASE_STATES = new Set(["reserved", "submitting", "uncertain", "active", "cleanup_pending", "released"]);
 const TRANSITIONS = {
   reserved: new Set(["submitting", "released"]),
-  submitting: new Set(["active", "uncertain"]),
+  submitting: new Set(["active", "uncertain", "released"]),
   uncertain: new Set(["active", "cleanup_pending"]),
   active: new Set(["cleanup_pending"]),
   cleanup_pending: new Set(["released"]),
@@ -154,6 +154,7 @@ function validateTransition(from, to, input) {
   }
   if (to === "released") {
     const expectedEvidence = from === "reserved" ? "provider_create_not_started" :
+      from === "submitting" ? "provider_create_rejected" :
       from === "cleanup_pending" ? "pod_termination_confirmed" : null;
     if (!expectedEvidence || input.evidenceType !== expectedEvidence) {
       throw new ProviderAccountLeaseError("PROVIDER_ACCOUNT_LEASE_RELEASE_EVIDENCE_REQUIRED");
@@ -195,6 +196,7 @@ export async function transitionProviderAccountLease(db, input) {
         AND revision=? AND state=?
         AND (? <> 'released' OR (
           (? = 'reserved' AND ? = 'provider_create_not_started') OR
+          (? = 'submitting' AND ? = 'provider_create_rejected') OR
           (? = 'cleanup_pending' AND ? = 'pod_termination_confirmed' AND EXISTS (
             SELECT 1 FROM runs r WHERE r.id=provider_account_leases.run_id
               AND r.owner_id=provider_account_leases.owner_id
@@ -207,7 +209,8 @@ export async function transitionProviderAccountLease(db, input) {
         provider_job_id, release_evidence_type, release_evidence_sha256, created_at, updated_at, released_at`)
       .bind(input.toState, jobId, nextRevision, input.now, evidenceType, evidenceSha256, released ? input.now : null,
         input.accountScopeSha256, input.leaseToken, input.generation, input.revision, current.state,
-        input.toState, current.state, input.evidenceType, current.state, input.evidenceType),
+        input.toState, current.state, input.evidenceType, current.state, input.evidenceType,
+        current.state, input.evidenceType),
     db.prepare(`INSERT INTO provider_account_lease_events (
         event_id, provider, account_scope_sha256, generation, revision, run_id,
         from_state, to_state, evidence_type, evidence_sha256, created_at

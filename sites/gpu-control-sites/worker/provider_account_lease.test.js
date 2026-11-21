@@ -142,7 +142,7 @@ test("RunPod account lease is idempotent, serialized, fenced, and held through c
     await assert.rejects(transitionProviderAccountLease(db, {
       accountScopeSha256: SCOPE_HASH, leaseToken: second.lease_token, generation: 2, revision: submitting.revision,
       toState: "released", evidenceType: "provider_create_not_started", evidenceSha256: EVIDENCE, now: 35,
-    }), (error) => error instanceof ProviderAccountLeaseError && error.code === "PROVIDER_ACCOUNT_LEASE_TRANSITION_DENIED");
+    }), (error) => error instanceof ProviderAccountLeaseError && error.code === "PROVIDER_ACCOUNT_LEASE_RELEASE_EVIDENCE_REQUIRED");
     await assert.rejects(Promise.resolve().then(() => raw.prepare(`UPDATE provider_account_lease_events
       SET evidence_type='rewritten' WHERE account_scope_sha256=?`).run(SCOPE_HASH)), /append-only/);
     await assert.rejects(Promise.resolve().then(() => raw.prepare(`DELETE FROM provider_account_lease_events
@@ -175,6 +175,31 @@ test("RunPod account lease is idempotent, serialized, fenced, and held through c
     assert.equal(released.provider_job_id, "pod-123");
     assert.equal(released.release_evidence_sha256, EVIDENCE);
     assert.equal(raw.prepare("SELECT COUNT(*) AS count FROM provider_account_lease_events").get().count, 8);
+  } finally {
+    raw.close();
+  }
+});
+
+test("a definitively rejected create releases the account lease without a pod id", async () => {
+  const raw = database();
+  const db = new SqliteD1(raw);
+  try {
+    const intent = insertIntent(raw, { suffix: "rejected", fingerprint: PLAN_A, challenge: CHALLENGE_A, now: 90 });
+    const reserved = await reserveProviderAccountLease(db, leaseInput(intent, { now: 100 }));
+    const submitting = await transitionProviderAccountLease(db, {
+      accountScopeSha256: SCOPE_HASH, leaseToken: reserved.lease_token,
+      generation: reserved.generation, revision: reserved.revision,
+      toState: "submitting", evidenceType: "provider_create_intent",
+      evidenceSha256: "a".repeat(64), now: 101,
+    });
+    const released = await transitionProviderAccountLease(db, {
+      accountScopeSha256: SCOPE_HASH, leaseToken: submitting.lease_token,
+      generation: submitting.generation, revision: submitting.revision,
+      toState: "released", evidenceType: "provider_create_rejected",
+      evidenceSha256: "b".repeat(64), now: 102,
+    });
+    assert.equal(released.state, "released");
+    assert.equal(released.provider_job_id, null);
   } finally {
     raw.close();
   }
