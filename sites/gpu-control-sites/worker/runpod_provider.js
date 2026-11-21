@@ -1,4 +1,5 @@
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
+const PROVIDER_ADAPTER_ORIGIN = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
 const RUNPOD_RELAY_PATH = "/internal/runpod/v1/proxy";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
 // RunPod's queue API can take longer than a typical control-plane request to
@@ -21,7 +22,7 @@ export class RunpodProviderError extends Error {
 export function runpodConfigured(env) {
   const directKey = typeof env?.RUNPOD_API_KEY === "string" && env.RUNPOD_API_KEY.length >= 20 && env.RUNPOD_API_KEY.length <= 512 &&
     !/[\s\x00-\x1f\x7f]/.test(env.RUNPOD_API_KEY);
-  const relay = typeof env?.RUNPOD_JOB_ORIGIN === "string" && env.RUNPOD_JOB_ORIGIN.length > 0 &&
+  const relay = env?.RUNPOD_USE_PROVIDER_ADAPTER === "true" &&
     typeof env?.PROVIDER_ADAPTER_URL === "string" && typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID === "string" &&
     typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET === "string";
   return (directKey || relay) && typeof env?.RUNPOD_WORKLOAD_IMAGE === "string" &&
@@ -34,16 +35,16 @@ export function runpodConfigured(env) {
 }
 
 function jobTransport(env) {
-  const configured = env?.RUNPOD_JOB_ORIGIN;
-  if (configured === undefined || configured === "") return { origin: RUNPOD_JOB_ORIGIN, headers: {}, relay: false };
-  if (typeof configured !== "string" || typeof env?.PROVIDER_ADAPTER_URL !== "string" ||
+  if (env?.RUNPOD_USE_PROVIDER_ADAPTER !== "true") return { origin: RUNPOD_JOB_ORIGIN, headers: {}, relay: false };
+  if (typeof env?.PROVIDER_ADAPTER_URL !== "string" ||
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_ID ||
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET)
     throw new RunpodProviderError("RUNPOD_RELAY_NOT_CONFIGURED");
   let relay; let adapter;
-  try { relay = new URL(configured); adapter = new URL(env.PROVIDER_ADAPTER_URL); }
+  try { adapter = new URL(env.PROVIDER_ADAPTER_URL); relay = new URL(RUNPOD_RELAY_PATH, `${adapter.origin}/`); }
   catch { throw new RunpodProviderError("RUNPOD_RELAY_INVALID"); }
-  if (relay.protocol !== "https:" || relay.origin !== adapter.origin || relay.pathname !== RUNPOD_RELAY_PATH ||
+  if (adapter.origin !== PROVIDER_ADAPTER_ORIGIN || adapter.pathname !== "/" || adapter.search || adapter.hash || adapter.username || adapter.password ||
+      relay.protocol !== "https:" || relay.origin !== adapter.origin || relay.pathname !== RUNPOD_RELAY_PATH ||
       relay.search || relay.hash || relay.username || relay.password)
     throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
   return { origin: relay.href.replace(/\/$/, ""), relay: true, headers: {

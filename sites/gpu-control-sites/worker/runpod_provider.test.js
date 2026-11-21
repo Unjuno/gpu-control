@@ -41,9 +41,9 @@ test("submit sends an asynchronous bounded serverless job", async () => {
 
 test("job relay is pinned to the authenticated provider adapter origin", async () => {
   const relayed = { ...env,
-    PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run/internal/sites/v1",
+    PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run",
     PROVIDER_ADAPTER_PROXY_TOKEN_ID: "proxy-id", PROVIDER_ADAPTER_PROXY_TOKEN_SECRET: "proxy-secret",
-    RUNPOD_JOB_ORIGIN: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run/internal/runpod/v1/proxy",
+    RUNPOD_USE_PROVIDER_ADAPTER: "true",
   };
   let request;
   const client = new RunpodV2Client(relayed, { fetchImpl: async (url, init) => {
@@ -51,15 +51,13 @@ test("job relay is pinned to the authenticated provider adapter origin", async (
   } });
   await client.submitJob({ runId: "1".repeat(32), planFingerprint: "b".repeat(64), nonce: "c".repeat(64),
     completionKeyB64: Buffer.alloc(32, 7).toString("base64"), completionKeyId: "d".repeat(32), sourceSha: "e".repeat(40) });
-  assert.equal(request.url, relayed.RUNPOD_JOB_ORIGIN);
+  assert.equal(request.url, "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run/internal/runpod/v1/proxy");
   assert.equal(request.init.headers.authorization, "Bearer proxy-id.proxy-secret");
   assert.deepEqual(JSON.parse(request.init.body), { method: "POST", path: "/v2/endpoint_abc123/run",
     body: JSON.parse(request.init.body).body });
   assert.equal(request.init.body.includes(env.RUNPOD_API_KEY), false);
   assert.equal(runpodConfigured({ ...relayed, RUNPOD_API_KEY: undefined }), true);
-  assert.throws(() => new RunpodV2Client({ ...relayed, RUNPOD_JOB_ORIGIN: "https://evil.invalid/internal/runpod/v1" }),
-    (error) => error.code === "RUNPOD_RELAY_INVALID");
-  assert.throws(() => new RunpodV2Client({ ...relayed, RUNPOD_JOB_ORIGIN: `${relayed.RUNPOD_JOB_ORIGIN}/extra` }),
+  assert.throws(() => new RunpodV2Client({ ...relayed, PROVIDER_ADAPTER_URL: "https://evil.invalid" }),
     (error) => error.code === "RUNPOD_RELAY_INVALID");
 });
 
