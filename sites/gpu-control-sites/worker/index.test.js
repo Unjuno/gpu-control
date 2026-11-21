@@ -182,9 +182,13 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   assert.equal(response.status, 200);
   const tools = Object.fromEntries(rpc.result.tools.map((item) => [item.name, item.annotations]));
   const healthTool = rpc.result.tools.find((item) => item.name === "experiment_provider_health");
+  const prepareTool = rpc.result.tools.find((item) => item.name === "experiment_prepare");
+  const submitTool = rpc.result.tools.find((item) => item.name === "experiment_submit");
   assert.deepEqual(healthTool.inputSchema.required, ["run_id", "plan_fingerprint"]);
-  assert.deepEqual(rpc.result.tools.find((item) => item.name === "experiment_submit").inputSchema.required,
-    ["plan_fingerprint", "run_id"]);
+  assert.deepEqual(submitTool.inputSchema.required, ["plan_fingerprint", "run_id"]);
+  assert.match(prepareTool.description, /without asking the user the same question again/);
+  assert.match(submitTool.description, /do not ask a second conversational confirmation/);
+  assert.match(submitTool.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
 
   for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list"]) {
     assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);

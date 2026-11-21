@@ -271,3 +271,17 @@ For each enabled provider, retain evidence of:
 
 Passing tests, a health endpoint, a successful deployment, or a configured API
 key proves only that layer. It does not prove an end-to-end provider route.
+
+## One instruction means one complete run
+
+When the owner says to execute a registered workload, that one instruction
+authorizes the bounded lifecycle for the prepared plan that matches it:
+`prepare -> submit -> monitor -> result -> cleanup`. Do not ask the owner to
+repeat "run this plan once" after `prepare`. The ChatGPT client may still show
+its native write-action approval UI; that is distinct from an additional
+conversational confirmation.
+
+Provider credentials are long-lived, least-privilege runtime configuration and
+are reused across runs. Do not create or rotate them per experiment. Credential
+rotation, deletion, privilege expansion, or a budget increase is a separate
+administrative action and still requires immediate notice before it is done.
