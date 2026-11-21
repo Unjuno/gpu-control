@@ -9,7 +9,7 @@ Before live paid authorization can succeed, a trusted preflight must read GitHub
 - `main` is protected;
 - changes to `main` require a pull request;
 - required status checks are enforced;
-- the current required checks cover the Python 3.11/3.12/3.13 suites, the trusted reference container, the Sites Worker/D1 contract, Project bridge tests, and the restored Gateway offline suite. The maintained FastAPI/PostgreSQL Gateway now carries the Kaggle/Hugging Face extension; its offline checks do not establish a deployed ChatGPT or provider acceptance path;
+- the current required checks cover the Python 3.11/3.12/3.13 suites, the trusted reference container, the Sites Worker/D1 contract, Project bridge tests, and the `gateway` compatibility context. That context now tests only the Sites-owned Kaggle/Hugging Face provider runtime and its temporary legacy import wrappers; it starts no PostgreSQL service and does not restore the retired FastAPI Gateway as a product dependency;
 - force pushes are blocked;
 - branch deletion is blocked.
 
