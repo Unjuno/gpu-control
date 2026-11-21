@@ -1,5 +1,13 @@
 # ChatGPT custom MCP connection and acceptance
 
+> **Archived legacy instructions — do not use to configure or operate the current product.**
+> This guide describes the retired FastAPI/PostgreSQL Gateway and Vercel flow,
+> including local Runner steps. The supported path is ChatGPT Sites with D1/R2
+> and the fixed Modal CPU adapter. Follow [`../CHATGPT_SETUP.md`](../CHATGPT_SETUP.md)
+> and [`../SITES_MODAL_RUNPOD_DELIVERY.md`](../SITES_MODAL_RUNPOD_DELIVERY.md)
+> for current architecture and acceptance gates. Historical “live acceptance”
+> steps below are not authorization to restore or run the legacy stack.
+
 This document describes the live connection gate for the Gateway. Repository and
 container tests do not count as a ChatGPT connection test.
 

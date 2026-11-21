@@ -45,6 +45,7 @@ concurrency:
 
 jobs:
   validate:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -54,7 +55,6 @@ jobs:
       GPU_PROFILE: ${{ inputs.gpu_profile }}
       MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes }}
       MAX_COST_USD: ${{ inputs.max_cost_usd }}
-      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout control plane
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -78,6 +78,8 @@ jobs:
         run: uv run --locked pytest
 
       - name: Validate request and verify source (no GPU resources are created)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           uv run --locked gpu-control verify-source \
             --target-repo "$TARGET_REPO" \

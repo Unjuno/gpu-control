@@ -22,9 +22,13 @@ That state does **not** prove that the paid GPU canary met its experiment criter
 
 ```text
 repository  Unjuno/orbitune
-source SHA  38594057d1b118a7acf6c843e39d7d8a25571316
+source SHA  fc131174a9b529a9825f54fccf1a7df4c63c9a1a
 workload    orbitune-runpod-training-canary-v1
 ```
+
+The selected workload emits `gpu-control-hmac-sha256-v3` completion evidence.
+The bounded Pod-log verifier retains v2 compatibility for legacy log results;
+that does not make the retired/unavailable production log transport current.
 
 The function requires trusted control-plane values for the selected source SHA, approved execution-plan fingerprint, and approved immutable image digest. Those values must agree with the authenticated completion evidence and the authenticated result bytes.
 

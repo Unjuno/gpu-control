@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from urllib.error import URLError
 
 import pytest
 
@@ -13,6 +14,11 @@ from gpu_control.lifecycle import CleanupState, JobObservation, JobState, build_
 from gpu_control.providers.controller import cleanup_provider_job, submit_approved_plan
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
 from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
+from gpu_control.providers.runpod_network_volume import (
+    RunPodNetworkVolumeEvidence,
+    RunPodNetworkVolumeS3Client,
+    RunPodS3Credentials,
+)
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
 from gpu_control.providers.runpod_reconciliation import (
     RunPodPodInventoryEvidence,
@@ -21,6 +27,7 @@ from gpu_control.providers.runpod_reconciliation import (
     reconcile_ambiguous_create,
 )
 from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2Error
+from conftest import issue_live_permit_for_plan
 
 
 DIGEST = "sha256:" + "a" * 64
@@ -68,17 +75,7 @@ def plan() -> ApprovedExecutionPlan:
 
 
 def permit(value: ApprovedExecutionPlan) -> LiveExecutionPermit:
-    return LiveExecutionPermit(
-        plan_fingerprint=value.fingerprint(),
-        actor="Unjuno",
-        decision_record_id="decision-reconciliation",
-        human_authorization_id="auth-reconciliation",
-        human_authorization_reference=value.authorization_reference,
-        paid_authorization_reference="github-actions:reconciliation",
-        repository_security_reference="github:main-protection:sha256:" + "d" * 64,
-        control_plane_sha="e" * 40,
-        valid_until_utc="2026-08-28T01:10:00Z",
-    )
+    return issue_live_permit_for_plan(value, valid_until_utc="2026-08-28T01:10:00Z")
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -103,6 +100,18 @@ def completion(value: ApprovedExecutionPlan) -> RunPodCompletionLaunch:
     return RunPodCompletionLaunch(challenge=challenge, secret_key=SECRET)
 
 
+def volume() -> RunPodNetworkVolumeEvidence:
+    return RunPodNetworkVolumeEvidence(
+        network_volume_id="volume-123",
+        data_center_id="US-KS-2",
+        verification_reference="runpod-volume:test",
+    )
+
+
+def unavailable_s3(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+    raise URLError("offline test transport")
+
+
 def pod_payload(
     value: ApprovedExecutionPlan,
     launch: RunPodCompletionLaunch,
@@ -117,6 +126,8 @@ def pod_payload(
         "image": image(value).image_reference,
         "gpu": {"id": value.provider_resource_id, "count": 1},
         "cloud": "SECURE",
+        "dataCenterId": "US-KS-2",
+        "mounts": {"network": [{"volumeId": "volume-123", "path": "/outputs"}]},
         "cost": cost,
         "status": status,
     }
@@ -216,7 +227,7 @@ class FakeClient:
         self.get_response = pod_payload(value, launch)
         self.terminate_error: Exception | None = None
 
-    def create_pod(self, payload):  # type: ignore[no-untyped-def]
+    def create_pod(self, payload, **kwargs):  # type: ignore[no-untyped-def]
         self.create_calls += 1
         assert payload["name"] == self.expected_create_name
         if self.create_error is not None:
@@ -282,6 +293,13 @@ def make_adapter(*, with_completion: bool = True):  # type: ignore[no-untyped-de
         client.expected_create_name = f"gpu-control-{value.fingerprint()[7:19]}"
     occupancy = OccupancyProbe(value)
     inventory_probe = InventoryProbe(value, launch)
+    network_volume = volume()
+    result_client = RunPodNetworkVolumeS3Client(
+        network_volume,
+        RunPodS3Credentials(access_key_id="test-access", secret_access_key="test-secret"),
+        opener=unavailable_s3,
+        clock=lambda: NOW,
+    )
     adapter = RunPodV2Adapter(
         client=client,  # type: ignore[arg-type]
         approved_plan=value,
@@ -291,6 +309,9 @@ def make_adapter(*, with_completion: bool = True):  # type: ignore[no-untyped-de
         live_permit=permit(value),
         inventory_probe=inventory_probe,
         completion_launch=launch if with_completion else None,
+        network_volume=network_volume if with_completion else None,
+        result_client=result_client if with_completion else None,
+        expected_workload_id="orbitune-runpod-training-canary-v1" if with_completion else None,
         clock=lambda: NOW + timedelta(seconds=1),
     )
     return value, launch, client, occupancy, inventory_probe, adapter
@@ -316,13 +337,13 @@ def test_adapter_recovers_ambiguous_create_without_retrying_create() -> None:
 def test_adapter_does_not_reconcile_create_without_per_execution_identity() -> None:
     value, _, client, occupancy, inventory_probe, adapter = make_adapter(with_completion=False)
 
-    with pytest.raises(RunPodV2Error, match="could not be reached"):
+    with pytest.raises(RunPodV2AdapterError, match="root signer"):
         adapter.submit(value)
 
-    assert client.create_calls == 1
+    assert client.create_calls == 0
     assert client.get_calls == 0
     assert inventory_probe.calls == 0
-    assert occupancy.calls == 1
+    assert occupancy.calls == 0
 
 
 def test_adapter_reconciliation_revalidates_full_pod_identity() -> None:

@@ -12,6 +12,7 @@ from .runpod_occupancy import RunPodAccountOccupancyEvidence, build_account_occu
 from .runpod_pricing import validate_created_pod_with_pricing
 from .runpod_reconciliation import RunPodPodInventoryEvidence, build_pod_inventory_evidence
 from .runpod_v1 import RunPodV1HttpClient, build_create_pod_payload_v1
+from .runpod_live_gate import require_runpod_live_allocation_enabled
 from .runpod_v2 import RunPodV2Error
 
 
@@ -107,6 +108,7 @@ class RunPodV1Adapter(RunPodV2Adapter):
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
         """Submit exactly once through current REST v1 after fresh price/stock checks."""
 
+        require_runpod_live_allocation_enabled()
         self._require_plan_identity(plan)
         occupancy_evidence = self._probe_before_create(plan)
         payload = build_create_pod_payload_v1(
@@ -128,7 +130,7 @@ class RunPodV1Adapter(RunPodV2Adapter):
             raise RunPodV1AdapterError(str(exc)) from exc
 
         try:
-            pod = self.client.create_pod(payload)
+            pod = self.client.create_pod(payload, plan=plan, live_permit=self.live_permit)
         except RunPodV2Error as create_error:
             return self._reconcile_create_failure(plan, create_error)
 

@@ -141,7 +141,11 @@ def fetch_sources(request, policy, dest, get=api):
         require(info.get("type") == "file" and info.get("encoding") == "base64" and "target" not in info, "regular_file_required")
         raw = base64.b64decode("".join(info["content"].split()), validate=True)
         require(len(raw) <= 131072, "source_file_too_large")
-        blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+        # GitHub's Contents API exposes Git blob object IDs using SHA-1. This
+        # reproduces Git's object ID for source-integrity matching; it is not a
+        # signature, credential derivation, or security token.
+        blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw,
+                            usedforsecurity=False).hexdigest()
         require(blob == info.get("sha"), "source_blob_mismatch")
         target = Path(dest) / name
         target.parent.mkdir(parents=True, exist_ok=True)

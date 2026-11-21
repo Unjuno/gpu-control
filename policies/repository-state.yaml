@@ -47,6 +47,213 @@ while_parked:
   scheduled_paid_execution_allowed: false
   repository_dispatch_paid_execution_allowed: false
 
+# Credential provisioning is separated from execution activation. This narrow
+# exception permits one least-privilege key to be stored at the trusted Modal
+# adapter boundary so the final deployment can be reviewed without ever
+# placing the key in Sites, GitHub, source, logs, or workload code. It does not
+# enable or authorize a RunPod API call, adapter deployment, admission change,
+# GPU allocation, or spend.
+runpod_credential_provisioning_exception:
+  allowed_while_parked: true
+  purpose: store_one_nonexecuting_endpoint_scoped_runpod_key
+  provider: runpod
+  fixed_resource:
+    type: serverless_endpoint
+    endpoint_id: wwlos460xbfw5q
+  credential:
+    name: gpu-control-modal-relay-wwlos460xbfw5q
+    storage_boundary: modal_secret
+    modal_workspace: unjuno
+    modal_environment: main
+    modal_secret_name: gpu-control-worker
+    modal_secret_key: RUNPOD_API_KEY
+    sites_secret_allowed: false
+    github_secret_allowed: false
+    source_or_log_disclosure_allowed: false
+    workload_access_allowed: false
+  permissions:
+    serverless_endpoint_scope_required: true
+    endpoint_read: true
+    endpoint_write: true
+    rest_api_permissions_allowed: false
+    graphql_permissions_allowed: false
+    account_or_billing_permissions_allowed: false
+    pod_permissions_allowed: false
+    network_volume_permissions_allowed: false
+  activation_boundary:
+    adapter_deploy_allowed: false
+    provider_probe_allowed: false
+    runpod_api_call_allowed: false
+    admission_enable_allowed: false
+    gpu_allocation_allowed: false
+    spend_allowed: false
+    configuration_is_not_execution_authorization: true
+  gates:
+    explicit_current_owner_request_required: true
+    exact_head_ci_required: true
+    independent_security_review_required: true
+    browser_session_must_already_be_owner_authenticated: true
+    secret_value_must_not_be_returned_to_chat_or_tool_output: true
+    post_write_verification_must_use_key_name_and_masked_value_only: true
+    revoke_on_exposure_or_scope_mismatch: true
+
+# Narrow exception for the ChatGPT Sites CPU vertical slice. This does not
+# activate the RunPod/GPU or paid-training path above.
+modal_cpu_smoke_exception:
+  allowed_while_parked: true
+  purpose: one_authenticated_registered_cpu_inference
+  provider: modal
+  environment: main
+  workload:
+    repository: Unjuno/gpu-control
+    source_sha: 3cc7a765cbcbeb7abdfa0d607e8a44e4cdff2288
+    workload_id: tiny-stories-inference-v1
+    image_digest: sha256:f0e1bbd44e0bd475dc2f19a548a96e041fc9cb48fc4160d4c0c4de02b0e00541
+  execution_bounds:
+    max_runs_per_authorization: 1
+    max_runtime_seconds: 30
+    max_cpu_cores: 1
+    max_memory_mib: 512
+    gpu_allowed: false
+    network_egress: blocked
+    max_inflight: 1
+    automatic_retry_after_ambiguous_submit: false
+    require_confirmed_cleanup_before_next_run: true
+    per_run_cost_ceiling_usd: "0.01"
+    cost_is_usage_billed: true
+    credit_eligibility_is_not_zero_cost: true
+  account_guard:
+    require_current_modal_workspace_usage_limit_usd_at_most: "1.00"
+    require_usage_and_charge_state_rechecked_before_each_run: true
+  authorization:
+    explicit_current_human_request_required: true
+    authenticated_sites_owner_required: true
+    exact_plan_fingerprint_required: true
+    chatgpt_mcp_write_confirmation_required: true
+    exact_plan_fields_in_confirmed_tool_call_required: true
+    same_origin_sites_confirmation_page_required: false
+    confirmation_validity_seconds_at_most: 600
+    authorization_consumed_atomically_with_run_reservation: true
+    max_runs_per_authorization: 1
+    provider_health_and_submit_calls_forbidden_before_confirmation: true
+    chatgpt_tool_confirmation_is_not_cryptographic_manual_interaction_proof: true
+    browser_confirmation_is_not_cryptographic_manual_interaction_proof: true
+  credentials:
+    allow_existing_sites_modal_proxy_secret: true
+    allow_temporary_workspace_deploy_token: true
+    maximum_deploy_token_lifetime_minutes: 60
+    deploy_command_must_target_environment: main
+    revoke_deploy_token_immediately_after_deploy: true
+    credentials_exposed_to_sandbox: false
+
+# Narrow paid Modal GPU acceptance lane for one fixed CUDA canary. This does
+# not activate generic paid workflows, RunPod, arbitrary images, or training.
+# The exception becomes usable only after this exact policy change and its
+# implementation receive independent security review and exact-head CI.
+modal_gpu_canary_exception:
+  allowed_while_parked: true
+  purpose: one_authenticated_fixed_modal_t4_canary
+  provider: modal
+  environment: main
+  workload:
+    repository: Unjuno/gpu-control
+    source_sha: 58a24082b73238b982e64a17b7d0624fc2594bab
+    workload_id: modal-gpu-vector-add-v1
+    provider_resource_id: gpu-control-modal-gpu-canary/run_canary
+    image_digest: sha256:b0840d8b2a13e573141e158c50f1f8375a7eb853529172effea49cacfc10c919
+    fixed_gpu: T4
+    fixed_operation: u32_vector_add_4
+  execution_bounds:
+    max_runs_per_authorization: 1
+    max_runtime_seconds: 30
+    max_gpu_count: 1
+    network_egress: blocked
+    provider_secrets_attached_to_gpu_function: false
+    single_use_container: true
+    automatic_retry_after_ambiguous_submit: false
+    require_confirmed_terminal_state_before_next_run: true
+    single_workspace_active_lease_required: true
+    per_run_cost_ceiling_usd: "0.01"
+    monthly_project_cost_ceiling_usd: "1.00"
+    cost_is_usage_billed: true
+  account_guard:
+    require_current_modal_workspace_usage_limit_usd_at_most: "1.00"
+    require_usage_and_charge_state_rechecked_before_run: true
+    provider_evidence_validity_seconds_at_most: 3600
+    exact_plan_must_bind_provider_evidence: true
+    payment_method_change_is_separate_human_action: true
+  authorization:
+    explicit_current_human_request_required: true
+    authenticated_sites_owner_required: true
+    exact_plan_fingerprint_required: true
+    exact_source_sha_required: true
+    chatgpt_mcp_write_confirmation_required: true
+    confirmation_validity_seconds_at_most: 600
+    authorization_consumed_once: true
+    configuration_does_not_authorize_execution: true
+    exact_head_ci_required: true
+    independent_security_review_required: true
+  credentials:
+    allow_existing_sites_provider_adapter_proxy_secret: true
+    allow_temporary_workspace_deploy_token: true
+    maximum_deploy_token_lifetime_minutes: 60
+    deploy_command_must_target_environment: main
+    revoke_deploy_token_immediately_after_deploy: true
+    credentials_exposed_to_gpu_function: false
+
+# Narrow free-provider acceptance lane for the Kaggle/Hugging Face integration.
+# This leaves the repository parked and never authorizes a paid fallback. Each
+# external job/call still requires a fresh, exact owner confirmation after live
+# authentication, quota and private-resource checks succeed.
+free_gpu_acceptance_exception:
+  allowed_while_parked: true
+  purpose: one_authenticated_kaggle_huggingface_vertical
+  workload:
+    repository: Unjuno/orbitune
+    source_sha: 44a1b806160ab5bc721a370d034a6dfcb28f27a8
+    training_workload_id: orbitune-kaggle-100-step-v1
+    evaluation_workload_id: orbitune-zero-gpu-eval-v1
+    training_steps: 100
+    synthetic_data_must_be_labeled: true
+  providers:
+    kaggle:
+      max_jobs_per_authorization: 1
+      included_gpu_quota_required: true
+      exact_kernel_version_required: true
+      ambiguous_submit_must_not_retry: true
+      paid_fallback_allowed: false
+    huggingface_space:
+      max_evaluations_per_authorization: 1
+      private_space_required: true
+      included_zero_gpu_quota_required: true
+      overquota_usage_required_to_equal: 0
+      paid_credit_extension_allowed: false
+      huggingface_jobs_allowed: false
+  artifact_service:
+    provider: huggingface_hub
+    private_repository_required: true
+    trusted_worker_transfer_required: true
+    provider_job_write_token_forbidden: true
+    exact_revision_redownload_required: true
+    checksum_roundtrip_required: true
+  execution_bounds:
+    automatic_paid_fallback: false
+    automatic_retry_after_ambiguous_submit: false
+    require_confirmed_cleanup_before_next_run: true
+    max_inflight_training_jobs: 1
+    current_quota_evidence_required: true
+  authorization:
+    explicit_current_human_request_required: true
+    authenticated_owner_required: true
+    exact_plan_fingerprint_required: true
+    one_use_authorization_required: true
+    configuration_does_not_authorize_execution: true
+  credentials:
+    worker_secret_reference_allowed_for_this_exception: true
+    public_api_process_forbidden: true
+    chatgpt_and_mcp_results_forbidden: true
+    workload_process_write_token_forbidden: true
+
 authorization:
   activation_requires_explicit_human_request: true
   repository_access_does_not_activate: true

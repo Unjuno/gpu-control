@@ -37,9 +37,22 @@ def test_current_api_audit_records_v2_contract_and_offline_acceptance_boundary()
     assert audit["current_official_rest_base_observed"] == "https://api.runpod.io/v2"
     assert audit["deprecated_rest_v1_retirement_date"] == "2026-11-15"
     assert audit["current_official_create_pod_endpoint"] == "POST /pods"
+    assert audit["current_official_create_pod_immediate_status"] == 201
+    assert audit["current_official_create_pod_queued_status"] == 202
+    assert audit["current_official_create_pod_202_requires_queue_option"] is True
+    assert audit["implementation_pod_queue_enabled"] is False
+    assert audit["implementation_create_pod_expected_status"] == 201
+    assert audit["implementation_rejects_unrequested_queued_pod_response"] is True
     assert audit["current_official_list_pods_endpoint"] == "GET /pods"
     assert audit["current_official_list_pods_response_shape"] == "cursor_paginated_object_with_pods_array"
     assert audit["current_official_delete_pod_endpoint"] == "DELETE /pods/{id}"
+    assert audit["current_official_get_pod_endpoint"] == "GET /pods/{id}"
+    assert audit["current_official_exec_pod_endpoint"] == "POST /pods/{id}/exec"
+    assert audit["current_official_exec_pod_command_shape"] == "argv_array"
+    assert audit["current_official_exec_pod_timeout_seconds_max"] == 25
+    assert audit["current_official_exec_pod_requires_ssh_or_public_port"] is False
+    assert audit["sites_worker_v2_adapter_status"] == "implemented_offline_mock_tested"
+    assert audit["sites_worker_v2_adapter_live_verified"] is False
     assert audit["current_official_network_volume_attach_fields_observed"] is True
     assert audit["current_official_network_volume_fields"] == [
         "mounts.network[].volumeId", "mounts.network[].path", "dataCenterIds"
@@ -65,6 +78,10 @@ def test_current_api_audit_records_v2_contract_and_offline_acceptance_boundary()
     assert audit["pod_container_log_sse_prod_verified"] is False
     assert audit["pod_container_log_sse_prod_failure"] is None
     assert audit["pod_container_log_sse_live_collection_allowed"] is False
+    assert audit["pod_container_log_sse_current_official_openapi_path"] == "/v2/pods/{id}/logs"
+    assert audit["pod_container_log_sse_current_official_openapi_status"] == 200
+    assert audit["pod_container_log_sse_current_official_openapi_media_type"] == "text/event-stream"
+    assert audit["pod_container_log_sse_previous_mcp_disabled_evidence_is_api_availability_proof"] is False
 
     upstream_sha = "465872464c4f157a2e87afcd855c60a607954c26"
     assert audit["legacy_v2_list_pods_evidence_repository"] == "runpod/runpod-mcp"
@@ -105,8 +122,8 @@ def test_submission_is_bound_to_permit_plan_image_gpu_cloud_price_volume_and_rec
     assert submission["user_mounts_forwarded"] is False
     assert submission["automatic_create_retry"] is False
 
-    assert submission["trusted_network_volume_required_for_live_canary"] is True
-    assert submission["network_volume_must_preexist"] is True
+    assert submission["trusted_network_volume_required_for_live_canary"] is False
+    assert submission["network_volume_must_preexist"] is False
     assert submission["network_volume_auto_create_or_resize"] is False
     assert submission["network_volume_mount_path"] == "/outputs"
     assert submission["network_volume_from_trusted_control_plane_only"] is True
@@ -130,22 +147,34 @@ def test_submission_is_bound_to_permit_plan_image_gpu_cloud_price_volume_and_rec
     assert submission["compensating_termination_failure_is_visible"] is True
 
 
-def test_completion_v3_and_volume_transport_are_implemented_but_not_live_verified() -> None:
+def test_completion_v3_root_signer_is_connected_but_not_live_verified() -> None:
     policy = load_policy()
     completion = policy["completion_evidence"]
     transport = policy["network_volume_results"]
     results = policy["results"]
 
     assert completion["protocol"] == "hmac-sha256-v3"
+    assert completion["implementation_status"] == "root_owned_signer_connected_offline_not_live_verified"
+    assert completion["security_status"] == "ephemeral_key_limited_to_digest_pinned_root_wrapper"
+    assert completion["root_signer_receives_completion_signing_secret"] is True
+    assert completion["training_process_receives_completion_signing_secret"] is False
+    assert completion["provider_account_or_host_is_outside_signer_threat_model"] is True
+    assert completion["root_owned_signer_redesign_required"] is False
+    assert completion["root_owned_signer_commit"] == "fc131174a9b529a9825f54fccf1a7df4c63c9a1a"
+    assert completion["provider_v2_exit_code_field_documented"] is True
     assert completion["legacy_v2_compatibility_status"] == "temporary_offline_migration_only"
     assert completion["provider_job_id_binding"] == "submission_receipt_and_provider_specific_collection_transport"
     assert completion["max_marker_bytes"] == 16384
     assert completion["offline_marker_authentication_allowed"] is True
     assert "process_exit_code" in completion["binds"]
     assert completion["completion_marker"] == "GPU_CONTROL_COMPLETION_JSON_V3:"
+    assert "GPU_CONTROL_COMPLETION_KEY_B64" in completion["system_environment"]
     assert completion["production_collection_transport_status"] == (
-        "network_volume_s3_implemented_offline_mock_tested"
+        "pod_exec_registered_wrapper_implemented_offline_mock_tested"
     )
+    assert completion["production_collection_transport_endpoint"] == "POST /pods/{id}/exec"
+    assert completion["production_collection_transport_arbitrary_command_exposed"] is False
+    assert completion["production_collection_transport_requires_persistent_storage"] is False
     assert completion["production_collection_transport_live_verified"] is False
     assert completion["live_injection_enabled"] is False
     assert completion["live_collection_enabled"] is False
@@ -259,7 +288,7 @@ def test_forbidden_runpod_boundary_failures_are_explicit() -> None:
         "treating_exited_as_success_without_v3_signed_exit_code",
         "treating_unknown_provider_status_as_success",
         "collecting_results_without_authenticated_completion_evidence",
-        "collecting_live_results_through_unavailable_prod_pod_log_sse",
+        "collecting_live_results_through_unverified_prod_pod_log_sse",
         "treating_dev_only_provider_operation_as_production_contract",
         "arbitrary_network_volume_id_from_workload",
         "user_controlled_volume_mount_path",

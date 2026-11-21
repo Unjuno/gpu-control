@@ -16,6 +16,7 @@ from .lifecycle import JobObservation, JobState, SubmissionReceipt, validate_obs
 
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_MAX_RESULT_MANIFEST_JSON_BYTES = 256 * 1024
 _ARTIFACT_KEYS = {
     "name",
     "sha256",
@@ -192,6 +193,8 @@ def _require_exact_keys(payload: Mapping[str, Any], expected: set[str], label: s
 def _load_json_object(value: str, label: str) -> dict[str, Any]:
     if not isinstance(value, str) or not value.strip():
         raise ResultContractError(f"{label} JSON is required")
+    if len(value) > _MAX_RESULT_MANIFEST_JSON_BYTES or len(value.encode("utf-8")) > _MAX_RESULT_MANIFEST_JSON_BYTES:
+        raise ResultContractError(f"{label} JSON exceeds maximum size {_MAX_RESULT_MANIFEST_JSON_BYTES} bytes")
 
     def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
