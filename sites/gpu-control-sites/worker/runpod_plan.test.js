@@ -39,7 +39,7 @@ test("prepares one immutable owner-bound Runpod price plan without allocating", 
   assert.equal(validRunpodPrepare(args(), env), true);
   const result = await prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 });
   assert.equal(offers, 1);
-  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.002000");
+  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.002334");
   assert.equal(result.provider_approved_plan.max_cost_usd, "1.00");
   assert.equal(result.provider_approved_plan.image_digest, `sha256:${"a".repeat(64)}`);
   assert.equal(result.machine_state.state, "prepared");

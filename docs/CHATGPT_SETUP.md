@@ -153,7 +153,7 @@ Sites configuration is separate from every other provider:
 
 Creating an API key is not sufficient to enable RunPod. The Worker requires the
 registered immutable Serverless image, exact queue endpoint (`min=0`, `max=1`,
-one GPU, no ports or volumes, 30-second maximum timeout), exact price setting,
+five-second idle timeout, one GPU, no ports or volumes, 30-second maximum timeout), exact price setting,
 one-use plan authorization, D1 account lease, paid admission and authenticated
 completion transport. Provider configuration alone must fail closed.
 

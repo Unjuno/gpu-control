@@ -21,7 +21,7 @@ provide model compute. Compute remains an explicitly configured provider.
   unavailable; no chat-driven schedule or heartbeat is a cleanup dependency.
 - Before preparing or submitting a plan, Sites reads the exact endpoint through
   RunPod REST v2 and requires the immutable image, queue type, one GPU, the
-  configured GPU pool, `min=0`, `max=1`, no ports or volumes, and a timeout no
+  configured GPU pool, `min=0`, `max=1`, a five-second idle timeout, no ports or volumes, and a timeout no
   greater than 30 seconds. The endpoint must expose the exact source revision
   and image digest expected by the fixed worker.
 - The worker accepts only the registered canary schema and invokes only the

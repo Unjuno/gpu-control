@@ -98,6 +98,7 @@ export class RunpodV2Client {
     if (endpoint.id !== this.endpointId || endpoint.type !== "QUEUE" || endpoint.image !== this.image ||
         endpoint.gpu?.count !== 1 || !Array.isArray(endpoint.gpu?.pools) || endpoint.gpu.pools.length !== 1 ||
         endpoint.gpu.pools[0] !== this.gpuPoolId || endpoint.workers?.min !== 0 || endpoint.workers?.max !== 1 ||
+        endpoint.workers?.idleTimeout !== 5 ||
         !Number.isSafeInteger(endpoint.timeout) || endpoint.timeout < 5000 || endpoint.timeout > 30_000 ||
         !Array.isArray(endpoint.ports) || endpoint.ports.length !== 0 || !noMounts || !["", null, undefined].includes(endpoint.args) ||
         endpoint.env?.GPU_CONTROL_SOURCE_SHA !== this.sourceSha ||
@@ -118,7 +119,12 @@ export class RunpodV2Client {
       policy: { executionTimeout: 30_000, ttl: 300_000 } } });
   }
   getJob(jobId) { if (!JOB_ID_RE.test(jobId)) throw new RunpodProviderError("RUNPOD_INVALID_JOB_ID"); return this.request(`/v2/${this.endpointId}/status/${jobId}`); }
-  cancelJob(jobId) { if (!JOB_ID_RE.test(jobId)) throw new RunpodProviderError("RUNPOD_INVALID_JOB_ID"); return this.request(`/v2/${this.endpointId}/cancel/${jobId}`, { method: "POST" }); }
+  async cancelJob(jobId) {
+    if (!JOB_ID_RE.test(jobId)) throw new RunpodProviderError("RUNPOD_INVALID_JOB_ID");
+    const value = validateJobStatus(await this.request(`/v2/${this.endpointId}/cancel/${jobId}`, { method: "POST" }), jobId);
+    if (value.status !== "CANCELLED") throw new RunpodProviderError("RUNPOD_CANCELLATION_NOT_TERMINAL");
+    return value;
+  }
 }
 
 export function validateSubmittedJob(value) {
