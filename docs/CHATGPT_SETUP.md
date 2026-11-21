@@ -46,8 +46,8 @@ As of the Sites v72 publication:
 - the fixed Modal T4 canary has completed with authenticated result and cleanup
   evidence; its admission is closed between explicitly bounded runs;
 - Kaggle and Hugging Face are configured behind the authenticated Modal adapter;
-  Kaggle has not yet obtained a GPU allocation, so the dependent private
-  artifact and ZeroGPU round trip remain open;
+  the fixed Kaggle Tesla T4 training run and its dependent private artifact plus
+  Hugging Face ZeroGPU evaluation round trip have live acceptance evidence;
 - Kaggle and Hugging Face each have an independent D1 policy of exactly `$0`
   per run and `$0` per month, with paid fallback prohibited;
 - the former macOS Keychain Runner is retired and must not be restored.
@@ -86,13 +86,12 @@ Hugging Faceの4プロバイダーについて、configured、enabled、blocker�
 Neon、外部PostgreSQLが実行経路に含まれていないことも確認してください。
 ```
 
-For a real run, ask ChatGPT to prepare one named registered workload first.
-Review the returned source revision, immutable workload identity, parameters,
-provider, cost ceiling and cleanup behavior. Submit only after ChatGPT presents
-the exact destructive tool confirmation. One confirmation may authorize one
-exact plan only and expires after a bounded interval. After that confirmation,
-the same chat may submit, monitor, retrieve the result and confirm cleanup as
-one flow without asking for a new confirmation at every lifecycle step.
+For a real run, name one registered workload and tell ChatGPT to execute it.
+When that instruction already authorizes execution, it covers one complete
+`prepare -> submit -> status/log polling -> result -> cleanup` lifecycle. The
+assistant must not split that lifecycle into repeated conversational questions.
+The server still binds the write to one exact owner-bound, short-lived plan and
+enforces provider budgets, replay prevention and cleanup before replacement.
 
 ## Provider configuration inventory
 

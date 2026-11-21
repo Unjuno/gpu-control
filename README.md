@@ -25,14 +25,13 @@ for exactly four compute providers: Modal, RunPod, Kaggle and Hugging Face.
 Vercel, Neon, Railway, an external PostgreSQL database and the retired macOS
 Keychain Runner are not runtime dependencies.
 
-Real GPU execution is accepted for the fixed RunPod canary and the fixed Modal
-T4 canary. RunPod run `a4284e1e…e31d71` returned one RTX 2000 Ada with
-`gpu_used=true` and confirmed cleanup. Modal run `d9df87e1…82be` returned one
-Tesla T4 with `gpu_used=true`, an authenticated checksum and confirmed cleanup.
-Kaggle T4 x2 versions 6 and 7 were submitted through the same Sites lifecycle,
-but remained queued beyond the bounded deadline and were cancelled with cleanup
-confirmed. Therefore Kaggle real-GPU acceptance, the dependent private
-Hugging Face artifact round trip and ZeroGPU evaluation remain open.
+Real GPU execution is accepted for all four providers. RunPod run
+`a4284e1e…e31d71` returned one RTX 2000 Ada; Modal run `d9df87e1…82be`
+returned one Tesla T4; Kaggle run `87d37302…de87` completed the fixed 100-step
+training workload on a Tesla T4 and published its immutable private artifact;
+and Hugging Face run `58ca7f86…117a` evaluated that exact artifact on a ZeroGPU
+RTX PRO 6000 Blackwell MIG slice. Every run returned `gpu_used=true` and
+confirmed cleanup. Kaggle and Hugging Face prohibit paid fallback.
 
 Modal execution is usage-billed. The observed Workspace usage limit is `$30`,
 while GPU Control independently enforces a stricter `$1` monthly project ledger
@@ -46,7 +45,7 @@ not treated as a guarantee of zero charges.
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
 | Registered CPU experiment through ChatGPT | Accepted for one owner-confirmed fixed Modal run. Exact-plan owner confirmation remains required per run; Modal control-function charges remain separate from the Sandbox estimate. |
 | Real model inference through ChatGPT | Accepted for one fixed TinyStories 15M CPU run with verified R2 artifact digest and confirmed cleanup; recovery and repeatability remain open |
-| GPU execution | Accepted for fixed RunPod RTX 2000 Ada and Modal T4 canaries; Kaggle and Hugging Face remain open |
+| GPU execution | Accepted for fixed RunPod RTX 2000 Ada, Modal T4, Kaggle Tesla T4 training, and Hugging Face ZeroGPU RTX PRO 6000 Blackwell evaluation |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
 | Synthetic provider/controller self-test | Ready |
@@ -69,7 +68,7 @@ stores bounded artifacts. Each experiment requires one exact-plan write
 confirmation, after which submit, monitoring, result retrieval and cleanup are
 one lifecycle and do not require repeated conversational approval. A genuine
 separate-account denial remains a live acceptance item. PR #68 remains an open
-Draft until Kaggle/Hugging Face acceptance and the final exact-head review are
+Draft until the final exact-head review and normal ChatGPT-chat acceptance are
 complete.
 
 See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the ChatGPT integration,
