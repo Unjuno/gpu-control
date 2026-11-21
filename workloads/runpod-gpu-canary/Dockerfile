@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.source="https://github.com/Unjuno/gpu-control" \
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends python3-minimal python3-pip \
-    && python3 -m pip install --break-system-packages --no-cache-dir runpod==2.4.0 \
+    && python3 -m pip install --no-cache-dir runpod==2.4.0 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --no-create-home --uid 10001 --shell /usr/sbin/nologin workload
 WORKDIR /opt/gpu-control
