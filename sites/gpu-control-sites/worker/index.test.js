@@ -1939,10 +1939,18 @@ test("scheduled reconciliation advances one active delegated provider run", asyn
   env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
   env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
   env.DB.prepare = (sql) => ({
-    bind() {
+    bind(...values) {
       return {
         async first() {
+          if (sql.includes("WHERE owner_id=? AND state='submitted'")) {
+            assert.deepEqual(values, ["test-owner", "orbitune-kaggle-100-step-v1",
+              "orbitune-zero-gpu-eval-v1", "modal-gpu-vector-add-v1"]);
+          }
           if (sql.includes("FROM gateway_delegated_plans")) return plan;
+          if (sql.includes("LEFT JOIN provider_account_leases")) {
+            assert.deepEqual(values, ["test-owner"]);
+            return null;
+          }
           if (sql.includes("p.provider='runpod_gpu'")) return null;
           throw new Error(`unexpected first query: ${sql}`);
         },
