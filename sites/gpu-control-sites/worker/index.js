@@ -1829,6 +1829,11 @@ async function callTool(name, args, request, env, context = null) {
           env, owner, "experiment_status", { run_id: delegatedRow.id });
         if (!delegatedResult) throw new Error("RUN_NOT_FOUND");
       } catch {
+        try {
+          await env.DB.prepare(`UPDATE gateway_delegated_plans SET updated_at=?
+            WHERE owner_id=? AND id=? AND state='submitted'`)
+            .bind(Math.floor(Date.now() / 1000), owner, delegatedRow.id).run();
+        } catch {}
         delegatedResult = { schema_version: 2, status: "error",
           human_summary: "Delegated-provider reconciliation failed safely; no new work was submitted.",
           machine_state: { run_id: delegatedRow.id, state: "reconciliation_error" },
