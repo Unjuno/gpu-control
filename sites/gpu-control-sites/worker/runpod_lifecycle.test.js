@@ -35,6 +35,8 @@ function environment() {
   for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
     raw.exec(readFileSync(new URL(file, MIGRATIONS), "utf8"));
   }
+  raw.prepare(`INSERT INTO runpod_reconciliation_heartbeat (singleton, owner_id, checked_at) VALUES (1, ?, ?)`)
+    .run("site-owner", 100);
   return { raw, env: { DB: new D1(raw), RUNPOD_API_KEY: "rpa_test_abcdefghijklmnopqrstuvwxyz",
     RUNPOD_WORKLOAD_IMAGE: IMAGE, RUNPOD_GPU_ID: "NVIDIA RTX 2000 Ada Generation",
     RUNPOD_WORKLOAD_SOURCE_SHA: SOURCE, RUNPOD_GPU_ADMISSION_ENABLED: "true",
@@ -75,5 +77,21 @@ test("Runpod submit is idempotent and cancellation confirms cleanup before relea
     assert.equal(cancelled.state, "cancelled"); assert.equal(cancelled.cleanup_state, "confirmed");
     assert.equal(client.terminated, 1);
     assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "released");
+  } finally { raw.close(); }
+});
+
+test("Runpod submit refuses paid creation when the scheduled reconciliation heartbeat is stale", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  try {
+    raw.prepare(`UPDATE runpod_reconciliation_heartbeat SET checked_at=0 WHERE singleton=1`).run();
+    const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-stale-heartbeat" }, { client, now: 100 });
+    const result = await submitRunpodExperiment(env, "site-owner", {
+      run_id: prepared.run_id, plan_fingerprint: prepared.plan_fingerprint,
+      provider_approved_plan: prepared.provider_approved_plan,
+    }, { client, now: 101, reserveBudget: async () => true });
+    assert.equal(result.blocking_reason, "RUNPOD_CLEANUP_HEARTBEAT_STALE");
+    assert.equal(client.creates, 0);
   } finally { raw.close(); }
 });

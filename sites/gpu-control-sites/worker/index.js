@@ -1600,8 +1600,17 @@ async function callTool(name, args, request, env, context = null) {
       next_allowed_actions: ["experiment_status"], blocking_reason: null };
   }
   if (name === "experiment_reconcile") {
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(`INSERT INTO runpod_reconciliation_heartbeat (singleton, owner_id, checked_at)
+      VALUES (1, ?, ?) ON CONFLICT(singleton) DO UPDATE SET owner_id=excluded.owner_id, checked_at=excluded.checked_at`)
+      .bind(owner, now).run();
     const row = await env.DB.prepare(`SELECT r.id, r.owner_id FROM runs r JOIN plans p ON p.id=r.plan_id
-      WHERE p.provider='runpod_gpu' AND r.state IN ('queued','running') ORDER BY r.created_at LIMIT 1`).first();
+      LEFT JOIN provider_account_leases l ON l.provider='runpod' AND l.run_id=r.id
+      WHERE p.provider='runpod_gpu' AND (
+        r.state IN ('queued','running') OR
+        (r.state IN ('succeeded','failed','cancelled') AND r.cleanup_state='confirmed'
+          AND l.state IN ('active','cleanup_pending'))
+      ) ORDER BY CASE WHEN r.state IN ('succeeded','failed','cancelled') THEN 0 ELSE 1 END, r.created_at LIMIT 1`).first();
     if (!row) return { schema_version: 2, status: "ok", human_summary: "No active Runpod run requires reconciliation.",
       machine_state: { active_run: false }, next_allowed_actions: [], blocking_reason: null };
     if (row.owner_id !== owner) throw new Error("RUN_NOT_FOUND");
