@@ -1,4 +1,4 @@
-import { RunpodV2Client, runpodConfigured } from "./runpod_provider.js";
+import { runpodConfigured } from "./runpod_provider.js";
 
 export const RUNPOD_WORKLOAD = "runpod-gpu-canary-v1";
 export const RUNPOD_REPOSITORY = "Unjuno/gpu-control";
@@ -48,11 +48,32 @@ function estimatedCost(hourlyPriceUsd) {
   return { microusd, usd: (microusd / 1_000_000).toFixed(6) };
 }
 
+function configuredOffer(env, checkedAt) {
+  const hourlyPriceUsd = Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD);
+  if (!Number.isFinite(hourlyPriceUsd) || hourlyPriceUsd <= 0) {
+    throw new Error("RUNPOD_CONFIGURED_PRICE_INVALID");
+  }
+  return {
+    gpuId: env.RUNPOD_GPU_ID,
+    cloud: "SERVERLESS",
+    gpuCount: 1,
+    hourlyPriceUsd,
+    availability: "CONFIGURED",
+    dataCenterId: env.RUNPOD_SERVERLESS_ENDPOINT_ID,
+    checkedAt,
+    validForSeconds: 300,
+    source: "sites-operator-pinned-serverless-maximum",
+  };
+}
+
 export async function prepareRunpodExperiment(env, owner, args, { client = null, now = null } = {}) {
   if (!validRunpodPrepare(args, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");
   const checkedAt = now === null ? Math.floor(Date.now() / 1000) : now;
-  const provider = client ?? new RunpodV2Client(env);
-  const offer = await provider.getVerifiedOffer();
+  // The runtime key is deliberately endpoint-limited and must not require
+  // management/catalog permissions. The operator-pinned value is a
+  // conservative maximum; submit/result still use the endpoint API and the
+  // owner-bound authenticated completion receipt.
+  const offer = client === null ? configuredOffer(env, checkedAt) : await client.getVerifiedOffer();
   if (offer.checkedAt < checkedAt - 30 || offer.checkedAt > checkedAt + 30 || offer.validForSeconds > 300) {
     throw new Error("RUNPOD_PRICING_EVIDENCE_INVALID");
   }

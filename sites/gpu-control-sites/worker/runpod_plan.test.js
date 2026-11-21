@@ -45,6 +45,16 @@ test("prepares one immutable owner-bound Runpod price plan without allocating", 
   assert.equal(result.machine_state.state, "prepared");
 });
 
+test("default prepare uses the pinned maximum without management API access", async () => {
+  const env = environment();
+  const result = await prepareRunpodExperiment(env, "owner-1", {
+    ...args(), idempotency_key: "runpod-pinned-maximum-001",
+  }, { now: 1000 });
+  assert.equal(result.provider_approved_plan.hourly_price_usd, "0.240000");
+  assert.equal(result.provider_approved_plan.pricing_source, "sites-operator-pinned-serverless-maximum");
+  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.020334");
+});
+
 test("rejects floating images, wrong source, and estimates above the ceiling", async () => {
   const env = environment();
   assert.equal(validRunpodPrepare({ ...args(), commit: "c".repeat(40) }, env), false);
