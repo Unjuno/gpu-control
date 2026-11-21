@@ -409,7 +409,7 @@ async def runpod_queue_relay(endpoint_id: str, operation: str, request: Request,
         from runpod_relay import relay, upstream_path
         path = upstream_path(endpoint_id, operation, job_id)
         status, response_body, headers = relay(
-            request.method, path, request.headers.get("authorization", ""), body)
+            request.method, path, request.headers.get("x-runpod-authorization", ""), body)
         return Response(response_body, status_code=status, headers=headers)
     except ValueError as exc:
         code = str(exc)

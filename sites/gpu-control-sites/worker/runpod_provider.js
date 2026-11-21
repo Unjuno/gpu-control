@@ -43,8 +43,7 @@ function jobTransport(env) {
       relay.search || relay.hash || relay.username || relay.password)
     throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
   return { origin: relay.href.replace(/\/$/, ""), headers: {
-    "modal-client-id": env.PROVIDER_ADAPTER_PROXY_TOKEN_ID,
-    "modal-client-secret": env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET,
+    authorization: `Bearer ${env.PROVIDER_ADAPTER_PROXY_TOKEN_ID}.${env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET}`,
   } };
 }
 
@@ -110,7 +109,8 @@ export class RunpodV2Client {
       throw new RunpodProviderError("RUNPOD_INVALID_PATH");
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), this.timeoutMs); let response;
     try { response = await this.fetchImpl(`${this.jobOrigin}${path}`, { method, redirect: "manual",
-      headers: { authorization: `Bearer ${this.apiKey}`, accept: "application/json", ...this.jobHeaders,
+      headers: { ...(this.jobOrigin === RUNPOD_JOB_ORIGIN ? { authorization: `Bearer ${this.apiKey}` } :
+        { "x-runpod-authorization": `Bearer ${this.apiKey}` }), accept: "application/json", ...this.jobHeaders,
         ...(body === null ? {} : { "content-type": "application/json" }) },
       ...(body === null ? {} : { body: JSON.stringify(body) }), signal: controller.signal });
       if (response.status >= 300 && response.status <= 399) { await response.body?.cancel(); throw new RunpodProviderError("RUNPOD_REDIRECT_REJECTED", response.status); }
