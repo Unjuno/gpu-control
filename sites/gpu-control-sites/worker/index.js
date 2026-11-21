@@ -113,7 +113,11 @@ const schemas = {
         type: "object", minProperties: 1, maxProperties: 32, additionalProperties: true,
       },
     }, required: ["plan_fingerprint", "run_id"],
-    oneOf: [{ required: ["approved_plan"] }, { required: ["provider_approved_plan"] }],
+    // Keep the public schema compatible with ChatGPT's connector compiler.
+    // A oneOf between two generic plan objects is rendered as an ambiguous
+    // union and is rejected before the call reaches this Worker.  The runtime
+    // validator below still requires exactly one plan variant and validates
+    // every field against the stored owner-bound plan.
     additionalProperties: false,
   },
   experiment_status: {
