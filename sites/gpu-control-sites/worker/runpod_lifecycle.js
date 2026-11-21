@@ -260,7 +260,22 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
   const provider = client ?? new RunpodV2Client(env, { owner });
   const now = Math.floor(Date.now() / 1000);
   if (row.provider_phase === "uncertain") {
-    if (now <= row.provider_started_at + 300) return row;
+    const recovered = typeof provider.getSubmissionReceipt === "function"
+      ? await provider.getSubmissionReceipt({ runId, planFingerprint: row.fingerprint }) : null;
+    if (recovered !== null) {
+      const receipt = validateSubmittedJob(recovered);
+      lease = await transitionProviderAccountLease(env.DB, { accountScopeSha256,
+        leaseToken: lease.lease_token, generation: lease.generation, revision: lease.revision,
+        toState: "active", providerJobId: receipt.id, evidenceType: "recovered_provider_receipt",
+        evidenceSha256: await digest(canonical(receipt)), now });
+      const persisted = await env.DB.prepare(`UPDATE runs SET provider_job_id=?, provider_phase='provisioning', updated_at=?
+        WHERE id=? AND owner_id=? AND state='running' AND provider_phase='uncertain' AND provider_job_id IS NULL RETURNING id`)
+        .bind(receipt.id, now, runId, owner).first();
+      if (!persisted) throw new Error("RUNPOD_PROVIDER_JOB_RECOVERY_FAILED");
+      row.provider_job_id = receipt.id;
+      row.provider_phase = "provisioning";
+    } else if (now <= row.provider_started_at + 300) return row;
+    else {
     const receipt = { provider: "runpod_gpu", serverless_job_id: null, provider_managed: true,
       termination: "job_ttl_elapsed_after_ambiguous_submit", observed_at: now };
     await recordTerminal(env, { runId, owner, state: "failed", failureCode: "RUNPOD_AMBIGUOUS_SUBMIT_TTL_ELAPSED",
@@ -273,6 +288,7 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
       generation: cleanup.generation, revision: cleanup.revision, toState: "released",
       evidenceType: "pod_termination_confirmed", evidenceSha256: await digest(canonical(receipt)), now });
     return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
+    }
   }
   if (!JOB_ID.test(row.provider_job_id || "")) return row;
   if (cancel || now > row.provider_started_at + row.runtime_seconds + 60) {

@@ -199,6 +199,16 @@ export class RunpodV2Client {
       source_sha: sourceSha, image_digest: this.image.slice(this.image.indexOf("@") + 1), execution_name: `gpu-control-${runId.slice(0, 12)}` },
       policy: { executionTimeout: 30_000, ttl: 300_000 } } });
   }
+  async getSubmissionReceipt({ runId, planFingerprint }) {
+    if (!this.jobRelay) return null;
+    if (!/^[0-9a-f]{32}$/.test(runId) || !/^[0-9a-f]{64}$/.test(planFingerprint))
+      throw new RunpodProviderError("RUNPOD_INVALID_EXECUTION_BINDING");
+    const value = await this.relayRequest({ operation: "receipt", run_id: runId, plan_fingerprint: planFingerprint });
+    if (value.state === "pending" || value.state === "uncertain") return null;
+    if (value.state !== "completed" || !value.response || typeof value.response !== "object" || Array.isArray(value.response))
+      throw new RunpodProviderError("RUNPOD_INVALID_RESPONSE");
+    return validateSubmittedJob(value.response);
+  }
   getJob(jobId, binding = null) { if (!JOB_ID_RE.test(jobId)) throw new RunpodProviderError("RUNPOD_INVALID_JOB_ID"); return this.request(`/v2/${this.endpointId}/status/${jobId}`, { binding }); }
   async cancelJob(jobId, binding = null) {
     if (!JOB_ID_RE.test(jobId)) throw new RunpodProviderError("RUNPOD_INVALID_JOB_ID");

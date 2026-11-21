@@ -370,6 +370,8 @@ def _runpod_relay(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
     required = {"operation", "run_id", "plan_fingerprint"}
     if operation == "run":
         required.add("body")
+    elif operation == "receipt":
+        pass
     elif operation in {"status", "cancel"}:
         required.add("job_id")
     else:
@@ -386,6 +388,17 @@ def _runpod_relay(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
         "plan_fingerprint": fingerprint,
     }
     claim_key = f"runpod:{run_id}"
+
+    if operation == "receipt":
+        record = submission_store.get(claim_key)
+        if not isinstance(record, dict) or any(record.get(k) != v for k, v in binding.items()):
+            raise ValueError("provider_handle_mismatch")
+        response = record.get("response")
+        if (record.get("state") == "completed" and isinstance(response, dict) and
+                isinstance(response.get("status"), int) and 200 <= response["status"] < 300 and
+                isinstance(response.get("body"), dict)):
+            return {"state": "completed", "response": response["body"]}
+        return {"state": "pending" if record.get("state") == "claimed" else "uncertain"}
 
     if operation == "run":
         request_body = arguments["body"]

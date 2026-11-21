@@ -71,7 +71,31 @@ class FakeRunpod {
   async submitJob() { this.creates += 1; return { id: this.jobId, status: "IN_QUEUE" }; }
   async getJob() { return { id: this.jobId, status: "IN_PROGRESS" }; }
   async cancelJob() { this.terminated += 1; return { id: this.jobId, status: "CANCELLED" }; }
+  async getSubmissionReceipt() { return null; }
 }
+
+test("an ambiguous relay response recovers the one claimed provider job without resubmitting", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  let receiptReady = false;
+  client.submitJob = async () => { client.creates += 1; throw new Error("lost response"); };
+  client.getSubmissionReceipt = async () => receiptReady ? { id: client.jobId, status: "IN_QUEUE" } : null;
+  try {
+    const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-receipt-recovery" }, { client, now: 100 });
+    const args = { run_id: prepared.run_id, plan_fingerprint: prepared.plan_fingerprint,
+      provider_approved_plan: prepared.provider_approved_plan };
+    await submitRunpodExperiment(env, "site-owner", args, { client, now: 101, reserveBudget: async () => true });
+    receiptReady = true;
+    const recovered = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client });
+    assert.equal(recovered.provider_job_id, client.jobId);
+    assert.equal(recovered.provider_phase, "terminal");
+    assert.equal(recovered.cleanup_state, "confirmed");
+    assert.equal(client.creates, 1);
+    assert.equal(client.terminated, 1);
+    assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "released");
+  } finally { raw.close(); }
+});
 
 test("Runpod submit is idempotent and cancellation confirms cleanup before releasing the account", async () => {
   const { raw, env } = environment(); const client = new FakeRunpod();

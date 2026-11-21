@@ -72,3 +72,4 @@ def test_runpod_relay_uses_signed_tool_path_and_one_use_claim() -> None:
     assert 'skip_if_exists=True' in source
     assert 'record.get("job_id") != job_id' in source
     assert '"owner_binding_sha256": _submission_binding(owner)' in source
+    assert 'operation == "receipt"' in source

@@ -69,6 +69,24 @@ test("job relay is pinned to the authenticated provider adapter origin", async (
     (error) => error.code === "RUNPOD_RELAY_OWNER_REQUIRED");
 });
 
+test("relay receipt recovers only the exact signed run and plan binding", async () => {
+  const relayed = { ...env,
+    PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run",
+    PROVIDER_ADAPTER_KEY_ID: "adapter-key", PROVIDER_ADAPTER_HMAC_KEY_B64: Buffer.alloc(32, 5).toString("base64"),
+    PROVIDER_ADAPTER_PROXY_TOKEN_ID: "wk-proxy-id", PROVIDER_ADAPTER_PROXY_TOKEN_SECRET: "ws-proxy-secret",
+    RUNPOD_USE_PROVIDER_ADAPTER: "true",
+  };
+  let request;
+  const client = new RunpodV2Client(relayed, { owner: "owner-1", fetchImpl: async (_url, init) => {
+    request = JSON.parse(init.body);
+    return jsonResponse({ status: 200, body: { state: "completed",
+      response: { id: "job_abc123", status: "IN_QUEUE" } } });
+  } });
+  const value = await client.getSubmissionReceipt({ runId: "1".repeat(32), planFingerprint: "b".repeat(64) });
+  assert.deepEqual(value, { id: "job_abc123", status: "IN_QUEUE" });
+  assert.deepEqual(request.arguments, { operation: "receipt", run_id: "1".repeat(32), plan_fingerprint: "b".repeat(64) });
+});
+
 test("offer is accepted only from the exact bounded endpoint configuration", async () => {
   const client = new RunpodV2Client(env, { fetchImpl: async (url) => {
     if (url.endsWith("/v2/serverless/endpoint_abc123")) return jsonResponse(endpoint());

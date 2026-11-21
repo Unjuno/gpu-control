@@ -45,3 +45,19 @@ def test_relay_returns_only_bounded_json(monkeypatch):
     assert status == 200
     assert json.loads(body) == {"id": "job_abc", "status": "IN_QUEUE"}
     assert headers == {"content-type": "application/json"}
+
+
+def test_management_reads_use_the_separate_fixed_management_origin(monkeypatch):
+    class Response:
+        status = 200
+        def read(self, _size): return b'{"gpus":[]}'
+        def close(self): pass
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url == "https://api.runpod.io/v2/catalog/gpus"
+            assert timeout == 35
+            return Response()
+    monkeypatch.setattr(runpod_relay.urllib.request, "build_opener", lambda *_args: Opener())
+    status, body, _headers = runpod_relay.relay("GET", "/v2/catalog/gpus", "Bearer secret", b"")
+    assert status == 200
+    assert json.loads(body) == {"gpus": []}
