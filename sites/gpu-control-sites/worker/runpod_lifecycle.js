@@ -209,12 +209,28 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id=? AND r.owner_id=? AND p.provider='runpod_gpu'`)
     .bind(runId, owner).first();
   if (!row) return null;
-  if (!["queued", "running"].includes(row.state)) return row;
-  const provider = client ?? new RunpodV2Client(env);
   const accountScopeSha256 = await deriveProviderAccountScopeHash({ scopeId: env.RUNPOD_ACCOUNT_SCOPE_ID,
     hmacKeyB64: env.RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64 });
   let lease = await currentLease(env, accountScopeSha256);
   if (!lease || lease.run_id !== runId) throw new Error("RUNPOD_ACCOUNT_LEASE_MISSING");
+  if (!["queued", "running"].includes(row.state)) {
+    if (["succeeded", "failed", "cancelled"].includes(row.state) && row.cleanup_state === "confirmed" &&
+        ["active", "cleanup_pending"].includes(lease.state) && POD_ID.test(row.provider_job_id || "")) {
+      const now = Math.floor(Date.now() / 1000);
+      const evidence = await digest(row.cleanup_receipt_json || canonical({ run_id: runId, cleanup: "confirmed" }));
+      if (lease.state === "active") lease = await transitionProviderAccountLease(env.DB, {
+        accountScopeSha256, leaseToken: lease.lease_token, generation: lease.generation, revision: lease.revision,
+        toState: "cleanup_pending", providerJobId: row.provider_job_id, evidenceType: "cleanup_resume",
+        evidenceSha256: evidence, now,
+      });
+      await transitionProviderAccountLease(env.DB, {
+        accountScopeSha256, leaseToken: lease.lease_token, generation: lease.generation, revision: lease.revision,
+        toState: "released", evidenceType: "pod_termination_confirmed", evidenceSha256: evidence, now,
+      });
+    }
+    return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
+  }
+  const provider = client ?? new RunpodV2Client(env);
   if (row.provider_phase === "uncertain") {
     const inventory = await provider.listPods();
     const pods = Array.isArray(inventory?.pods) ? inventory.pods : Array.isArray(inventory) ? inventory : null;

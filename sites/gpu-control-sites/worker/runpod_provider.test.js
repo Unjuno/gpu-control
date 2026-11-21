@@ -106,7 +106,7 @@ test("redirects are rejected and termination requires exact pod id", async () =>
 test("create receipts are strictly validated", () => {
   assert.deepEqual(validateCreatedPod({ id: "pod_abc123", name: "gpu-control-111111111111", image: env.RUNPOD_WORKLOAD_IMAGE,
     cloud: "SECURE", gpu: { id: env.RUNPOD_GPU_ID, count: 1 }, ports: [], status: "RUNNING", cost: 0.24,
-    dataCenterId: "US-TX-3", globalNetworking: { enabled: false } }, {
+    dataCenterId: "US-TX-3", globalNetworking: false }, {
     name: "gpu-control-111111111111", image: env.RUNPOD_WORKLOAD_IMAGE, gpuId: env.RUNPOD_GPU_ID,
   }), { id: "pod_abc123", status: "RUNNING", cost: 0.24, dataCenterId: "US-TX-3" });
   assert.throws(() => validateCreatedPod({ id: "pod_abc123", ports: ["22/tcp"] }, {}), RunpodProviderError);

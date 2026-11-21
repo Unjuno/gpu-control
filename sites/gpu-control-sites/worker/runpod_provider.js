@@ -284,8 +284,8 @@ export function parseLogSnapshot(text) {
 export function validateCreatedPod(value, expected) {
   if (!value || typeof value !== "object" || Array.isArray(value) || !POD_ID_RE.test(value.id) ||
       value.name !== expected.name || value.image !== expected.image || value.cloud !== "SECURE" ||
-      value.gpu?.id !== expected.gpuId || value.gpu?.count !== 1 || value.globalNetworking?.enabled === true ||
-      (Array.isArray(value.ports) && value.ports.length !== 0)) {
+      value.gpu?.id !== expected.gpuId || value.gpu?.count !== 1 || value.globalNetworking !== false ||
+      !Array.isArray(value.ports) || value.ports.length !== 0) {
     throw new RunpodProviderError("RUNPOD_INVALID_CREATE_RECEIPT");
   }
   return { id: value.id, status: value.status, cost: value.cost, dataCenterId: value.dataCenterId ?? null };

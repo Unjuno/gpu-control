@@ -49,9 +49,9 @@ class FakeRunpod {
     hourlyPriceUsd: 0.24, availability: "HIGH", dataCenterId: "US-KS-2", checkedAt: 100,
     validForSeconds: 300, source: "runpod-rest-v2-catalog" }; }
   async createPod(input) { this.creates += 1; this.name = `gpu-control-${input.runId.slice(0, 12)}`; return { id: this.podId, name: this.name, image: IMAGE,
-    cloud: "SECURE", gpu: { id: "NVIDIA RTX 2000 Ada Generation", count: 1 }, ports: [], status: "RUNNING" }; }
+    cloud: "SECURE", gpu: { id: "NVIDIA RTX 2000 Ada Generation", count: 1 }, ports: [], globalNetworking: false, status: "RUNNING" }; }
   async getPod() { return { id: this.podId, name: this.name, image: IMAGE,
-    cloud: "SECURE", gpu: { id: "NVIDIA RTX 2000 Ada Generation", count: 1 }, ports: [], status: "RUNNING" }; }
+    cloud: "SECURE", gpu: { id: "NVIDIA RTX 2000 Ada Generation", count: 1 }, ports: [], globalNetworking: false, status: "RUNNING" }; }
   async getPodLogSnapshot() { return []; }
   async terminatePod() { this.terminated += 1; }
 }
