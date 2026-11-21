@@ -1,6 +1,6 @@
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, validRunpodPrepare } from "./runpod_plan.js";
-import { submitRunpodExperiment, synchronizeRunpodExperiment, validRunpodApprovedPlan } from "./runpod_lifecycle.js";
+import { processRunpodLifecycleQueueMessage, submitRunpodExperiment, synchronizeRunpodExperiment, validRunpodApprovedPlan } from "./runpod_lifecycle.js";
 import { delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
@@ -1250,7 +1250,7 @@ async function maybeDelegateRunTool(env, owner, name, args) {
   return publicProviderAdapterResponse(response);
 }
 
-async function callTool(name, args, request, env) {
+async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
@@ -1285,6 +1285,7 @@ async function callTool(name, args, request, env) {
     if (args.provider_approved_plan?.provider === "runpod_gpu") {
       return submitRunpodExperiment(env, owner, args, {
         reserveBudget: (input) => reserveProviderBudget(env, input),
+        context,
       });
     }
     if (args.provider_approved_plan !== undefined) return submitDelegatedExperiment(env, owner, args);
@@ -1500,25 +1501,20 @@ async function callTool(name, args, request, env) {
     let row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state, r.cleanup_receipt_json, r.cancel_requested,
         r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size,
         r.lease_id, p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json,
-        p.fingerprint, p.runtime_seconds, p.idempotency_key
+        p.fingerprint, p.runtime_seconds, p.idempotency_key, p.provider
       FROM runs r JOIN plans p ON p.id = r.plan_id WHERE r.id = ? AND r.owner_id = ?`)
       .bind(args.run_id, owner).first();
     if (!row) throw new Error("RUN_NOT_FOUND");
-    let runProvider = null;
-    try {
-      runProvider = await env.DB.prepare(`SELECT p.provider FROM plans p JOIN runs r ON r.plan_id=p.id
-        WHERE r.id=? AND r.owner_id=?`).bind(args.run_id, owner).first();
-    } catch {}
-    if (runProvider?.provider === "runpod_gpu") {
+    if (row.provider === "runpod_gpu") {
       await synchronizeRunpodExperiment(env, owner, args.run_id);
       row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state, r.cleanup_receipt_json, r.cancel_requested,
           r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size, r.lease_id,
           p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json, p.fingerprint,
-          p.runtime_seconds, p.idempotency_key
+          p.runtime_seconds, p.idempotency_key, p.provider
         FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id=? AND r.owner_id=?`).bind(args.run_id, owner).first();
     }
     let providerSyncSkipped = null;
-    if (["queued", "running"].includes(row.state) && modalConfigured(env)) {
+    if (["queued", "running"].includes(row.state) && row.provider === "modal_cpu" && modalConfigured(env)) {
       let reserved = false;
       try {
         reserved = await reserveModalStatusCheck(env, Math.floor(Date.now() / 1000));
@@ -1529,7 +1525,7 @@ async function callTool(name, args, request, env) {
       if (reserved) await synchronizeModalRun(env, row.id, owner, { cancel: row.cancel_requested === 1 });
       row = await env.DB.prepare(`SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json, r.failure_code, r.cleanup_state, r.cleanup_receipt_json, r.cancel_requested,
           r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size, r.lease_id,
-          p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json, p.fingerprint, p.runtime_seconds, p.idempotency_key
+          p.workload, p.repository, p.source_sha, p.image_digest, p.parameters_json, p.fingerprint, p.runtime_seconds, p.idempotency_key, p.provider
         FROM runs r JOIN plans p ON p.id = r.plan_id WHERE r.id = ? AND r.owner_id = ?`).bind(args.run_id, owner).first();
     }
     if (name === "experiment_result" && row.state !== "succeeded") return { schema_version: 2, status: "blocked", human_summary: "Result is not ready.", machine_state: { run_id: row.id, state: row.state }, next_allowed_actions: ["experiment_status"], blocking_reason: "RESULT_NOT_READY" };
@@ -1655,7 +1651,7 @@ async function callTool(name, args, request, env) {
   throw new Error("UNKNOWN_TOOL");
 }
 
-async function handleMcp(request, env) {
+async function handleMcp(request, env, context = null) {
   let message;
   try { message = await readJson(request); } catch (error) {
     return rpcError(null, -32700, error.message === "BODY_TOO_LARGE" ? "Request too large" : "Invalid JSON");
@@ -1692,7 +1688,7 @@ async function handleMcp(request, env) {
       const name = message.params?.name;
       const args = message.params?.arguments ?? {};
       if (!schemas[name] || !args || typeof args !== "object" || Array.isArray(args) || !validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
-      const value = envelope(name, await callTool(name, args, request, env));
+      const value = envelope(name, await callTool(name, args, request, env, context));
       const result = { content: [{ type: "text", text: JSON.stringify(value) }], isError: false };
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
@@ -1708,7 +1704,7 @@ async function handleMcp(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") return json({ ok: true, service: "gpu-control-sites", storage: !!env.DB });
     if (url.pathname.startsWith("/runner/")) return json({ error: "NOT_FOUND" }, 404);
@@ -1717,9 +1713,20 @@ export default {
       catch { return htmlPage("承認処理を完了できません", "<p>チャットでplanの状態を確認してください。</p>", 500); }
     }
     if (url.pathname === "/mcp" && request.method === "POST") {
-      try { return await handleMcp(request, env); }
+      try { return await handleMcp(request, env, context); }
       catch { return rpcError(null, -32603, "Internal error"); }
     }
     return json({ error: "NOT_FOUND" }, 404);
+  },
+  async queue(batch, env) {
+    for (const message of batch.messages) {
+      try {
+        const result = await processRunpodLifecycleQueueMessage(env, message.body);
+        if (!result.terminal) message.retry({ delaySeconds: 15 });
+        else message.ack();
+      } catch {
+        message.retry({ delaySeconds: 15 });
+      }
+    }
   },
 };

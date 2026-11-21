@@ -285,7 +285,7 @@ test("Modal status polling fails closed when the shared provider-call budget is 
     result_artifact_size: null, lease_id: "sb-123", workload: "tiny-stories-inference-v1",
     repository: "Unjuno/gpu-control", source_sha: "b".repeat(40), image_digest: imageDigest,
     parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
-    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "budget-test" };
+    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "budget-test", provider: "modal_cpu" };
   const env = environment({ admission: "true" });
   env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
@@ -853,7 +853,7 @@ test("stores a bounded Modal exit-code diagnostic without exposing provider stde
     lease_id: null, workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control",
     source_sha: "b".repeat(40), image_digest: `sha256:${"a".repeat(64)}`,
     parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
-    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "diagnostic-test" };
+    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "diagnostic-test", provider: "modal_cpu" };
   const env = environment();
   env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
@@ -917,7 +917,7 @@ test("does not persist a successful result from a different Modal image fingerpr
     lease_id: null, workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control",
     source_sha: sourceSha, image_digest: imageDigest,
     parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
-    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "fingerprint-mismatch" };
+    fingerprint: "c".repeat(64), runtime_seconds: 10, idempotency_key: "fingerprint-mismatch", provider: "modal_cpu" };
   const env = environment({ admission: "true" });
   env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
@@ -962,7 +962,7 @@ test("lost Modal submit response is reconciled without creating a duplicate Sand
   const runId = "9".repeat(32);
   const plan = { id: runId, owner_id: "test-owner", state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 300,
     fingerprint: "c".repeat(64), image_digest: imageDigest, workload: "tiny-stories-inference-v1",
-    repository: "Unjuno/gpu-control", source_sha: sourceSha,
+    repository: "Unjuno/gpu-control", source_sha: sourceSha, provider: "modal_cpu",
     parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }), runtime_seconds: 10, max_cost_usd: "0.01" };
   let current = null;
   const authorization = { id: "d".repeat(32), fingerprint: plan.fingerprint,
@@ -1087,7 +1087,7 @@ test("Modal status timeout preserves the recoverable running state without claim
     result_artifact_sha256: null, result_artifact_size: null, lease_id: "sb-existing",
     workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control", source_sha: sourceSha,
     image_digest: imageDigest, parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
-    fingerprint: "c".repeat(64), runtime_seconds: 30 };
+    fingerprint: "c".repeat(64), runtime_seconds: 30, provider: "modal_cpu" };
   const env = environment();
   env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
@@ -1133,7 +1133,7 @@ test("persistent Modal not-found releases a stale run slot only after the recove
     result_artifact_sha256: null, result_artifact_size: null, lease_id: null,
     workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control", source_sha: sourceSha,
     image_digest: imageDigest, parameters_json: JSON.stringify({ prompt: "Once", max_new_tokens: 1, seed: 1 }),
-    fingerprint: "c".repeat(64), runtime_seconds: 30 };
+    fingerprint: "c".repeat(64), runtime_seconds: 30, provider: "modal_cpu" };
   const env = environment();
   env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = `wk-${"t".repeat(16)}`;
@@ -1200,7 +1200,7 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
       plan_fingerprint: fingerprint, metrics })).digest("hex") };
   const joined = { id: runId, state: "running", cancel_requested: 0, workload: "tiny-stories-inference-v1",
     repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest, fingerprint,
-    parameters_json: JSON.stringify(parameters), runtime_seconds: 10, lease_id: null };
+    parameters_json: JSON.stringify(parameters), runtime_seconds: 10, lease_id: null, provider: "modal_cpu" };
 
   for (const fault of ["r2", "d1", "cancel-race"]) {
     const env = environment({ admission: "true" });
@@ -1599,7 +1599,7 @@ test("experiment_status identifies a historical local Runner result from its cle
     result_artifact_sha256: null, result_artifact_size: null, lease_id: null, workload: "tiny-stories-inference-v1",
     repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
     parameters_json: JSON.stringify({ prompt: "A", max_new_tokens: 1, seed: 1 }), fingerprint: "c".repeat(64),
-    runtime_seconds: 1, idempotency_key: "legacy-run", cleanup_receipt_json: JSON.stringify({ absent: true,
+    runtime_seconds: 1, idempotency_key: "legacy-run", provider: "modal_cpu", cleanup_receipt_json: JSON.stringify({ absent: true,
       container_id: "d".repeat(64), container_name: `gpu-control-${runId}`, image_digest: imageDigest,
       lease_id: "e".repeat(32), run_id: runId }) };
   env.DB.prepare = (sql) => ({ bind() { return { async first() {
