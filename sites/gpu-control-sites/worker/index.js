@@ -1909,9 +1909,16 @@ async function handleMcp(request, env, context = null) {
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
       const known = new Set(["AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+      const runpodProviderCodes = new Set([
+        "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
+        "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",
+        "RUNPOD_ENDPOINT_CONFIGURATION_MISMATCH", "RUNPOD_CATALOG_PRICE_INVALID_OR_ABOVE_MAXIMUM",
+        "RUNPOD_NETWORK_ERROR",
+      ]);
       const code = known.has(error?.message) ? error.message
+        : (error?.name === "RunpodProviderError" && runpodProviderCodes.has(error?.code) ? error.code
         : (typeof error?.message === "string" && error.message.startsWith("GATEWAY_DELEGATION_")
-          ? "GATEWAY_DELEGATION_FAILED" : "INTERNAL_ERROR");
+          ? "GATEWAY_DELEGATION_FAILED" : "INTERNAL_ERROR"));
       return json({ jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: JSON.stringify({ error: code }) }] } });
     }
   }
