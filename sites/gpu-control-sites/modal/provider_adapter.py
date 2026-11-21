@@ -93,6 +93,18 @@ adapter_image = (
 
 api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
+SAFE_PROVIDER_FAILURE_CODES = {
+    "Kaggle worker token is not configured": "kaggle_token_not_configured",
+    "Kaggle quota failed": "kaggle_quota_unavailable",
+    "Kaggle quota returned invalid JSON": "kaggle_quota_invalid",
+    "Kaggle quota returned an invalid object": "kaggle_quota_invalid",
+    "Kaggle GPU quota is unknown or insufficient": "kaggle_quota_insufficient",
+    "Kaggle latest snapshot failed": "kaggle_latest_snapshot_failed",
+    "Kaggle latest snapshot returned invalid JSON": "kaggle_latest_snapshot_invalid",
+    "Kaggle latest snapshot returned an invalid object": "kaggle_latest_snapshot_invalid",
+    "Kaggle submission outcome unknown": "kaggle_submission_unknown",
+}
+
 
 def _error(code: str, status: int) -> JSONResponse:
     return JSONResponse({"code": code}, status_code=status)
@@ -237,7 +249,8 @@ def provider_submit_worker(owner: str, arguments: dict[str, Any]) -> dict[str, A
         return response
     except Exception as exc:
         from provider_adapter_core import AdapterError
-        code = exc.code if isinstance(exc, AdapterError) else "provider_operation_failed"
+        code = exc.code if isinstance(exc, AdapterError) else SAFE_PROVIDER_FAILURE_CODES.get(
+            str(exc), "provider_operation_failed")
         record = submission_store.get(run_id, {})
         # Keep diagnostics private and non-sensitive: never persist provider
         # stderr, exception text, credentials, paths, or request arguments.
