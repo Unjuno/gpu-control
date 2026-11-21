@@ -311,20 +311,25 @@ class ProviderAdapter:
         observation = backend.capture(handle)
         state = observation.state
         result = observation.result if isinstance(observation.result, dict) else None
+        stalled = (state == "running" and result is not None and
+                   result.get("lifecycle_condition") == "provider_deadline_exceeded")
         if state != "running":
             backend.cleanup(handle)
             if not backend.is_clean(handle):
                 raise AdapterError("cleanup_not_confirmed", 503)
             if result is not None:
                 result = {**result, "cleanup_state": "confirmed"}
-        status = "ok" if state == "succeeded" else "error" if state in {"failed", "cancelled"} else "pending"
+        status = ("blocked" if stalled else "ok" if state == "succeeded" else
+                  "error" if state in {"failed", "cancelled"} else "pending")
         actions = ["experiment_result"] if state == "succeeded" else ["experiment_status"] if state == "running" else []
         return _envelope(status=status, summary="provider状態を確認しました。",
             state={"run_id": arguments["run_id"], "state": state, "provider": provider,
                    "provider_handle": handle,
                    **({"cleanup_state": "confirmed"} if state != "running" else {}),
                    **({"result": result} if result is not None else {})},
-            next_actions=actions, **({"result": result} if tool == "experiment_result" and result is not None else {}))
+            next_actions=actions,
+            **({"blocker": "PROVIDER_DEADLINE_EXCEEDED_CLEANUP_UNCONFIRMED"} if stalled else {}),
+            **({"result": result} if tool == "experiment_result" and result is not None else {}))
 
     def invoke(self, owner: str, tool: str, arguments: object) -> dict[str, Any]:
         if tool == "experiment_capabilities":

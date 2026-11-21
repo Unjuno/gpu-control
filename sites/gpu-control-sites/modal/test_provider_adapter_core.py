@@ -156,6 +156,28 @@ def test_terminal_observation_requires_cleanup_and_kaggle_cancel_is_blocked():
     assert cancelled["blocking_reason"] == "CANCELLATION_UNSUPPORTED"
 
 
+def test_stalled_kaggle_is_blocked_without_cleanup_or_replacement():
+    backend = FakeBackend("kaggle")
+    backend.capture = lambda _handle: SimpleNamespace(state="running", result={
+        "provider": "kaggle", "lifecycle_condition": "provider_deadline_exceeded",
+        "cleanup_state": "unconfirmed", "replacement_submission_allowed": False,
+    })
+    backend.cleanup = lambda _handle: pytest.fail("non-terminal Kaggle run must not be cleaned")
+    adapter = ProviderAdapter(backend, None, clock=lambda: 1000)
+    value = prepared()
+    args = submission(value)
+    handle = adapter.submit("owner-1", args)["machine_state"]["provider_handle"]
+
+    observed = adapter.observe(
+        "experiment_status", {"run_id": args["run_id"], "provider_handle": handle})
+
+    assert observed["status"] == "blocked"
+    assert observed["blocking_reason"] == "PROVIDER_DEADLINE_EXCEEDED_CLEANUP_UNCONFIRMED"
+    assert observed["machine_state"]["state"] == "running"
+    assert observed["machine_state"]["result"]["replacement_submission_allowed"] is False
+    assert observed["next_allowed_actions"] == ["experiment_status"]
+
+
 def test_modal_gpu_plan_is_fixed_paid_bounded_and_owner_bound():
     value = prepare("owner-1", {
         "workload": MODAL_GPU_WORKLOAD, "repository": GPU_CONTROL_REPOSITORY,

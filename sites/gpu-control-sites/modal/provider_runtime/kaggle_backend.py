@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from typing import Any, Callable, Mapping
 
@@ -27,6 +28,7 @@ from .settings import ProviderSettings
 
 _KERNEL_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_-]{0,49})/([a-z0-9][a-z0-9-]{0,49})$")
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_PROVIDER_STARTUP_GRACE_SECONDS = 15 * 60
 
 
 class KaggleQuotaError(RuntimeError):
@@ -137,11 +139,13 @@ class KaggleBackend:
         runner: Callable[[tuple[str, ...]], KaggleCommandResult] | None = None,
         max_output_bytes: int | None = None,
         artifact_store: Any = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self.settings = settings
         self.runner = runner or _default_runner
         self.max_output_bytes = max_output_bytes or settings.max_output_bytes
         self.artifact_store = artifact_store
+        self.clock = clock
 
     def _command(self, *args: str) -> KaggleCommandResult:
         result = self.runner(("kaggle", *args))
@@ -324,11 +328,14 @@ class KaggleBackend:
             "version": version, "source_sha": source_sha,
             "run_id": run.get("id"), "plan_fingerprint": run.get("fingerprint"),
             "image_digest": plan.get("image_digest"), "started_at": run.get("started_at"),
+            "runtime_seconds": plan.get("runtime_seconds"),
         }
         if (not isinstance(values["run_id"], str) or
                 not isinstance(values["plan_fingerprint"], str) or
                 not isinstance(values["image_digest"], str) or
-                type(values["started_at"]) is not int):
+                type(values["started_at"]) is not int or
+                type(values["runtime_seconds"]) is not int or
+                not 1 <= values["runtime_seconds"] <= 3600):
             raise ValueError("Kaggle run identity is incomplete")
         return values
 
@@ -429,6 +436,25 @@ class KaggleBackend:
         status = self._status(ref)
         state = str(status.get("status", "")).lower()
         if state in {"running", "queued", "pending"}:
+            # Handles issued before runtime_seconds became explicit remain
+            # readable.  Use the historical maximum, never a shorter guessed
+            # lease, so an upgrade cannot prematurely classify a live job.
+            runtime_seconds = handle.get("runtime_seconds", 3600)
+            if type(runtime_seconds) is not int or not 1 <= runtime_seconds <= 3600:
+                raise ValueError("Kaggle provider handle runtime is invalid")
+            deadline = (handle["started_at"] + runtime_seconds +
+                        _PROVIDER_STARTUP_GRACE_SECONDS)
+            if int(self.clock()) > deadline:
+                # Kaggle exposes no dependable cancellation API.  Keep this
+                # provider object non-terminal and block a replacement run;
+                # never claim cleanup or silently submit a new version.
+                return Observation("running", {
+                    "provider": "kaggle", "kernel": ref,
+                    "source_sha": handle["source_sha"],
+                    "lifecycle_condition": "provider_deadline_exceeded",
+                    "deadline_at": deadline, "cleanup_state": "unconfirmed",
+                    "replacement_submission_allowed": False,
+                })
             return Observation("running")
         logs, truncated = self.logs(handle)
         succeeded = state in {"complete", "completed", "succeeded"}

@@ -201,7 +201,7 @@ def test_start_checks_quota_and_persists_exact_new_version(tmp_path):
         "provider": "kaggle", "owner": "owner", "kernel_slug": "orbitune-100-step",
         "version": 8, "source_sha": SOURCE_SHA, "run_id": "run-1",
         "plan_fingerprint": "b" * 64, "image_digest": submitted["plan"]["image_digest"],
-        "started_at": 1000,
+        "started_at": 1000, "runtime_seconds": 120,
     }
     bridge = str(Path(kaggle_backend.__file__).with_name("kaggle_bridge.py").resolve())
     assert runner.calls == [
@@ -288,6 +288,40 @@ def test_logs_are_bounded_and_cancel_is_not_advertised(tmp_path):
         backend.cancel(handle)
 
 
+def test_stalled_kernel_remains_nonterminal_and_blocks_replacement(tmp_path):
+    runner = ScriptedRunner([result({"status": "running", "versionNumber": 8})])
+    backend = KaggleBackend(settings(tmp_path), runner=runner, clock=lambda: 2021)
+    handle = {
+        "provider": "kaggle", "owner": "owner", "kernel_slug": "orbitune-100-step",
+        "version": 8, "source_sha": SOURCE_SHA, "run_id": "run-1",
+        "plan_fingerprint": "b" * 64, "image_digest": "sha256:" + "c" * 64,
+        "started_at": 1000, "runtime_seconds": 120,
+    }
+
+    observation = backend.inspect(handle)
+
+    assert observation.state == "running"
+    assert observation.result["lifecycle_condition"] == "provider_deadline_exceeded"
+    assert observation.result["cleanup_state"] == "unconfirmed"
+    assert observation.result["replacement_submission_allowed"] is False
+
+
+def test_pre_runtime_handle_uses_conservative_legacy_deadline(tmp_path):
+    runner = ScriptedRunner([result({"status": "running", "versionNumber": 8})])
+    backend = KaggleBackend(settings(tmp_path), runner=runner, clock=lambda: 5501)
+    handle = {
+        "provider": "kaggle", "owner": "owner", "kernel_slug": "orbitune-100-step",
+        "version": 8, "source_sha": SOURCE_SHA, "run_id": "run-1",
+        "plan_fingerprint": "b" * 64, "image_digest": "sha256:" + "c" * 64,
+        "started_at": 1000,
+    }
+
+    observation = backend.inspect(handle)
+
+    assert observation.state == "running"
+    assert observation.result["deadline_at"] == 5500
+
+
 def test_capture_downloads_exact_version_and_normalizes_gpu_result(tmp_path):
     output = tmp_path / "run-1" / "output-v8" / "gpu-control-output"
 
@@ -320,7 +354,7 @@ def test_capture_downloads_exact_version_and_normalizes_gpu_result(tmp_path):
         "provider": "kaggle", "owner": "owner", "kernel_slug": "orbitune-100-step",
         "version": 8, "source_sha": SOURCE_SHA, "run_id": "run-1",
         "plan_fingerprint": "b" * 64, "image_digest": "sha256:" + "c" * 64,
-        "started_at": 1000,
+        "started_at": 1000, "runtime_seconds": 120,
     }
 
     observation = backend.capture(handle)
