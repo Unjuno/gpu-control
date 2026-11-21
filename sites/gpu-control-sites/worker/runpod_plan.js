@@ -3,7 +3,9 @@ import { RunpodV2Client, runpodConfigured } from "./runpod_provider.js";
 export const RUNPOD_WORKLOAD = "runpod-gpu-canary-v1";
 export const RUNPOD_REPOSITORY = "Unjuno/gpu-control";
 export const RUNPOD_RUNTIME_SECONDS = 30;
-export const RUNPOD_BILLABLE_CEILING_SECONDS = 35;
+// Runpod may bill worker initialization and automatic retries. The job TTL is
+// the provider-managed hard window; add the exact endpoint idle timeout.
+export const RUNPOD_BILLABLE_CEILING_SECONDS = 305;
 export const RUNPOD_COST_CEILING_USD = "1.00";
 export const RUNPOD_COST_CEILING_MICROUSD = 1_000_000;
 
@@ -87,7 +89,7 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
   }
   return {
     schema_version: 2, status: "ok",
-    human_summary: `Runpodの登録済みServerless GPU canary planを準備しました。まだジョブは送信していません。最大30秒の実行と5秒のidleを含む見積りは$${cost.usd}、損失上限は$1.00です。`,
+    human_summary: `Runpodの登録済みServerless GPU canary planを準備しました。まだジョブは送信していません。cold start・再試行を含む5分TTLと5秒idleの最悪窓見積りは$${cost.usd}、損失上限は$1.00です。`,
     machine_state: { run_id: persisted.id, state: persisted.state, provider: "runpod_gpu",
       plan_fingerprint: persisted.fingerprint },
     next_allowed_actions: ["experiment_submit"], blocking_reason: null,

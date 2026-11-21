@@ -27,6 +27,10 @@ provide model compute. Compute remains an explicitly configured provider.
 - The worker accepts only the registered canary schema and invokes only the
   fixed GPU probe. The result remains bound to the owner, plan fingerprint,
   nonce, source SHA, image digest, and ephemeral completion HMAC key.
+- Cost approval uses the five-minute provider TTL plus the exact five-second
+  idle timeout as the worst-case billable window, including cold start and
+  automatic retries. The usual 30-second handler limit is not presented as the
+  worst-case charge.
 - Offline Worker tests and the full Python suite pass for this candidate. This
   is not live GPU acceptance: the new immutable image, endpoint creation,
   admission activation, paid execution, and ChatGPT result retrieval remain
