@@ -312,7 +312,8 @@ def _async_observe(owner: str, tool: str, arguments: dict[str, Any]) -> dict[str
         return {
             "schema_version": 2, "status": "error",
             "human_summary": "providerへの投入に失敗しました。",
-            "machine_state": {"run_id": run_id, "state": "failed", "provider": record["provider"]},
+            "machine_state": {"run_id": run_id, "state": "failed", "provider": record["provider"],
+                              "provider_resource_created": False, "cleanup_state": "confirmed"},
             "next_allowed_actions": [],
             "blocking_reason": str(record.get("error_code", "PROVIDER_OPERATION_FAILED")).upper(),
         }
