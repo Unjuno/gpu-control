@@ -133,6 +133,10 @@ Sites contains the matching adapter transport settings:
 The adapter requires Modal proxy authentication and a second HMAC envelope.
 Every envelope binds the authenticated owner, tool and exact arguments to a
 short expiry and nonce. D1 remains the authoritative plan and run store.
+The Worker also pins the adapter to
+`unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run`.
+Another otherwise valid `*.modal.run` origin is rejected before proxy
+credentials are attached.
 
 ### RunPod
 
@@ -144,7 +148,8 @@ Sites configuration is separate from every other provider:
 - `RUNPOD_SERVERLESS_ENDPOINT_ID`
 - `RUNPOD_SERVERLESS_GPU_POOL_ID`
 - `RUNPOD_SERVERLESS_HOURLY_PRICE_USD` (fail-closed maximum hourly price,
-  never treated as current provider price evidence)
+  never treated as current provider price evidence; use a fixed six-decimal
+  USD value such as `0.580000`)
 - `RUNPOD_GPU_ID` (displayed exact GPU identity)
 - `RUNPOD_ACCOUNT_SCOPE_ID` (secret or protected configuration)
 - `RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64` (secret)

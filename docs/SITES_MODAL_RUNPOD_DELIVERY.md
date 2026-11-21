@@ -58,14 +58,22 @@ provide model compute. Compute remains an explicitly configured provider.
   blocked by Modal's payment-method requirement. No T4 call has been made, so
   this is implementation evidence, not real-GPU acceptance.
 
-## Current live state — refreshed 2026-11-15
+## Current live state — refreshed 2026-11-22
 
-- ChatGPT Site Version 38 is active at the published URL with public
+- ChatGPT Site Version 52 is active at the published URL with public
   audience and an owner-only MCP allowlist. The connected owner account can
-  read capabilities and owner-scoped history. Current capabilities report the
-  Modal CPU workload configured and admission enabled. The ChatGPT-native exact
-  confirmation path completed one fixed Modal CPU run with verified artifact
-  and cleanup; recovery and repeatability remain open.
+  read capabilities and owner-scoped history. Current capabilities report
+  Modal CPU, RunPod, Kaggle, Hugging Face and the Modal GPU adapter configured.
+  RunPod paid admission and completion-transport verification remain disabled,
+  and Modal GPU admission remains disabled, so configuration alone cannot start
+  either paid GPU route. Kaggle and Hugging Face remain free-only with paid
+  fallback forbidden.
+- Version 52 pins the provider adapter to the exact deployed Modal hostname.
+  The production environment revision is 45. RunPod's maximum catalog price is
+  configured as `0.580000`, while the current price used for a plan must still
+  come from RunPod REST v2 Catalog. A one-hour Modal GPU account record observed
+  a $1 Workspace limit, $0.16 credits used, $0 charges, and the official T4
+  list price; it does not open admission and expires automatically.
 - The current Sites capabilities response registers fingerprint
   `8a786eb77ff845ed053ce939a4f4601705c01defb2b6fab7c1dd804ca04b09c5` and
   image digest
@@ -81,11 +89,13 @@ provide model compute. Compute remains an explicitly configured provider.
   eligible usage. The `$0.01` Sandbox ceiling does not include control-function
   calls. The user authorized up to `$1` total project testing usage; check the
   live Workspace limit before a provider call and do not add a payment method.
-- The fixed Modal candidate is deployed to `unjuno/main`; its temporary
-  deployment token was revoked. Any additional Sandbox still requires a fresh
-  exact ChatGPT confirmation and must preserve the deployed fingerprint,
-  digest, hard resource limits, result, and cleanup checks.
-  RunPod/GPU remains parked.
+- The fixed Modal provider adapter is deployed to `unjuno/main`. Its current
+  one-hour deployment token must be revoked or allowed to expire before final
+  acceptance. Any additional Function call still requires a fresh exact
+  ChatGPT confirmation and must preserve the deployed fingerprint, digest,
+  hard resource limits, result and cleanup checks. RunPod is configured but
+  remains fail-closed until the live completion transport is verified and paid
+  admission is explicitly opened.
 
 ## Historical baseline — refreshed 2026-11-13
 
