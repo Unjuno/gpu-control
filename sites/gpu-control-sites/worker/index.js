@@ -1600,10 +1600,6 @@ async function callTool(name, args, request, env, context = null) {
       next_allowed_actions: ["experiment_status"], blocking_reason: null };
   }
   if (name === "experiment_reconcile") {
-    const now = Math.floor(Date.now() / 1000);
-    await env.DB.prepare(`INSERT INTO runpod_reconciliation_heartbeat (singleton, owner_id, checked_at)
-      VALUES (1, ?, ?) ON CONFLICT(singleton) DO UPDATE SET owner_id=excluded.owner_id, checked_at=excluded.checked_at`)
-      .bind(owner, now).run();
     const row = await env.DB.prepare(`SELECT r.id, r.owner_id FROM runs r JOIN plans p ON p.id=r.plan_id
       LEFT JOIN provider_account_leases l ON l.provider='runpod' AND l.run_id=r.id
       WHERE p.provider='runpod_gpu' AND (
@@ -1616,7 +1612,7 @@ async function callTool(name, args, request, env, context = null) {
     if (row.owner_id !== owner) throw new Error("RUN_NOT_FOUND");
     const updated = await synchronizeRunpodExperiment(env, owner, row.id);
     return { schema_version: 2, status: ["queued", "running"].includes(updated.state) ? "pending" : "ok",
-      human_summary: "Scheduled Runpod reconciliation completed.",
+      human_summary: "Runpod Serverless job reconciliation completed.",
       machine_state: { run_id: updated.id, state: updated.state, cleanup_state: updated.cleanup_state },
       next_allowed_actions: ["experiment_status"], blocking_reason: null };
   }

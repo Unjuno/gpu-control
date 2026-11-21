@@ -35,27 +35,23 @@ function environment() {
   for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
     raw.exec(readFileSync(new URL(file, MIGRATIONS), "utf8"));
   }
-  raw.prepare(`INSERT INTO runpod_reconciliation_heartbeat (singleton, owner_id, checked_at) VALUES (1, ?, ?)`)
-    .run("site-owner", 100);
   return { raw, env: { DB: new D1(raw), RUNPOD_API_KEY: "rpa_test_abcdefghijklmnopqrstuvwxyz",
     RUNPOD_WORKLOAD_IMAGE: IMAGE, RUNPOD_GPU_ID: "NVIDIA RTX 2000 Ada Generation",
-    RUNPOD_WORKLOAD_SOURCE_SHA: SOURCE, RUNPOD_GPU_ADMISSION_ENABLED: "true",
+    RUNPOD_SERVERLESS_ENDPOINT_ID: "endpoint_test_123", RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "0.240000",
+    RUNPOD_SERVERLESS_GPU_POOL_ID: "ADA_24",
+    RUNPOD_WORKLOAD_SOURCE_SHA: SOURCE, RUNPOD_WORKLOAD_ADMISSION_ENABLED: "true",
     RUNPOD_STATE_KEY_B64: KEY, RUNPOD_ACCOUNT_SCOPE_ID: "primary",
-    RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64: KEY,
-    RUNPOD_SCHEDULED_RECONCILIATION_ENABLED: "true" } };
+    RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64: KEY } };
 }
 
 class FakeRunpod {
-  constructor() { this.creates = 0; this.terminated = 0; this.podId = "pod-test-123"; }
-  async getVerifiedOffer() { return { gpuId: "NVIDIA RTX 2000 Ada Generation", cloud: "SECURE", gpuCount: 1,
-    hourlyPriceUsd: 0.24, availability: "HIGH", dataCenterId: "US-KS-2", checkedAt: 100,
-    validForSeconds: 300, source: "runpod-rest-v2-catalog" }; }
-  async createPod(input) { this.creates += 1; this.name = `gpu-control-${input.runId.slice(0, 12)}`; return { id: this.podId, name: this.name, image: IMAGE,
-    cloud: "SECURE", gpu: { id: "NVIDIA RTX 2000 Ada Generation", count: 1 }, ports: [], globalNetworking: false, status: "RUNNING" }; }
-  async getPod() { return { id: this.podId, name: this.name, image: IMAGE,
-    cloud: "SECURE", gpu: { id: "NVIDIA RTX 2000 Ada Generation", count: 1 }, ports: [], globalNetworking: false, status: "RUNNING" }; }
-  async getPodLogSnapshot() { return []; }
-  async terminatePod() { this.terminated += 1; }
+  constructor() { this.creates = 0; this.terminated = 0; this.jobId = "job-test-123"; }
+  async getVerifiedOffer() { return { gpuId: "NVIDIA RTX 2000 Ada Generation", cloud: "SERVERLESS", gpuCount: 1,
+    hourlyPriceUsd: 0.24, availability: "CONFIGURED", dataCenterId: "endpoint_test_123", checkedAt: 100,
+    validForSeconds: 300, source: "runpod-serverless-endpoint-config" }; }
+  async submitJob() { this.creates += 1; return { id: this.jobId, status: "IN_QUEUE" }; }
+  async getJob() { return { id: this.jobId, status: "IN_PROGRESS" }; }
+  async cancelJob() { this.terminated += 1; return { id: this.jobId, status: "CANCELLED" }; }
 }
 
 test("Runpod submit is idempotent and cancellation confirms cleanup before releasing the account", async () => {
@@ -80,10 +76,9 @@ test("Runpod submit is idempotent and cancellation confirms cleanup before relea
   } finally { raw.close(); }
 });
 
-test("Runpod submit refuses paid creation when the scheduled reconciliation heartbeat is stale", async () => {
+test("Runpod submit does not depend on a chat-driven cleanup heartbeat", async () => {
   const { raw, env } = environment(); const client = new FakeRunpod();
   try {
-    raw.prepare(`UPDATE runpod_reconciliation_heartbeat SET checked_at=0 WHERE singleton=1`).run();
     const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
       commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
       max_cost_usd: "1.00", idempotency_key: "runpod-stale-heartbeat" }, { client, now: 100 });
@@ -91,7 +86,28 @@ test("Runpod submit refuses paid creation when the scheduled reconciliation hear
       run_id: prepared.run_id, plan_fingerprint: prepared.plan_fingerprint,
       provider_approved_plan: prepared.provider_approved_plan,
     }, { client, now: 101, reserveBudget: async () => true });
-    assert.equal(result.blocking_reason, "RUNPOD_CLEANUP_HEARTBEAT_STALE");
-    assert.equal(client.creates, 0);
+    assert.equal(result.status, "pending");
+    assert.equal(client.creates, 1);
+  } finally { raw.close(); }
+});
+
+test("an ambiguous Serverless submit is never retried and releases after provider TTL", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  client.submitJob = async () => { client.creates += 1; throw new Error("lost response"); };
+  try {
+    const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-ambiguous-submit" }, { client, now: 100 });
+    const args = { run_id: prepared.run_id, plan_fingerprint: prepared.plan_fingerprint,
+      provider_approved_plan: prepared.provider_approved_plan };
+    const submitted = await submitRunpodExperiment(env, "site-owner", args,
+      { client, now: 101, reserveBudget: async () => true });
+    assert.equal(submitted.machine_state.provider_phase, "uncertain");
+    assert.equal(client.creates, 1);
+    const reconciled = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client });
+    assert.equal(reconciled.state, "failed");
+    assert.equal(reconciled.failure_code, "RUNPOD_AMBIGUOUS_SUBMIT_TTL_ELAPSED");
+    assert.equal(client.creates, 1);
+    assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "released");
   } finally { raw.close(); }
 });

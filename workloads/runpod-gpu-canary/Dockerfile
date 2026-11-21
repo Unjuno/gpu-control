@@ -7,13 +7,15 @@ LABEL org.opencontainers.image.source="https://github.com/Unjuno/gpu-control" \
       io.gpu-control.workload="runpod-gpu-canary-v1"
 
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends python3-minimal \
+    && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends python3-minimal python3-pip \
+    && python3 -m pip install --break-system-packages --no-cache-dir runpod==2.4.0 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --no-create-home --uid 10001 --shell /usr/sbin/nologin workload
 WORKDIR /opt/gpu-control
 COPY --chmod=0555 workloads/runpod-gpu-canary/idle.py /opt/gpu-control/idle
 COPY --chmod=0555 workloads/runpod-gpu-canary/run_registered_workload.py /opt/gpu-control/run-registered-workload
 COPY --chmod=0555 workloads/runpod-gpu-canary/gpu_probe.py /opt/gpu-control/gpu_probe.py
+COPY --chmod=0555 workloads/runpod-gpu-canary/serverless_handler.py /opt/gpu-control/serverless_handler.py
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-ENTRYPOINT ["/opt/gpu-control/idle"]
+ENTRYPOINT ["python3", "/opt/gpu-control/serverless_handler.py"]

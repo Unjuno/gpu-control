@@ -1,113 +1,67 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RunpodProviderError, RunpodV2Client, parseLogSnapshot, runpodConfigured, validateCreatedPod } from "./runpod_provider.js";
+import { RunpodProviderError, RunpodV2Client, runpodConfigured, validateJobStatus, validateSubmittedJob } from "./runpod_provider.js";
 
-const env = {
-  RUNPOD_API_KEY: "secret-api-key-with-enough-bytes",
+const env = { RUNPOD_API_KEY: "secret-api-key-with-enough-bytes",
   RUNPOD_WORKLOAD_IMAGE: `ghcr.io/unjuno/gpu-control-runpod@sha256:${"a".repeat(64)}`,
-  RUNPOD_GPU_ID: "NVIDIA RTX 2000 Ada Generation",
-};
+  RUNPOD_GPU_ID: "NVIDIA RTX 2000 Ada Generation", RUNPOD_SERVERLESS_ENDPOINT_ID: "endpoint_abc123",
+  RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "0.240000", RUNPOD_SERVERLESS_GPU_POOL_ID: "ADA_24",
+  RUNPOD_WORKLOAD_SOURCE_SHA: "b".repeat(40) };
+function jsonResponse(value, status = 200) { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } }); }
 
-function jsonResponse(value, status = 200, headers = {}) {
-  return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json", ...headers } });
-}
-
-test("configuration requires an immutable image and bounded secret", () => {
+test("configuration requires an immutable image, endpoint, price, and bounded secret", () => {
   assert.equal(runpodConfigured(env), true);
-  assert.equal(runpodConfigured({ ...env, RUNPOD_WORKLOAD_IMAGE: "ghcr.io/unjuno/image:latest" }), false);
-  assert.equal(runpodConfigured({ ...env, RUNPOD_API_KEY: "bad\nkey" }), false);
+  assert.equal(runpodConfigured({ ...env, RUNPOD_WORKLOAD_IMAGE: "image:latest" }), false);
+  assert.equal(runpodConfigured({ ...env, RUNPOD_SERVERLESS_ENDPOINT_ID: ".." }), false);
+  assert.equal(runpodConfigured({ ...env, RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "free" }), false);
 });
 
-test("create emits one secure GPU with no ports, SSH, Jupyter, or global network", async () => {
+test("submit sends an asynchronous bounded serverless job", async () => {
   let request;
   const client = new RunpodV2Client(env, { fetchImpl: async (url, init) => {
-    request = { url, init, body: JSON.parse(init.body) };
-    return jsonResponse({ id: "pod_abc123", status: "PROVISIONING" }, 201);
+    request = { url, init, body: JSON.parse(init.body) }; return jsonResponse({ id: "job_abc123", status: "IN_QUEUE" });
   } });
-  await client.createPod({ runId: "1".repeat(32), planFingerprint: "b".repeat(64),
+  const result = validateSubmittedJob(await client.submitJob({ runId: "1".repeat(32), planFingerprint: "b".repeat(64),
     nonce: "c".repeat(64), completionKeyB64: Buffer.alloc(32, 7).toString("base64"),
-    completionKeyId: "d".repeat(32), sourceSha: "e".repeat(40), dataCenterId: "US-TX-3" });
-  assert.equal(request.url, "https://api.runpod.io/v2/pods");
-  assert.equal(request.init.redirect, "manual");
-  assert.match(request.init.headers.authorization, /^Bearer /);
-  assert.deepEqual(request.body.gpu, { id: env.RUNPOD_GPU_ID, count: 1 });
-  assert.equal(request.body.cloud, "SECURE");
-  assert.deepEqual(request.body.ports, []);
-  assert.equal(request.body.startSsh, false);
-  assert.equal(request.body.startJupyter, false);
-  assert.equal(request.body.globalNetworking, false);
-  assert.deepEqual(request.body.dataCenterIds, ["US-TX-3"]);
-  assert.deepEqual(request.body.entrypoint.slice(0, 2),
-    ["/opt/gpu-control/run-registered-workload", "--plan-fingerprint"]);
-  assert.equal(request.body.entrypoint.includes("sh"), false);
-  assert.equal(request.body.entrypoint.includes("-c"), false);
-  assert.match(request.body.env.GPU_CONTROL_COMPLETION_KEY_B64, /^[A-Za-z0-9+/]{43}=$/);
+    completionKeyId: "d".repeat(32), sourceSha: "e".repeat(40) }));
+  assert.deepEqual(result, { id: "job_abc123", status: "IN_QUEUE" });
+  assert.equal(request.url, "https://api.runpod.ai/v2/endpoint_abc123/run");
+  assert.deepEqual(request.body.policy, { executionTimeout: 30000, ttl: 300000 });
+  assert.equal(request.body.input.execution_name, "gpu-control-111111111111");
 });
 
-test("HTTP failures are stable codes and never return provider text", async () => {
-  const client = new RunpodV2Client(env, { fetchImpl: async () => jsonResponse({ detail: "add money now" }, 402) });
-  await assert.rejects(client.listPods(), (error) => {
-    assert.equal(error.code, "RUNPOD_INSUFFICIENT_BALANCE");
-    assert.equal(error.message.includes("add money"), false);
-    return true;
-  });
-});
-
-test("unrequested queued create is rejected instead of becoming an unmanaged resource", async () => {
-  const client = new RunpodV2Client(env, { fetchImpl: async () => jsonResponse({ id: "queue_abc123" }, 202) });
-  const binding = { runId: "1".repeat(32), planFingerprint: "b".repeat(64), nonce: "c".repeat(64),
-    completionKeyB64: Buffer.alloc(32, 7).toString("base64"), completionKeyId: "d".repeat(32), sourceSha: "e".repeat(40) };
-  await assert.rejects(client.createPod(binding), (error) => {
-    assert.equal(error.code, "RUNPOD_UNEXPECTED_SUCCESS_STATUS");
-    assert.equal(error.status, 202);
-    return true;
-  });
-});
-
-test("pod log snapshots parse only bounded container SSE frames", async () => {
-  const stream = 'id: 1\ndata: {"source":"system","line":"ignored","ts":"2026-01-01T00:00:00Z"}\n\n' +
-    'id: 2\ndata: {"source":"container","line":"GPU_CONTROL_RESULT_JSON_V1:abc","ts":"2026-01-01T00:00:01Z"}\n\n';
-  assert.deepEqual(parseLogSnapshot(stream), ["GPU_CONTROL_RESULT_JSON_V1:abc"]);
-  assert.throws(() => parseLogSnapshot('data: {"source":"container","line":7}\n\n'),
-    /RUNPOD_INVALID_LOG_RESPONSE/);
-});
-
-test("catalog offer requires one positive secure price and HIGH exact-datacenter capacity", async () => {
+test("offer is accepted only from the exact bounded endpoint configuration", async () => {
+  const endpoint = { id: env.RUNPOD_SERVERLESS_ENDPOINT_ID, type: "QUEUE", image: env.RUNPOD_WORKLOAD_IMAGE,
+    gpu: { count: 1, pools: [env.RUNPOD_SERVERLESS_GPU_POOL_ID] }, workers: { min: 0, max: 1 }, timeout: 30000,
+    ports: [], networkVolumes: [], mounts: { network: [], global: [] }, args: "", env: {
+      GPU_CONTROL_SOURCE_SHA: env.RUNPOD_WORKLOAD_SOURCE_SHA,
+      GPU_CONTROL_IMAGE_DIGEST: env.RUNPOD_WORKLOAD_IMAGE.split("@")[1],
+    } };
   const client = new RunpodV2Client(env, { fetchImpl: async (url) => {
-    assert.equal(url, "https://api.runpod.io/v2/catalog/gpus?include=AVAILABILITY&product=POD&count=1&cloud=SECURE");
-    return jsonResponse({ gpus: [{ id: env.RUNPOD_GPU_ID, secure: true, price: { secure: 0.24 },
-      maxCount: { secure: 2 }, availability: "HIGH", dataCenters: [
-        { id: "US-TX-3", availability: "HIGH" }, { id: "EU-RO-1", availability: "HIGH" },
-      ] }] });
+    assert.equal(url, "https://api.runpod.io/v2/serverless/endpoint_abc123"); return jsonResponse(endpoint);
   } });
-  const offer = await client.getVerifiedOffer();
-  assert.deepEqual({ ...offer, checkedAt: 0 }, { gpuId: env.RUNPOD_GPU_ID, cloud: "SECURE", gpuCount: 1,
-    hourlyPriceUsd: 0.24, availability: "HIGH", dataCenterId: "EU-RO-1", checkedAt: 0,
-    validForSeconds: 300, source: "runpod-rest-v2-catalog" });
+  assert.equal((await client.getVerifiedOffer()).cloud, "SERVERLESS");
+  const unsafe = new RunpodV2Client(env, { fetchImpl: async () => jsonResponse({ ...endpoint, workers: { min: 1, max: 1 } }) });
+  await assert.rejects(unsafe.getVerifiedOffer(), (error) => error.code === "RUNPOD_ENDPOINT_CONFIGURATION_MISMATCH");
 });
 
-test("catalog refuses zero price, non-HIGH stock, and duplicate exact GPU rows", async () => {
-  for (const gpus of [
-    [{ id: env.RUNPOD_GPU_ID, secure: true, price: { secure: 0 }, maxCount: { secure: 1 }, availability: "HIGH", dataCenters: [{ id: "US-TX-3", availability: "HIGH" }] }],
-    [{ id: env.RUNPOD_GPU_ID, secure: true, price: { secure: 0.24 }, maxCount: { secure: 1 }, availability: "LOW", dataCenters: [{ id: "US-TX-3", availability: "LOW" }] }],
-    [{ id: env.RUNPOD_GPU_ID }, { id: env.RUNPOD_GPU_ID }],
-  ]) {
-    const client = new RunpodV2Client(env, { fetchImpl: async () => jsonResponse({ gpus }) });
-    await assert.rejects(client.getVerifiedOffer(), RunpodProviderError);
-  }
+test("status and cancellation are endpoint-scoped and validate job ids", async () => {
+  const urls = [];
+  const client = new RunpodV2Client(env, { fetchImpl: async (url) => { urls.push(url); return jsonResponse({ id: "job_abc123", status: "CANCELLED" }); } });
+  validateJobStatus(await client.getJob("job_abc123"), "job_abc123");
+  await client.cancelJob("job_abc123");
+  assert.deepEqual(urls, ["https://api.runpod.ai/v2/endpoint_abc123/status/job_abc123", "https://api.runpod.ai/v2/endpoint_abc123/cancel/job_abc123"]);
+  assert.throws(() => client.getJob("../../account"), RunpodProviderError);
 });
 
-test("redirects are rejected and termination requires exact pod id", async () => {
-  const client = new RunpodV2Client(env, { fetchImpl: async () => new Response(null, { status: 302, headers: { location: "https://evil.invalid" } }) });
-  await assert.rejects(client.listPods(), (error) => error.code === "RUNPOD_REDIRECT_REJECTED");
-  await assert.rejects(client.terminatePod("../../account"), (error) => error.code === "RUNPOD_INVALID_POD_ID");
+test("provider errors do not expose response text and redirects are rejected", async () => {
+  const payment = new RunpodV2Client(env, { fetchImpl: async () => jsonResponse({ detail: "add money now" }, 402) });
+  await assert.rejects(payment.getJob("job_abc123"), (error) => error.code === "RUNPOD_INSUFFICIENT_BALANCE" && !error.message.includes("add money"));
+  const redirect = new RunpodV2Client(env, { fetchImpl: async () => new Response(null, { status: 302, headers: { location: "https://evil.invalid" } }) });
+  await assert.rejects(redirect.getJob("job_abc123"), (error) => error.code === "RUNPOD_REDIRECT_REJECTED");
 });
 
-test("create receipts are strictly validated", () => {
-  assert.deepEqual(validateCreatedPod({ id: "pod_abc123", name: "gpu-control-111111111111", image: env.RUNPOD_WORKLOAD_IMAGE,
-    cloud: "SECURE", gpu: { id: env.RUNPOD_GPU_ID, count: 1 }, ports: [], status: "RUNNING", cost: 0.24,
-    dataCenterId: "US-TX-3", globalNetworking: false }, {
-    name: "gpu-control-111111111111", image: env.RUNPOD_WORKLOAD_IMAGE, gpuId: env.RUNPOD_GPU_ID,
-  }), { id: "pod_abc123", status: "RUNNING", cost: 0.24, dataCenterId: "US-TX-3" });
-  assert.throws(() => validateCreatedPod({ id: "pod_abc123", ports: ["22/tcp"] }, {}), RunpodProviderError);
+test("receipts and status require exact safe shapes", () => {
+  assert.throws(() => validateSubmittedJob({ id: "job_abc123", status: "COMPLETED" }), RunpodProviderError);
+  assert.throws(() => validateJobStatus({ id: "other_job", status: "COMPLETED" }, "job_abc123"), RunpodProviderError);
 });

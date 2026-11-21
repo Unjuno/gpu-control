@@ -1,12 +1,11 @@
 import { deriveProviderAccountScopeHash, reserveProviderAccountLease, transitionProviderAccountLease } from "./provider_account_lease.js";
 import { verifyRunpodCompletion } from "./runpod_completion.js";
 import { RUNPOD_COST_CEILING_MICROUSD, RUNPOD_WORKLOAD } from "./runpod_plan.js";
-import { RunpodProviderError, RunpodV2Client, validateCreatedPod } from "./runpod_provider.js";
+import { RunpodProviderError, RunpodV2Client, validateJobStatus, validateSubmittedJob } from "./runpod_provider.js";
 import { openCompletionKey, sealCompletionKey } from "./runpod_secret.js";
 
 const SHA256 = /^[0-9a-f]{64}$/;
-const POD_ID = /^[A-Za-z0-9_-]{4,128}$/;
-const RECONCILIATION_HEARTBEAT_MAX_AGE_SECONDS = 90;
+const JOB_ID = /^[A-Za-z0-9_-]{4,128}$/;
 
 function hex(bytes) { return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join(""); }
 function randomHex(bytes) { return hex(crypto.getRandomValues(new Uint8Array(bytes))); }
@@ -27,11 +26,11 @@ export function validRunpodApprovedPlan(plan) {
   if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.schema_version !== 1 ||
       plan.provider !== "runpod_gpu" || plan.workload !== RUNPOD_WORKLOAD || plan.max_cost_usd !== "1.00" ||
       plan.cost_ceiling_microusd !== RUNPOD_COST_CEILING_MICROUSD || plan.gpu_count !== 1 ||
-      plan.cloud !== "SECURE" || plan.paid !== true || plan.credit_eligible !== false ||
+      plan.cloud !== "SERVERLESS" || plan.paid !== true || plan.credit_eligible !== false ||
       !SHA256.test(plan.owner_binding_sha256 || "") || !SHA256.test((plan.image_digest || "").replace(/^sha256:/, "")) ||
       typeof plan.image !== "string" || !plan.image.endsWith(`@${plan.image_digest}`) ||
       typeof plan.source_sha !== "string" || !/^[0-9a-f]{40}$/.test(plan.source_sha) ||
-      typeof plan.data_center_id !== "string" || !/^[A-Z0-9-]{3,32}$/.test(plan.data_center_id) ||
+      typeof plan.data_center_id !== "string" || !/^[A-Za-z0-9_-]{4,128}$/.test(plan.data_center_id) ||
       typeof plan.hourly_price_usd !== "string" || !/^[0-9]+\.[0-9]{6}$/.test(plan.hourly_price_usd) ||
       !Number.isSafeInteger(plan.pricing_valid_until) || !Number.isSafeInteger(plan.estimated_cost_microusd) ||
       plan.estimated_cost_microusd < 1 || plan.estimated_cost_microusd > RUNPOD_COST_CEILING_MICROUSD) return false;
@@ -57,19 +56,17 @@ async function recordTerminal(env, { runId, owner, state, failureCode = null, re
     .bind(state, failureCode, result === null ? null : canonical(result), canonical(receipt), now, runId, owner).run();
 }
 
-async function terminateAndRelease(env, client, row, lease, terminal) {
+async function cancelAndRelease(env, client, row, lease, terminal) {
   const now = Math.floor(Date.now() / 1000);
-  let termination = "not_allocated";
-  if (POD_ID.test(row.provider_job_id || "")) {
-    await env.DB.prepare(`UPDATE runs SET provider_phase='terminating', updated_at=? WHERE id=? AND owner_id=?`)
-      .bind(now, row.id, row.owner_id).run();
-    try { await client.terminatePod(row.provider_job_id); termination = "deleted"; }
+  let termination = "not_submitted";
+  if (JOB_ID.test(row.provider_job_id || "")) {
+    try { await client.cancelJob(row.provider_job_id); termination = "cancelled_or_terminal"; }
     catch (error) {
       if (!(error instanceof RunpodProviderError) || error.code !== "RUNPOD_NOT_FOUND") throw error;
-      termination = "already_absent";
+      termination = "already_expired";
     }
   }
-  const receipt = { provider: "runpod_gpu", pod_id: row.provider_job_id, termination, observed_at: now };
+  const receipt = { provider: "runpod_gpu", serverless_job_id: row.provider_job_id, provider_managed: true, termination, observed_at: now };
   await recordTerminal(env, { runId: row.id, owner: row.owner_id, ...terminal, receipt, now });
   const cleanup = lease.state === "cleanup_pending" ? lease : await transitionProviderAccountLease(env.DB, {
     accountScopeSha256: lease.account_scope_sha256, leaseToken: lease.lease_token,
@@ -81,6 +78,21 @@ async function terminateAndRelease(env, client, row, lease, terminal) {
     generation: cleanup.generation, revision: cleanup.revision, toState: "released",
     evidenceType: "pod_termination_confirmed", evidenceSha256: await digest(canonical(receipt)), now,
   });
+}
+
+async function releaseManagedTerminal(env, row, lease, terminal, providerStatus) {
+  const now = Math.floor(Date.now() / 1000);
+  const receipt = { provider: "runpod_gpu", serverless_job_id: row.provider_job_id,
+    provider_managed: true, provider_status: providerStatus, observed_at: now };
+  await recordTerminal(env, { runId: row.id, owner: row.owner_id, ...terminal, receipt, now });
+  const cleanup = lease.state === "cleanup_pending" ? lease : await transitionProviderAccountLease(env.DB, {
+    accountScopeSha256: lease.account_scope_sha256, leaseToken: lease.lease_token, generation: lease.generation,
+    revision: lease.revision, toState: "cleanup_pending", providerJobId: row.provider_job_id,
+    evidenceType: "serverless_terminal_observed", evidenceSha256: await digest(canonical(receipt)), now,
+  });
+  await transitionProviderAccountLease(env.DB, { accountScopeSha256: cleanup.account_scope_sha256,
+    leaseToken: cleanup.lease_token, generation: cleanup.generation, revision: cleanup.revision, toState: "released",
+    evidenceType: "pod_termination_confirmed", evidenceSha256: await digest(canonical(receipt)), now });
 }
 
 export async function submitRunpodExperiment(env, owner, args, { reserveBudget, client = null, now = null } = {}) {
@@ -98,21 +110,9 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
   if (existing) return { schema_version: 2, status: ["queued", "running"].includes(existing.state) ? "pending" : "ok",
     human_summary: "Existing idempotent Runpod run returned.", machine_state: existing,
     next_allowed_actions: ["experiment_status"], blocking_reason: null };
-  if (env.RUNPOD_GPU_ADMISSION_ENABLED !== "true") return { schema_version: 2, status: "blocked",
-    human_summary: "Runpod admission is disabled; no Pod was created.", machine_state: { run_id: row.id, pod_started: false },
+  if (env.RUNPOD_WORKLOAD_ADMISSION_ENABLED !== "true") return { schema_version: 2, status: "blocked",
+    human_summary: "Runpod admission is disabled; no Serverless job was submitted.", machine_state: { run_id: row.id, job_submitted: false },
     next_allowed_actions: [], blocking_reason: "RUNPOD_ADMISSION_DISABLED" };
-  if (env.RUNPOD_SCHEDULED_RECONCILIATION_ENABLED !== "true") {
-    return { schema_version: 2, status: "blocked", human_summary: "Runpod independent cleanup schedule is not configured; no Pod was created.",
-      machine_state: { run_id: row.id, pod_started: false }, next_allowed_actions: [],
-      blocking_reason: "RUNPOD_CLEANUP_SCHEDULE_NOT_CONFIGURED" };
-  }
-  const heartbeat = await env.DB.prepare(`SELECT owner_id, checked_at FROM runpod_reconciliation_heartbeat WHERE singleton=1`).first();
-  if (!heartbeat || heartbeat.owner_id !== owner || !Number.isSafeInteger(heartbeat.checked_at) ||
-      heartbeat.checked_at > timestamp || heartbeat.checked_at < timestamp - RECONCILIATION_HEARTBEAT_MAX_AGE_SECONDS) {
-    return { schema_version: 2, status: "blocked", human_summary: "Runpod cleanup schedule heartbeat is stale; no Pod was created.",
-      machine_state: { run_id: row.id, pod_started: false }, next_allowed_actions: [],
-      blocking_reason: "RUNPOD_CLEANUP_HEARTBEAT_STALE" };
-  }
   if (typeof reserveBudget !== "function" || !await reserveBudget({ runId: row.id, provider: "runpod_gpu",
     requestedMicrousd: RUNPOD_COST_CEILING_MICROUSD, now: timestamp })) {
     return { schema_version: 2, status: "blocked", human_summary: "Runpod per-run budget unavailable; no Pod was created.",
@@ -159,12 +159,12 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
     const failureCode = error?.code || (error?.message === "RUNPOD_RUNTIME_STATE_PERSISTENCE_FAILED"
       ? error.message : "RUNPOD_PRECREATE_FAILED");
     await recordTerminal(env, { runId: row.id, owner, state: "failed", failureCode,
-      receipt: { provider: "runpod_gpu", pod_id: null, termination: "not_allocated", observed_at: timestamp }, now: timestamp });
+      receipt: { provider: "runpod_gpu", serverless_job_id: null, termination: "not_submitted", observed_at: timestamp }, now: timestamp });
     await transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: lease.lease_token,
       generation: lease.generation, revision: lease.revision, toState: "released",
       evidenceType: "provider_create_not_started", evidenceSha256: await digest(failureCode), now: timestamp });
-    return { schema_version: 2, status: "blocked", human_summary: "Runpod pre-create checks failed; no Pod was created.",
-      machine_state: { run_id: row.id, state: "failed", pod_started: false }, next_allowed_actions: ["experiment_status"],
+    return { schema_version: 2, status: "blocked", human_summary: "Runpod pre-submit checks failed; no Serverless job was submitted.",
+      machine_state: { run_id: row.id, state: "failed", job_submitted: false }, next_allowed_actions: ["experiment_status"],
       blocking_reason: failureCode };
   }
   if (currentOffer.gpuId !== plan.gpu_id || currentOffer.cloud !== plan.cloud ||
@@ -172,21 +172,20 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
       currentOffer.checkedAt > plan.pricing_valid_until) {
     completionKey.fill(0);
     await recordTerminal(env, { runId: row.id, owner, state: "failed", failureCode: "RUNPOD_PRICE_OR_CAPACITY_CHANGED",
-      receipt: { provider: "runpod_gpu", pod_id: null, termination: "not_allocated", observed_at: timestamp }, now: timestamp });
+      receipt: { provider: "runpod_gpu", serverless_job_id: null, termination: "not_submitted", observed_at: timestamp }, now: timestamp });
     await transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: lease.lease_token, generation: lease.generation,
       revision: lease.revision, toState: "released", evidenceType: "provider_create_not_started", evidenceSha256: challenge, now: timestamp });
-    return { schema_version: 2, status: "blocked", human_summary: "Runpod price or capacity changed; no Pod was created.",
-      machine_state: { run_id: row.id, state: "failed", pod_started: false }, next_allowed_actions: ["experiment_status"],
+    return { schema_version: 2, status: "blocked", human_summary: "Runpod endpoint or price changed; no Serverless job was submitted.",
+      machine_state: { run_id: row.id, state: "failed", job_submitted: false }, next_allowed_actions: ["experiment_status"],
       blocking_reason: "RUNPOD_PRICE_OR_CAPACITY_CHANGED" };
   }
   lease = await transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: lease.lease_token,
     generation: lease.generation, revision: lease.revision, toState: "submitting", evidenceType: "provider_create_intent",
     evidenceSha256: challenge, now: timestamp });
   try {
-    const created = await provider.createPod({ runId: row.id, planFingerprint: row.fingerprint, nonce,
-      completionKeyB64: toBase64(completionKey), completionKeyId: keyId, sourceSha: row.source_sha,
-      dataCenterId: plan.data_center_id });
-    const receipt = validateCreatedPod(created, { name: executionName(row.id), image: plan.image, gpuId: plan.gpu_id });
+    const created = await provider.submitJob({ runId: row.id, planFingerprint: row.fingerprint, nonce,
+      completionKeyB64: toBase64(completionKey), completionKeyId: keyId, sourceSha: row.source_sha });
+    const receipt = validateSubmittedJob(created);
     lease = await transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: lease.lease_token,
       generation: lease.generation, revision: lease.revision, toState: "active", providerJobId: receipt.id,
       evidenceType: "validated_provider_receipt", evidenceSha256: await digest(canonical(receipt)), now: timestamp });
@@ -198,7 +197,7 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
     const definitive = error instanceof RunpodProviderError && Number.isInteger(error.status) && error.status >= 400 && error.status < 500 && error.status !== 429;
     if (definitive) {
       await recordTerminal(env, { runId: row.id, owner, state: "failed", failureCode: error.code,
-        receipt: { provider: "runpod_gpu", pod_id: null, termination: "create_rejected", observed_at: timestamp }, now: timestamp });
+        receipt: { provider: "runpod_gpu", serverless_job_id: null, termination: "submit_rejected", observed_at: timestamp }, now: timestamp });
       await transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: lease.lease_token, generation: lease.generation,
         revision: lease.revision, toState: "released", evidenceType: "provider_create_rejected", evidenceSha256: await digest(error.code), now: timestamp });
     } else if (lease.state !== "active") {
@@ -223,7 +222,7 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     hmacKeyB64: env.RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64 });
   let lease = await currentLease(env, accountScopeSha256);
   if (!lease || lease.run_id !== runId) throw new Error("RUNPOD_ACCOUNT_LEASE_MISSING");
-  if (lease.state === "active" && !POD_ID.test(row.provider_job_id || "") && POD_ID.test(lease.provider_job_id || "")) {
+  if (lease.state === "active" && !JOB_ID.test(row.provider_job_id || "") && JOB_ID.test(lease.provider_job_id || "")) {
     const recovered = await env.DB.prepare(`UPDATE runs SET provider_job_id=?, provider_phase='provisioning', updated_at=?
       WHERE id=? AND owner_id=? AND state='running' AND provider_job_id IS NULL RETURNING id`)
       .bind(lease.provider_job_id, Math.floor(Date.now() / 1000), runId, owner).first();
@@ -233,7 +232,7 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
   }
   if (!["queued", "running"].includes(row.state)) {
     if (["succeeded", "failed", "cancelled"].includes(row.state) && row.cleanup_state === "confirmed" &&
-        ["active", "cleanup_pending"].includes(lease.state) && POD_ID.test(row.provider_job_id || "")) {
+        ["active", "cleanup_pending"].includes(lease.state) && JOB_ID.test(row.provider_job_id || "")) {
       const now = Math.floor(Date.now() / 1000);
       const evidence = await digest(row.cleanup_receipt_json || canonical({ run_id: runId, cleanup: "confirmed" }));
       if (lease.state === "active") lease = await transitionProviderAccountLease(env.DB, {
@@ -249,34 +248,45 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
   }
   const provider = client ?? new RunpodV2Client(env);
-  if (row.provider_phase === "uncertain") {
-    const inventory = await provider.listPods();
-    const pods = Array.isArray(inventory?.pods) ? inventory.pods : Array.isArray(inventory) ? inventory : null;
-    if (!pods || pods.length > 1000) throw new Error("RUNPOD_INVALID_INVENTORY");
-    const matches = pods.filter((pod) => pod?.name === executionName(runId));
-    if (matches.length !== 1 || !POD_ID.test(matches[0]?.id || "")) return row;
-    const plan = JSON.parse(row.provider_plan_json);
-    const observed = await provider.getPod(matches[0].id);
-    const reconciled = validateCreatedPod(observed, { name: executionName(runId), image: plan.image, gpuId: plan.gpu_id });
-    if (reconciled.dataCenterId !== plan.data_center_id) throw new Error("RUNPOD_RECONCILED_POD_IDENTITY_MISMATCH");
-    lease = await transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: lease.lease_token,
-      generation: lease.generation, revision: lease.revision, toState: "active", providerJobId: reconciled.id,
-      evidenceType: "inventory_reconciliation", evidenceSha256: await digest(canonical(matches[0])), now: Math.floor(Date.now() / 1000) });
-    await env.DB.prepare(`UPDATE runs SET provider_job_id=?, provider_phase='provisioning', updated_at=? WHERE id=? AND owner_id=?`)
-      .bind(reconciled.id, Math.floor(Date.now() / 1000), runId, owner).run();
-    row.provider_job_id = reconciled.id; row.provider_phase = "provisioning";
-  }
-  if (!POD_ID.test(row.provider_job_id || "")) return row;
   const now = Math.floor(Date.now() / 1000);
+  if (row.provider_phase === "uncertain") {
+    if (now <= row.provider_started_at + 300) return row;
+    const receipt = { provider: "runpod_gpu", serverless_job_id: null, provider_managed: true,
+      termination: "job_ttl_elapsed_after_ambiguous_submit", observed_at: now };
+    await recordTerminal(env, { runId, owner, state: "failed", failureCode: "RUNPOD_AMBIGUOUS_SUBMIT_TTL_ELAPSED",
+      receipt, now });
+    const cleanup = await transitionProviderAccountLease(env.DB, { accountScopeSha256,
+      leaseToken: lease.lease_token, generation: lease.generation, revision: lease.revision,
+      toState: "cleanup_pending", providerJobId: `unknown-${runId}`, evidenceType: "serverless_job_ttl_elapsed",
+      evidenceSha256: await digest(canonical(receipt)), now });
+    await transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: cleanup.lease_token,
+      generation: cleanup.generation, revision: cleanup.revision, toState: "released",
+      evidenceType: "pod_termination_confirmed", evidenceSha256: await digest(canonical(receipt)), now });
+    return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
+  }
+  if (!JOB_ID.test(row.provider_job_id || "")) return row;
   if (cancel || now > row.provider_started_at + row.runtime_seconds + 60) {
-    await terminateAndRelease(env, provider, row, lease, { state: cancel ? "cancelled" : "failed",
+    await cancelAndRelease(env, provider, row, lease, { state: cancel ? "cancelled" : "failed",
       failureCode: cancel ? "CALLER_CANCELLED" : "RUNPOD_RUNTIME_EXCEEDED" });
     return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
   }
-  const observedPod = await provider.getPod(row.provider_job_id);
-  validateCreatedPod(observedPod, { name: executionName(runId), image: JSON.parse(row.provider_plan_json).image,
-    gpuId: JSON.parse(row.provider_plan_json).gpu_id });
-  const lines = await provider.getPodLogSnapshot(row.provider_job_id);
+  const observed = validateJobStatus(await provider.getJob(row.provider_job_id), row.provider_job_id);
+  if (["IN_QUEUE", "IN_PROGRESS"].includes(observed.status)) {
+    await env.DB.prepare(`UPDATE runs SET provider_phase=?, updated_at=? WHERE id=? AND owner_id=? AND state='running'`)
+      .bind(observed.status === "IN_QUEUE" ? "provisioning" : "executing", now, runId, owner).run();
+    return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
+  }
+  if (observed.status !== "COMPLETED") {
+    await releaseManagedTerminal(env, row, lease, { state: observed.status === "CANCELLED" ? "cancelled" : "failed",
+      failureCode: `RUNPOD_${observed.status}` }, observed.status);
+    return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
+  }
+  const lines = Array.isArray(observed.output?.lines) && observed.output.lines.length <= 10 &&
+    observed.output.lines.every((line) => typeof line === "string" && line.length <= 65536) ? observed.output.lines : null;
+  if (!lines) {
+    await releaseManagedTerminal(env, row, lease, { state: "failed", failureCode: "RUNPOD_OUTPUT_INVALID" }, observed.status);
+    return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
+  }
   const key = await openCompletionKey({ stateEncryptionKeyB64: env.RUNPOD_STATE_KEY_B64,
     ivB64: row.completion_key_iv_b64, ciphertextB64: row.completion_key_ciphertext_b64,
     binding: { runId, ownerId: owner, planFingerprint: row.fingerprint, keyId: row.completion_key_id } });
@@ -284,15 +294,10 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     const verified = await verifyRunpodCompletion(lines, key, { keyId: row.completion_key_id, nonce: row.provider_nonce,
       planFingerprint: row.fingerprint, sourceSha: row.source_sha, imageDigest: row.image_digest,
       executionName: executionName(runId) });
-    await terminateAndRelease(env, provider, row, lease, { state: "succeeded", result: verified.result });
+    await releaseManagedTerminal(env, row, lease, { state: "succeeded", result: verified.result }, observed.status);
   } catch (error) {
-    if (error?.code === "RUNPOD_COMPLETION_MARKER_INVALID") {
-      await env.DB.prepare(`UPDATE runs SET provider_phase='executing', updated_at=? WHERE id=? AND owner_id=? AND state='running'`)
-        .bind(now, runId, owner).run();
-    } else {
-      await terminateAndRelease(env, provider, row, lease, { state: "failed",
-        failureCode: error?.code || "RUNPOD_COMPLETION_INVALID" });
-    }
+    await releaseManagedTerminal(env, row, lease, { state: "failed",
+      failureCode: error?.code || "RUNPOD_COMPLETION_INVALID" }, observed.status);
   } finally { key.fill(0); }
   return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
 }

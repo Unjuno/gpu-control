@@ -6,12 +6,31 @@ Make the ChatGPT Site the single public product and control-plane entry point
 for registered experiments, while requiring authenticated ChatGPT identity for
 every data-bearing or execution tool. Keep D1 for lifecycle state and R2 for bounded
 results. Use Modal first for a small, fixed, low-cost compute path; retain Runpod
-as the later GPU path behind the existing approval, price, workload, result, and
-cleanup gates. Vercel, Neon/PostgreSQL, and the macOS Keychain Runner are not
+as the GPU path behind the existing approval, price, workload, result, and
+provider-managed timeout gates. Vercel, Neon/PostgreSQL, and the macOS Keychain Runner are not
 part of the target runtime.
 
 The Site is the ChatGPT-facing interface and policy boundary. It does not itself
 provide model compute. Compute remains an explicitly configured provider.
+
+## Current RunPod candidate — refreshed 2026-11-21
+
+- RunPod uses a queue-based Serverless endpoint, not a long-lived Pod. Sites
+  submits one asynchronous job with a 30-second execution timeout and a
+  five-minute total TTL. RunPod owns worker termination even if Sites becomes
+  unavailable; no chat-driven schedule or heartbeat is a cleanup dependency.
+- Before preparing or submitting a plan, Sites reads the exact endpoint through
+  RunPod REST v2 and requires the immutable image, queue type, one GPU, the
+  configured GPU pool, `min=0`, `max=1`, no ports or volumes, and a timeout no
+  greater than 30 seconds. The endpoint must expose the exact source revision
+  and image digest expected by the fixed worker.
+- The worker accepts only the registered canary schema and invokes only the
+  fixed GPU probe. The result remains bound to the owner, plan fingerprint,
+  nonce, source SHA, image digest, and ephemeral completion HMAC key.
+- Offline Worker tests and the full Python suite pass for this candidate. This
+  is not live GPU acceptance: the new immutable image, endpoint creation,
+  admission activation, paid execution, and ChatGPT result retrieval remain
+  gated by exact-head review and fresh authorization.
 
 ## Current live state — refreshed 2026-11-15
 
@@ -98,7 +117,7 @@ ChatGPT
        -> D1: owner-bound plans, executions, idempotency, lifecycle
        -> R2: bounded result artifacts
        -> Modal: fixed registered function, authenticated, async submit/collect
-       -> Runpod: separately gated GPU execution after activation requirements
+       -> Runpod Serverless: bounded queue job after activation requirements
 ```
 
 - The Site accepts only a registered workload and bounded parameters; no user
@@ -111,7 +130,7 @@ ChatGPT
 - Modal's async call ID is opaque provider state. Persist it only after strict
   validation and bind it to the D1 run, plan fingerprint, and workload identity.
   Reconcile ambiguous submission before any retry.
-- Runpod remains disabled until its current API contract is verified from the
+- Runpod remains disabled until its current Serverless API contract is verified from the
   authenticated OpenAPI/API surface, and all current live authorization,
   pricing, account occupancy, result transport, cleanup, and control-plane
   integrity gates pass. Do not infer live readiness from offline tests or the
@@ -202,14 +221,14 @@ ChatGPT
   recoverable state, no blind duplicate submission, no orphaned active compute,
   and a documented recovery procedure.
 
-### 4. Runpod offline and live readiness
+### 4. Runpod Serverless offline and live readiness
 
-- Revalidate Runpod REST/OpenAPI and pricing/availability contracts from current
+- Revalidate Runpod REST/OpenAPI, endpoint configuration, and pricing contracts from current
   official sources. Update the existing provider adapter and policies without
   enabling live calls.
-- Complete workload provenance, immutable published image, exact offer/price,
-  supported result transport, account occupancy, structured authorization,
-  environment isolation, and cleanup acceptance.
+- Complete workload provenance, immutable published image, exact endpoint/price,
+  authenticated result transport, structured authorization, environment
+  isolation, provider-enforced timeout, and scale-to-zero acceptance.
 - Only after every activation prerequisite is met, conduct one owner-authorized
   bounded GPU canary with a fixed cost ceiling and immediate cleanup. No paid
   workflow or live flag is enabled as a shortcut.

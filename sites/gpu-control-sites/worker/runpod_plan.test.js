@@ -8,6 +8,9 @@ function environment() {
     RUNPOD_API_KEY: "safe-runpod-key-with-enough-bytes",
     RUNPOD_WORKLOAD_IMAGE: `ghcr.io/unjuno/gpu-control-runpod-canary@sha256:${"a".repeat(64)}`,
     RUNPOD_GPU_ID: "NVIDIA RTX 2000 Ada Generation",
+    RUNPOD_SERVERLESS_ENDPOINT_ID: "endpoint_test_123",
+    RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "0.240000",
+    RUNPOD_SERVERLESS_GPU_POOL_ID: "ADA_24",
     RUNPOD_WORKLOAD_SOURCE_SHA: "b".repeat(40),
     DB: { prepare(sql) { return { bind(...values) { return {
       async run() {
@@ -30,9 +33,9 @@ function args() {
 test("prepares one immutable owner-bound Runpod price plan without allocating", async () => {
   const env = environment();
   let offers = 0;
-  const client = { async getVerifiedOffer() { offers++; return { gpuId: env.RUNPOD_GPU_ID, cloud: "SECURE",
-    gpuCount: 1, hourlyPriceUsd: 0.24, availability: "HIGH", dataCenterId: "EU-RO-1",
-    checkedAt: 1000, validForSeconds: 300, source: "runpod-rest-v2-catalog" }; } };
+  const client = { async getVerifiedOffer() { offers++; return { gpuId: env.RUNPOD_GPU_ID, cloud: "SERVERLESS",
+    gpuCount: 1, hourlyPriceUsd: 0.24, availability: "CONFIGURED", dataCenterId: env.RUNPOD_SERVERLESS_ENDPOINT_ID,
+    checkedAt: 1000, validForSeconds: 300, source: "runpod-serverless-endpoint-config" }; } };
   assert.equal(validRunpodPrepare(args(), env), true);
   const result = await prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 });
   assert.equal(offers, 1);
@@ -46,9 +49,9 @@ test("rejects floating images, wrong source, and estimates above the ceiling", a
   const env = environment();
   assert.equal(validRunpodPrepare({ ...args(), commit: "c".repeat(40) }, env), false);
   assert.equal(validRunpodPrepare(args(), { ...env, RUNPOD_WORKLOAD_IMAGE: "image:latest" }), false);
-  const client = { async getVerifiedOffer() { return { gpuId: env.RUNPOD_GPU_ID, cloud: "SECURE", gpuCount: 1,
-    hourlyPriceUsd: 1000, availability: "HIGH", dataCenterId: "EU-RO-1", checkedAt: 1000,
-    validForSeconds: 300, source: "runpod-rest-v2-catalog" }; } };
+  const client = { async getVerifiedOffer() { return { gpuId: env.RUNPOD_GPU_ID, cloud: "SERVERLESS", gpuCount: 1,
+    hourlyPriceUsd: 1000, availability: "CONFIGURED", dataCenterId: env.RUNPOD_SERVERLESS_ENDPOINT_ID, checkedAt: 1000,
+    validForSeconds: 300, source: "runpod-serverless-endpoint-config" }; } };
   await assert.rejects(prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 }),
     /RUNPOD_ESTIMATED_COST_OUT_OF_BOUNDS/);
 });

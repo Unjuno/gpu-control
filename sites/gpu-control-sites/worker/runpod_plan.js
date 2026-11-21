@@ -86,7 +86,7 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
   }
   return {
     schema_version: 2, status: "ok",
-    human_summary: `Runpodの登録済みGPU canary planを準備しました。まだPodは作成していません。現在価格で最大30秒の計算見積りは$${cost.usd}、損失上限は$1.00です。`,
+    human_summary: `Runpodの登録済みServerless GPU canary planを準備しました。まだジョブは送信していません。最大30秒の計算見積りは$${cost.usd}、損失上限は$1.00です。`,
     machine_state: { run_id: persisted.id, state: persisted.state, provider: "runpod_gpu",
       plan_fingerprint: persisted.fingerprint },
     next_allowed_actions: ["experiment_submit"], blocking_reason: null,

@@ -140,15 +140,22 @@ Sites configuration is separate from every other provider:
 
 - `RUNPOD_API_KEY` (secret)
 - `RUNPOD_WORKLOAD_IMAGE`
+- `RUNPOD_WORKLOAD_SOURCE_SHA`
+- `RUNPOD_SERVERLESS_ENDPOINT_ID`
+- `RUNPOD_SERVERLESS_GPU_POOL_ID`
+- `RUNPOD_SERVERLESS_HOURLY_PRICE_USD`
+- `RUNPOD_GPU_ID` (displayed exact GPU identity)
 - `RUNPOD_ACCOUNT_SCOPE_ID` (secret or protected configuration)
+- `RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64` (secret)
 - `RUNPOD_STATE_KEY_B64` (secret)
 - `RUNPOD_WORKLOAD_ADMISSION_ENABLED`
 - `RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED`
 
 Creating an API key is not sufficient to enable RunPod. The Worker requires the
-registered image, exact current pricing, one-use plan authorization, D1 account
-lease, paid admission and verified authenticated completion transport. Provider
-configuration alone must fail closed.
+registered immutable Serverless image, exact queue endpoint (`min=0`, `max=1`,
+one GPU, no ports or volumes, 30-second maximum timeout), exact price setting,
+one-use plan authorization, D1 account lease, paid admission and authenticated
+completion transport. Provider configuration alone must fail closed.
 
 ## Rotation procedure
 

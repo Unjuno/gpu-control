@@ -147,6 +147,9 @@ untouched.
   use.
 - `workloads/third_party/llama2.c/`: the pinned upstream C inference source
   and its license.
+- `../../workloads/runpod-gpu-canary/`: fixed RunPod Serverless GPU worker.
+  It accepts only an owner-approved execution binding, returns HMAC-bound
+  evidence, and relies on RunPod's per-job timeout and scale-to-zero lifecycle.
 - `scripts/`: deterministic Worker build and artifact validation.
 
 ## Verification and acceptance
