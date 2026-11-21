@@ -1377,6 +1377,15 @@ async function submitDelegatedExperiment(env, owner, args) {
 async function maybeDelegateRunTool(env, owner, name, args) {
   const plan = await delegatedPlan(env, owner, args.run_id);
   if (!plan) return null;
+  // A RunPod run created by the native Sites lifecycle can coexist with a
+  // stale gateway_delegated_plans row from the pre-native deployment. Prefer
+  // the authoritative native run so status/cancel can reconcile and release
+  // its provider-account lease instead of calling the retired adapter path.
+  const nativeRunpodRun = await env.DB.prepare(`SELECT r.id FROM runs r
+    JOIN plans p ON p.id=r.plan_id
+    WHERE r.id=? AND r.owner_id=? AND p.provider='runpod_gpu' LIMIT 1`)
+    .bind(args.run_id, owner).first();
+  if (nativeRunpodRun) return null;
   if (plan.state === "prepared") {
     const now = Math.floor(Date.now() / 1000);
     const expired = plan.expires_at < now;
@@ -1925,7 +1934,7 @@ async function handleMcp(request, env, context = null) {
   return rpcError(id, -32601, "Method not found");
 }
 
-export { modalGpuProviderEvidence, reserveModalGpuLease };
+export { maybeDelegateRunTool, modalGpuProviderEvidence, reserveModalGpuLease };
 
 export default {
   async fetch(request, env, context) {

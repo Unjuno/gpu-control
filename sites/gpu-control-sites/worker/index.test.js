@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import worker, { modalGpuProviderEvidence, reserveModalGpuLease } from "./index.js";
+import worker, { maybeDelegateRunTool, modalGpuProviderEvidence, reserveModalGpuLease } from "./index.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
@@ -1891,6 +1891,35 @@ test("prepared delegated plans answer lifecycle reads locally without contacting
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("native RunPod runs take precedence over stale delegated-plan shadows", async () => {
+  const runId = "7".repeat(32);
+  const env = environment();
+  let delegatedPlanReads = 0;
+  env.DB.prepare = (sql) => ({
+    bind(...values) {
+      return {
+        async first() {
+          if (sql.includes("gateway_delegated_plans")) return {
+            id: runId, owner_id: "test-owner", state: "submitted",
+            provider_handle_json: null,
+          };
+          if (sql.includes("FROM runs r") && sql.includes("p.provider='runpod_gpu'")) {
+            assert.deepEqual(values, [runId, "test-owner"]);
+            return { id: runId };
+          }
+          delegatedPlanReads += 1;
+          return null;
+        },
+      };
+    },
+  });
+
+  const delegated = await maybeDelegateRunTool(
+    env, "test-owner", "experiment_status", { run_id: runId });
+  assert.equal(delegated, null);
+  assert.equal(delegatedPlanReads, 0);
 });
 
 test("provider adapter submit retries reuse one owner-bound ChatGPT authorization", async () => {
