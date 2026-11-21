@@ -203,14 +203,13 @@ def test_start_checks_quota_and_persists_exact_new_version(tmp_path):
         "plan_fingerprint": "b" * 64, "image_digest": submitted["plan"]["image_digest"],
         "started_at": 1000,
     }
+    bridge = str(Path(kaggle_backend.__file__).with_name("kaggle_bridge.py").resolve())
     assert runner.calls == [
         ("kaggle", "quota", "--format", "json"),
-        (sys.executable, "-m", "gpu_gateway.kaggle_bridge", "latest",
-         "owner/orbitune-100-step"),
+        (sys.executable, bridge, "latest", "owner/orbitune-100-step"),
         ("kaggle", "kernels", "push", "-p", str(tmp_path / "run-1"),
          "--accelerator", "NvidiaTeslaT4", "--timeout", "120"),
-        (sys.executable, "-m", "gpu_gateway.kaggle_bridge", "status",
-         "owner/orbitune-100-step/8"),
+        (sys.executable, bridge, "status", "owner/orbitune-100-step/8"),
     ]
 
 

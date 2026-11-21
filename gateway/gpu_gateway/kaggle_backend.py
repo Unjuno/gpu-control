@@ -150,8 +150,12 @@ class KaggleBackend:
         return result
 
     def _bridge(self, operation: str, kernel: str) -> Mapping[str, Any]:
+        # The restricted subprocess environment deliberately omits PYTHONPATH.
+        # Invoke the reviewed sibling script by its immutable packaged path so
+        # the credential boundary does not depend on ambient import settings.
+        bridge = Path(__file__).with_name("kaggle_bridge.py").resolve()
         result = self.runner((
-            sys.executable, "-m", "gpu_gateway.kaggle_bridge", operation, kernel,
+            sys.executable, str(bridge), operation, kernel,
         ))
         if not isinstance(result, KaggleCommandResult):
             raise TypeError("Kaggle bridge runner returned an invalid result")
