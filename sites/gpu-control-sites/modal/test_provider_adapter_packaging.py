@@ -67,6 +67,7 @@ def test_slow_submission_uses_durable_idempotent_modal_spawn() -> None:
     assert "skip_if_exists=True" in source
     assert "provider_submit_worker.spawn(owner, arguments)" in source
     assert '"transport": "modal_spawn_v1"' in source
+    assert 'actual = {**actual, "runtime_seconds": runtime_seconds}' in source
     assert "service.validate_submission(owner, arguments)" in source
 
 

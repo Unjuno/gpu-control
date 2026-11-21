@@ -296,6 +296,16 @@ def _async_observe(owner: str, tool: str, arguments: dict[str, Any]) -> dict[str
     response = record.get("response")
     actual = response.get("machine_state", {}).get("provider_handle") if isinstance(response, dict) else None
     if isinstance(actual, dict):
+        if actual.get("provider") == "kaggle":
+            runtime_seconds = arguments.get("runtime_seconds")
+            if type(runtime_seconds) is not int or not 1 <= runtime_seconds <= 1800:
+                from provider_adapter_core import AdapterError
+                raise AdapterError("provider_handle_mismatch", 409)
+            recorded_runtime = actual.get("runtime_seconds")
+            if recorded_runtime is not None and recorded_runtime != runtime_seconds:
+                from provider_adapter_core import AdapterError
+                raise AdapterError("provider_handle_mismatch", 409)
+            actual = {**actual, "runtime_seconds": runtime_seconds}
         return _service().observe(tool, {**arguments, "provider_handle": actual})
     if tool == "experiment_cancel":
         return {

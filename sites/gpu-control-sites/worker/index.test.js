@@ -2013,6 +2013,12 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
       human_summary: "Listed.", machine_state: { count: 1 }, next_allowed_actions: [], blocking_reason: null,
       experiments: [{ run_id: runId, state: "queued", provider: "kaggle" }] }),
     { status: 200, headers: { "content-type": "application/json" } });
+    if (body.tool === "experiment_status") return new Response(JSON.stringify({ schema_version: 2, status: "blocked",
+      human_summary: "Stalled.", next_allowed_actions: ["experiment_status"],
+      blocking_reason: "PROVIDER_DEADLINE_EXCEEDED_CLEANUP_UNCONFIRMED",
+      machine_state: { run_id: runId, state: "running", provider: "kaggle",
+        provider_handle: body.arguments.provider_handle } }),
+    { status: 200, headers: { "content-type": "application/json" } });
     submitCalls++;
     if (submitCalls === 1) throw new TypeError("lost response");
     return new Response(JSON.stringify({ schema_version: 2, status: "pending", human_summary: "Queued.",
@@ -2049,6 +2055,11 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
     assert.equal(authorizations.size, 1);
     assert.equal(freePolicyAuthorizations.size, 1);
     assert.equal(freePolicyAuthorizations.get(runId).authorized_microusd, 0);
+    const status = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
+    const statusValue = JSON.parse((await status.json()).result.content[0].text);
+    assert.equal(statusValue.blocking_reason, "PROVIDER_DEADLINE_EXCEEDED_CLEANUP_UNCONFIRMED");
+    const delegatedStatus = delegatedBodies.find((body) => body.tool === "experiment_status");
+    assert.equal(delegatedStatus.arguments.runtime_seconds, 300);
     const listed = await toolCall(env, "test-owner", "experiment_list", {});
     const listedValue = JSON.parse((await listed.json()).result.content[0].text);
     assert.equal(listedValue.error, undefined, JSON.stringify(listedValue));

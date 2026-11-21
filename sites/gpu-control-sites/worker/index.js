@@ -1427,10 +1427,16 @@ async function maybeDelegateRunTool(env, owner, name, args) {
   }
   const providerHandle = plan.provider_handle_json === null || plan.provider_handle_json === undefined
     ? null : JSON.parse(plan.provider_handle_json);
+  let approvedPlan;
+  try { approvedPlan = JSON.parse(plan.approved_plan_json); } catch { approvedPlan = null; }
+  if (!approvedPlan || typeof approvedPlan !== "object" || Array.isArray(approvedPlan)) {
+    throw new Error("GATEWAY_DELEGATION_INVALID_PLAN");
+  }
   const delegatedArgs = name === "experiment_artifact"
     ? { run_id: args.run_id, artifact_id: args.artifact_id, offset: args.offset,
       length: args.max_bytes, provider_handle: providerHandle }
-    : { ...args, provider_handle: providerHandle };
+    : { ...args, provider_handle: providerHandle,
+      ...(plan.workload === KAGGLE_WORKLOAD ? { runtime_seconds: approvedPlan.runtime_seconds } : {}) };
   if (plan.workload === MODAL_GPU_WORKLOAD && name === "experiment_cancel") {
     await env.DB.prepare(`UPDATE modal_gpu_active_lease SET state='cancel_pending', updated_at=?
       WHERE scope='workspace' AND run_id=? AND plan_fingerprint=? AND state IN ('submitting','active')`)
