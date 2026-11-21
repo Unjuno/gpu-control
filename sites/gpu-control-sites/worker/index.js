@@ -13,6 +13,7 @@ const WORKLOAD = "tiny-stories-inference-v1";
 const KAGGLE_WORKLOAD = "orbitune-kaggle-100-step-v1";
 const ZERO_GPU_WORKLOAD = "orbitune-zero-gpu-eval-v1";
 const MODAL_GPU_WORKLOAD = "modal-gpu-vector-add-v1";
+const MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00";
 const ORBITUNE_REPOSITORY = "Unjuno/orbitune";
 const ORBITUNE_SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8";
 const GPU_CONTROL_REPOSITORY = "Unjuno/gpu-control";
@@ -482,7 +483,8 @@ async function modalGpuProviderEvidence(env, now) {
     "hourly_price_usd", "price_source", "schema_version", "usage_limit_usd", "verified_at", "workspace"];
   if (!evidence || typeof evidence !== "object" || Array.isArray(evidence) ||
       Object.keys(evidence).sort().join(",") !== keys.join(",") || evidence.schema_version !== 1 ||
-      evidence.workspace !== "unjuno" || evidence.environment !== "main" || evidence.usage_limit_usd !== "1.00" ||
+      evidence.workspace !== "unjuno" || evidence.environment !== "main" ||
+      evidence.usage_limit_usd !== MODAL_GPU_PROVIDER_USAGE_LIMIT_USD ||
       evidence.gpu !== "T4" || evidence.price_source !== MODAL_PRICING_SOURCE ||
       typeof evidence.credits_used_usd !== "string" || !/^(?:0|[1-9][0-9]*)\.[0-9]{2}$/.test(evidence.credits_used_usd) ||
       typeof evidence.charges_usd !== "string" || !/^(?:0|[1-9][0-9]*)\.[0-9]{2}$/.test(evidence.charges_usd) ||

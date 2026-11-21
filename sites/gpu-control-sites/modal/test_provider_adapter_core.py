@@ -19,7 +19,7 @@ def canonical(value):
 
 def provider_evidence():
     value = {"schema_version": 1, "workspace": "unjuno", "environment": "main",
-        "usage_limit_usd": "1.00", "credits_used_usd": "0.15", "charges_usd": "0.00",
+        "usage_limit_usd": "30.00", "credits_used_usd": "0.15", "charges_usd": "0.00",
         "gpu": "T4", "hourly_price_usd": "0.000164", "price_source": "https://modal.com/pricing",
         "verified_at": 900, "expires_at": 1200}
     return {**value, "evidence_id": hashlib.sha256(canonical(value)).hexdigest()}

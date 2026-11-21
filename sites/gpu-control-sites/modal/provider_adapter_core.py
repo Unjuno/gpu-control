@@ -17,6 +17,7 @@ from typing import Any, Mapping
 KAGGLE_WORKLOAD = "orbitune-kaggle-100-step-v1"
 HF_WORKLOAD = "orbitune-zero-gpu-eval-v1"
 MODAL_GPU_WORKLOAD = "modal-gpu-vector-add-v1"
+MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00"
 REPOSITORY = "Unjuno/orbitune"
 SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
 GPU_CONTROL_REPOSITORY = "Unjuno/gpu-control"
@@ -107,7 +108,8 @@ def _validate_prepare(arguments: object) -> dict[str, Any]:
                                   "credits_used_usd", "charges_usd", "gpu", "hourly_price_usd",
                                   "price_source", "verified_at", "expires_at", "evidence_id"} or
                 evidence["schema_version"] != 1 or evidence["workspace"] != "unjuno" or
-                evidence["environment"] != "main" or evidence["usage_limit_usd"] != "1.00" or
+                evidence["environment"] != "main" or
+                evidence["usage_limit_usd"] != MODAL_GPU_PROVIDER_USAGE_LIMIT_USD or
                 not isinstance(evidence["credits_used_usd"], str) or
                 re.fullmatch(r"(?:0|[1-9][0-9]*)\.[0-9]{2}", evidence["credits_used_usd"]) is None or
                 not isinstance(evidence["charges_usd"], str) or
