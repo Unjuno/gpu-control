@@ -96,6 +96,22 @@ runpod_credential_provisioning_exception:
     secret_value_must_not_be_returned_to_chat_or_tool_output: true
     post_write_verification_must_use_key_name_and_masked_value_only: true
     revoke_on_exposure_or_scope_mismatch: true
+  completion_evidence:
+    observed_at: "2026-11-22"
+    credential_name_verified: true
+    exact_endpoint_id_verified: true
+    endpoint_read_verified: true
+    endpoint_write_verified: true
+    rest_api_permissions_absent: true
+    graphql_permissions_absent: true
+    modal_secret_key_name_verified: true
+    modal_value_masked_after_save: true
+    replacement_secret_value_returned_to_chat: false
+    first_attempt_value_entered_browser_diagnostic_output: true
+    first_exposed_attempt_revoked_before_registration: true
+    adapter_deployed_after_provisioning: false
+    provider_call_after_provisioning: false
+    gpu_allocation_after_provisioning: false
 
 # Narrow exception for the ChatGPT Sites CPU vertical slice. This does not
 # activate the RunPod/GPU or paid-training path above.
