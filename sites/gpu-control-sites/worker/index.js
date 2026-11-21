@@ -1440,7 +1440,22 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return capabilities(env, owner);
   if (name === "experiment_prepare") {
-    if (validRunpodPrepare(args, env)) return prepareRunpodExperiment(env, owner, args);
+    if (args.workload === RUNPOD_WORKLOAD) {
+      if (!validRunpodPrepare(args, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");
+      if (env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED !== "true") return {
+        schema_version: 2, status: "blocked",
+        human_summary: "Runpod completion transport is not verified; no plan was prepared and no Serverless job was submitted.",
+        machine_state: { plan_prepared: false, job_submitted: false }, next_allowed_actions: [],
+        blocking_reason: "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED",
+      };
+      if (env.RUNPOD_WORKLOAD_ADMISSION_ENABLED !== "true") return {
+        schema_version: 2, status: "blocked",
+        human_summary: "Runpod admission is disabled; no plan was prepared and no Serverless job was submitted.",
+        machine_state: { plan_prepared: false, job_submitted: false }, next_allowed_actions: [],
+        blocking_reason: "RUNPOD_ADMISSION_DISABLED",
+      };
+      return prepareRunpodExperiment(env, owner, args);
+    }
     if (validGatewayPrepare(args)) return prepareDelegatedExperiment(env, owner, args);
     if (!validPlan(args, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");
     const fingerprint = await sha256(canonical({

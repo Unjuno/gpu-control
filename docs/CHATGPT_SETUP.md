@@ -143,7 +143,8 @@ Sites configuration is separate from every other provider:
 - `RUNPOD_WORKLOAD_SOURCE_SHA`
 - `RUNPOD_SERVERLESS_ENDPOINT_ID`
 - `RUNPOD_SERVERLESS_GPU_POOL_ID`
-- `RUNPOD_SERVERLESS_HOURLY_PRICE_USD`
+- `RUNPOD_SERVERLESS_HOURLY_PRICE_USD` (fail-closed maximum hourly price,
+  never treated as current provider price evidence)
 - `RUNPOD_GPU_ID` (displayed exact GPU identity)
 - `RUNPOD_ACCOUNT_SCOPE_ID` (secret or protected configuration)
 - `RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64` (secret)
@@ -151,11 +152,18 @@ Sites configuration is separate from every other provider:
 - `RUNPOD_WORKLOAD_ADMISSION_ENABLED`
 - `RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED`
 
+The Runpod key is restricted to REST `Serverless Read`, REST `Catalog Read`,
+and `api.runpod.ai` Read/Write for the one registered endpoint only. It has no
+Pod, billing, account, secret, authentication, volume, or GraphQL access.
+
 Creating an API key is not sufficient to enable RunPod. The Worker requires the
 registered immutable Serverless image, exact queue endpoint (`min=0`, `max=1`,
-five-second idle timeout, one GPU, no ports or volumes, 30-second maximum timeout), exact price setting,
+five-second idle timeout, one GPU, no ports or volumes, 30-second maximum timeout),
+a fresh REST v2 Catalog `price.serverless` at or below the configured maximum,
 one-use plan authorization, D1 account lease, paid admission and authenticated
-completion transport. Provider configuration alone must fail closed.
+completion transport. Both prepare and submit fail closed unless admission and
+the live completion transport gate are enabled. Provider configuration alone
+must fail closed.
 
 ## Rotation procedure
 

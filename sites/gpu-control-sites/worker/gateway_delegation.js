@@ -32,7 +32,9 @@ function endpoint(env, tool) {
   if (!TOOL.test(tool)) throw new Error("GATEWAY_DELEGATION_INVALID_TOOL");
   let base;
   try { base = new URL(env.GATEWAY_DELEGATION_URL); } catch { throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED"); }
+  const modalHostname = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.modal\.run$/;
   if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash ||
+      (base.port && base.port !== "443") || !modalHostname.test(base.hostname) ||
       (base.pathname !== "/" && base.pathname !== "")) {
     throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED");
   }

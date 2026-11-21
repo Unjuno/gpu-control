@@ -40,9 +40,28 @@ function environment() {
     RUNPOD_SERVERLESS_ENDPOINT_ID: "endpoint_test_123", RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "0.240000",
     RUNPOD_SERVERLESS_GPU_POOL_ID: "ADA_24",
     RUNPOD_WORKLOAD_SOURCE_SHA: SOURCE, RUNPOD_WORKLOAD_ADMISSION_ENABLED: "true",
+    RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED: "true",
     RUNPOD_STATE_KEY_B64: KEY, RUNPOD_ACCOUNT_SCOPE_ID: "primary",
     RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64: KEY } };
 }
+
+test("Runpod submit fails closed when live completion transport is not verified", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  try {
+    const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-unverified-transport" }, { client, now: 100 });
+    env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED = "false";
+    const result = await submitRunpodExperiment(env, "site-owner", {
+      run_id: prepared.run_id, plan_fingerprint: prepared.plan_fingerprint,
+      provider_approved_plan: prepared.provider_approved_plan,
+    }, { client, now: 101, reserveBudget: async () => true });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blocking_reason, "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED");
+    assert.equal(client.creates, 0);
+    assert.equal(raw.prepare("SELECT COUNT(*) AS count FROM runs").get().count, 0);
+  } finally { raw.close(); }
+});
 
 class FakeRunpod {
   constructor() { this.creates = 0; this.terminated = 0; this.jobId = "job-test-123"; }

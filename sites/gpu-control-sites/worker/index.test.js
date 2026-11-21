@@ -617,7 +617,7 @@ test("read-only capabilities do not call Modal", async () => {
 
 test("capabilities exposes all provider routes and enables only configured routes", async () => {
   const env = environment();
-  env.PROVIDER_ADAPTER_URL = "https://adapter.example";
+  env.PROVIDER_ADAPTER_URL = "https://adapter-test.modal.run";
   env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
   env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
   env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
@@ -1476,6 +1476,30 @@ test("rejects a zero-dollar cost ceiling for usage-billed Modal Sandbox compute"
   assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "INVALID_ARGUMENTS" });
 });
 
+test("Runpod prepare fails closed before provider access when completion transport is unverified", async () => {
+  const env = environment();
+  Object.assign(env, {
+    RUNPOD_API_KEY: "safe-runpod-key-with-enough-bytes",
+    RUNPOD_WORKLOAD_IMAGE: `ghcr.io/unjuno/gpu-control-runpod-canary@sha256:${"a".repeat(64)}`,
+    RUNPOD_GPU_ID: "NVIDIA RTX 2000 Ada Generation",
+    RUNPOD_SERVERLESS_ENDPOINT_ID: "endpoint_test_123",
+    RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "0.580000",
+    RUNPOD_SERVERLESS_GPU_POOL_ID: "ADA_16",
+    RUNPOD_WORKLOAD_SOURCE_SHA: sourceSha,
+    RUNPOD_WORKLOAD_ADMISSION_ENABLED: "true",
+    RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED: "false",
+  });
+  env.DB.prepare = () => { throw new Error("unverified transport must fail before D1 or provider access"); };
+  const response = await toolCall(env, "test-owner", "experiment_prepare", {
+    repository: "Unjuno/gpu-control", commit: sourceSha, workload: "runpod-gpu-canary-v1",
+    parameters: {}, runtime_seconds: 30, max_cost_usd: "1.00", idempotency_key: "runpod-unverified",
+  });
+  const result = JSON.parse((await response.json()).result.content[0].text);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.blocking_reason, "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED");
+  assert.equal(result.machine_state.job_submitted, false);
+});
+
 test("rejects a malformed UTF-16 prompt before writing a plan", async () => {
   const request = new Request("https://site.invalid/mcp", {
     method: "POST",
@@ -1831,7 +1855,7 @@ test("prepared delegated plans answer lifecycle reads locally without contacting
     updated_at: null,
   };
   const env = environment();
-  env.PROVIDER_ADAPTER_URL = "https://adapter.example";
+  env.PROVIDER_ADAPTER_URL = "https://adapter-test.modal.run";
   env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
   env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
   env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
@@ -1883,7 +1907,7 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
   };
   const fingerprint = createHash("sha256").update(canonicalJson(gatewayPlan)).digest("hex");
   const env = environment();
-  env.PROVIDER_ADAPTER_URL = "https://adapter.example";
+  env.PROVIDER_ADAPTER_URL = "https://adapter-test.modal.run";
   env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
   env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
   env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
