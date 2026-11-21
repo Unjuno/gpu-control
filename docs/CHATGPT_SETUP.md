@@ -116,6 +116,8 @@ the fixed adapter, such as:
 - `KAGGLE_API_TOKEN`
 - `HF_ARTIFACT_WRITE_TOKEN`
 - `HF_SPACE_READ_TOKEN`
+- `RUNPOD_API_KEY` (one endpoint only; `api.runpod.ai` Read/Write, no REST or
+  GraphQL permissions)
 
 Modal secret `gpu-control-provider-adapter-auth` contains:
 
@@ -140,9 +142,10 @@ credentials are attached.
 
 ### RunPod
 
-Sites configuration is separate from every other provider:
+Sites configuration is separate from every other provider. The RunPod API key
+is deliberately not a Sites secret; it is injected only into the private Modal
+provider adapter from `gpu-control-worker`:
 
-- `RUNPOD_API_KEY` (secret)
 - `RUNPOD_WORKLOAD_IMAGE`
 - `RUNPOD_WORKLOAD_SOURCE_SHA`
 - `RUNPOD_SERVERLESS_ENDPOINT_ID`
@@ -157,9 +160,9 @@ Sites configuration is separate from every other provider:
 - `RUNPOD_WORKLOAD_ADMISSION_ENABLED`
 - `RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED`
 
-The Runpod key is restricted to REST `Serverless Read`, REST `Catalog Read`,
-and `api.runpod.ai` Read/Write for the one registered endpoint only. It has no
-Pod, billing, account, secret, authentication, volume, or GraphQL access.
+The RunPod key is restricted to `api.runpod.ai` Read/Write for the one
+registered endpoint only. It has no REST, GraphQL, Pod, billing, account,
+secret, authentication, catalog, volume, or endpoint-management access.
 
 Creating an API key is not sufficient to enable RunPod. The Worker requires the
 registered immutable Serverless image, exact queue endpoint (`min=0`, `max=1`,
