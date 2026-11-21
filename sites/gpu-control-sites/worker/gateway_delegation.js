@@ -7,6 +7,8 @@ const DELEGATION_TTL_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const TOOL = /^experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)$/;
+const PROVIDER_ADAPTER_HOSTNAME =
+  "unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
 
 export function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -32,9 +34,8 @@ function endpoint(env, tool) {
   if (!TOOL.test(tool)) throw new Error("GATEWAY_DELEGATION_INVALID_TOOL");
   let base;
   try { base = new URL(env.GATEWAY_DELEGATION_URL); } catch { throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED"); }
-  const modalHostname = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.modal\.run$/;
   if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash ||
-      (base.port && base.port !== "443") || !modalHostname.test(base.hostname) ||
+      (base.port && base.port !== "443") || base.hostname !== PROVIDER_ADAPTER_HOSTNAME ||
       (base.pathname !== "/" && base.pathname !== "")) {
     throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED");
   }

@@ -6,7 +6,7 @@ import { canonical, delegateGatewayTool, gatewayDelegationConfigured } from "./g
 
 const key = Buffer.from("sites-delegation-test-key-material-32-bytes");
 const env = {
-  PROVIDER_ADAPTER_URL: "https://adapter-test.modal.run",
+  PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run",
   PROVIDER_ADAPTER_KEY_ID: "sites-v1",
   PROVIDER_ADAPTER_HMAC_KEY_B64: key.toString("base64"),
   PROVIDER_ADAPTER_PROXY_TOKEN_ID: "wk-adaptertest123",
@@ -23,7 +23,7 @@ test("delegation signs the exact owner, tool, arguments and bounded validity win
     });
   }, 1000);
   assert.equal(result.status, "ok");
-  assert.equal(observed.url, "https://adapter-test.modal.run/internal/sites/v1/tools/experiment_capabilities");
+  assert.equal(observed.url, "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run/internal/sites/v1/tools/experiment_capabilities");
   assert.equal(observed.init.redirect, "manual");
   assert.equal(observed.init.headers.authorization, "Bearer wk-adaptertest123.ws-adaptertestsecret123");
   assert.equal(observed.payload.owner, "owner-123");
@@ -36,12 +36,13 @@ test("delegation signs the exact owner, tool, arguments and bounded validity win
 
 test("configuration pins the adapter to a standard-port Modal origin", () => {
   assert.equal(gatewayDelegationConfigured(env), true);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "http://adapter-test.modal.run" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://u:p@adapter-test.modal.run" }), false);
+  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "http://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run" }), false);
+  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://u:p@unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run" }), false);
   assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://adapter.example" }), false);
   assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://modal.run" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://adapter-test.modal.run:444" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://adapter-test.modal.run/path" }), false);
+  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://another-tenant.modal.run" }), false);
+  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run:444" }), false);
+  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run/path" }), false);
   assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_HMAC_KEY_B64: Buffer.from("weak").toString("base64") }), false);
   assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_PROXY_TOKEN_SECRET: "bad" }), false);
 });

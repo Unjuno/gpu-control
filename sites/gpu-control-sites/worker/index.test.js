@@ -617,7 +617,7 @@ test("read-only capabilities do not call Modal", async () => {
 
 test("capabilities exposes all provider routes and enables only configured routes", async () => {
   const env = environment();
-  env.PROVIDER_ADAPTER_URL = "https://adapter-test.modal.run";
+  env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
   env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
   env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
   env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
@@ -1855,7 +1855,7 @@ test("prepared delegated plans answer lifecycle reads locally without contacting
     updated_at: null,
   };
   const env = environment();
-  env.PROVIDER_ADAPTER_URL = "https://adapter-test.modal.run";
+  env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
   env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
   env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
   env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
@@ -1907,7 +1907,7 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
   };
   const fingerprint = createHash("sha256").update(canonicalJson(gatewayPlan)).digest("hex");
   const env = environment();
-  env.PROVIDER_ADAPTER_URL = "https://adapter-test.modal.run";
+  env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
   env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
   env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
   env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
