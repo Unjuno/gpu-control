@@ -54,7 +54,9 @@ test("job relay is pinned to the authenticated provider adapter origin", async (
   assert.equal(request.url, relayed.RUNPOD_JOB_ORIGIN);
   assert.equal(request.init.headers.authorization, "Bearer proxy-id.proxy-secret");
   assert.deepEqual(JSON.parse(request.init.body), { method: "POST", path: "/v2/endpoint_abc123/run",
-    authorization: `Bearer ${env.RUNPOD_API_KEY}`, body: JSON.parse(request.init.body).body });
+    body: JSON.parse(request.init.body).body });
+  assert.equal(request.init.body.includes(env.RUNPOD_API_KEY), false);
+  assert.equal(runpodConfigured({ ...relayed, RUNPOD_API_KEY: undefined }), true);
   assert.throws(() => new RunpodV2Client({ ...relayed, RUNPOD_JOB_ORIGIN: "https://evil.invalid/internal/runpod/v1" }),
     (error) => error.code === "RUNPOD_RELAY_INVALID");
   assert.throws(() => new RunpodV2Client({ ...relayed, RUNPOD_JOB_ORIGIN: `${relayed.RUNPOD_JOB_ORIGIN}/extra` }),

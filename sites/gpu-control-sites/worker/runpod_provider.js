@@ -19,8 +19,12 @@ export class RunpodProviderError extends Error {
 }
 
 export function runpodConfigured(env) {
-  return typeof env?.RUNPOD_API_KEY === "string" && env.RUNPOD_API_KEY.length >= 20 && env.RUNPOD_API_KEY.length <= 512 &&
-    !/[\s\x00-\x1f\x7f]/.test(env.RUNPOD_API_KEY) && typeof env?.RUNPOD_WORKLOAD_IMAGE === "string" &&
+  const directKey = typeof env?.RUNPOD_API_KEY === "string" && env.RUNPOD_API_KEY.length >= 20 && env.RUNPOD_API_KEY.length <= 512 &&
+    !/[\s\x00-\x1f\x7f]/.test(env.RUNPOD_API_KEY);
+  const relay = typeof env?.RUNPOD_JOB_ORIGIN === "string" && env.RUNPOD_JOB_ORIGIN.length > 0 &&
+    typeof env?.PROVIDER_ADAPTER_URL === "string" && typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID === "string" &&
+    typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET === "string";
+  return (directKey || relay) && typeof env?.RUNPOD_WORKLOAD_IMAGE === "string" &&
     IMAGE_DIGEST_RE.test(env.RUNPOD_WORKLOAD_IMAGE) && typeof env?.RUNPOD_SERVERLESS_ENDPOINT_ID === "string" &&
     ENDPOINT_ID_RE.test(env.RUNPOD_SERVERLESS_ENDPOINT_ID) && typeof env?.RUNPOD_GPU_ID === "string" &&
     /^[A-Za-z0-9 ._()+-]{3,128}$/.test(env.RUNPOD_GPU_ID) && typeof env?.RUNPOD_SERVERLESS_HOURLY_PRICE_USD === "string" &&
@@ -95,7 +99,7 @@ export class RunpodV2Client {
   constructor(env, { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     if (!runpodConfigured(env)) throw new RunpodProviderError("RUNPOD_PROVIDER_NOT_CONFIGURED");
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30_000) throw new RunpodProviderError("RUNPOD_INVALID_TIMEOUT");
-    this.apiKey = env.RUNPOD_API_KEY; this.image = env.RUNPOD_WORKLOAD_IMAGE; this.gpuId = env.RUNPOD_GPU_ID;
+    this.apiKey = env.RUNPOD_API_KEY || ""; this.image = env.RUNPOD_WORKLOAD_IMAGE; this.gpuId = env.RUNPOD_GPU_ID;
     this.endpointId = env.RUNPOD_SERVERLESS_ENDPOINT_ID;
     // This configuration value is a fail-closed maximum, not current price
     // evidence. Current Serverless list price comes from REST v2 Catalog.
@@ -108,7 +112,7 @@ export class RunpodV2Client {
     if (typeof path !== "string" || !path.startsWith(`/v2/${this.endpointId}/`) || path.includes("..") || path.includes("//"))
       throw new RunpodProviderError("RUNPOD_INVALID_PATH");
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), this.timeoutMs); let response;
-    const relayBody = this.jobRelay ? { method, path, authorization: `Bearer ${this.apiKey}`, body } : null;
+    const relayBody = this.jobRelay ? { method, path, body } : null;
     try { response = await this.fetchImpl(this.jobRelay ? this.jobOrigin : `${this.jobOrigin}${path}`, {
       method: this.jobRelay ? "POST" : method, redirect: "manual",
       headers: { ...(this.jobRelay ? {} : { authorization: `Bearer ${this.apiKey}` }), accept: "application/json", ...this.jobHeaders,

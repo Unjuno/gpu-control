@@ -399,7 +399,7 @@ async def runpod_queue_relay(request: Request):
     try:
         from runpod_relay import relay, upstream_path
         envelope = json.loads(body)
-        if not isinstance(envelope, dict) or set(envelope) != {"method", "path", "authorization", "body"}:
+        if not isinstance(envelope, dict) or set(envelope) != {"method", "path", "body"}:
             raise ValueError("invalid_request")
         path_parts = str(envelope["path"]).split("/")
         if len(path_parts) not in {4, 5} or path_parts[:3] != ["", "v2", RUNPOD_ENDPOINT_ID]:
@@ -412,7 +412,10 @@ async def runpod_queue_relay(request: Request):
         if path != envelope["path"] or envelope["method"] not in {"GET", "POST"}:
             raise ValueError("invalid_request")
         upstream_body = b"" if envelope["body"] is None else _canonical(envelope["body"])
-        status, response_body, headers = relay(envelope["method"], path, envelope["authorization"], upstream_body)
+        runpod_key = os.environ.get("RUNPOD_API_KEY", "")
+        if not 20 <= len(runpod_key) <= 512 or re.search(r"[\s\x00-\x1f\x7f]", runpod_key):
+            raise ValueError("runpod_not_configured")
+        status, response_body, headers = relay(envelope["method"], path, f"Bearer {runpod_key}", upstream_body)
         return Response(response_body, status_code=status, headers=headers)
     except ValueError as exc:
         code = str(exc)
