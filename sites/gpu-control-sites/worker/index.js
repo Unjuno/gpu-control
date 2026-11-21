@@ -2018,6 +2018,11 @@ export { maybeDelegateRunTool, modalGpuProviderEvidence, reserveModalGpuLease };
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    if (url.pathname === "/" && request.method === "GET") {
+      return htmlPage("GPU Control", `<p>ChatGPT Sites MCP control plane for registered GPU experiments.</p>
+        <p>Viewing this page does not grant execution authority. Stateful tools require an authenticated, allowlisted Sites owner.</p>
+        <p><a href="/health">Service health</a></p>`);
+    }
     if (url.pathname === "/health" && request.method === "GET") return json({ ok: true, service: "gpu-control-sites", storage: !!env.DB });
     if (url.pathname.startsWith("/runner/")) return json({ error: "NOT_FOUND" }, 404);
     if (url.pathname === "/authorize") {

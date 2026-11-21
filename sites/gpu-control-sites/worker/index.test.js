@@ -163,6 +163,15 @@ test("public MCP data tools reject anonymous callers before touching D1", async 
   assert.equal(databaseReads, 0);
 });
 
+test("root page is a public status surface without granting execution authority", async () => {
+  const response = await worker.fetch(new Request("https://gpu-control.example/"), {});
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /^text\/html/);
+  const body = await response.text();
+  assert.match(body, /Viewing this page does not grant execution authority/);
+  assert.doesNotMatch(body, /token|secret|credential/i);
+});
+
 test("MCP tool annotations distinguish read, execution, and lifecycle operations", async () => {
   const response = await worker.fetch(new Request("https://site.invalid/mcp", {
     method: "POST",
