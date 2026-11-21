@@ -297,6 +297,14 @@ class ProviderAdapter:
                    if provider == "huggingface_space" else self.modal_gpu if provider == "modal_gpu" else None)
         if backend is None:
             raise AdapterError("provider_not_configured", 503)
+        if provider == "kaggle" and "runtime_seconds" in arguments:
+            runtime_seconds = arguments["runtime_seconds"]
+            if type(runtime_seconds) is not int or not 1 <= runtime_seconds <= 1800:
+                raise AdapterError("provider_handle_mismatch", 409)
+            recorded_runtime = handle.get("runtime_seconds")
+            if recorded_runtime is not None and recorded_runtime != runtime_seconds:
+                raise AdapterError("provider_handle_mismatch", 409)
+            handle = {**handle, "runtime_seconds": runtime_seconds}
         if handle.get("run_id") != arguments["run_id"]:
             raise AdapterError("provider_handle_mismatch", 409)
         if tool == "experiment_cancel":

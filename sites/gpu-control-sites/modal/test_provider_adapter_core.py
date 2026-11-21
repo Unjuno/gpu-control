@@ -178,6 +178,29 @@ def test_stalled_kaggle_is_blocked_without_cleanup_or_replacement():
     assert observed["next_allowed_actions"] == ["experiment_status"]
 
 
+def test_approved_runtime_upgrades_legacy_kaggle_handle_before_observation():
+    backend = FakeBackend("kaggle")
+    captured = []
+    backend.capture = lambda handle: (
+        captured.append(handle) or SimpleNamespace(state="running", result=None))
+    adapter = ProviderAdapter(backend, None, clock=lambda: 1000)
+    legacy = {"provider": "kaggle", "run_id": "f" * 32,
+              "plan_fingerprint": "e" * 64, "opaque": "legacy"}
+
+    observed = adapter.observe("experiment_status", {
+        "run_id": "f" * 32, "provider_handle": legacy, "runtime_seconds": 300})
+
+    assert observed["status"] == "pending"
+    assert captured[0]["runtime_seconds"] == 300
+    assert "runtime_seconds" not in legacy
+    with pytest.raises(AdapterError, match="provider_handle_mismatch"):
+        adapter.observe("experiment_status", {
+            "run_id": "f" * 32,
+            "provider_handle": {**legacy, "runtime_seconds": 120},
+            "runtime_seconds": 300,
+        })
+
+
 def test_modal_gpu_plan_is_fixed_paid_bounded_and_owner_bound():
     value = prepare("owner-1", {
         "workload": MODAL_GPU_WORKLOAD, "repository": GPU_CONTROL_REPOSITORY,
