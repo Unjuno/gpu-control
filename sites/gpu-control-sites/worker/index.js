@@ -1251,7 +1251,7 @@ async function prepareDelegatedExperiment(env, owner, args) {
   }
   const planJson = canonical(plan);
   const now = Math.floor(Date.now() / 1000);
-  const expires = now + 300;
+  const expires = now + HUMAN_AUTHORIZATION_TTL_SECONDS;
   await env.DB.prepare(`INSERT OR IGNORE INTO gateway_delegated_plans
     (id, owner_id, idempotency_key, fingerprint, workload, approved_plan_json, state, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, 'prepared', ?, ?)`)
@@ -1265,7 +1265,7 @@ async function prepareDelegatedExperiment(env, owner, args) {
   }
   return { ...response, provider_approved_plan: plan, expires_at: persisted.expires_at,
     approval_required: true, authorization_surface: "chatgpt_mcp_write_confirmation",
-    authorization_validity_seconds: Math.min(HUMAN_AUTHORIZATION_TTL_SECONDS, 300),
+    authorization_validity_seconds: HUMAN_AUTHORIZATION_TTL_SECONDS,
     max_runs_per_authorization: 1 };
 }
 
@@ -1475,7 +1475,7 @@ async function callTool(name, args, request, env, context = null) {
     }));
     const planId = crypto.randomUUID().replaceAll("-", "");
     const now = Math.floor(Date.now() / 1000);
-    const expires = now + 300;
+    const expires = now + HUMAN_AUTHORIZATION_TTL_SECONDS;
     await env.DB.prepare(`INSERT OR IGNORE INTO plans
       (id, owner_id, idempotency_key, fingerprint, workload, repository, source_sha, image_digest, parameters_json, runtime_seconds, max_cost_usd, state, created_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)`)
