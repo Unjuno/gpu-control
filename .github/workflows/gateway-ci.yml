@@ -3,33 +3,13 @@ name: Sites provider runtime offline tests
 on:
   pull_request:
     paths:
-      - "gateway/gpu_gateway/_sites_provider_runtime.py"
-      - "gateway/gpu_gateway/huggingface_artifacts.py"
-      - "gateway/gpu_gateway/huggingface_space_backend.py"
-      - "gateway/gpu_gateway/kaggle_backend.py"
-      - "gateway/gpu_gateway/kaggle_bridge.py"
-      - "gateway/gpu_gateway/orbitune_workload.py"
-      - "gateway/tests/test_huggingface_artifacts.py"
-      - "gateway/tests/test_huggingface_space_backend.py"
-      - "gateway/tests/test_kaggle_backend.py"
-      - "gateway/tests/test_kaggle_bridge.py"
-      - "gateway/tests/test_orbitune_kaggle_workload.py"
+      - "gateway/**"
       - "sites/gpu-control-sites/modal/**"
       - ".github/workflows/gateway-ci.yml"
   push:
     branches: [main]
     paths:
-      - "gateway/gpu_gateway/_sites_provider_runtime.py"
-      - "gateway/gpu_gateway/huggingface_artifacts.py"
-      - "gateway/gpu_gateway/huggingface_space_backend.py"
-      - "gateway/gpu_gateway/kaggle_backend.py"
-      - "gateway/gpu_gateway/kaggle_bridge.py"
-      - "gateway/gpu_gateway/orbitune_workload.py"
-      - "gateway/tests/test_huggingface_artifacts.py"
-      - "gateway/tests/test_huggingface_space_backend.py"
-      - "gateway/tests/test_kaggle_backend.py"
-      - "gateway/tests/test_kaggle_bridge.py"
-      - "gateway/tests/test_orbitune_kaggle_workload.py"
+      - "gateway/**"
       - "sites/gpu-control-sites/modal/**"
       - ".github/workflows/gateway-ci.yml"
 
