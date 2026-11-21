@@ -21,6 +21,7 @@ from typing import Any
 import modal
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.responses import Response
 
 
 APP_NAME = "gpu-control-provider-adapter"
@@ -31,6 +32,7 @@ MAX_LIFETIME_SECONDS = 120
 TOOLS = re.compile(r"^experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)$")
 OWNER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$")
 NONCE = re.compile(r"^[0-9a-f]{32}$")
+RUNPOD_ENDPOINT_ID = "wwlos460xbfw5q"
 
 REPOSITORY_ROOT = next(
     (parent for parent in Path(__file__).resolve().parents if (parent / "gateway" / "gpu_gateway").is_dir()),
@@ -383,6 +385,38 @@ async def invoke(tool: str, request: Request):
         if isinstance(exc, AdapterError):
             return _error(exc.code, exc.status)
         return _error("provider_operation_failed", 503)
+
+
+@api.api_route("/internal/runpod/v1/v2/{endpoint_id}/{operation}", methods=["POST"])
+@api.api_route("/internal/runpod/v1/v2/{endpoint_id}/{operation}/{job_id}", methods=["GET", "POST"])
+async def runpod_queue_relay(endpoint_id: str, operation: str, request: Request, job_id: str | None = None):
+    """Relay only the one registered RunPod endpoint's queue lifecycle."""
+    if endpoint_id != RUNPOD_ENDPOINT_ID:
+        return _error("runpod_endpoint_not_allowed", 403)
+    content_length = request.headers.get("content-length")
+    if content_length is not None and (not content_length.isdigit() or int(content_length) > MAX_BODY_BYTES):
+        return _error("request_too_large", 413)
+    body = await request.body()
+    if len(body) > MAX_BODY_BYTES:
+        return _error("request_too_large", 413)
+    if request.method == "POST" and body:
+        try:
+            if not isinstance(json.loads(body), dict):
+                raise ValueError
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return _error("invalid_json", 400)
+    try:
+        from runpod_relay import relay, upstream_path
+        path = upstream_path(endpoint_id, operation, job_id)
+        status, response_body, headers = relay(
+            request.method, path, request.headers.get("authorization", ""), body)
+        return Response(response_body, status_code=status, headers=headers)
+    except ValueError as exc:
+        code = str(exc)
+        status = 502 if code in {"redirect_rejected", "response_too_large", "invalid_response"} else 400
+        return _error(code, status)
+    except Exception:
+        return _error("runpod_upstream_unavailable", 503)
 
 
 @app.function(

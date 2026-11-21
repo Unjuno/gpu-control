@@ -1,4 +1,5 @@
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
+const RUNPOD_RELAY_PATH = "/internal/runpod/v1";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
 // RunPod's queue API can take longer than a typical control-plane request to
 // acknowledge a cold endpoint. Keep the client timeout aligned with the
@@ -26,6 +27,25 @@ export function runpodConfigured(env) {
     /^(?:0|[1-9][0-9]?)\.[0-9]{6}$/.test(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD) && Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD) > 0 &&
     typeof env?.RUNPOD_SERVERLESS_GPU_POOL_ID === "string" && /^[A-Z0-9_]{3,64}$/.test(env.RUNPOD_SERVERLESS_GPU_POOL_ID) &&
     typeof env?.RUNPOD_WORKLOAD_SOURCE_SHA === "string" && /^[0-9a-f]{40}$/.test(env.RUNPOD_WORKLOAD_SOURCE_SHA);
+}
+
+function jobTransport(env) {
+  const configured = env?.RUNPOD_JOB_ORIGIN;
+  if (configured === undefined || configured === "") return { origin: RUNPOD_JOB_ORIGIN, headers: {} };
+  if (typeof configured !== "string" || typeof env?.PROVIDER_ADAPTER_URL !== "string" ||
+      typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_ID ||
+      typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET)
+    throw new RunpodProviderError("RUNPOD_RELAY_NOT_CONFIGURED");
+  let relay; let adapter;
+  try { relay = new URL(configured); adapter = new URL(env.PROVIDER_ADAPTER_URL); }
+  catch { throw new RunpodProviderError("RUNPOD_RELAY_INVALID"); }
+  if (relay.protocol !== "https:" || relay.origin !== adapter.origin || relay.pathname !== RUNPOD_RELAY_PATH ||
+      relay.search || relay.hash || relay.username || relay.password)
+    throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
+  return { origin: relay.href.replace(/\/$/, ""), headers: {
+    "modal-client-id": env.PROVIDER_ADAPTER_PROXY_TOKEN_ID,
+    "modal-client-secret": env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET,
+  } };
 }
 
 function boundedRetryAfter(response) {
@@ -82,14 +102,16 @@ export class RunpodV2Client {
     // evidence. Current Serverless list price comes from REST v2 Catalog.
     this.maximumHourlyPriceUsd = Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD);
     this.gpuPoolId = env.RUNPOD_SERVERLESS_GPU_POOL_ID; this.sourceSha = env.RUNPOD_WORKLOAD_SOURCE_SHA;
+    const transport = jobTransport(env); this.jobOrigin = transport.origin; this.jobHeaders = transport.headers;
     this.fetchImpl = fetchImpl; this.timeoutMs = timeoutMs;
   }
   async request(path, { method = "GET", body = null, expectedStatus = 200 } = {}) {
     if (typeof path !== "string" || !path.startsWith(`/v2/${this.endpointId}/`) || path.includes("..") || path.includes("//"))
       throw new RunpodProviderError("RUNPOD_INVALID_PATH");
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), this.timeoutMs); let response;
-    try { response = await this.fetchImpl(`${RUNPOD_JOB_ORIGIN}${path}`, { method, redirect: "manual",
-      headers: { authorization: `Bearer ${this.apiKey}`, accept: "application/json", ...(body === null ? {} : { "content-type": "application/json" }) },
+    try { response = await this.fetchImpl(`${this.jobOrigin}${path}`, { method, redirect: "manual",
+      headers: { authorization: `Bearer ${this.apiKey}`, accept: "application/json", ...this.jobHeaders,
+        ...(body === null ? {} : { "content-type": "application/json" }) },
       ...(body === null ? {} : { body: JSON.stringify(body) }), signal: controller.signal });
       if (response.status >= 300 && response.status <= 399) { await response.body?.cancel(); throw new RunpodProviderError("RUNPOD_REDIRECT_REJECTED", response.status); }
       if (response.status !== expectedStatus) { await response.body?.cancel();
