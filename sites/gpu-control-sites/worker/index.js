@@ -14,6 +14,7 @@ const KAGGLE_WORKLOAD = "orbitune-kaggle-100-step-v1";
 const ZERO_GPU_WORKLOAD = "orbitune-zero-gpu-eval-v1";
 const MODAL_GPU_WORKLOAD = "modal-gpu-vector-add-v1";
 const MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00";
+const MODAL_GPU_PROVIDER_USAGE_LIMIT_CENTS = 3000;
 const ORBITUNE_REPOSITORY = "Unjuno/orbitune";
 const ORBITUNE_SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8";
 const GPU_CONTROL_REPOSITORY = "Unjuno/gpu-control";
@@ -493,7 +494,8 @@ async function modalGpuProviderEvidence(env, now) {
       !Number.isSafeInteger(evidence.expires_at) || evidence.verified_at > now || evidence.expires_at < now ||
       evidence.expires_at <= evidence.verified_at || evidence.expires_at - evidence.verified_at > 3600 ||
       typeof evidence.evidence_id !== "string" || !/^[0-9a-f]{64}$/.test(evidence.evidence_id) ||
-      Math.round((Number(evidence.credits_used_usd) + Number(evidence.charges_usd) + 0.01) * 100) > 100) return null;
+      Math.round((Number(evidence.credits_used_usd) + Number(evidence.charges_usd) + 0.01) * 100) >
+        MODAL_GPU_PROVIDER_USAGE_LIMIT_CENTS) return null;
   const { evidence_id: _evidenceId, ...body } = evidence;
   return await sha256(canonical(body)) === evidence.evidence_id ? evidence : null;
 }

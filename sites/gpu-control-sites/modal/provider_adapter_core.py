@@ -18,6 +18,7 @@ KAGGLE_WORKLOAD = "orbitune-kaggle-100-step-v1"
 HF_WORKLOAD = "orbitune-zero-gpu-eval-v1"
 MODAL_GPU_WORKLOAD = "modal-gpu-vector-add-v1"
 MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00"
+MODAL_GPU_PROVIDER_USAGE_LIMIT_CENTS = 3000
 REPOSITORY = "Unjuno/orbitune"
 SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
 GPU_CONTROL_REPOSITORY = "Unjuno/gpu-control"
@@ -229,7 +230,8 @@ def _validated_run(owner: str, arguments: object, now: int) -> dict[str, Any]:
     if plan["provider"] == "modal_gpu":
         evidence = plan["provider_evidence"]
         if (evidence["verified_at"] > now or evidence["expires_at"] < now or
-                round((float(evidence["credits_used_usd"]) + float(evidence["charges_usd"]) + 0.01) * 100) > 100):
+                round((float(evidence["credits_used_usd"]) + float(evidence["charges_usd"]) + 0.01) * 100) >
+                MODAL_GPU_PROVIDER_USAGE_LIMIT_CENTS):
             raise AdapterError("provider_evidence_expired_or_exhausted", 409)
     return {
         "id": run_id, "fingerprint": fingerprint, "plan": plan,

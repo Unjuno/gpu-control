@@ -25,6 +25,12 @@ def provider_evidence():
     return {**value, "evidence_id": hashlib.sha256(canonical(value)).hexdigest()}
 
 
+def provider_evidence_at_usage(credits_used_usd: str):
+    value = {key: item for key, item in provider_evidence().items() if key != "evidence_id"}
+    value["credits_used_usd"] = credits_used_usd
+    return {**value, "evidence_id": hashlib.sha256(canonical(value)).hexdigest()}
+
+
 class FakeBackend:
     def __init__(self, provider):
         self.provider = provider
@@ -223,6 +229,27 @@ def test_modal_gpu_plan_is_fixed_paid_bounded_and_owner_bound():
     result = ProviderAdapter(None, None, modal_gpu, clock=lambda: 1000).submit("owner-1", args)
     assert result["machine_state"]["provider"] == "modal_gpu"
     assert modal_gpu.started == 1
+
+    above_internal_project_limit = prepare("owner-1", {
+        "workload": MODAL_GPU_WORKLOAD, "repository": GPU_CONTROL_REPOSITORY,
+        "commit": MODAL_GPU_SOURCE_SHA, "parameters": {}, "runtime_seconds": 30,
+        "max_cost_usd": "0.01", "idempotency_key": "modal-gpu-test-003",
+        "provider_evidence": provider_evidence_at_usage("1.00"),
+    })
+    another_backend = FakeBackend("modal_gpu")
+    ProviderAdapter(None, None, another_backend, clock=lambda: 1000).submit(
+        "owner-1", submission(above_internal_project_limit))
+    assert another_backend.started == 1
+
+    exhausted_outer_limit = prepare("owner-1", {
+        "workload": MODAL_GPU_WORKLOAD, "repository": GPU_CONTROL_REPOSITORY,
+        "commit": MODAL_GPU_SOURCE_SHA, "parameters": {}, "runtime_seconds": 30,
+        "max_cost_usd": "0.01", "idempotency_key": "modal-gpu-test-004",
+        "provider_evidence": provider_evidence_at_usage("30.00"),
+    })
+    with pytest.raises(AdapterError, match="provider_evidence_expired_or_exhausted"):
+        ProviderAdapter(None, None, FakeBackend("modal_gpu"), clock=lambda: 1000).submit(
+            "owner-1", submission(exhausted_outer_limit))
 
     with pytest.raises(AdapterError, match="invalid_arguments"):
         prepare("owner-1", {

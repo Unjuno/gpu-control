@@ -658,7 +658,12 @@ test("Modal GPU account evidence is exact, short-lived, and leaves one cent of h
   const evidence = { ...body, evidence_id: createHash("sha256").update(canonicalJson(body)).digest("hex") };
   assert.deepEqual(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON: JSON.stringify(evidence) }, 1000), evidence);
   assert.equal(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON: JSON.stringify(evidence) }, 1201), null);
-  const exhausted = { ...body, credits_used_usd: "1.00" };
+  const projectUsageAboveInternalLimit = { ...body, credits_used_usd: "1.00" };
+  projectUsageAboveInternalLimit.evidence_id = createHash("sha256")
+    .update(canonicalJson(projectUsageAboveInternalLimit)).digest("hex");
+  assert.deepEqual(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON:
+    JSON.stringify(projectUsageAboveInternalLimit) }, 1000), projectUsageAboveInternalLimit);
+  const exhausted = { ...body, credits_used_usd: "30.00" };
   exhausted.evidence_id = createHash("sha256").update(canonicalJson(exhausted)).digest("hex");
   assert.equal(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON: JSON.stringify(exhausted) }, 1000), null);
   assert.equal(await modalGpuProviderEvidence({ MODAL_GPU_ACCOUNT_EVIDENCE_JSON: JSON.stringify({ ...evidence,
