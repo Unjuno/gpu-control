@@ -100,10 +100,10 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
   if (env.RUNPOD_GPU_ADMISSION_ENABLED !== "true") return { schema_version: 2, status: "blocked",
     human_summary: "Runpod admission is disabled; no Pod was created.", machine_state: { run_id: row.id, pod_started: false },
     next_allowed_actions: [], blocking_reason: "RUNPOD_ADMISSION_DISABLED" };
-  if (!env.RUNPOD_LIFECYCLE_QUEUE || typeof env.RUNPOD_LIFECYCLE_QUEUE.send !== "function") {
-    return { schema_version: 2, status: "blocked", human_summary: "Runpod independent cleanup queue is not configured; no Pod was created.",
+  if (env.RUNPOD_SCHEDULED_RECONCILIATION_ENABLED !== "true") {
+    return { schema_version: 2, status: "blocked", human_summary: "Runpod independent cleanup schedule is not configured; no Pod was created.",
       machine_state: { run_id: row.id, pod_started: false }, next_allowed_actions: [],
-      blocking_reason: "RUNPOD_CLEANUP_QUEUE_NOT_CONFIGURED" };
+      blocking_reason: "RUNPOD_CLEANUP_SCHEDULE_NOT_CONFIGURED" };
   }
   if (typeof reserveBudget !== "function" || !await reserveBudget({ runId: row.id, provider: "runpod_gpu",
     requestedMicrousd: RUNPOD_COST_CEILING_MICROUSD, now: timestamp })) {
@@ -136,7 +136,6 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
   const provider = client ?? new RunpodV2Client(env);
   let completionKey; let keyId; let nonce; let currentOffer;
   try {
-    await env.RUNPOD_LIFECYCLE_QUEUE.send({ schema_version: 1, run_id: row.id, owner_id: owner }, { delaySeconds: 60 });
     completionKey = crypto.getRandomValues(new Uint8Array(32));
     keyId = randomHex(16); nonce = randomHex(32);
     const sealed = await sealCompletionKey({ stateEncryptionKeyB64: env.RUNPOD_STATE_KEY_B64,
@@ -279,12 +278,3 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
   return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
 }
 
-export async function processRunpodLifecycleQueueMessage(env, body, { client = null } = {}) {
-  if (!body || body.schema_version !== 1 || typeof body.run_id !== "string" || !/^[0-9a-f]{32}$/.test(body.run_id) ||
-      typeof body.owner_id !== "string" || body.owner_id.length < 1 || body.owner_id.length > 256) {
-    throw new Error("RUNPOD_QUEUE_MESSAGE_INVALID");
-  }
-  const row = await synchronizeRunpodExperiment(env, body.owner_id, body.run_id, { client });
-  if (!row) throw new Error("RUNPOD_QUEUE_RUN_NOT_FOUND");
-  return { terminal: !["queued", "running"].includes(row.state), state: row.state };
-}
