@@ -157,7 +157,13 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
       WHERE id=? AND owner_id=? AND state='queued' RETURNING id`).bind(nonce, timestamp, keyId, sealed.ivB64,
         sealed.ciphertextB64, timestamp + row.runtime_seconds + 300, timestamp, row.id, owner).first();
     if (!persisted) throw new Error("RUNPOD_RUNTIME_STATE_PERSISTENCE_FAILED");
-    currentOffer = await provider.getVerifiedOffer();
+    currentOffer = client === null ? {
+      gpuId: env.RUNPOD_GPU_ID,
+      cloud: "SERVERLESS",
+      dataCenterId: env.RUNPOD_SERVERLESS_ENDPOINT_ID,
+      hourlyPriceUsd: Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD),
+      checkedAt: timestamp,
+    } : await provider.getVerifiedOffer();
   } catch (error) {
     completionKey?.fill(0);
     const failureCode = error?.code || (error?.message === "RUNPOD_RUNTIME_STATE_PERSISTENCE_FAILED"
