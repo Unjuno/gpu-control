@@ -1,6 +1,8 @@
 const RUNPOD_API_ORIGIN = "https://api.runpod.io";
 const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_JSON_BYTES = 1024 * 1024;
+const MAX_LOG_BYTES = 512 * 1024;
+const MAX_LOG_LINES = 5000;
 const POD_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
 const GPU_ID_RE = /^[A-Za-z0-9 ._()+-]{3,128}$/;
 const IMAGE_DIGEST_RE = /^[a-z0-9][a-z0-9._/-]{0,199}@sha256:[0-9a-f]{64}$/;
@@ -129,8 +131,14 @@ export class RunpodV2Client {
     return readBoundedJson(response);
   }
 
-  createPod({ runId, dataCenterId = null }) {
+  createPod({ runId, planFingerprint, nonce, completionKeyB64, completionKeyId,
+    sourceSha, dataCenterId = null }) {
     if (!/^[0-9a-f]{32}$/.test(runId)) throw new RunpodProviderError("RUNPOD_INVALID_RUN_ID");
+    if (!/^[0-9a-f]{64}$/.test(planFingerprint) || !/^[0-9a-f]{64}$/.test(nonce) ||
+        !/^(?:[A-Za-z0-9+/]{43}=)$/.test(completionKeyB64) || !/^[0-9a-f]{32}$/.test(completionKeyId) ||
+        !/^[0-9a-f]{40}$/.test(sourceSha)) {
+      throw new RunpodProviderError("RUNPOD_INVALID_EXECUTION_BINDING");
+    }
     if (dataCenterId !== null && !/^[A-Z0-9-]{3,32}$/.test(dataCenterId)) {
       throw new RunpodProviderError("RUNPOD_INVALID_DATACENTER_ID");
     }
@@ -140,9 +148,17 @@ export class RunpodV2Client {
       gpu: { id: this.gpuId, count: 1 },
       cloud: "SECURE",
       disk: 10,
-      entrypoint: ["/opt/gpu-control/idle"],
+      entrypoint: ["/opt/gpu-control/run-registered-workload", "--plan-fingerprint", planFingerprint,
+        "--nonce", nonce],
       cmd: [],
-      env: { GPU_CONTROL_RUN_ID: runId },
+      env: {
+        GPU_CONTROL_RUN_ID: runId,
+        GPU_CONTROL_COMPLETION_KEY_B64: completionKeyB64,
+        GPU_CONTROL_COMPLETION_KEY_ID: completionKeyId,
+        GPU_CONTROL_IMAGE_DIGEST: this.image.slice(this.image.indexOf("@") + 1),
+        GPU_CONTROL_SOURCE_SHA: sourceSha,
+        GPU_CONTROL_EXECUTION_NAME: `gpu-control-${runId.slice(0, 12)}`,
+      },
       ports: [],
       startJupyter: false,
       startSsh: false,
@@ -186,26 +202,83 @@ export class RunpodV2Client {
     };
   }
 
-  runRegisteredWorkload(podId, { planFingerprint, nonce }) {
+  async getPodLogSnapshot(podId, { tail = MAX_LOG_LINES, maxWaitMs = 2000 } = {}) {
     if (!POD_ID_RE.test(podId)) throw new RunpodProviderError("RUNPOD_INVALID_POD_ID");
-    if (!/^[0-9a-f]{64}$/.test(planFingerprint) || !/^[0-9a-f]{64}$/.test(nonce)) {
-      throw new RunpodProviderError("RUNPOD_INVALID_EXECUTION_BINDING");
+    if (!Number.isSafeInteger(tail) || tail < 1 || tail > MAX_LOG_LINES ||
+        !Number.isSafeInteger(maxWaitMs) || maxWaitMs < 100 || maxWaitMs > 5000) {
+      throw new RunpodProviderError("RUNPOD_INVALID_LOG_BOUNDS");
     }
-    return this.request(`/v2/pods/${podId}/exec`, { method: "POST", expectedStatus: 200, body: {
-      command: [
-        "/opt/gpu-control/run-registered-workload",
-        "--plan-fingerprint", planFingerprint,
-        "--nonce", nonce,
-      ],
-      cwd: "/opt/gpu-control",
-      timeoutSeconds: 25,
-    } });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), maxWaitMs);
+    let response;
+    try {
+      response = await this.fetchImpl(
+        `${RUNPOD_API_ORIGIN}/v2/pods/${podId}/logs?tail=${tail}&source=container`, {
+          method: "GET", redirect: "manual", signal: controller.signal,
+          headers: { authorization: `Bearer ${this.apiKey}`, accept: "text/event-stream" },
+        });
+      if (!response.ok) throw new RunpodProviderError(mapHttpError(response.status), response.status);
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.toLowerCase().startsWith("text/event-stream")) {
+        throw new RunpodProviderError("RUNPOD_INVALID_LOG_RESPONSE", response.status);
+      }
+      const reader = response.body?.getReader();
+      if (!reader) throw new RunpodProviderError("RUNPOD_INVALID_LOG_RESPONSE", response.status);
+      const decoder = new TextDecoder("utf-8", { fatal: true });
+      let text = "";
+      try {
+        for (;;) {
+          let item;
+          try { item = await reader.read(); }
+          catch (error) {
+            if (error?.name === "AbortError" && text) break;
+            throw error;
+          }
+          if (item.done) break;
+          if (text.length + item.value.byteLength > MAX_LOG_BYTES) {
+            throw new RunpodProviderError("RUNPOD_LOG_RESPONSE_TOO_LARGE", response.status);
+          }
+          text += decoder.decode(item.value, { stream: true });
+        }
+        text += decoder.decode();
+      } finally { try { await reader.cancel(); } catch {} reader.releaseLock(); }
+      return parseLogSnapshot(text);
+    } catch (error) {
+      if (error instanceof RunpodProviderError) throw error;
+      if (error?.name === "AbortError") return [];
+      throw new RunpodProviderError("RUNPOD_NETWORK_ERROR");
+    } finally { clearTimeout(timeout); }
   }
 
   async terminatePod(podId) {
     if (!POD_ID_RE.test(podId)) throw new RunpodProviderError("RUNPOD_INVALID_POD_ID");
     return this.request(`/v2/pods/${podId}`, { method: "DELETE", expectedStatus: 204, expectEmpty: true });
   }
+}
+
+export function parseLogSnapshot(text) {
+  if (typeof text !== "string" || new TextEncoder().encode(text).byteLength > MAX_LOG_BYTES) {
+    throw new RunpodProviderError("RUNPOD_LOG_RESPONSE_TOO_LARGE");
+  }
+  const lines = [];
+  const frames = text.replaceAll("\r\n", "\n").split("\n\n");
+  for (const frame of frames) {
+    if (!frame) continue;
+    const data = frame.split("\n").filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, "")).join("\n");
+    if (!data) continue;
+    let value;
+    try { value = JSON.parse(data); } catch { throw new RunpodProviderError("RUNPOD_INVALID_LOG_RESPONSE"); }
+    if (!value || typeof value !== "object" || Array.isArray(value) ||
+        !["container", "system"].includes(value.source) || typeof value.line !== "string" || value.line.length > 16 * 1024 ||
+        (value.ts !== undefined && typeof value.ts !== "string")) {
+      throw new RunpodProviderError("RUNPOD_INVALID_LOG_RESPONSE");
+    }
+    if (value.source === "system") continue;
+    lines.push(value.line);
+    if (lines.length > MAX_LOG_LINES) throw new RunpodProviderError("RUNPOD_LOG_RESPONSE_TOO_LARGE");
+  }
+  return lines;
 }
 
 export function validateCreatedPod(value, expected) {
@@ -216,18 +289,4 @@ export function validateCreatedPod(value, expected) {
     throw new RunpodProviderError("RUNPOD_INVALID_CREATE_RECEIPT");
   }
   return { id: value.id, status: value.status, cost: value.cost, dataCenterId: value.dataCenterId ?? null };
-}
-
-export function validateExecResult(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value) ||
-      typeof value.stdout !== "string" || typeof value.stderr !== "string" ||
-      value.stdout.length > MAX_JSON_BYTES || value.stderr.length > MAX_JSON_BYTES ||
-      !(value.exitCode === null || Number.isSafeInteger(value.exitCode)) ||
-      typeof value.timedOut !== "boolean" || typeof value.truncated !== "boolean" ||
-      !Number.isSafeInteger(value.durationMs) || value.durationMs < 0) {
-    throw new RunpodProviderError("RUNPOD_INVALID_EXEC_RECEIPT");
-  }
-  if (value.timedOut) throw new RunpodProviderError("RUNPOD_EXEC_WAIT_TIMED_OUT");
-  if (value.truncated) throw new RunpodProviderError("RUNPOD_EXEC_OUTPUT_TRUNCATED");
-  return value;
 }
