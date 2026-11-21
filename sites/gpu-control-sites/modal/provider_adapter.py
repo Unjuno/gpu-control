@@ -212,9 +212,12 @@ def _queued_response(run: dict[str, Any]) -> dict[str, Any]:
 def provider_submit_worker(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Run slow provider submission outside the bounded Sites HTTP request."""
     run_id = arguments.get("run_id", "")
+    failure_stage = "service_initialization"
     try:
         service = _service()
+        failure_stage = "submission_validation"
         run = service.validate_submission(owner, arguments)
+        failure_stage = "claim_verification"
         record = submission_store.get(run_id)
         expected = {
             "owner_binding_sha256": _submission_binding(owner),
@@ -223,7 +226,9 @@ def provider_submit_worker(owner: str, arguments: dict[str, Any]) -> dict[str, A
         if not isinstance(record, dict) or any(record.get(key) != value for key, value in expected.items()):
             raise RuntimeError("submission claim mismatch")
         submission_store.put(run_id, {**record, "state": "running"})
+        failure_stage = "provider_submission"
         response = service.submit_validated(run)
+        failure_stage = "submission_persistence"
         submission_store.put(run_id, {**record, "state": "submitted", "response": response})
         data_volume.commit()
         return response
@@ -231,7 +236,15 @@ def provider_submit_worker(owner: str, arguments: dict[str, Any]) -> dict[str, A
         from provider_adapter_core import AdapterError
         code = exc.code if isinstance(exc, AdapterError) else "provider_operation_failed"
         record = submission_store.get(run_id, {})
-        submission_store.put(run_id, {**record, "state": "failed", "error_code": code})
+        # Keep diagnostics private and non-sensitive: never persist provider
+        # stderr, exception text, credentials, paths, or request arguments.
+        # The stable stage and Python exception class are sufficient to
+        # distinguish adapter bugs from provider/quota failures.
+        submission_store.put(run_id, {
+            **record, "state": "failed", "error_code": code,
+            "failure_stage": failure_stage,
+            "exception_type": type(exc).__name__[:64],
+        })
         return {"schema_version": 2, "status": "error", "code": code}
 
 
