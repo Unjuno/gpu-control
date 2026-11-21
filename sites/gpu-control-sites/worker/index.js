@@ -16,7 +16,7 @@ const MODAL_GPU_WORKLOAD = "modal-gpu-vector-add-v1";
 const ORBITUNE_REPOSITORY = "Unjuno/orbitune";
 const ORBITUNE_SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8";
 const GPU_CONTROL_REPOSITORY = "Unjuno/gpu-control";
-const MODAL_GPU_SOURCE_SHA = "7114de2dc2318180ebf2bcc56eaa577e04402858";
+const MODAL_GPU_SOURCE_SHA = "58a24082b73238b982e64a17b7d0624fc2594bab";
 const MODAL_GPU_IMAGE_DIGEST = "sha256:b0840d8b2a13e573141e158c50f1f8375a7eb853529172effea49cacfc10c919";
 // Modal control functions cold-started for ~6.3s in production; retain a
 // bounded timeout with room for that startup plus normal request latency.

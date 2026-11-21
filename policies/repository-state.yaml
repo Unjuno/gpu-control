@@ -107,7 +107,7 @@ modal_gpu_canary_exception:
   environment: main
   workload:
     repository: Unjuno/gpu-control
-    source_sha: 7114de2dc2318180ebf2bcc56eaa577e04402858
+    source_sha: 58a24082b73238b982e64a17b7d0624fc2594bab
     workload_id: modal-gpu-vector-add-v1
     provider_resource_id: gpu-control-modal-gpu-canary/run_canary
     image_digest: sha256:b0840d8b2a13e573141e158c50f1f8375a7eb853529172effea49cacfc10c919
