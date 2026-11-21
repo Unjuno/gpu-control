@@ -1,7 +1,7 @@
 {
   "orbitune-kaggle-100-step-v1": {
     "provider": "kaggle",
-    "image_digest": "sha256:3f764ee4d610edfbe6b07769538ffbae8413b9df47c05af783245d65c7c21bed",
+    "image_digest": "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd",
     "execution_profile": "training",
     "source_repository": "Unjuno/orbitune",
     "source_sha": "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
