@@ -245,6 +245,7 @@ class ProviderAdapter:
     huggingface: Any
     modal_gpu: Any = None
     clock: Any = time.time
+    artifact_store: Any = None
 
     def capabilities(self) -> dict[str, Any]:
         return _envelope(
@@ -358,6 +359,21 @@ class ProviderAdapter:
             return _envelope(status="ok", summary="永続run一覧はSites D1が管理します。",
                 state={"count": 0}, next_actions=[], experiments=[])
         if tool == "experiment_artifact":
-            return _envelope(status="blocked", summary="外部artifactは不変参照として結果に含まれます。",
-                state={}, next_actions=["experiment_result"], blocker="INLINE_ARTIFACT_UNAVAILABLE")
+            if self.artifact_store is None:
+                return _envelope(status="blocked", summary="外部artifact取得経路が設定されていません。",
+                    state={}, next_actions=["experiment_result"], blocker="ARTIFACT_RETRIEVAL_UNAVAILABLE")
+            if (not isinstance(arguments, dict) or set(arguments) != {
+                    "run_id", "artifact_id", "offset", "length", "provider_handle", "external_artifact"} or
+                    arguments["artifact_id"] != "orbitune-output.zip" or
+                    not isinstance(arguments["run_id"], str) or _RUN_ID.fullmatch(arguments["run_id"]) is None or
+                    not isinstance(arguments["provider_handle"], dict) or
+                    arguments["provider_handle"].get("run_id") != arguments["run_id"]):
+                raise AdapterError("invalid_arguments")
+            reference = arguments["external_artifact"]
+            if not isinstance(reference, dict) or reference.get("run_id") != arguments["run_id"]:
+                raise AdapterError("artifact_reference_mismatch", 409)
+            chunk = self.artifact_store.read(
+                reference, offset=arguments["offset"], max_bytes=arguments["length"])
+            return _envelope(status="ok", summary="外部artifactを固定revisionから再取得し検証しました。",
+                state={"run_id": arguments["run_id"], **chunk}, next_actions=[])
         raise AdapterError("tool_not_supported", 404)

@@ -1977,6 +1977,79 @@ test("native RunPod runs take precedence over stale delegated-plan shadows", asy
   assert.equal(delegatedPlanReads, 0);
 });
 
+test("delegated private artifact uses the exact persisted immutable reference", async () => {
+  const runId = "8".repeat(32);
+  const reference = {
+    service: "huggingface_hub", repo_id: "Unjuno/gpu-control-orbitune-artifacts",
+    repo_type: "model", path_in_repo: `runs/${runId}/orbitune-output.zip`,
+    revision: "a".repeat(40), sha256: "b".repeat(64), size_bytes: 1737429,
+    run_id: runId, source_sha: "c".repeat(40), private: true,
+  };
+  const plan = {
+    id: runId, fingerprint: "d".repeat(64), workload: "orbitune-kaggle-100-step-v1",
+    approved_plan_json: JSON.stringify({ runtime_seconds: 300 }), state: "submitted",
+    provider_handle_json: JSON.stringify({ provider: "kaggle", run_id: runId }),
+    provider_response_json: JSON.stringify({ result: { external_artifacts: [reference] } }),
+  };
+  const env = environment();
+  let providerObservationWrites = 0;
+  env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
+  env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
+  env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
+  env.DB.prepare = (sql) => ({
+    bind() {
+      return {
+        async first() {
+          if (sql.includes("gateway_delegated_plans")) return plan;
+          if (sql.includes("p.provider='runpod_gpu'")) return null;
+          throw new Error(`unexpected read: ${sql}`);
+        },
+        async run() {
+          if (sql.includes("UPDATE gateway_delegated_plans")) {
+            providerObservationWrites++;
+            return { meta: { changes: 1 } };
+          }
+          throw new Error(`unexpected write: ${sql}`);
+        },
+      };
+    },
+  });
+  const originalFetch = globalThis.fetch;
+  let delegatedBody;
+  globalThis.fetch = async (_url, options) => {
+    delegatedBody = JSON.parse(options.body);
+    const offset = delegatedBody.arguments.offset;
+    return Response.json({ schema_version: 2, status: "ok", human_summary: "verified",
+      machine_state: { run_id: runId, state: "succeeded", artifact_id: "orbitune-output.zip",
+        sha256: reference.sha256, size_bytes: reference.size_bytes, offset,
+        next_offset: offset + 3, eof: false, encoding: "base64", data: "YWJj" },
+      next_allowed_actions: [], blocking_reason: null });
+  };
+  try {
+    const first = await maybeDelegateRunTool(env, "test-owner", "experiment_artifact", {
+      run_id: runId, artifact_id: "orbitune-output.zip", offset: 0, max_bytes: 3,
+    });
+    assert.equal(first.status, "ok");
+    assert.deepEqual(delegatedBody.arguments.external_artifact, reference);
+    assert.equal(delegatedBody.arguments.length, 3);
+    assert.equal(delegatedBody.arguments.provider_handle.run_id, runId);
+    const second = await maybeDelegateRunTool(env, "test-owner", "experiment_artifact", {
+      run_id: runId, artifact_id: "orbitune-output.zip", offset: 3, max_bytes: 3,
+    });
+    assert.equal(second.status, "ok");
+    assert.equal(second.machine_state.offset, 3);
+    assert.deepEqual(delegatedBody.arguments.external_artifact, reference);
+    assert.equal(plan.provider_response_json,
+      JSON.stringify({ result: { external_artifacts: [reference] } }));
+    assert.equal(providerObservationWrites, 0,
+      "artifact chunks must not replace terminal provider evidence or persist bytes");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("scheduled reconciliation advances one active delegated provider run", async () => {
   const runId = "6".repeat(32);
   const plan = {

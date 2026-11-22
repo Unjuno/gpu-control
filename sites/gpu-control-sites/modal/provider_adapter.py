@@ -163,9 +163,10 @@ def _service():
         max_output_bytes=65536,
     )
     settings.validate()
-    kaggle = KaggleBackend(settings, artifact_store=HuggingFaceArtifactStore(settings)) if kaggle_token else None
+    artifact_store = HuggingFaceArtifactStore(settings) if hf_write else None
+    kaggle = KaggleBackend(settings, artifact_store=artifact_store) if kaggle_token else None
     huggingface = HuggingFaceSpaceBackend(settings) if hf_read else None
-    return ProviderAdapter(kaggle, huggingface, ModalGpuBackend())
+    return ProviderAdapter(kaggle, huggingface, ModalGpuBackend(), artifact_store=artifact_store)
 
 
 def _submission_binding(owner: str) -> str:

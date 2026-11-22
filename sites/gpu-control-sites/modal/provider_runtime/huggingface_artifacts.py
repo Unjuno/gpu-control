@@ -1,6 +1,7 @@
 """Private, immutable Hugging Face Hub artifact publication boundary."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib
 from pathlib import Path, PurePosixPath
@@ -12,6 +13,7 @@ from .settings import ProviderSettings
 
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_MAX_MCP_ARTIFACT_BYTES = 8 * 1024 * 1024
 
 
 def _sha256(path: Path) -> str:
@@ -141,6 +143,7 @@ class HuggingFaceArtifactStore:
             raise RuntimeError("Hugging Face artifact re-download checksum mismatch")
         self._verify_private_revision(repo_id, revision)
         return {
+            "artifact_id": "orbitune-output.zip",
             "service": "huggingface_hub",
             "repo_id": repo_id,
             "repo_type": "model",
@@ -151,4 +154,53 @@ class HuggingFaceArtifactStore:
             "run_id": run_id,
             "source_sha": source_sha,
             "private": True,
+        }
+
+    def read(self, reference: object, *, offset: int, max_bytes: int) -> dict[str, object]:
+        """Read one verified chunk from an exact private immutable reference."""
+        required = {"service", "repo_id", "repo_type", "path_in_repo", "revision",
+                    "sha256", "size_bytes", "run_id", "source_sha", "private"}
+        if (not isinstance(reference, dict) or
+                set(reference) not in (required, required | {"artifact_id"}) or
+                not self.settings.hf_artifact_write_token):
+            raise ValueError("Hugging Face artifact reference is invalid")
+        repo_id = reference["repo_id"]
+        remote_path = self._remote_path(reference["path_in_repo"])
+        revision = reference["revision"]
+        checksum = reference["sha256"]
+        size = reference["size_bytes"]
+        run_id = reference["run_id"]
+        source_sha = reference["source_sha"]
+        if (reference["service"] != "huggingface_hub" or reference["repo_type"] != "model" or
+                reference["private"] is not True or repo_id not in self.settings.hf_artifact_repositories or
+                _REPO_RE.fullmatch(repo_id or "") is None or _SHA40_RE.fullmatch(revision or "") is None or
+                not isinstance(checksum, str) or re.fullmatch(r"[0-9a-f]{64}", checksum) is None or
+                not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None or
+                not isinstance(source_sha, str) or _SHA40_RE.fullmatch(source_sha) is None or
+                ("artifact_id" in reference and reference["artifact_id"] != "orbitune-output.zip") or
+                remote_path != f"runs/{run_id}/orbitune-output.zip" or
+                not isinstance(size, int) or isinstance(size, bool) or size < 1 or
+                size > min(self.max_bytes, _MAX_MCP_ARTIFACT_BYTES) or
+                not isinstance(offset, int) or isinstance(offset, bool) or offset < 0 or offset > size or
+                not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or not 1 <= max_bytes <= 24_576):
+            raise ValueError("Hugging Face artifact reference is invalid")
+        self._verify_private_revision(repo_id, revision)
+        downloaded = Path(self.downloader(
+            repo_id=repo_id, filename=remote_path, repo_type="model",
+            revision=revision, token=self.settings.hf_artifact_write_token,
+        ))
+        if (downloaded.is_symlink() or not downloaded.is_file() or
+                downloaded.stat().st_size != size or _sha256(downloaded) != checksum):
+            raise RuntimeError("Hugging Face artifact re-download checksum mismatch")
+        with downloaded.open("rb") as stream:
+            stream.seek(offset)
+            chunk = stream.read(max_bytes)
+        end = offset + len(chunk)
+        return {
+            "artifact_id": "orbitune-output.zip", "sha256": checksum,
+            "size_bytes": size, "offset": offset, "next_offset": end,
+            "eof": end == size, "encoding": "base64",
+            "full_file_verified": True,
+            "verification_method": "exact_revision_size_and_sha256",
+            "data": base64.b64encode(chunk).decode("ascii"),
         }

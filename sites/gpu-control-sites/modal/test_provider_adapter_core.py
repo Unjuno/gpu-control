@@ -162,6 +162,37 @@ def test_terminal_observation_requires_cleanup_and_kaggle_cancel_is_blocked():
     assert cancelled["blocking_reason"] == "CANCELLATION_UNSUPPORTED"
 
 
+def test_external_artifact_is_read_only_through_exact_run_binding():
+    class FakeArtifactStore:
+        def read(self, reference, *, offset, max_bytes):
+            assert reference["run_id"] == "f" * 32
+            assert offset == 12
+            assert max_bytes == 24
+            return {"artifact_id": "orbitune-output.zip", "sha256": "a" * 64,
+                    "size_bytes": 100, "offset": 12, "next_offset": 36,
+                    "eof": False, "encoding": "base64", "full_file_verified": True,
+                    "verification_method": "exact_revision_size_and_sha256", "data": "YWJj"}
+
+    adapter = ProviderAdapter(FakeBackend("kaggle"), None, artifact_store=FakeArtifactStore())
+    handle = {"provider": "kaggle", "run_id": "f" * 32,
+              "plan_fingerprint": "e" * 64}
+    reference = {"run_id": "f" * 32}
+    value = adapter.invoke("owner-1", "experiment_artifact", {
+        "run_id": "f" * 32, "artifact_id": "orbitune-output.zip",
+        "offset": 12, "length": 24, "provider_handle": handle,
+        "external_artifact": reference,
+    })
+    assert value["status"] == "ok"
+    assert value["machine_state"]["sha256"] == "a" * 64
+    assert value["machine_state"]["full_file_verified"] is True
+    with pytest.raises(AdapterError, match="artifact_reference_mismatch"):
+        adapter.invoke("owner-1", "experiment_artifact", {
+            "run_id": "f" * 32, "artifact_id": "orbitune-output.zip",
+            "offset": 12, "length": 24, "provider_handle": handle,
+            "external_artifact": {"run_id": "0" * 32},
+        })
+
+
 def test_stalled_kaggle_is_blocked_without_cleanup_or_replacement():
     backend = FakeBackend("kaggle")
     backend.capture = lambda _handle: SimpleNamespace(state="running", result={
