@@ -28,12 +28,24 @@ The external private ZIP reference was consistent across the run and result:
 - recorded SHA-256:
   `4e4ee008812845be511533240698f6fee59794fc9fc4b91135250e744ef7a1e5`
 
-The deployed MCP exposed only this credential-free reference, so ChatGPT could
-not independently retrieve the private ZIP bytes. It correctly returned an
-uncertain result instead of claiming a new hash calculation.
-
-The follow-up source change keeps the credential inside the Modal provider
-adapter, downloads only the allowlisted repository and exact immutable
+The first deployed MCP exposed only this credential-free reference, so ChatGPT
+correctly returned an uncertain result instead of claiming a new hash
+calculation. The accepted follow-up keeps the credential inside the Modal
+provider adapter, downloads only the allowlisted repository and exact immutable
 revision/run path, checks the complete size and SHA-256, and returns at most
-24 KiB per owner-bound `experiment_artifact` call. Deployment and a fresh
-full-byte readback remain required before this artifact slice is accepted.
+24 KiB per owner-bound `experiment_artifact` call.
+
+The updated adapter and Sites Version 79 were deployed on 2026-11-23. A live
+read of offsets `0..24575` and `24576..49151` returned two consecutive chunks
+for the same run. Before each chunk was returned, the adapter re-downloaded and
+verified the complete 1,737,429-byte ZIP at the exact revision. Both responses
+reported:
+
+- `full_file_verified=true`
+- `verification_method=exact_revision_size_and_sha256`
+- SHA-256
+  `4e4ee008812845be511533240698f6fee59794fc9fc4b91135250e744ef7a1e5`
+
+Artifact chunk responses are not persisted in D1, so private ZIP bytes do not
+replace or enter the stored terminal provider result. This artifact slice is
+accepted.
