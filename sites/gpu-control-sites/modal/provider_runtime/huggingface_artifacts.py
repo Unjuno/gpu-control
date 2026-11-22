@@ -143,7 +143,6 @@ class HuggingFaceArtifactStore:
             raise RuntimeError("Hugging Face artifact re-download checksum mismatch")
         self._verify_private_revision(repo_id, revision)
         return {
-            "artifact_id": "orbitune-output.zip",
             "service": "huggingface_hub",
             "repo_id": repo_id,
             "repo_type": "model",
