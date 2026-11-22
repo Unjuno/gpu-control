@@ -66,8 +66,10 @@ def test_provider_settings_fail_closed(tmp_path: Path, change: dict) -> None:
 
 def test_private_artifact_read_verifies_full_file_before_returning_chunk(tmp_path: Path) -> None:
     payload = b"verified-private-artifact"
+    blob = tmp_path / "hub-cache-blob"
+    blob.write_bytes(payload)
     artifact = tmp_path / "orbitune-output.zip"
-    artifact.write_bytes(payload)
+    artifact.symlink_to(blob)
     revision = "a" * 40
     run_id = "b" * 32
     settings = ProviderSettings(

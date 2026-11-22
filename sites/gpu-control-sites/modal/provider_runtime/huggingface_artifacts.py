@@ -187,8 +187,8 @@ class HuggingFaceArtifactStore:
         downloaded = Path(self.downloader(
             repo_id=repo_id, filename=remote_path, repo_type="model",
             revision=revision, token=self.settings.hf_artifact_write_token,
-        ))
-        if (downloaded.is_symlink() or not downloaded.is_file() or
+        )).resolve(strict=True)
+        if (not downloaded.is_file() or
                 downloaded.stat().st_size != size or _sha256(downloaded) != checksum):
             raise RuntimeError("Hugging Face artifact re-download checksum mismatch")
         with downloaded.open("rb") as stream:
