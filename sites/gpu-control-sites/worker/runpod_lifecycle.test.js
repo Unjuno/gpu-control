@@ -119,6 +119,39 @@ test("Runpod submit is idempotent and cancellation confirms cleanup before relea
   } finally { raw.close(); }
 });
 
+test("a cleaned terminal RunPod run stays readable after a later run reuses the account lease", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  try {
+    const first = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-history-first" }, { client, now: 100 });
+    const firstArgs = { run_id: first.run_id, plan_fingerprint: first.plan_fingerprint,
+      provider_approved_plan: first.provider_approved_plan };
+    await submitRunpodExperiment(env, "site-owner", firstArgs,
+      { client, now: 101, reserveBudget: async () => true });
+    const terminal = await synchronizeRunpodExperiment(env, "site-owner", first.run_id,
+      { client, cancel: true });
+    assert.equal(terminal.state, "cancelled");
+    assert.equal(terminal.cleanup_state, "confirmed");
+    assert.ok(terminal.cleanup_receipt_json);
+
+    const second = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-history-second" }, { client, now: 100 });
+    await submitRunpodExperiment(env, "site-owner", { run_id: second.run_id,
+      plan_fingerprint: second.plan_fingerprint, provider_approved_plan: second.provider_approved_plan },
+    { client, now: 101, reserveBudget: async () => true });
+
+    const priorRead = await synchronizeRunpodExperiment(env, "site-owner", first.run_id, { client });
+    assert.equal(priorRead.id, first.run_id);
+    assert.equal(priorRead.state, "cancelled");
+    assert.equal(priorRead.cleanup_state, "confirmed");
+    assert.equal(raw.prepare("SELECT run_id FROM provider_account_leases").get().run_id, second.run_id,
+      "reading a terminal historical run must not change the current account lease");
+    assert.equal(client.creates, 2);
+  } finally { raw.close(); }
+});
+
 test("Runpod submit does not depend on a chat-driven cleanup heartbeat", async () => {
   const { raw, env } = environment(); const client = new FakeRunpod();
   try {

@@ -167,7 +167,9 @@ def _service():
     artifact_store = HuggingFaceArtifactStore(settings) if hf_write else None
     kaggle = KaggleBackend(settings, artifact_store=artifact_store) if kaggle_token else None
     huggingface = HuggingFaceSpaceBackend(settings) if hf_read else None
-    return ProviderAdapter(kaggle, huggingface, ModalGpuBackend(), artifact_store=artifact_store)
+    return ProviderAdapter(kaggle, huggingface,
+                           ModalGpuBackend(submission_store=submission_store),
+                           artifact_store=artifact_store)
 
 
 def _submission_binding(owner: str) -> str:
@@ -222,7 +224,8 @@ def provider_submit_worker(owner: str, arguments: dict[str, Any]) -> dict[str, A
         }
         if not isinstance(record, dict) or any(record.get(key) != value for key, value in expected.items()):
             raise RuntimeError("submission claim mismatch")
-        submission_store.put(run_id, {**record, "state": "running"})
+        submission_store.put(run_id, {**record, "state": "running",
+                                     "worker_started_at": int(time.time())})
         failure_stage = "provider_submission"
         response = service.submit_validated(run)
         failure_stage = "submission_persistence"
@@ -230,23 +233,36 @@ def provider_submit_worker(owner: str, arguments: dict[str, Any]) -> dict[str, A
         data_volume.commit()
         return response
     except Exception as exc:
-        from provider_adapter_core import AdapterError
+        from provider_adapter_core import AdapterError, provider_submission_failure_state
         code = exc.code if isinstance(exc, AdapterError) else SAFE_PROVIDER_FAILURE_CODES.get(
             str(exc), "provider_operation_failed")
         record = submission_store.get(run_id, {})
+        state = provider_submission_failure_state(failure_stage, code)
+        if failure_stage in {"provider_submission", "submission_persistence"}:
+            # KaggleBackend writes its exact source/version reconciliation
+            # journal to the mounted volume immediately before push. Commit
+            # even on an exception so a later status request can recover the
+            # same accepted version rather than treating it as absent.
+            try:
+                data_volume.commit()
+            except Exception:
+                pass
         # Keep diagnostics private and non-sensitive: never persist provider
         # stderr, exception text, credentials, paths, or request arguments.
         # The stable stage and Python exception class are sufficient to
         # distinguish adapter bugs from provider/quota failures.
         submission_store.put(run_id, {
-            **record, "state": "failed", "error_code": code,
+            **record, "state": state, "error_code": code,
             "failure_stage": failure_stage,
             "exception_type": type(exc).__name__[:64],
+            **({"uncertain_at": int(time.time())} if state == "uncertain" else {}),
         })
         return {"schema_version": 2, "status": "error", "code": code}
 
 
 def _async_submit(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    from provider_adapter_core import uncertain_submission_response
+
     service = _service()
     run = service.validate_submission(owner, arguments)
     run_id = run["id"]
@@ -255,7 +271,7 @@ def _async_submit(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
         "schema_version": 1, "state": "claimed", "run_id": run_id,
         "provider": run["plan"]["provider"],
         "plan_fingerprint": run["fingerprint"],
-        "owner_binding_sha256": binding, "claimed_at": int(time.time()),
+        "owner_binding_sha256": binding, "claimed_at": int(time.time()), "run": run,
     }
     inserted = submission_store.put(run_id, claim, skip_if_exists=True)
     record = claim if inserted else submission_store.get(run_id)
@@ -268,17 +284,23 @@ def _async_submit(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
             provider_submit_worker.spawn(owner, arguments)
         except Exception:
-            submission_store.put(run_id, {**claim, "state": "failed", "error_code": "provider_spawn_failed"})
-            raise
+            submission_store.put(run_id, {**claim, "state": "uncertain",
+                "failure_stage": "worker_spawn", "error_code": "provider_submit_worker_spawn_unknown",
+                "uncertain_at": int(time.time())})
+            return uncertain_submission_response(run_id, run["plan"]["provider"])
     if record.get("state") == "submitted" and isinstance(record.get("response"), dict):
         return record["response"]
     if record.get("state") == "failed":
         from provider_adapter_core import AdapterError
         raise AdapterError(str(record.get("error_code", "provider_operation_failed")), 503)
+    if record.get("state") == "uncertain":
+        return uncertain_submission_response(run_id, run["plan"]["provider"])
     return _queued_response(run)
 
 
 def _async_observe(owner: str, tool: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    from provider_adapter_core import provider_submission_failure_state, uncertain_submission_response
+
     handle = arguments.get("provider_handle")
     if not isinstance(handle, dict) or handle.get("transport") != "modal_spawn_v1":
         return None
@@ -289,6 +311,64 @@ def _async_observe(owner: str, tool: str, arguments: dict[str, Any]) -> dict[str
             record.get("provider") != handle.get("provider")):
         from provider_adapter_core import AdapterError
         raise AdapterError("provider_handle_mismatch", 409)
+    if (record.get("state") == "failed" and
+            provider_submission_failure_state(record.get("failure_stage", ""),
+                                              record.get("error_code", "")) == "uncertain"):
+        # Upgrade legacy records written by the old broad exception handler:
+        # a submission-stage failure never proves that the provider created
+        # no resource, so do not expose its old false terminal/cleanup claim.
+        record = {**record, "state": "uncertain", "uncertain_at": int(time.time())}
+        submission_store.put(run_id, record)
+    now = int(time.time())
+    if (record.get("state") == "claimed" and
+            isinstance(record.get("claimed_at"), int) and
+            now - record["claimed_at"] > 125):
+        # Modal may accept a spawn while the worker never gets far enough to
+        # record its start (or fails during service initialization). A stale
+        # claim is therefore ambiguous; surface it for reconciliation instead
+        # of leaving it queued forever or submitting a replacement.
+        record = {**record, "state": "uncertain", "failure_stage": "worker_spawn",
+                  "error_code": "provider_submit_worker_start_unknown", "uncertain_at": now}
+        submission_store.put(run_id, record)
+    if (record.get("state") == "running" and
+            isinstance(record.get("worker_started_at"), int) and
+            now - record["worker_started_at"] > 125):
+        # provider_submit_worker has a 120-second platform timeout. Its
+        # disappearance is not evidence that the provider did not accept the
+        # request, so reconcile it as uncertain instead of failed.
+        record = {**record, "state": "uncertain", "failure_stage": "provider_submission",
+                  "error_code": "provider_submit_worker_timeout", "uncertain_at": now}
+        submission_store.put(run_id, record)
+    if record.get("state") == "uncertain":
+        run = record.get("run")
+        if (isinstance(run, dict) and run.get("id") == run_id and
+                run.get("fingerprint") == handle.get("plan_fingerprint") and
+                run.get("plan", {}).get("provider") == record.get("provider") and
+                record.get("owner_binding_sha256") == _submission_binding(owner)):
+            try:
+                recovered = _service().reconcile_submission(run)
+            except Exception:
+                recovered = None
+            if isinstance(recovered, dict):
+                record = {**record, "state": "submitted", "response": recovered,
+                          "reconciled_at": now}
+                submission_store.put(run_id, record)
+                try:
+                    data_volume.commit()
+                except Exception:
+                    pass
+        if record.get("state") == "uncertain":
+            if tool == "experiment_cancel":
+                return {
+                    "schema_version": 2, "status": "pending",
+                    "human_summary": "provider受付が未確定のため、二重投入や誤った取消を避けて同じrunを照合中です。",
+                    "machine_state": {"run_id": run_id, "state": "uncertain",
+                                      "provider": record.get("provider"),
+                                      "provider_resource_created": "unknown", "cleanup_state": "unknown"},
+                    "next_allowed_actions": ["experiment_status"],
+                    "blocking_reason": "SUBMISSION_OUTCOME_UNCONFIRMED",
+                }
+            return uncertain_submission_response(run_id, str(record.get("provider", "unknown")))
     if record.get("state") == "failed":
         return {
             "schema_version": 2, "status": "error",

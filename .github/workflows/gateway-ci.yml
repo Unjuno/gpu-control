@@ -37,6 +37,7 @@ jobs:
           sites/gpu-control-sites/modal/test_provider_runtime.py
           sites/gpu-control-sites/modal/test_provider_adapter_packaging.py
           sites/gpu-control-sites/modal/test_provider_adapter_core.py
+          sites/gpu-control-sites/modal/test_modal_gpu_backend.py
           gateway/tests/test_huggingface_artifacts.py
           gateway/tests/test_huggingface_space_backend.py
           gateway/tests/test_kaggle_backend.py

@@ -67,12 +67,22 @@ def test_legacy_gateway_compatibility_uses_a_private_fixed_package() -> None:
 
 def test_slow_submission_uses_durable_idempotent_modal_spawn() -> None:
     source = ADAPTER.read_text(encoding="utf-8")
+    core = ADAPTER.with_name("provider_adapter_core.py").read_text(encoding="utf-8")
     assert 'modal.Dict.from_name("gpu-control-provider-adapter-submissions"' in source
     assert "skip_if_exists=True" in source
     assert "provider_submit_worker.spawn(owner, arguments)" in source
     assert '"transport": "modal_spawn_v1"' in source
     assert 'actual = {**actual, "runtime_seconds": runtime_seconds}' in source
     assert "service.validate_submission(owner, arguments)" in source
+    assert '"state": "uncertain"' in source
+    assert 'reconcile_submission(run)' in source
+    assert 'record.get("state") == "claimed"' in source
+    assert 'provider_submit_worker_start_unknown' in source
+    assert 'provider_submit_worker_timeout' in source
+    assert "provider_submission_failure_state(failure_stage, code)" in source
+    assert "data_volume.commit()" in source
+    assert "def reconcile_submission(self, run" in core
+    assert 'blocker="SUBMISSION_OUTCOME_UNCONFIRMED"' in core
 
 
 def test_runpod_relay_uses_signed_tool_path_and_one_use_claim() -> None:

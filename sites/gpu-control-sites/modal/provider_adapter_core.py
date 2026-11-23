@@ -44,6 +44,39 @@ class AdapterError(RuntimeError):
         self.status = status
 
 
+def provider_submission_failure_state(failure_stage: str, error_code: str) -> str:
+    """Classify only proven pre-submit failures as terminal.
+
+    Once a provider submission request may have reached its service, a lost
+    response is not evidence that no resource exists. Keep the run recoverable
+    unless the adapter returned a stable error known to occur before submit.
+    """
+    if failure_stage not in {"provider_submission", "submission_persistence", "worker_spawn"}:
+        return "failed"
+    definitive = {
+        "provider_not_configured",
+        "provider_evidence_expired_or_exhausted",
+        "kaggle_token_not_configured",
+        "kaggle_quota_unavailable",
+        "kaggle_quota_invalid",
+        "kaggle_quota_insufficient",
+        "kaggle_latest_snapshot_failed",
+        "kaggle_latest_snapshot_invalid",
+    }
+    return "failed" if error_code in definitive else "uncertain"
+
+
+def uncertain_submission_response(run_id: str, provider: str) -> dict[str, Any]:
+    return _envelope(
+        status="pending",
+        summary="provider受付結果が未確定です。同じrunの状態照会で受付記録を照合します。",
+        state={"run_id": run_id, "state": "uncertain", "provider": provider,
+               "submission_attempted": True, "provider_resource_created": "unknown",
+               "cleanup_state": "unknown"},
+        next_actions=["experiment_status"], blocker="SUBMISSION_OUTCOME_UNCONFIRMED",
+    )
+
+
 def canonical(value: Any) -> bytes:
     try:
         return json.dumps(
@@ -271,6 +304,34 @@ class ProviderAdapter:
             status="pending", summary="登録済み無料providerへ投入しました。",
             state={"run_id": run["id"], "state": "running", "provider": provider,
                    "provider_handle": handle}, next_actions=["experiment_status", "experiment_cancel"],
+        )
+
+    def reconcile_submission(self, run: Mapping[str, Any]) -> dict[str, Any] | None:
+        """Recover a provider handle after an ambiguous submission response.
+
+        Backends must use an idempotent provider-side identity or a durable
+        pre-submit journal. This method never calls ``start`` and therefore
+        cannot silently create a second provider job.
+        """
+        provider = run.get("plan", {}).get("provider")
+        backend = (self.kaggle if provider == "kaggle" else
+                   self.huggingface if provider == "huggingface_space" else
+                   self.modal_gpu if provider == "modal_gpu" else None)
+        reconcile = getattr(backend, "reconcile", None)
+        if not callable(reconcile):
+            return None
+        handle = reconcile(run)
+        if handle is None:
+            return None
+        if (not isinstance(handle, dict) or handle.get("provider") != provider or
+                handle.get("run_id") != run.get("id") or
+                handle.get("plan_fingerprint") != run.get("fingerprint")):
+            raise AdapterError("provider_reconciliation_handle_invalid", 502)
+        return _envelope(
+            status="pending", summary="provider受付を同じrunへ復旧しました。",
+            state={"run_id": run["id"], "state": "running", "provider": provider,
+                   "provider_handle": handle},
+            next_actions=["experiment_status", "experiment_cancel"],
         )
 
     def submit(self, owner: str, arguments: object) -> dict[str, Any]:

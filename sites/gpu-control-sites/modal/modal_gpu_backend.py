@@ -7,6 +7,7 @@ or environment variable.  The opaque Modal call id is persisted by Sites.
 from __future__ import annotations
 
 import re
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -25,10 +26,29 @@ CALL_ID = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 class ModalGpuBackend:
     provider = "modal_gpu"
 
-    def __init__(self, function_lookup=None, call_lookup=None):
+    def __init__(self, function_lookup=None, call_lookup=None, submission_store=None):
         self._function_lookup = function_lookup or (
             lambda: modal.Function.from_name(APP_NAME, FUNCTION_NAME, environment_name="main"))
         self._call_lookup = call_lookup or modal.FunctionCall.from_id
+        self._submission_store = submission_store
+
+    def reconcile(self, run: dict[str, Any]) -> dict[str, Any] | None:
+        """Recover a call handle persisted immediately after ``spawn`` returns."""
+        if self._submission_store is None:
+            return None
+        run_id = run.get("id")
+        fingerprint = run.get("fingerprint")
+        owner_binding = run.get("plan", {}).get("owner_binding_sha256")
+        record = self._submission_store.get(run_id)
+        if (not isinstance(record, dict) or record.get("provider") != self.provider or
+                record.get("run_id") != run_id or record.get("plan_fingerprint") != fingerprint or
+                record.get("owner_binding_sha256") != owner_binding):
+            return None
+        handle = record.get("provider_handle")
+        if (not isinstance(handle, dict) or handle.get("provider") != self.provider or
+                handle.get("run_id") != run_id or handle.get("plan_fingerprint") != fingerprint):
+            return None
+        return handle
 
     def _call(self, handle: dict[str, Any]):
         call_id = handle.get("function_call_id")
@@ -42,7 +62,7 @@ class ModalGpuBackend:
         call_id = getattr(call, "object_id", None)
         if not isinstance(call_id, str) or CALL_ID.fullmatch(call_id) is None:
             raise AdapterError("provider_invalid_handle", 502)
-        return {
+        handle = {
             "provider": self.provider,
             "run_id": run["id"],
             "plan_fingerprint": run["fingerprint"],
@@ -50,6 +70,17 @@ class ModalGpuBackend:
             "app": APP_NAME,
             "function": FUNCTION_NAME,
         }
+        if self._submission_store is not None:
+            record = self._submission_store.get(run["id"])
+            owner_binding = run.get("plan", {}).get("owner_binding_sha256")
+            if (not isinstance(record, dict) or record.get("provider") != self.provider or
+                    record.get("run_id") != run["id"] or
+                    record.get("plan_fingerprint") != run["fingerprint"] or
+                    record.get("owner_binding_sha256") != owner_binding):
+                raise AdapterError("submission_identity_conflict", 409)
+            self._submission_store.put(run["id"], {**record, "state": "running",
+                "provider_handle": handle, "provider_accepted_at": int(time.time())})
+        return handle
 
     def capture(self, handle: dict[str, Any]):
         try:

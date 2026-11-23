@@ -9,7 +9,7 @@ import pytest
 from provider_adapter_core import (
     AdapterError, GPU_CONTROL_REPOSITORY, HF_WORKLOAD, KAGGLE_WORKLOAD,
     MODAL_GPU_IMAGE_DIGEST, MODAL_GPU_SOURCE_SHA, MODAL_GPU_WORKLOAD, ProviderAdapter, REPOSITORY,
-    SOURCE_SHA, prepare,
+    SOURCE_SHA, prepare, provider_submission_failure_state,
 )
 
 
@@ -100,6 +100,32 @@ def test_submit_reconciles_kaggle_before_create_and_returns_handle():
     result = ProviderAdapter(kaggle, FakeBackend("huggingface_space"), clock=lambda: 1000).submit("owner-1", args)
     assert kaggle.started == 0
     assert result["machine_state"]["provider_handle"] == kaggle.reconciled
+
+
+def test_ambiguous_provider_submission_reconciliation_recovers_same_handle_without_starting_again():
+    kaggle = FakeBackend("kaggle")
+    run_id = "1" * 32
+    fingerprint = "2" * 64
+    recovered_handle = {"provider": "kaggle", "run_id": run_id,
+                        "plan_fingerprint": fingerprint, "version": 7}
+    kaggle.reconciled = recovered_handle
+    run = {"id": run_id, "fingerprint": fingerprint,
+           "plan": {"provider": "kaggle"}}
+
+    result = ProviderAdapter(kaggle, None).reconcile_submission(run)
+
+    assert result["status"] == "pending"
+    assert result["machine_state"]["state"] == "running"
+    assert result["machine_state"]["provider_handle"] == recovered_handle
+    assert kaggle.started == 0, "reconciliation must never submit a replacement job"
+
+
+def test_provider_submission_failures_stay_uncertain_unless_pre_submit_rejection_is_proven():
+    assert provider_submission_failure_state("provider_submission", "kaggle_submission_unknown") == "uncertain"
+    assert provider_submission_failure_state("submission_persistence", "provider_operation_failed") == "uncertain"
+    assert provider_submission_failure_state("worker_spawn", "provider_submit_worker_spawn_unknown") == "uncertain"
+    assert provider_submission_failure_state("provider_submission", "kaggle_quota_insufficient") == "failed"
+    assert provider_submission_failure_state("submission_validation", "invalid_arguments") == "failed"
 
 
 def test_submission_validation_has_no_provider_side_effect():

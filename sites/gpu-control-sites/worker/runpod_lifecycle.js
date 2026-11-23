@@ -231,7 +231,16 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
   const accountScopeSha256 = await deriveProviderAccountScopeHash({ scopeId: env.RUNPOD_ACCOUNT_SCOPE_ID,
     hmacKeyB64: env.RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64 });
   let lease = await currentLease(env, accountScopeSha256);
-  if (!lease || lease.run_id !== runId) throw new Error("RUNPOD_ACCOUNT_LEASE_MISSING");
+  if (!lease || lease.run_id !== runId) {
+    // The account-wide lease is intentionally reused after cleanup. A later
+    // run therefore replaces its run_id; that must not make an older,
+    // already-terminal result unreadable. Only unfinished runs require the
+    // current lease because only they may need provider reconciliation or
+    // cleanup side effects.
+    if (["succeeded", "failed", "cancelled"].includes(row.state) &&
+        row.cleanup_state === "confirmed" && row.cleanup_receipt_json) return row;
+    throw new Error("RUNPOD_ACCOUNT_LEASE_MISSING");
+  }
   if (lease.state === "active" && !JOB_ID.test(row.provider_job_id || "") && JOB_ID.test(lease.provider_job_id || "")) {
     const recovered = await env.DB.prepare(`UPDATE runs SET provider_job_id=?, provider_phase='provisioning', updated_at=?
       WHERE id=? AND owner_id=? AND state='running' AND provider_job_id IS NULL RETURNING id`)

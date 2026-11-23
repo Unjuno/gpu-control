@@ -1,9 +1,25 @@
 from __future__ import annotations
 
+import sys
+from types import ModuleType
 from types import SimpleNamespace
 
 import pytest
-import modal
+
+try:
+    import modal
+except ImportError:
+    # This backend unit suite exercises only injected lookups and exception
+    # handling; the real Modal SDK is intentionally not a CI dependency.
+    modal = ModuleType("modal")
+    modal.exception = SimpleNamespace(
+        TimeoutError=type("TimeoutError", (Exception,), {}),
+        OutputExpiredError=type("OutputExpiredError", (Exception,), {}),
+        InputCancellation=type("InputCancellation", (Exception,), {}),
+    )
+    modal.Function = SimpleNamespace()
+    modal.FunctionCall = SimpleNamespace()
+    sys.modules["modal"] = modal
 
 from modal_gpu_backend import ModalGpuBackend
 from provider_adapter_core import MODAL_GPU_IMAGE_DIGEST, MODAL_GPU_SOURCE_SHA, MODAL_GPU_WORKLOAD
@@ -47,6 +63,11 @@ def run():
     return {"id": RUN_ID, "fingerprint": FINGERPRINT}
 
 
+class FakeSubmissionStore(dict):
+    def put(self, key, value):
+        self[key] = value
+
+
 def result(**overrides):
     return {
         "schema_version": 1, "provider": "modal_gpu", "workload": MODAL_GPU_WORKLOAD,
@@ -72,6 +93,28 @@ def test_backend_spawns_only_fixed_function_and_validates_gpu_result():
     assert observed.result["gpu_used"] is True
     backend.cleanup(handle)
     assert backend.is_clean(handle) is True
+
+
+def test_backend_persists_and_reconciles_modal_call_handle_by_owner_bound_run():
+    call = FakeCall(pending=True)
+    function = FakeFunction(call)
+    owner_binding = "d" * 64
+    store = FakeSubmissionStore({RUN_ID: {
+        "state": "running", "provider": "modal_gpu", "run_id": RUN_ID,
+        "plan_fingerprint": FINGERPRINT, "owner_binding_sha256": owner_binding,
+    }})
+    run_value = {**run(), "plan": {"provider": "modal_gpu", "owner_binding_sha256": owner_binding}}
+    backend = ModalGpuBackend(function_lookup=lambda: function, call_lookup=lambda _call_id: call,
+                              submission_store=store)
+
+    handle = backend.start(run_value)
+
+    assert function.arguments == (RUN_ID, MODAL_GPU_SOURCE_SHA, FINGERPRINT)
+    assert store[RUN_ID]["provider_handle"] == handle
+    assert backend.reconcile(run_value) == handle
+
+    other_owner = {**run_value, "plan": {"provider": "modal_gpu", "owner_binding_sha256": "e" * 64}}
+    assert backend.reconcile(other_owner) is None
 
 
 def test_backend_treats_zero_timeout_as_running_and_rejects_mismatched_result():
