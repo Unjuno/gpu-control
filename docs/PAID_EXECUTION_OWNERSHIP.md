@@ -29,7 +29,7 @@ Before live enablement, that Environment must be configured with:
 
 - required reviewer: `Unjuno` only;
 - deployment branches restricted to the protected `main` branch;
-- self-review allowed, because the same single owner initiates and approves the paid run;
+- self-review prevented; approval must come from an independent repository owner reviewer;
 - no provider credentials exposed to preflight, CI, PR, fork, issue, comment, or dry-run jobs.
 
 Environment protection is a separate hard gate. The Python authorization check does not replace it.

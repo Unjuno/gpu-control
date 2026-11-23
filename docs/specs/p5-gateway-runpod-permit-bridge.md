@@ -296,6 +296,18 @@ Settings representations, like credentials and the HMAC key. This fixes the
 identity contract for local/fake dispatch; production secret distribution and
 live provider acceptance remain separate gates.
 
+2026-11-13 follow-up: PR #68 adds a D1 schema and Worker-side storage primitive
+for HMAC-keyed RunPod account leases, with generation/revision fencing,
+append-only transition events, and evidence-gated release after cleanup. The
+primitive is packaged and covered by a Node SQLite D1-contract shim, but it is
+not imported by the Sites request/RunPod dispatch path. It does not yet make
+the reservation atomic with submission intent, coordinate provider create,
+recover ambiguous submissions, or prove account-wide serialization on live D1.
+The prior Gateway database design above is historical; this D1 foundation does
+not satisfy P5.3 or P5.4 acceptance. Keep RunPod admission closed until the
+Sites adapter is wired and the cross-process and live provider lifecycle gates
+below have evidence.
+
 ## Acceptance evidence
 
 The bridge is not accepted by passing unit tests alone. Record exact control

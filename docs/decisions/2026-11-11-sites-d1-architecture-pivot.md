@@ -1,6 +1,24 @@
 # Sites + D1 architecture pivot
 
-**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. One free TinyStories CPU inference and result retrieval are verified through ChatGPT; recovery, identity isolation, artifacts, and GPU execution remain open.
+**Status:** Sites + D1 is the accepted and deployed ChatGPT control-plane direction. A historical free TinyStories inference and artifact retrieval were verified through the now-retired local Runner. On 2026-11-15, the current Modal deployment completed one owner-confirmed TinyStories CPU inference with a digest-verified R2 artifact and confirmed Sandbox cleanup. That accepts only the fixed CPU vertical; repeatability, recovery/stability drills, identity isolation, GPU execution, and RunPod remain open. See [the current Modal CPU acceptance record](../acceptance/2026-11-15-sites-modal-cpu-success.md).
+
+## 2026-11-17 amendment — maintained provider Gateway
+
+Sites + D1/R2 remains the deployed owner-facing control plane for its accepted
+Modal CPU path. The later Kaggle/Hugging Face integration directive also
+requires preserving the existing Gateway, Remote MCP, OAuth, PostgreSQL,
+worker, and job-management contracts. The restored Gateway is therefore a
+maintained provider execution service and direct Remote MCP for Kaggle, private
+Hub artifacts, and private ZeroGPU evaluation; it is not a reason to restore
+Vercel or Neon.
+
+The historical statements below that the Gateway source was removed or was
+legacy-only describe the 2026-11-12 snapshot and are superseded for current
+source. Sites does not automatically acquire the Gateway provider registry.
+Until a signed, replay-protected owner-delegation bridge is implemented, the
+Kaggle/Hugging Face acceptance uses the Gateway's own OAuth-protected Remote
+MCP. Neither offline Gateway tests nor a Sites deployment proves that live
+connection.
 
 ## P0 baseline refresh — 2026-11-11 (historical snapshot; superseded below)
 
@@ -144,6 +162,11 @@ The first migration slice should not move every provider or destroy rollback dat
 **Next implementation sequence (refreshed 2026-11-12):** (1) close the outstanding Runner credential-rotation and post-result crash-window checks; (2) rehearse D1 export and restore against an isolated target, then define R2 retention/orphan cleanup; (3) verify owner isolation and revocation using a genuinely separate authenticated Site user; (4) retire external Vercel project/integration and Neon only after residual Neon rows have an explicit data disposition; (5) validate real GPU provider execution through Sites while preserving independent price, quota, cleanup, and authorization gates. Keep paid admission parked until those gates pass. The legacy FastAPI/PostgreSQL source, lockfile, dependencies, and test suite have now been removed from the working tree; the independent Project bridge and reusable tiny-LM workload remain outside `gateway/`.
 
 ### User-confirmed platform direction — 2026-11-12
+
+This dated direction preceded the later retirement of the local Runner. The
+active target now uses ChatGPT Sites as the control plane with Modal/RunPod as
+compute providers; the Runner and its Keychain authentication are retired.
+Current status is maintained in `docs/STATUS.md` and `docs/CHATGPT_SETUP.md`.
 
 - ChatGPT Sites is the product interface and control-plane hosting target. Do not add or retain Vercel product features, deployment checks, or runtime assumptions. Remove the external Vercel project and integration after verifying that GitHub required checks, DNS, secrets, and rollback procedures do not depend on it. Historical build and incident evidence may remain in `docs/archive/`.
 - Cloudflare D1 is the selected control-plane database. PostgreSQL is **not required** for the Sites product. D1 already persists the live plans, runs, idempotency, leases, and Runner heartbeats. R2 holds result bytes. The separate Runner executes only the fixed registered workload and does not require a PostgreSQL service.

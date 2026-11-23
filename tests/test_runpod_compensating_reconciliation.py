@@ -2,20 +2,29 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from urllib.error import URLError
 
 import pytest
 
+from gpu_control.completion import CompletionChallenge, execution_name_for
 from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.human_authorization import LiveExecutionPermit
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
 from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
+from gpu_control.providers.runpod_network_volume import (
+    RunPodNetworkVolumeEvidence,
+    RunPodNetworkVolumeS3Client,
+    RunPodS3Credentials,
+)
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
 from gpu_control.providers.runpod_reconciliation import build_pod_inventory_evidence
-from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodV2Error
+from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2Error
+from conftest import issue_live_permit_for_plan
 
 
 NOW = datetime(2026, 8, 28, 1, 30, tzinfo=timezone.utc)
 DIGEST = "sha256:" + "a" * 64
+SECRET = bytes(range(32))
 
 
 def pricing() -> RunPodCatalogPricingEvidence:
@@ -58,17 +67,7 @@ def plan() -> ApprovedExecutionPlan:
 
 
 def permit(value: ApprovedExecutionPlan) -> LiveExecutionPermit:
-    return LiveExecutionPermit(
-        plan_fingerprint=value.fingerprint(),
-        actor="Unjuno",
-        decision_record_id="decision-compensating",
-        human_authorization_id="auth-compensating",
-        human_authorization_reference=value.authorization_reference,
-        paid_authorization_reference="github-actions:compensating",
-        repository_security_reference="github:main-protection:sha256:" + "d" * 64,
-        control_plane_sha="e" * 40,
-        valid_until_utc="2026-08-28T01:40:00Z",
-    )
+    return issue_live_permit_for_plan(value, valid_until_utc="2026-08-28T01:40:00Z")
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -80,12 +79,42 @@ def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
     )
 
 
+def completion(value: ApprovedExecutionPlan) -> RunPodCompletionLaunch:
+    nonce = "b" * 64
+    return RunPodCompletionLaunch(
+        challenge=CompletionChallenge(
+            key_id="paid-runpod-v3",
+            nonce=nonce,
+            plan_fingerprint=value.fingerprint(),
+            execution_name=execution_name_for(value.fingerprint(), nonce),
+            source_sha=value.target_sha,
+            image_digest=value.image_digest,
+        ),
+        secret_key=SECRET,
+    )
+
+
+def volume() -> RunPodNetworkVolumeEvidence:
+    return RunPodNetworkVolumeEvidence(
+        network_volume_id="volume-123",
+        data_center_id="US-KS-2",
+        verification_reference="runpod-volume:test",
+    )
+
+
+def unavailable_s3(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+    raise URLError("offline test transport")
+
+
 def invalid_create_response(value: ApprovedExecutionPlan) -> dict[str, object]:
     return {
         "id": "pod-123",
+        "name": completion(value).challenge.execution_name,
         "image": image(value).image_reference,
         "gpu": {"id": value.provider_resource_id, "count": 1},
         "cloud": "SECURE",
+        "dataCenterId": "US-KS-2",
+        "mounts": {"network": [{"volumeId": "volume-123", "path": "/outputs"}]},
         "cost": 0.45,
         "status": "PROVISIONING",
     }
@@ -97,7 +126,7 @@ class Client:
         self.create_calls = 0
         self.terminate_calls: list[str] = []
 
-    def create_pod(self, payload):  # type: ignore[no-untyped-def]
+    def create_pod(self, payload, **kwargs):  # type: ignore[no-untyped-def]
         self.create_calls += 1
         return invalid_create_response(self.value)
 
@@ -145,6 +174,14 @@ def adapter_with_inventory(pods: list[dict[str, object]]):  # type: ignore[no-un
     client = Client(value)
     occupancy = Occupancy(value)
     inventory = Inventory(value, pods)
+    launch = completion(value)
+    network_volume = volume()
+    result_client = RunPodNetworkVolumeS3Client(
+        network_volume,
+        RunPodS3Credentials(access_key_id="test-access", secret_access_key="test-secret"),
+        opener=unavailable_s3,
+        clock=lambda: NOW,
+    )
     adapter = RunPodV2Adapter(
         client=client,  # type: ignore[arg-type]
         approved_plan=value,
@@ -153,6 +190,10 @@ def adapter_with_inventory(pods: list[dict[str, object]]):  # type: ignore[no-un
         occupancy_probe=occupancy,
         live_permit=permit(value),
         inventory_probe=inventory,
+        completion_launch=launch,
+        network_volume=network_volume,
+        result_client=result_client,
+        expected_workload_id="orbitune-runpod-training-canary-v1",
         clock=lambda: NOW + timedelta(seconds=1),
     )
     return value, client, inventory, adapter

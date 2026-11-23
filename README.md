@@ -19,15 +19,33 @@ objective
 
 ## Current status
 
-The project is **usable today for offline validation and control-plane development**. The ChatGPT Site is published and a fixed Modal CPU adapter is implemented and deployed, but the current Site deployment has not yet passed provider readiness from the ChatGPT tool path. Paid execution remains parked.
+The production control plane is the authenticated ChatGPT Sites MCP endpoint at
+`https://gpu-control-sites.unjuno.chatgpt.site`. It exposes registered workloads
+for exactly four compute providers: Modal, RunPod, Kaggle and Hugging Face.
+Vercel, Neon, Railway, an external PostgreSQL database and the retired macOS
+Keychain Runner are not runtime dependencies.
+
+Real GPU execution is accepted for all four providers. RunPod run
+`a4284e1e…e31d71` returned one RTX 2000 Ada; Modal run `d9df87e1…82be`
+returned one Tesla T4; Kaggle run `87d37302…de87` completed the fixed 100-step
+training workload on a Tesla T4 and published its immutable private artifact;
+and Hugging Face run `58ca7f86…117a` evaluated that exact artifact on a ZeroGPU
+RTX PRO 6000 Blackwell MIG slice. Every run returned `gpu_used=true` and
+confirmed cleanup. Kaggle and Hugging Face prohibit paid fallback.
+
+Modal execution is usage-billed. The observed Workspace usage limit is `$30`,
+while GPU Control independently enforces a stricter `$1` monthly project ledger
+and `$0.01` per Modal GPU run. RunPod has a `$1` per-run ceiling. Kaggle and
+Hugging Face plans are fixed at `$0` with paid fallback prohibited. Credits are
+not treated as a guarantee of zero charges.
 
 | Capability | Current state |
 | --- | --- |
 | Standalone CLI and locked install | Ready |
 | ChatGPT MCP endpoint | Sites Worker is published at `https://gpu-control-sites.unjuno.chatgpt.site`; owner-scoped capabilities and experiment-list tools were accepted from this ChatGPT account |
-| Registered CPU experiment through ChatGPT | Fixed Modal adapter and authenticated health path are implemented; the latest capabilities call still reported the provider unavailable, and a follow-up Site deployment/ChatGPT run is pending |
-| Real model inference through ChatGPT | Historical TinyStories 15M CPU runs passed source, result, and cleanup checks. They do not prove current readiness, broad model quality, or GPU capability |
-| GPU execution | Not yet verified |
+| Registered CPU experiment through ChatGPT | Accepted for one owner-confirmed fixed Modal run. Exact-plan owner confirmation remains required per run; Modal control-function charges remain separate from the Sandbox estimate. |
+| Real model inference through ChatGPT | Accepted for one fixed TinyStories 15M CPU run with verified R2 artifact digest and confirmed cleanup; recovery and repeatability remain open |
+| GPU execution | Accepted for fixed RunPod RTX 2000 Ada, Modal T4, Kaggle Tesla T4 training, and Hugging Face ZeroGPU RTX PRO 6000 Blackwell evaluation |
 | Offline request/resource validation | Ready |
 | Public GitHub repository + exact SHA + Dockerfile verification | Ready |
 | Synthetic provider/controller self-test | Ready |
@@ -37,26 +55,21 @@ The project is **usable today for offline validation and control-plane developme
 | Authenticated Orbitune completion/result parsing | Ready offline |
 | Orbitune paid-canary result acceptance | Ready offline |
 | Generic external Dockerfile execution | Not enabled |
-| Structured exact human authorization for paid live execution | Partial; RunPod authorization is not wired to Sites Worker admission |
-| Production RunPod authenticated result transport | Blocked pending a verified supported transport |
-| Paid RunPod workflow | Not enabled; Sites admission wiring and authenticated result transport remain incomplete |
-| Live paid GPU execution | Disabled / parked |
+| Structured exact human authorization for paid live execution | Implemented with owner-bound, ten-minute, one-use plan authorization |
+| Production RunPod authenticated result transport | Accepted for the fixed canary through the signed provider adapter relay |
+| Paid RunPod workflow | Enabled only for the fixed registered canary with a `$1` per-run ceiling |
+| Live paid GPU execution | Accepted for bounded RunPod and Modal canaries; not a generic GPU shell |
 
-The current hosted product path is the public ChatGPT Sites Worker with D1/R2.
-Stateful MCP tools require the authenticated Sites identity and owner-scoped
-queries; provider admission remains disabled. The current Site Worker source
-allows only the configured owner and has a fixed Modal CPU adapter. A local
-regression suite covers its owner boundary and provider-token parsing, but the
-latest production capabilities call still reported Modal unavailable; no
-current ChatGPT CPU run has been accepted. Access from another ChatGPT
-account/process is not yet proven. Anonymous HTTP probes were blocked at the
-edge (HTTP 403), so they do not independently verify the Worker's public
-authentication behavior. The old local Runner and its Keychain credentials are
-retired. The target compute order is Modal for a small fixed workload, then
-Runpod for separately gated GPU experiments. Vercel and Neon/PostgreSQL are
-not target dependencies. The legacy FastAPI/PostgreSQL Gateway source and
-runtime dependencies have been removed from the tracked tree; historical
-acceptance evidence remains under `docs/acceptance/` and in Git history.
+The current hosted product path is the ChatGPT Sites Worker with D1/R2. The
+Site URL is public, while every stateful MCP call requires authenticated Sites
+identity plus the server-side owner allowlist. D1 owns plans, one-use
+authorization, provider-specific budgets, run state and cleanup evidence; R2
+stores bounded artifacts. Each experiment requires one exact-plan write
+confirmation, after which submit, monitoring, result retrieval and cleanup are
+one lifecycle and do not require repeated conversational approval. A genuine
+separate-account denial remains a live acceptance item. PR #68 remains an open
+Draft until the final exact-head review and normal ChatGPT-chat acceptance are
+complete.
 
 See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the ChatGPT integration,
 [docs/RELEASE_MATRIX.md](docs/RELEASE_MATRIX.md) for current acceptance gates,

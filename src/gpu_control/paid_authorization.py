@@ -160,9 +160,14 @@ def authorize_paid_execution(
         raise PaidAuthorizationError("workflow_ref is not the owner-only paid workflow on main")
 
     environment_name = _text(environment.get("name"), "paid environment name")
-    required_reviewer = _text(environment.get("required_reviewer"), "paid environment required_reviewer")
-    if required_reviewer != expected_actor:
-        raise PaidAuthorizationError("paid environment reviewer must be the authorized actor")
+    reviewer_value = environment.get("required_reviewer")
+    if reviewer_value is None:
+        raise PaidAuthorizationError("paid environment must configure an independent reviewer")
+    required_reviewer = _text(reviewer_value, "paid environment required_reviewer")
+    if required_reviewer == expected_actor:
+        raise PaidAuthorizationError("paid environment reviewer must be independent from the authorized actor")
+    if environment.get("prevent_self_review") is not True:
+        raise PaidAuthorizationError("paid environment must prevent self-review")
     if environment.get("secret_scope") != "environment_only":
         raise PaidAuthorizationError("paid provider secret must be environment-scoped")
     secrets = environment.get("secret_names")

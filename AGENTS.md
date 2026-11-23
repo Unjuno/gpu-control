@@ -21,6 +21,13 @@ The constitutional priority is:
 
 Do not jump directly to paid GPU compute.
 
+For the authenticated ChatGPT Sites MCP lifecycle, use the project skill at
+`.cursor/skills/gpu-control-operator/SKILL.md`. It defines how an agent carries
+one current execution instruction through prepare, exact submit, asynchronous
+monitoring, result/artifact verification and cleanup without duplicate
+conversational approval. The skill does not grant execution or spending
+authority and remains subordinate to this policy and repository state.
+
 Use the cheapest, smallest, most local execution environment that can answer the current question. Paid GPU execution is an escalation stage, not the default development loop.
 
 Defensive controls must preserve the user's objective whenever a safer path remains. Rejecting one action is not the same as abandoning the goal.
@@ -29,7 +36,20 @@ Defensive controls must preserve the user's objective whenever a safer path rema
 
 Read `policies/repository-state.yaml` before proposing execution changes. When it says `mode: parked`, the repository is intentionally being held without a fully authorized live GPU path.
 
-While parked, do not create a paid workflow, configure or reference provider secrets, enable RunPod live calls, enable generic external Dockerfile execution, or treat implementation progress as a reason to activate paid compute. Documentation, policy, offline tests, mock-provider work, source validation, and the repository-owned trusted container are still allowed.
+While parked, do not create a paid workflow, configure or reference provider secrets for GPU/paid paths, enable RunPod live calls, enable generic external Dockerfile execution, or treat implementation progress as a reason to activate paid compute. The sole credential-provisioning exception is the exact non-executing, endpoint-scoped RunPod key ceremony in `policies/repository-state.yaml`; it permits storage only after its review gates pass and does not permit an adapter deployment, provider probe, admission change, or paid call. Documentation, policy, offline tests, mock-provider work, source validation, and the repository-owned trusted container are still allowed.
+
+The only external-compute exceptions while parked are the exact lanes in
+`policies/repository-state.yaml`. `modal_cpu_smoke_exception` permits the
+registered one-run Modal CPU inference within its fixed bounds.
+`free_gpu_acceptance_exception` permits only one owner-confirmed Kaggle training
+job and one owner-confirmed private ZeroGPU evaluation for the exact registered
+Orbitune commit, after included quota is verified. It permits a trusted worker
+to reference provider credentials but never exposes them to the public API,
+ChatGPT, MCP results, Kaggle, or workload code. It forbids paid fallback,
+Hugging Face Jobs, ZeroGPU credit extension, ambiguous-submit retries, and
+public artifacts/Spaces. Configuration alone is not execution authorization.
+Neither exception permits RunPod GPU execution, generic external containers,
+paid training, or unattended retries.
 
 Leaving parked mode requires an explicit human request plus a reviewed repository change. Changing the mode is not itself spend authorization; all independent GitHub, provider, pricing, workload, prompt/context security, completion-evidence, and cleanup gates still apply.
 

@@ -44,9 +44,8 @@ def test_main_must_be_protected_before_live_paid_authorization() -> None:
         "Python 3.12",
         "Python 3.13",
         "Trusted reference container",
-        "Gateway offline tests",
-        "Gateway comment bridge tests",
         "Project bridge tests",
+        "Sites Worker and D1 contract",
     ]
     assert controls["force_pushes_forbidden"] is True
     assert controls["deletions_forbidden"] is True
@@ -61,10 +60,10 @@ def test_no_paid_workflow_or_provider_secret_access_exists_while_live_is_disable
         assert "environment: paid-runpod" not in content
 
 
-def test_paid_secret_is_environment_only_and_owner_reviewed() -> None:
+def test_paid_secret_is_environment_only_and_independent_review_is_not_configured_yet() -> None:
     environment = policy()["github_environment"]
     assert environment["name"] == "paid-runpod"
-    assert environment["required_reviewer"] == "Unjuno"
+    assert environment["required_reviewer"] is None
     assert environment["prevent_self_review"] is True
     assert environment["protected_branch_only"] is True
     assert environment["secret_scope"] == "environment_only"

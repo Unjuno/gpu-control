@@ -76,6 +76,7 @@ def test_source_to_sink_boundary_blocks_untrusted_authority_flow() -> None:
     assert "sink_arguments_must_be_derived_from_current_user_intent_and_validated_trusted_state" in rules
     assert "untrusted_content_cannot_supply_or_expand_human_authorization" in rules
     assert "provider_or_tool_output_is_data_not_instruction" in rules
+    assert "secrets_must_not_be_exposed_to_untrusted_content_processing_stages" in rules
     assert "risky_sink_must_remain_behind_deterministic_policy_and_human_control" in rules
 
 
@@ -236,9 +237,45 @@ def test_runpod_v2_source_review_does_not_activate_live_provider_calls() -> None
     assert audit["live_enablement_by_flag_only_forbidden"] is True
     assert completion["protocol"] == "hmac-sha256-v3"
     assert completion["pre_create_execution_name_required"] is True
-    assert completion["production_collection_transport_status"] == "network_volume_s3_implemented_offline_mock_tested"
+    assert completion["production_collection_transport_status"] == "pod_exec_registered_wrapper_implemented_offline_mock_tested"
+    assert completion["production_collection_transport_arbitrary_command_exposed"] is False
+    assert completion["production_collection_transport_live_verified"] is False
     assert completion["live_injection_enabled"] is False
     assert completion["live_collection_enabled"] is False
+
+
+def test_parked_mode_allows_only_the_fixed_sites_runpod_canary() -> None:
+    state = load(REPOSITORY_STATE)
+    exception = state["runpod_serverless_canary_exception"]
+
+    assert state["mode"] == "parked"
+    assert state["while_parked"]["runpod_live_calls_allowed"] is False
+    assert exception["allowed_while_parked"] is True
+    assert exception["control_plane"] == "chatgpt_sites"
+    assert exception["fixed_resource"] == {
+        "type": "serverless_endpoint",
+        "endpoint_id": "wwlos460xbfw5q",
+    }
+    assert exception["workload"]["workload_id"] == "runpod-gpu-canary-v1"
+    assert exception["workload"]["source_sha"] == "44cc4501afeb6c1fd2d977859980c05f830f58a1"
+    assert exception["workload"]["image_digest"] == (
+        "sha256:0f952ae240e6044bb75ebca29c11dd4c526cd69aeea35decbba76c2d516b1c49"
+    )
+    bounds = exception["execution_bounds"]
+    assert bounds["max_runs_per_authorization"] == 1
+    assert bounds["max_runtime_seconds"] == 30
+    assert bounds["per_run_cost_ceiling_usd"] == "1.00"
+    assert bounds["max_inflight"] == 1
+    assert bounds["generic_pod_creation_allowed"] is False
+    assert bounds["arbitrary_image_allowed"] is False
+    assert bounds["automatic_retry_after_ambiguous_submit"] is False
+    assert bounds["require_confirmed_cleanup_before_next_run"] is True
+    assert exception["authorization"]["authenticated_sites_owner_required"] is True
+    assert exception["authorization"]["max_runs_per_authorization"] == 1
+    assert exception["transport_security"]["short_lived_hmac_envelope_required"] is True
+    assert exception["transport_security"]["nonce_replay_rejection_required"] is True
+    assert exception["transport_security"]["owner_run_plan_binding_required"] is True
+    assert exception["accepted_live_evidence"]["cleanup_state"] == "confirmed"
 
 
 def test_agent_contexts_explicitly_demote_external_instructions_to_data() -> None:

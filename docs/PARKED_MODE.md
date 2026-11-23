@@ -32,7 +32,27 @@ While `policies/repository-state.yaml` says `mode: parked`:
 - bare or copied authorization must not become live spend authorization;
 - PR, fork, issue, comment, schedule, `repository_dispatch`, and `pull_request_target` events must not become paid-compute entrypoints.
 
+The reviewed RunPod provisioning ceremony recorded in
+`policies/repository-state.yaml` permits one endpoint-scoped key to be stored
+only in the `unjuno/main` Modal secret boundary, with no value returned to chat
+or logs. A separate, narrow `runpod_serverless_canary_exception` permits only
+the fixed Sites-owned serverless GPU canary: immutable source and image,
+endpoint-scoped credentials, short-lived HMAC and nonce protection, exact
+owner/run/plan binding, one-use confirmation, one in-flight run, a 30-second
+runtime, a `$1.00` per-run ceiling, and confirmed cleanup. It does not enable
+the legacy generic Pod/training workflow, arbitrary images, CI-triggered
+execution, or account-wide RunPod access.
+
 CI cross-checks these invariants against the existing paid, RunPod, agent, context-trust, container, and workflow configuration.
+
+Two exact, non-general exceptions are machine-readable in that policy. The
+Modal CPU smoke lane remains bounded to its registered one-run inference. The
+Kaggle/Hugging Face lane permits only the fixed 100-step Orbitune acceptance
+job and one private ZeroGPU evaluation after current included-quota evidence
+and exact one-use owner confirmation. It forbids paid fallback, public
+artifacts/Spaces, Hugging Face Jobs, write credentials in provider workloads,
+and retrying an ambiguous submission. These exceptions do not change `mode` or
+authorize any RunPod operation beyond the fixed serverless canary above.
 
 ## Selected workload
 
@@ -52,7 +72,7 @@ completion       gpu-control-hmac-sha256-v3
 
 That exact **main-branch SHA** has a successful full pytest run (`33313993621`) and a successful `cpu-contract-smoke` workflow (`33313993623`). The latter is a CPU contract check; it is not a RunPod allocation or live provider smoke test. The selected protocol is `gpu-control-hmac-sha256-v3`; the repository records v2 compatibility as temporary migration support only. The workload signer boundary is root UID 0 and training UID/GID 10001.
 
-The v3 signed completion evidence binds the result digest and observed process exit code. The control-plane verifier and Network Volume/S3 result-transport path are implemented and mock-tested offline; live secret injection, provider result collection, and cleanup remain unverified.
+The v3 signed completion evidence binds the result digest and effective process exit code. The digest-pinned Orbitune image captures the per-run key in a root-owned wrapper, removes it before launching training as UID/GID 10001, and emits the signed evidence. The control-plane verifier refuses submission without the authenticated Network Volume/S3 path. This is implemented and mock-tested offline; live secret injection, provider result collection, and cleanup remain unverified.
 
 An immutable GHCR image is published for the selected source SHA. Its digest is recorded in `policies/repository-state.yaml`. Image publication does not authorize or prove paid execution.
 
