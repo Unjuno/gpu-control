@@ -582,7 +582,6 @@ function validGatewayPrepare(input) {
   return parameters.artifact_repo_id === WORKLOADS.huggingface_evaluation.artifact_repository &&
     /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parameters.artifact_repo_id) &&
     typeof parameters.artifact_revision === "string" && /^[0-9a-f]{40}$/.test(parameters.artifact_revision) &&
-    parameters.artifact_revision === WORKLOADS.huggingface_evaluation.source_revision &&
     typeof parameters.artifact_path === "string" && /^runs\/[0-9a-f]{32}\/orbitune-output\.zip$/.test(parameters.artifact_path) &&
     typeof parameters.artifact_sha256 === "string" && /^[0-9a-f]{64}$/.test(parameters.artifact_sha256);
 }

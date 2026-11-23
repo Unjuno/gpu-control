@@ -1553,7 +1553,9 @@ test("registered RunPod workload ID resolves its fixed plan without allocating a
 
 test("registered ZeroGPU workload resolves only an owned completed Kaggle artifact", async () => {
   const sourceRun = "1".repeat(32);
-  const revision = "2e9df7dcd8815cf3059ae94ce6504315e63a85ab";
+  // Artifact repository commits are created per run and are distinct from
+  // the fixed Hugging Face Space source revision in the workload registry.
+  const revision = "8".repeat(40);
   const artifactSha = "3".repeat(64);
   const env = environment();
   env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
@@ -1574,6 +1576,7 @@ test("registered ZeroGPU workload resolves only an owned completed Kaggle artifa
       return { results: [] };
     },
     async first() {
+      if (sql.includes("FROM runs r JOIN plans p")) return null;
       if (sql.includes("gateway_delegated_plans") && sql.includes("WHERE owner_id=? AND id=?")) return {
         source_run_id: sourceRun, approved_plan_json: JSON.stringify({ source_sha: sourceSha }),
         provider_response_json: JSON.stringify({ cleanup_confirmed: true, result: { external_artifacts: [{
@@ -1598,9 +1601,12 @@ test("registered ZeroGPU workload resolves only an owned completed Kaggle artifa
   };
 
   try {
-    const response = await toolCall(env, "test-owner", "experiment_prepare", { workload_id: "orbitune-zero-gpu-eval-v1" });
+    const response = await toolCall(env, "test-owner", "experiment_prepare", {
+      workload_id: "orbitune-zero-gpu-eval-v1", source_run_id: sourceRun,
+    });
     const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(result.status, "ok");
+    assert.equal(result.status, "ok", JSON.stringify(result));
+    assert.equal(result.machine_state.source_run_id, sourceRun);
     assert.equal(delegated.repository, "Unjuno/orbitune");
     assert.equal(delegated.commit, "44a1b806160ab5bc721a370d034a6dfcb28f27a8");
     assert.equal(delegated.parameters.artifact_revision, revision);
