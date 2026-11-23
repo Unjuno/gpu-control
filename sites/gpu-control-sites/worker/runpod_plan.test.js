@@ -43,6 +43,13 @@ test("prepares one immutable owner-bound Runpod price plan without allocating", 
   assert.equal(result.provider_approved_plan.max_cost_usd, "1.00");
   assert.equal(result.provider_approved_plan.image_digest, `sha256:${"a".repeat(64)}`);
   assert.equal(result.machine_state.state, "prepared");
+
+  const replay = await prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1001 });
+  assert.equal(offers, 1, "an idempotent retry must not resample mutable price evidence");
+  assert.equal(replay.machine_state.run_id, result.machine_state.run_id);
+  assert.equal(replay.plan_fingerprint, result.plan_fingerprint);
+  assert.deepEqual(replay.provider_approved_plan, result.provider_approved_plan);
+  assert.equal(replay.machine_state.idempotent_replay, true);
 });
 
 test("default prepare uses the pinned maximum without management API access", async () => {

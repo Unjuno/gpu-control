@@ -26,6 +26,10 @@ def test_adapter_packages_sites_owned_provider_runtime() -> None:
     assert 'from provider_runtime.settings import ProviderSettings' in source
     assert '.add_local_dir(str(MODAL_ROOT), remote_path="/root/site-modal", copy=True)' in source
     assert "WORKLOAD_ROOT" not in source
+    assert 'from workload_registry import WORKLOADS' in source
+    assert (ADAPTER.with_name("workload_registry.py")).is_file()
+    registry = (ADAPTER.parents[1] / "workloads" / "registry.json").read_text(encoding="utf-8")
+    assert "orbitune-zero-gpu-eval-v1" in registry
     runtime = ADAPTER.with_name("provider_runtime")
     assert (runtime / "workloads" / "orbitune-kaggle-100" / "train.py").is_file()
     assert (runtime / "workloads" / "orbitune-zero-gpu-eval" / "app.py").is_file()

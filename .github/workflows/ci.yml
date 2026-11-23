@@ -92,6 +92,8 @@ jobs:
         run: npm run build
       - name: Validate Site bindings and migrations
         run: npm run validate
+      - name: Exercise populated forward D1 migration
+        run: npm run test:migrations
       - name: Test Worker owner, lifecycle, and artifact boundaries
         run: npm test
   reference-workload:

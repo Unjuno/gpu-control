@@ -13,28 +13,28 @@ import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from workload_registry import WORKLOADS, KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD
 
-KAGGLE_WORKLOAD = "orbitune-kaggle-100-step-v1"
-HF_WORKLOAD = "orbitune-zero-gpu-eval-v1"
-MODAL_GPU_WORKLOAD = "modal-gpu-vector-add-v1"
+
 MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00"
 MODAL_GPU_PROVIDER_USAGE_LIMIT_CENTS = 3000
-REPOSITORY = "Unjuno/orbitune"
-SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
-GPU_CONTROL_REPOSITORY = "Unjuno/gpu-control"
-MODAL_GPU_SOURCE_SHA = "58a24082b73238b982e64a17b7d0624fc2594bab"
-MODAL_GPU_IMAGE_DIGEST = "sha256:b0840d8b2a13e573141e158c50f1f8375a7eb853529172effea49cacfc10c919"
-KAGGLE_IMAGE = "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd"
-HF_IMAGE = "sha256:5d0757c0c6d35514bdd26618a11e028b635d766612c18404551007b2c168ac68"
-HF_REVISION = "2e9df7dcd8815cf3059ae94ce6504315e63a85ab"
-KAGGLE_RESOURCE = "UnjunoOrg/orbitune-100-step"
-HF_RESOURCE = "Unjuno/gpu-control-orbitune-zero-gpu"
+REPOSITORY = WORKLOADS["kaggle_training"]["repository"]
+SOURCE_SHA = WORKLOADS["kaggle_training"]["source_sha"]
+GPU_CONTROL_REPOSITORY = WORKLOADS["modal_gpu_canary"]["repository"]
+MODAL_GPU_SOURCE_SHA = WORKLOADS["modal_gpu_canary"]["source_sha"]
+MODAL_GPU_IMAGE_DIGEST = WORKLOADS["modal_gpu_canary"]["adapter_manifest"]["image_digest"]
+KAGGLE_IMAGE = WORKLOADS["kaggle_training"]["adapter_manifest"]["image_digest"]
+HF_IMAGE = WORKLOADS["huggingface_evaluation"]["adapter_manifest"]["image_digest"]
+HF_REVISION = WORKLOADS["huggingface_evaluation"]["source_revision"]
+KAGGLE_RESOURCE = WORKLOADS["kaggle_training"]["adapter_manifest"]["provider_resource_id"]
+HF_RESOURCE = WORKLOADS["huggingface_evaluation"]["adapter_manifest"]["provider_resource_id"]
 
 _RUN_ID = re.compile(r"^[0-9a-f]{32}$")
 _FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 _IDEMPOTENCY = re.compile(r"^[A-Za-z0-9_.:-]{8,128}$")
 _ARTIFACT_PATH = re.compile(r"^runs/[0-9a-f]{32}/orbitune-output\.zip$")
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+HF_ARTIFACT_REPOSITORY = WORKLOADS["huggingface_evaluation"]["artifact_repository"]
 
 
 class AdapterError(RuntimeError):
@@ -83,17 +83,17 @@ def _validate_prepare(arguments: object) -> dict[str, Any]:
         if (arguments["repository"] != REPOSITORY or arguments["commit"] != SOURCE_SHA or
                 "provider_evidence" in arguments or
                 arguments["max_cost_usd"] not in {"0", "0.0", "0.00", "0.000", "0.0000", "0.00000", "0.000000"} or
-                arguments["parameters"] or not 1 <= arguments["runtime_seconds"] <= 1800):
+                arguments["parameters"] or not 1 <= arguments["runtime_seconds"] <= WORKLOADS["kaggle_training"]["runtime_seconds"]):
             raise AdapterError("invalid_arguments")
     elif workload == HF_WORKLOAD:
         parameters = arguments["parameters"]
         if (arguments["repository"] != REPOSITORY or arguments["commit"] != SOURCE_SHA or
                 "provider_evidence" in arguments or
                 arguments["max_cost_usd"] not in {"0", "0.0", "0.00", "0.000", "0.0000", "0.00000", "0.000000"} or
-                not 1 <= arguments["runtime_seconds"] <= 60 or
+                not 1 <= arguments["runtime_seconds"] <= WORKLOADS["huggingface_evaluation"]["runtime_seconds"] or
                 set(parameters) != {"artifact_repo_id", "artifact_revision", "artifact_path", "artifact_sha256"} or
                 not isinstance(parameters["artifact_repo_id"], str) or _REPO.fullmatch(parameters["artifact_repo_id"]) is None or
-                parameters["artifact_repo_id"] != "Unjuno/gpu-control-orbitune-artifacts" or
+                parameters["artifact_repo_id"] != HF_ARTIFACT_REPOSITORY or
                 not isinstance(parameters["artifact_revision"], str) or re.fullmatch(r"[0-9a-f]{40}", parameters["artifact_revision"]) is None or
                 not isinstance(parameters["artifact_path"], str) or _ARTIFACT_PATH.fullmatch(parameters["artifact_path"]) is None or
                 not isinstance(parameters["artifact_sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", parameters["artifact_sha256"]) is None):
@@ -102,8 +102,8 @@ def _validate_prepare(arguments: object) -> dict[str, Any]:
         evidence = arguments.get("provider_evidence")
         if (arguments["repository"] != GPU_CONTROL_REPOSITORY or
                 arguments["commit"] != MODAL_GPU_SOURCE_SHA or
-                arguments["max_cost_usd"] != "0.01" or arguments["parameters"] or
-                arguments["runtime_seconds"] != 30 or
+                arguments["max_cost_usd"] != WORKLOADS["modal_gpu_canary"]["cost_ceiling_usd"] or arguments["parameters"] or
+                arguments["runtime_seconds"] != WORKLOADS["modal_gpu_canary"]["runtime_seconds"] or
                 not isinstance(evidence, dict) or
                 set(evidence) != {"schema_version", "workspace", "environment", "usage_limit_usd",
                                   "credits_used_usd", "charges_usd", "gpu", "hourly_price_usd",
@@ -133,25 +133,10 @@ def _validate_prepare(arguments: object) -> dict[str, Any]:
 
 
 def _manifest(workload: str) -> dict[str, Any]:
-    if workload == KAGGLE_WORKLOAD:
-        return {
-            "provider": "kaggle", "image_digest": KAGGLE_IMAGE,
-            "source_repository": REPOSITORY, "source_sha": SOURCE_SHA,
-            "provider_resource_id": KAGGLE_RESOURCE, "gpu": "NvidiaTeslaT4", "gpu_count": 2,
-        }
-    if workload == HF_WORKLOAD:
-        return {
-        "provider": "huggingface_space", "image_digest": HF_IMAGE,
-        "source_repository": REPOSITORY, "source_sha": SOURCE_SHA,
-        "source_revision": HF_REVISION, "provider_resource_id": HF_RESOURCE,
-        "gpu": "zero-gpu-large",
-        }
-    return {
-        "provider": "modal_gpu", "source_repository": GPU_CONTROL_REPOSITORY,
-        "source_sha": MODAL_GPU_SOURCE_SHA, "provider_resource_id": "gpu-control-modal-gpu-canary/run_canary",
-        "image_digest": MODAL_GPU_IMAGE_DIGEST, "gpu": "T4", "gpu_count": 1,
-        "network": "blocked", "max_runtime_seconds": 30,
-    }
+    for item in WORKLOADS.values():
+        if item["id"] == workload and isinstance(item.get("adapter_manifest"), dict):
+            return dict(item["adapter_manifest"])
+    raise AdapterError("workload_not_registered", 404)
 
 
 def prepare(owner: str, arguments: object) -> dict[str, Any]:
@@ -202,7 +187,7 @@ def _validated_run(owner: str, arguments: object, now: int) -> dict[str, Any]:
             plan.get("provider") != plan["workload_manifest"]["provider"] or
             plan.get("image_digest") != plan["workload_manifest"].get("image_digest") or
             plan.get("schema_version") != 2 or plan.get("paid_fallback_allowed") is not False or
-            ((plan.get("provider") == "modal_gpu" and (plan.get("max_cost_usd") != "0.01" or
+            ((plan.get("provider") == "modal_gpu" and (plan.get("max_cost_usd") != WORKLOADS["modal_gpu_canary"]["cost_ceiling_usd"] or
               plan.get("known_cost_usd") is not None or plan.get("cost_classification") != "PAID_BOUNDED")) or
              (plan.get("provider") != "modal_gpu" and (plan.get("max_cost_usd") != "0" or
               plan.get("known_cost_usd") != "0" or plan.get("cost_classification") != "FREE_QUOTA"))) or
@@ -304,7 +289,7 @@ class ProviderAdapter:
             raise AdapterError("provider_not_configured", 503)
         if provider == "kaggle" and "runtime_seconds" in arguments:
             runtime_seconds = arguments["runtime_seconds"]
-            if type(runtime_seconds) is not int or not 1 <= runtime_seconds <= 1800:
+            if type(runtime_seconds) is not int or not 1 <= runtime_seconds <= WORKLOADS["kaggle_training"]["runtime_seconds"]:
                 raise AdapterError("provider_handle_mismatch", 409)
             recorded_runtime = handle.get("runtime_seconds")
             if recorded_runtime is not None and recorded_runtime != runtime_seconds:

@@ -148,6 +148,7 @@ def _service():
     from provider_runtime.huggingface_space_backend import HuggingFaceSpaceBackend
     from provider_runtime.kaggle_backend import KaggleBackend
     from provider_runtime.settings import ProviderSettings
+    from workload_registry import WORKLOADS
 
     kaggle_token = os.environ.get("KAGGLE_API_TOKEN", "")
     hf_write = os.environ.get("HF_ARTIFACT_WRITE_TOKEN", "")
@@ -158,8 +159,8 @@ def _service():
         kaggle_source_cache_root="/opt/orbitune-cache",
         enable_huggingface_space=bool(hf_read), hf_space_read_token=hf_read,
         hf_artifact_write_token=hf_write,
-        hf_artifact_repositories=("Unjuno/gpu-control-orbitune-artifacts",),
-        hf_space_allowlist=("Unjuno/gpu-control-orbitune-zero-gpu",),
+        hf_artifact_repositories=(WORKLOADS["huggingface_evaluation"]["artifact_repository"],),
+        hf_space_allowlist=(WORKLOADS["huggingface_evaluation"]["adapter_manifest"]["provider_resource_id"],),
         max_output_bytes=65536,
     )
     settings.validate()
