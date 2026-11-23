@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 
 
@@ -7,6 +8,7 @@ SKILL = ROOT / ".cursor" / "skills" / "gpu-control-operator" / "SKILL.md"
 REFERENCE = SKILL.with_name("reference.md")
 WORKER = ROOT / "sites" / "gpu-control-sites" / "worker" / "index.js"
 RUNPOD_PLAN = WORKER.with_name("runpod_plan.js")
+WORKLOAD_REGISTRY = WORKER.parents[1] / "workloads" / "registry.json"
 
 
 def test_gpu_control_operator_skill_is_discoverable_and_bounded() -> None:
@@ -27,7 +29,6 @@ def test_skill_covers_the_live_mcp_lifecycle_and_registered_workloads() -> None:
     skill = SKILL.read_text(encoding="utf-8")
     reference = REFERENCE.read_text(encoding="utf-8")
     worker = WORKER.read_text(encoding="utf-8")
-    runpod = RUNPOD_PLAN.read_text(encoding="utf-8")
     combined = skill + reference
 
     tools = set(re.findall(r"^  (experiment_[a-z_]+): \{", worker, re.MULTILINE))
@@ -39,11 +40,8 @@ def test_skill_covers_the_live_mcp_lifecycle_and_registered_workloads() -> None:
     }
     assert tools <= set(re.findall(r"`(experiment_[a-z_]+)`", combined))
 
-    workloads = set(re.findall(
-        r'const (?:WORKLOAD|KAGGLE_WORKLOAD|ZERO_GPU_WORKLOAD|MODAL_GPU_WORKLOAD) = "([a-z0-9-]+-v1)";',
-        worker,
-    ))
-    workloads.add(re.search(r'RUNPOD_WORKLOAD = "([a-z0-9-]+-v1)";', runpod).group(1))
+    registry = json.loads(WORKLOAD_REGISTRY.read_text(encoding="utf-8"))
+    workloads = {item["id"] for item in registry["workloads"].values()}
     assert workloads == {
         "modal-gpu-vector-add-v1", "orbitune-kaggle-100-step-v1",
         "orbitune-zero-gpu-eval-v1", "runpod-gpu-canary-v1",
