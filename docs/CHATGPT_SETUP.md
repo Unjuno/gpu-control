@@ -93,6 +93,12 @@ assistant must not split that lifecycle into repeated conversational questions.
 The server still binds the write to one exact owner-bound, short-lived plan and
 enforces provider budgets, replay prevention and cleanup before replacement.
 
+Repository-aware ChatGPT/Codex agents should load the shared project skill at
+`.cursor/skills/gpu-control-operator/SKILL.md`. It provides the canonical
+provider-selection, idempotent recovery, monitoring, artifact-verification and
+completion-report workflow. Its examples never grant authority and its plan
+values must always come from the current MCP response.
+
 ## Provider configuration inventory
 
 Secret values belong only in their named hosted secret stores. Never put them

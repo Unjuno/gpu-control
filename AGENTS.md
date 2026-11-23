@@ -21,6 +21,13 @@ The constitutional priority is:
 
 Do not jump directly to paid GPU compute.
 
+For the authenticated ChatGPT Sites MCP lifecycle, use the project skill at
+`.cursor/skills/gpu-control-operator/SKILL.md`. It defines how an agent carries
+one current execution instruction through prepare, exact submit, asynchronous
+monitoring, result/artifact verification and cleanup without duplicate
+conversational approval. The skill does not grant execution or spending
+authority and remains subordinate to this policy and repository state.
+
 Use the cheapest, smallest, most local execution environment that can answer the current question. Paid GPU execution is an escalation stage, not the default development loop.
 
 Defensive controls must preserve the user's objective whenever a safer path remains. Rejecting one action is not the same as abandoning the goal.
