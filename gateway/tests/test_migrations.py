@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from sqlalchemy import create_engine, inspect, select, text, update
 
@@ -7,7 +9,9 @@ from gpu_gateway.migrations import (
     SCHEMA_VERSION, UnsupportedSchemaVersion, migrate, migration_status,
     schema_version,
 )
-from gpu_gateway.local_oauth import oauth_clients, oauth_tokens
+from gpu_gateway.local_oauth import (
+    _sha, oauth_clients, oauth_codes, oauth_tokens,
+)
 from gpu_gateway.service import GatewayError
 from gpu_gateway.store import Store
 
@@ -283,21 +287,60 @@ def test_current_schema_revokes_legacy_inferred_client_persistence(tmp_path):
         "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
     }
     client_id = local.register_client(client_metadata)["client_id"]
+    migration_now = int(time.time())
     with store.engine.begin() as connection:
         connection.execute(update(oauth_clients).where(
             oauth_clients.c.client_id == client_id
-        ).values(expires_at=100, persistent=True))
+        ).values(expires_at=migration_now + 86400, persistent=True))
+        connection.execute(oauth_codes.insert().values(
+            code_hash=_sha("legacy-code"), client_id=client_id,
+            redirect_uri=client_metadata["redirect_uris"][0],
+            scope="experiments:read offline_access", resource=settings.resource,
+            code_challenge="a" * 43, subject="owner", expires_at=migration_now + 300,
+            created_at=migration_now,
+        ))
+        connection.execute(oauth_tokens.insert(), [
+            {
+                "token_hash": _sha("legacy-access"), "kind": "access",
+                "client_id": client_id, "subject": "owner",
+                "scope": "experiments:read offline_access", "resource": settings.resource,
+                "expires_at": migration_now + 3600, "created_at": migration_now,
+                "revoked": False, "grant_id": "d" * 64,
+            },
+            {
+                "token_hash": _sha("legacy-refresh"), "kind": "refresh",
+                "client_id": client_id, "subject": "owner",
+                "scope": "experiments:read offline_access", "resource": settings.resource,
+                "expires_at": migration_now + 86400, "created_at": migration_now,
+                "revoked": False, "grant_id": "d" * 64,
+            },
+        ])
         connection.execute(schema_version.update().values(version=12))
 
     assert migrate(store.engine) == SCHEMA_VERSION
     with store.engine.connect() as connection:
-        assert connection.execute(select(oauth_clients.c.persistent).where(
-            oauth_clients.c.client_id == client_id)).scalar_one() is False
+        client = connection.execute(select(
+            oauth_clients.c.persistent, oauth_clients.c.expires_at
+        ).where(oauth_clients.c.client_id == client_id)).one()
+        assert client.persistent is False
+        assert client.expires_at <= int(time.time())
+        tokens = connection.execute(select(
+            oauth_tokens.c.kind, oauth_tokens.c.revoked
+        ).where(oauth_tokens.c.client_id == client_id)).all()
+        assert sorted(tokens) == [("access", True), ("refresh", True)]
+        assert connection.execute(select(oauth_codes.c.code_hash).where(
+            oauth_codes.c.client_id == client_id)).first() is None
 
     with pytest.raises(GatewayError) as expired:
         local._client(client_id)
     assert expired.value.code == "invalid_client"
     assert local.register_client(client_metadata)["client_id"] == client_id
+    with pytest.raises(GatewayError) as revoked_refresh:
+        local.token({
+            "grant_type": "refresh_token", "client_id": client_id,
+            "refresh_token": "legacy-refresh", "resource": settings.resource,
+        })
+    assert revoked_refresh.value.code == "invalid_grant"
     local.authorize({
         "response_type": "code", "client_id": client_id,
         "redirect_uri": client_metadata["redirect_uris"][0],

@@ -10,7 +10,7 @@ from pathlib import Path
 import time
 
 from sqlalchemy import (JSON, Column, Integer, MetaData, String, Table,
-                        UniqueConstraint, inspect, insert, select, update)
+                        UniqueConstraint, delete, inspect, insert, select, update)
 
 SCHEMA_VERSION = 17
 versions_metadata = MetaData()
@@ -315,10 +315,25 @@ def migrate(engine) -> int:
                     "persistent" in _columns(connection, clients)):
                 # Schema v9 inferred owner consent from arbitrary historical
                 # token rows. Legacy state cannot prove an explicit consent
-                # POST, so require reauthorization before persistence.
-                connection.execute(update(Table(
-                    clients, MetaData(), autoload_with=connection
-                )).values(persistent=False))
+                # POST, so require fresh authorization before any old client,
+                # code, or token grant can be used again.
+                from .local_oauth import oauth_clients, oauth_codes, oauth_tokens
+
+                inferred_client_ids = connection.execute(select(
+                    oauth_clients.c.client_id
+                ).where(oauth_clients.c.persistent.is_(True))).scalars().all()
+                if inferred_client_ids:
+                    if oauth_codes.name in tables:
+                        connection.execute(delete(oauth_codes).where(
+                            oauth_codes.c.client_id.in_(inferred_client_ids)
+                        ))
+                    if oauth_tokens.name in tables:
+                        connection.execute(update(oauth_tokens).where(
+                            oauth_tokens.c.client_id.in_(inferred_client_ids)
+                        ).values(revoked=True))
+                    connection.execute(update(oauth_clients).where(
+                        oauth_clients.c.client_id.in_(inferred_client_ids)
+                    ).values(persistent=False, expires_at=int(time.time())))
             connection.execute(update(schema_version).where(schema_version.c.id == 1).values(version=13))
             current = 13
         if current < 14:

@@ -130,10 +130,8 @@ def _verify(raw: bytes, signature: str | None, expected_tool: str) -> tuple[str,
             expires < now or expires <= issued or expires - issued > MAX_LIFETIME_SECONDS or
             issued < now - MAX_LIFETIME_SECONDS - MAX_CLOCK_SKEW_SECONDS):
         raise ValueError("invalid_delegation")
-    previous = nonce_store.get(nonce)
-    if previous is not None:
+    if not nonce_store.put(nonce, expires, skip_if_exists=True):
         raise FileExistsError("delegation_replayed")
-    nonce_store[nonce] = expires
     return owner, tool, arguments
 
 
