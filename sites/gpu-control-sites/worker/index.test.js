@@ -1834,6 +1834,38 @@ test("experiment_list includes owner-bound delegated provider runs from D1", asy
   });
 });
 
+test("experiment_list reports pre-submit cancellation cleanup and terminal time", async () => {
+  const env = environment();
+  const plan = {
+    schema_version: 2, workload: "orbitune-kaggle-100-step-v1", provider: "kaggle",
+    repository: "Unjuno/orbitune", source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
+    parameters: {}, runtime_seconds: 1800, max_cost_usd: "0", known_cost_usd: "0",
+    cost_classification: "FREE_QUOTA", paid_fallback_allowed: false,
+    image_digest: "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd",
+  };
+  env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
+    assert.equal(owner, "test-owner");
+    if (sql.includes("FROM runs r")) return { results: [] };
+    if (sql.includes("FROM gateway_delegated_plans")) return { results: [{
+      run_id: "9".repeat(32), plan_state: "prepared", cancelled_at: 120,
+      submit_attempted_at: null, provider_state: null, provider_response_json: null,
+      terminal_at: null, created_at: 100, updated_at: 120, workload: plan.workload,
+      source_run_id: null, approved_plan_json: JSON.stringify(plan), expires_at: 400,
+    }] };
+    throw new Error(`unexpected list query: ${sql}`);
+  } }; } });
+
+  const response = await toolCall(env, "test-owner", "experiment_list", {});
+  const value = JSON.parse((await response.json()).result.content[0].text);
+  assert.deepEqual(value.machine_state.experiments[0], {
+    run_id: "9".repeat(32), state: "cancelled", created_at: 100, updated_at: 120,
+    workload: "orbitune-kaggle-100-step-v1", repository: "Unjuno/orbitune",
+    source_sha: plan.source_sha, image_digest: plan.image_digest, provider: "kaggle",
+    execution_origin: "kaggle", finished_at: 120, result_available: false,
+    cleanup_state: "confirmed",
+  });
+});
+
 test("experiment_list filters before returning a bounded cursor page", async () => {
   const env = environment();
   const rows = [

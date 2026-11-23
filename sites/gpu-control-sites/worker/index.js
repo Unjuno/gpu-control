@@ -2202,9 +2202,12 @@ async function callTool(name, args, request, env, context = null) {
           : row.plan_state === "prepared" ? (row.expires_at < Math.floor(Date.now() / 1000) ? "expired" : "prepared")
             : row.submit_attempted_at && !row.provider_state ? "uncertain" : (row.provider_state || "queued");
         const cleanup = response?.machine_state?.cleanup_state || result?.cleanup_state ||
-          (response?.cleanup_confirmed === true ? "confirmed" : "unknown");
+          (response?.cleanup_confirmed === true || (state === "cancelled" && !row.submit_attempted_at)
+            ? "confirmed" : "unknown");
+        const finishedAt = row.terminal_at || (state === "cancelled" ? row.cancelled_at : null) ||
+          (["succeeded", "failed", "expired"].includes(state) ? row.updated_at : null);
         return [{ run_id: row.run_id, state, created_at: row.created_at, updated_at: row.updated_at,
-          finished_at: row.terminal_at, workload: row.workload, repository: plan.repository,
+          finished_at: finishedAt, workload: row.workload, repository: plan.repository,
           source_sha: plan.source_sha, image_digest: plan.image_digest, provider: plan.provider,
           execution_origin: plan.provider, result_available: Boolean(result), cleanup_state: cleanup,
           ...(row.source_run_id ? { source_run_id: row.source_run_id } : {}) }];
