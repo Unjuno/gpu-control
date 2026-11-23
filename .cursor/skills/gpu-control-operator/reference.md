@@ -23,10 +23,14 @@ Supporting tools:
 
 Always use the tool's current schema. Never copy an old plan, run ID, source
 SHA, artifact revision, price, authorization, or provider state from examples.
-For new preparation, pass the returned `workload_id` only; the server supplies
-the pinned inputs and generates an idempotency key. ZeroGPU automatically
-selects the latest eligible owner-bound Kaggle result. Pass `source_run_id` only
-when the user names a particular prior Kaggle run. Legacy calls with the full
+For each distinct preparation intent, pass the returned `workload_id` plus an
+agent-generated opaque `idempotency_key`. Keep that key with the intent and
+reuse it if the response is lost; create a new key only for a distinct user-
+requested run. The user never creates or remembers this key. Omission remains
+supported, but a separate later call cannot recover a key that the server
+generated when the original response was lost. ZeroGPU automatically selects
+the latest eligible owner-bound Kaggle result. Pass `source_run_id` only when
+the user names a particular prior Kaggle run. Legacy calls with the full
 repository/commit/parameters/runtime/cost shape remain accepted.
 
 ## One-instruction example

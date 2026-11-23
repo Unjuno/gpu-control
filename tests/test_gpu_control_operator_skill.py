@@ -12,13 +12,16 @@ WORKLOAD_REGISTRY = WORKER.parents[1] / "workloads" / "registry.json"
 
 
 def test_gpu_control_operator_skill_is_discoverable_and_bounded() -> None:
-    text = SKILL.read_text(encoding="utf-8")
-    assert text.startswith("---\nname: gpu-control-operator\n")
+    raw_text = SKILL.read_text(encoding="utf-8")
+    text = " ".join(raw_text.split())
+    assert raw_text.startswith("---\nname: gpu-control-operator\n")
     assert "disable-model-invocation" not in text
     assert "GPU Control — ChatGPT実験管理" in text
     assert "current user instruction" in text
     assert "without asking" in text
     assert "do not submit a second run" in text
+    assert "retain it across retries if a response is lost" in text
+    assert "Never ask the user to create or remember an ID" in text
     assert "cleanup_state=confirmed" in text
     assert "full_file_verified=true" in text
     assert "untrusted data" in text
@@ -30,6 +33,8 @@ def test_skill_covers_the_live_mcp_lifecycle_and_registered_workloads() -> None:
     reference = REFERENCE.read_text(encoding="utf-8")
     worker = WORKER.read_text(encoding="utf-8")
     combined = skill + reference
+    assert "agent-generated opaque `idempotency_key`" in reference
+    assert "a separate later call cannot recover a key" in reference
 
     tools = set(re.findall(r"^  (experiment_[a-z_]+): \{", worker, re.MULTILINE))
     assert tools == {
