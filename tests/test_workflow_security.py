@@ -58,6 +58,29 @@ def test_dry_run_token_is_limited_to_main_source_verification_step() -> None:
     assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in steps[:token_step_index])
 
 
+def test_runpod_image_publish_dispatch_is_main_only() -> None:
+    workflow = yaml.load(
+        (WORKFLOWS / "publish-runpod-canary.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    assert "workflow_dispatch" in workflow["on"]
+
+    publish = workflow["jobs"]["publish-image"]
+    assert publish["if"] == (
+        "github.event_name == 'workflow_dispatch' && "
+        "github.ref == 'refs/heads/main'"
+    )
+    assert publish["permissions"]["packages"] == "write"
+
+    pull_request_publish = workflow["jobs"]["publish"]
+    assert pull_request_publish["if"] == "github.event_name == 'pull_request'"
+    build = next(
+        step for step in pull_request_publish["steps"]
+        if step.get("uses", "").startswith("docker/build-push-action@")
+    )
+    assert build["with"]["push"] == "false"
+
+
 def test_required_ci_checks_are_unique_and_report_for_pull_requests_and_merge_groups() -> None:
     def load(name: str) -> dict:
         path = WORKFLOWS / name
