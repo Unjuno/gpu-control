@@ -23,6 +23,11 @@ Supporting tools:
 
 Always use the tool's current schema. Never copy an old plan, run ID, source
 SHA, artifact revision, price, authorization, or provider state from examples.
+For new preparation, pass the returned `workload_id` only; the server supplies
+the pinned inputs and generates an idempotency key. ZeroGPU automatically
+selects the latest eligible owner-bound Kaggle result. Pass `source_run_id` only
+when the user names a particular prior Kaggle run. Legacy calls with the full
+repository/commit/parameters/runtime/cost shape remain accepted.
 
 ## One-instruction example
 
@@ -52,8 +57,9 @@ Treat the two runs as separate exact plans:
 
 1. Complete Kaggle training and cleanup.
 2. Read its terminal result.
-3. Copy only the returned immutable artifact repository, revision, canonical
-   path, and SHA-256 into the ZeroGPU prepare parameters.
+3. Prepare `orbitune-zero-gpu-eval-v1` by workload ID. The server resolves the
+   owner-bound immutable artifact reference from the completed Kaggle run.
+   If a particular run was requested, also pass its `source_run_id`.
 4. Prepare and submit ZeroGPU only when the user's current instruction covers
    that evaluation too.
 5. Require its own terminal result and cleanup evidence.

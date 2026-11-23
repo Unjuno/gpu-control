@@ -197,7 +197,7 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
     assert.equal(tools[name].openWorldHint, false, `${name} uses only bounded resources`);
   }
   assert.deepEqual(tools.experiment_prepare, {
-    readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
   });
   assert.deepEqual(tools.experiment_submit, {
     readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
@@ -1492,6 +1492,115 @@ test("rejects a zero-dollar cost ceiling for usage-billed Modal Sandbox compute"
   const rpc = await response.json();
   assert.equal(rpc.result.isError, true);
   assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "INVALID_ARGUMENTS" });
+});
+
+test("registered workload ID resolves fixed CPU defaults without provider calls", async () => {
+  const env = environment();
+  const writes = [];
+  let fingerprint;
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
+    async run() { writes.push({ sql, values }); if (sql.includes("INSERT OR IGNORE INTO plans")) fingerprint = values[3]; return { meta: { changes: 1 } }; },
+    async first() { return { id: "d".repeat(32), fingerprint, image_digest: imageDigest,
+      state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 600 }; },
+  }; } });
+
+  const response = await toolCall(env, "test-owner", "experiment_prepare", {
+    workload_id: "tiny-stories-inference-v1",
+  });
+  const result = JSON.parse((await response.json()).result.content[0].text);
+  assert.equal(result.status, "ok");
+  assert.equal(result.machine_state.provider, "modal_cpu");
+  assert.deepEqual(result.machine_state.approved_plan, approvedPlan({ prompt: "Once", max_new_tokens: 1,
+    seed: 61112, runtime_seconds: 30, estimated_sandbox_cost_usd: "0.0013" }));
+  assert.equal(writes.length, 1);
+  assert.match(writes[0].sql, /INSERT OR IGNORE INTO plans/);
+});
+
+test("registered RunPod workload ID resolves its fixed plan without allocating a job", async () => {
+  const env = environment();
+  Object.assign(env, {
+    RUNPOD_API_KEY: "safe-runpod-key-with-enough-bytes",
+    RUNPOD_WORKLOAD_IMAGE: `ghcr.io/unjuno/gpu-control-runpod-canary@sha256:${"a".repeat(64)}`,
+    RUNPOD_GPU_ID: "NVIDIA RTX 2000 Ada Generation", RUNPOD_SERVERLESS_ENDPOINT_ID: "endpoint_test_123",
+    RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "0.580000", RUNPOD_SERVERLESS_GPU_POOL_ID: "ADA_16",
+    RUNPOD_WORKLOAD_SOURCE_SHA: sourceSha, RUNPOD_WORKLOAD_ADMISSION_ENABLED: "true",
+    RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED: "true",
+  });
+  let inserted = false;
+  let plan;
+  let fingerprint;
+  let persistedPlanJson;
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
+    async run() { if (sql.includes("INSERT OR IGNORE INTO plans")) { inserted = true; fingerprint = values[3]; persistedPlanJson = values.at(-2); plan = JSON.parse(persistedPlanJson); } return { meta: { changes: 1 } }; },
+    async first() { return { id: "f".repeat(32), fingerprint, provider_plan_json: persistedPlanJson,
+      state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 600 }; },
+  }; } });
+  env.fetch = async () => { throw new Error("prepare must not call RunPod"); };
+
+  const response = await toolCall(env, "test-owner", "experiment_prepare", { workload_id: "runpod-gpu-canary-v1" });
+  const result = JSON.parse((await response.json()).result.content[0].text);
+  assert.equal(result.status, "ok");
+  assert.equal(result.provider_approved_plan.source_sha, sourceSha);
+  assert.equal(result.provider_approved_plan.max_cost_usd, "1.00");
+  assert.equal(inserted, true);
+});
+
+test("registered ZeroGPU workload resolves only an owned completed Kaggle artifact", async () => {
+  const sourceRun = "1".repeat(32);
+  const revision = "2".repeat(40);
+  const artifactSha = "3".repeat(64);
+  const env = environment();
+  env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
+  env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
+  env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
+  env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
+  let persistedApprovedPlan;
+  env.DB.prepare = (sql) => ({ bind(...values) { return {
+    async all() {
+      if (sql.includes("gateway_delegated_plans")) return { results: [{ source_run_id: sourceRun,
+        approved_plan_json: JSON.stringify({ source_sha: sourceSha }),
+        provider_response_json: JSON.stringify({ cleanup_confirmed: true, result: { external_artifacts: [{
+          service: "huggingface_hub", private: true, repo_type: "model", repo_id: "Unjuno/gpu-control-orbitune-artifacts",
+          revision, path_in_repo: `runs/${sourceRun}/orbitune-output.zip`, sha256: artifactSha,
+          run_id: sourceRun, source_sha: sourceSha,
+        }] } }) }] };
+      return { results: [] };
+    },
+    async first() {
+      if (sql.includes("gateway_delegated_plans") && sql.includes("WHERE owner_id=? AND id=?")) return {
+        source_run_id: sourceRun, approved_plan_json: JSON.stringify({ source_sha: sourceSha }),
+        provider_response_json: JSON.stringify({ cleanup_confirmed: true, result: { external_artifacts: [{
+          service: "huggingface_hub", private: true, repo_type: "model", repo_id: "Unjuno/gpu-control-orbitune-artifacts",
+          revision, path_in_repo: `runs/${sourceRun}/orbitune-output.zip`, sha256: artifactSha,
+          run_id: sourceRun, source_sha: sourceSha,
+        }] } }),
+      };
+      return { id: "4".repeat(32), fingerprint: "5".repeat(64), workload: "orbitune-zero-gpu-eval-v1",
+        approved_plan_json: persistedApprovedPlan, state: "prepared", expires_at: Math.floor(Date.now() / 1000) + 600 };
+    },
+    async run() { if (sql.includes("INSERT OR IGNORE INTO gateway_delegated_plans")) persistedApprovedPlan = values[5]; return { meta: { changes: 1 } }; },
+  }; } });
+  let delegated;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    delegated = JSON.parse(init.body).arguments;
+    return new Response(JSON.stringify({ schema_version: 2, status: "ok", human_summary: "prepared",
+      machine_state: { run_id: "4".repeat(32), plan_fingerprint: "5".repeat(64), state: "prepared" },
+      approved_plan: { schema_version: 2, workload: "orbitune-zero-gpu-eval-v1", repository: "Unjuno/orbitune",
+        source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8", provider: "huggingface_space", max_cost_usd: "0", paid_fallback_allowed: false } }));
+  };
+
+  try {
+    const response = await toolCall(env, "test-owner", "experiment_prepare", { workload_id: "orbitune-zero-gpu-eval-v1" });
+    const result = JSON.parse((await response.json()).result.content[0].text);
+    assert.equal(result.status, "ok");
+    assert.equal(delegated.repository, "Unjuno/orbitune");
+    assert.equal(delegated.commit, "44a1b806160ab5bc721a370d034a6dfcb28f27a8");
+    assert.equal(delegated.parameters.artifact_revision, revision);
+    assert.equal(delegated.parameters.artifact_sha256, artifactSha);
+    assert.equal(delegated.max_cost_usd, "0");
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("Runpod prepare fails closed before provider access when completion transport is unverified", async () => {
