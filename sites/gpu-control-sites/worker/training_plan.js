@@ -38,7 +38,7 @@ export async function previewTrainingPlan(env, owner, args) {
     human_summary: "学習条件を確認しました。実行受付は別途必要です。",
     machine_state: { ...machine, image_digest: env.MAP_TRAINING_IMAGE_DIGEST,
       gpu: "L4", gpu_count: 1, runtime_seconds: args.runtime_seconds,
-      estimated_cost_microusd: estimatedCost, quote_expires_at: quoteExpires,
+      estimated_cost_microusd: estimatedCost, hourly_microusd: hourlyRate, quote_expires_at: quoteExpires,
       max_cost_microusd: args.max_cost_microusd, checkpoint_visibility: "owner_private" },
     next_allowed_actions: [], blocking_reason: null };
 }

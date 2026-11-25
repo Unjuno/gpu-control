@@ -1,11 +1,13 @@
 """Provider-side entry point for a pinned MAP-44M training image."""
 from pathlib import Path
 import re
+import time
 
 from map_checkpoint import checkpoint_manifest
 
 
-def run_map_training(plan, *, source_sha, image_digest, config, corpus_dir,
+def run_map_training(plan, *, source_sha, image_digest, hourly_microusd, quote_expires_at,
+                     config, corpus_dir,
                      runs_dir: Path, commit_volume, train):
     """Run a previously authorized plan using server-selected data and config."""
     if (plan["commit"] != source_sha or plan["image_digest"] != image_digest
@@ -18,6 +20,11 @@ def run_map_training(plan, *, source_sha, image_digest, config, corpus_dir,
     seconds = plan["runtime_seconds"]
     budget = plan["max_cost_microusd"]
     hourly_rate = plan["hourly_microusd"]
+    now = int(time.time())
+    if (type(quote_expires_at) is not int or not now < quote_expires_at <= now + 3600
+            or plan["quote_expires_at"] != quote_expires_at
+            or hourly_rate != hourly_microusd):
+        raise ValueError("training_quote_invalid")
     if (type(seconds) is not int or not 120 <= seconds <= 3000
             or type(budget) is not int or not 1 <= budget <= 1_000_000
             or type(hourly_rate) is not int or not 1 <= hourly_rate <= 1_000_000_000
