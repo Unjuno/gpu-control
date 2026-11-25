@@ -1,4 +1,4 @@
-import { previewTrainingPlan } from "./training_plan.js";
+import { prepareTrainingPlan, previewTrainingPlan } from "./training_plan.js";
 import { listTrainingSources, registerTrainingSource } from "./training_source.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
@@ -187,7 +187,15 @@ const OUTPUT_SCHEMA = {
   }, required: ["schema_version", "status", "human_summary", "machine_state", "next_allowed_actions", "blocking_reason"], additionalProperties: true,
 };
 
+schemas.training_prepare = {
+  ...schemas.training_preview,
+  properties: { ...schemas.training_preview.properties,
+    idempotency_key: { type: "string", pattern: "^[A-Za-z0-9_-]{16,128}$" } },
+  required: [...schemas.training_preview.required, "idempotency_key"],
+};
+
 const toolDescriptions = {
+  training_prepare: "Save an exact, expiring plan for your reviewed training source. This does not launch a GPU job.",
   training_preview: "Preview a reviewed training profile by registered repository and commit, or registration ID, with a runtime and budget ceiling in millionths of a US dollar. This action cannot start training or confirm pricing.",
 
   training_list: "List up to 50 recent training sources registered by the authenticated owner.",
@@ -657,6 +665,11 @@ function validProviderApprovedPlan(value) {
 }
 
 function validToolArguments(name, args, env) {
+  if (name === "training_prepare") {
+    const { idempotency_key: key, ...inputs } = args;
+    return typeof key === "string" && /^[A-Za-z0-9_-]{16,128}$/.test(key) &&
+      validToolArguments("training_preview", inputs, env);
+  }
   if (name === "training_preview") {
     const keys = Object.keys(args).sort().join(",");
     const byId = keys === "max_cost_microusd,registration_id,runtime_seconds" &&
@@ -1724,6 +1737,7 @@ async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
+  if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);
   if (name === "training_list") return listTrainingSources(env.DB, owner);
   if (name === "training_register") return registerTrainingSource(env.DB, owner, args);
@@ -2319,7 +2333,7 @@ async function handleMcp(request, env, context = null) {
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
-      const known = new Set(["TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+      const known = new Set(["TRAINING_PLAN_EXPIRED", "TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
       const runpodProviderCodes = new Set([
         "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
         "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",

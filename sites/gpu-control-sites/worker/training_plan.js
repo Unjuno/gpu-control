@@ -42,3 +42,28 @@ export async function previewTrainingPlan(env, owner, args) {
       max_cost_microusd: args.max_cost_microusd, checkpoint_visibility: "owner_private" },
     next_allowed_actions: [], blocking_reason: null };
 }
+
+export async function prepareTrainingPlan(env, owner, args) {
+  const { idempotency_key: key, ...inputs } = args;
+  const preview = await previewTrainingPlan(env, owner, inputs);
+  if (preview.status !== "ok") return preview;
+
+  const { executable, ...plan } = preview.machine_state;
+  const json = JSON.stringify(plan);
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([owner, json])));
+  const fingerprint = [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const now = Math.floor(Date.now() / 1000);
+  const expires = Math.min(now + 600, plan.quote_expires_at);
+  if (expires <= now) throw new Error("TRAINING_PLAN_EXPIRED");
+  await env.DB.prepare(`INSERT INTO training_plans
+    (id, owner_id, registration_id, idempotency_key, fingerprint, plan_json, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, idempotency_key) DO NOTHING`)
+    .bind(crypto.randomUUID().replaceAll("-", ""), owner, plan.registration_id, key, fingerprint, json, now, expires).run();
+  const existing = await env.DB.prepare(`SELECT id, fingerprint, expires_at FROM training_plans
+    WHERE owner_id=? AND idempotency_key=?`).bind(owner, key).first();
+  if (existing?.fingerprint !== fingerprint) throw new Error("IDEMPOTENCY_KEY_CONFLICT");
+  if (existing.expires_at <= now) throw new Error("TRAINING_PLAN_EXPIRED");
+  return { ...preview, human_summary: "認証済みの所有者に紐づく学習計画を保存しました。",
+    machine_state: { ...plan, executable, run_id: existing.id,
+      plan_fingerprint: fingerprint, expires_at: existing.expires_at } };
+}
