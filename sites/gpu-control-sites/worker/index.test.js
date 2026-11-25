@@ -1397,7 +1397,7 @@ test("cancels an owned native plan before submit and returns the same receipt on
     batchCount++;
     assert.equal(statements.length, 2);
     assert.match(statements[0].sql, /FROM plans WHERE id=\? AND owner_id=\? AND state='prepared'/);
-    assert.deepEqual(statements[0].values.slice(1, 3), [runId, "test-owner"]);
+    assert.deepEqual(statements[0].values.slice(2, 4), [runId, "test-owner"]);
     assert.match(statements[1].sql, /SET state='expired'/);
     run = { id: runId, state: "cancelled", cleanup_state: "confirmed",
       failure_code: "caller_cancelled_before_submit" };

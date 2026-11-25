@@ -2019,10 +2019,10 @@ async function callTool(name, args, request, env, context = null) {
     if (preparedPlan) {
       const cancelledAt = Math.floor(Date.now() / 1000);
       await env.DB.batch([
-        env.DB.prepare(`INSERT INTO runs (id, owner_id, plan_id, state, cleanup_state, failure_code, created_at, updated_at)
-          SELECT id, owner_id, id, 'cancelled', 'confirmed', 'caller_cancelled_before_submit', created_at, ?
+        env.DB.prepare(`INSERT INTO runs (id, owner_id, plan_id, state, cleanup_state, failure_code, created_at, updated_at, completed_at)
+          SELECT id, owner_id, id, 'cancelled', 'confirmed', 'caller_cancelled_before_submit', created_at, ?, ?
           FROM plans WHERE id=? AND owner_id=? AND state='prepared' AND expires_at>=?
-          ON CONFLICT(id) DO NOTHING`).bind(cancelledAt, args.run_id, owner, cancelledAt),
+          ON CONFLICT(id) DO NOTHING`).bind(cancelledAt, cancelledAt, args.run_id, owner, cancelledAt),
         env.DB.prepare(`UPDATE plans SET state='expired' WHERE id=? AND owner_id=? AND state='prepared'
           AND EXISTS (SELECT 1 FROM runs WHERE id=? AND owner_id=? AND failure_code='caller_cancelled_before_submit')`)
           .bind(args.run_id, owner, args.run_id, owner),
