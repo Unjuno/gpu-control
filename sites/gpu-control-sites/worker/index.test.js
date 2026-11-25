@@ -1,3 +1,4 @@
+import { claimTrainingDispatch } from "./training_plan.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { getOwnedTrainingSource } from "./training_source.js";
@@ -149,6 +150,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0022_training_registrations.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0023_training_plans.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0024_training_plan_cancellation.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0025_training_submission_claim.sql", import.meta.url), "utf8"));
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner", DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
@@ -224,6 +226,16 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(cancelled.machine_state.state, "cancelled");
     assert.deepEqual(await call("test-owner", "training_cancel", run), cancelled);
     assert.equal((await call("test-owner", "training_prepare", prepare)).machine_state.state, "cancelled");
+    const now = Math.floor(Date.now() / 1000);
+    assert.equal(await claimTrainingDispatch(env.DB, "test-owner", run.run_id,
+      saved.machine_state.plan_fingerprint, now), undefined);
+    const fresh = (await call("test-owner", "training_prepare",
+      { ...prepare, idempotency_key: "training-prepare-fresh" })).machine_state;
+    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now);
+    assert.ok(await claim());
+    assert.equal(await claim(), undefined);
+    assert.equal((await call("test-owner", "training_cancel",
+      { run_id: fresh.run_id })).machine_state.state, "dispatching");
     assert.equal((await call("other-owner", "training_preview", bySource)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
     assert.equal((await call("test-owner", "training_preview",
