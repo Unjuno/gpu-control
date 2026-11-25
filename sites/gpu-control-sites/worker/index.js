@@ -201,10 +201,18 @@ schemas.training_submit = {
     approved_plan: { type: "object", additionalProperties: true, maxProperties: 20 },
   }, required: ["run_id", "plan_fingerprint", "approved_plan"], additionalProperties: false,
 };
+schemas.training_checkpoint = {
+  type: "object", properties: {
+    run_id: schemas.experiment_status.properties.run_id,
+    offset: schemas.experiment_artifact.properties.offset,
+    max_bytes: schemas.experiment_artifact.properties.max_bytes,
+  }, required: ["run_id", "offset", "max_bytes"], additionalProperties: false,
+};
 schemas.training_status = schemas.experiment_status;
 schemas.training_cancel = schemas.experiment_cancel;
 
 const toolDescriptions = {
+  training_checkpoint: "Read an owned completed training checkpoint in bounded base64 chunks. Verify the assembled file against the returned SHA-256.",
   training_submit: "Start one saved training plan after the authenticated owner requests execution. Supply the exact saved approved_plan. This action can incur charges.",
   training_status: "Read the state of your saved training plan.",
   training_cancel: "Cancel your unsubmitted training plan.",
@@ -678,6 +686,10 @@ function validProviderApprovedPlan(value) {
 }
 
 function validToolArguments(name, args, env) {
+  if (name === "training_checkpoint") return Object.keys(args).sort().join(",") === "max_bytes,offset,run_id" &&
+    typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
+    Number.isSafeInteger(args.offset) && args.offset >= 0 &&
+    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 && args.max_bytes <= 24576;
   if (name === "training_submit") return Object.keys(args).sort().join(",") === "approved_plan,plan_fingerprint,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     typeof args.plan_fingerprint === "string" && /^[0-9a-f]{64}$/.test(args.plan_fingerprint) &&
@@ -1755,6 +1767,18 @@ async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
+  if (name === "training_checkpoint") {
+    const local = await trainingPlanState(env.DB, owner, args.run_id);
+    if (local.machine_state.state !== "dispatching") throw new Error("RESULT_NOT_READY");
+    const remote = await delegateGatewayTool(env, owner, name, {
+      ...args, plan_fingerprint: local.machine_state.plan_fingerprint,
+    });
+    if (["not_found", "uncertain", "checkpoint_not_ready"].includes(remote?.state)) throw new Error("RESULT_NOT_READY");
+    if (remote?.state !== "succeeded" || !remote.checkpoint_chunk) throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
+    return { schema_version: 2, status: "ok", human_summary: "チェックポイントの一部を取得しました。",
+      machine_state: { run_id: args.run_id, ...remote.checkpoint_chunk },
+      next_allowed_actions: remote.checkpoint_chunk.eof ? [] : ["training_checkpoint"], blocking_reason: null };
+  }
   if (name === "training_status" || name === "training_cancel") {
     const local = await trainingPlanState(env.DB, owner, args.run_id, name === "training_cancel");
     if (local.machine_state.state !== "dispatching") return local;
@@ -2351,7 +2375,7 @@ async function handleMcp(request, env, context = null) {
   }
   if (message.method === "tools/list") {
     return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: {
-      readOnlyHint: ["training_status", "training_preview", "training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
+      readOnlyHint: ["training_checkpoint", "training_status", "training_preview", "training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
       destructiveHint: ["training_submit", "training_cancel", "experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
       idempotentHint: !["experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health"].includes(name),
       openWorldHint: false,

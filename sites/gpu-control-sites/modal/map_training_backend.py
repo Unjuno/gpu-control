@@ -57,6 +57,13 @@ class MapTrainingBackend:
         return {"state": "succeeded", "steps": result["steps"], "gpu_used": True,
                 "checkpoint": {key: checkpoint[key] for key in ("filename", "sha256", "size_bytes")}}
 
+    def checkpoint(self, run_id, manifest, offset, max_bytes):
+        if (type(offset) is not int or not 0 <= offset < manifest["size_bytes"]
+                or type(max_bytes) is not int or not 1 <= max_bytes <= 24576):
+            raise ValueError("invalid_checkpoint_range")
+        reader = modal.Function.from_name(APP_NAME, "read_map_checkpoint", environment_name="main")
+        return reader.remote(run_id, manifest, offset, max_bytes)
+
     def cancel(self, call_id):
         self._call_lookup(_required_call_id(call_id)).cancel(terminate_containers=True)
         return {"state": "cancel_requested"}
@@ -98,6 +105,12 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
         return {"state": "uncertain"}
     if tool == "training_cancel":
         return backend.cancel(record["call_id"])
+    if tool == "training_checkpoint":
+        result = backend.inspect(record["call_id"], record["plan"])
+        if result["state"] != "succeeded":
+            return {"state": "checkpoint_not_ready"}
+        return {"state": "succeeded", "checkpoint_chunk": backend.checkpoint(
+            run_id, result["checkpoint"], args.get("offset"), args.get("max_bytes"))}
     if tool == "training_status":
         return backend.inspect(record["call_id"], record["plan"])
     raise ValueError("training_tool_invalid")
