@@ -191,10 +191,17 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
       "TRAINING_PROFILE_UNAVAILABLE");
     env.MAP_TRAINING_SOURCE_SHA = sourceSha;
+    assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
+      "TRAINING_QUOTE_UNAVAILABLE");
+    env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
+    env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
+    assert.equal((await call("test-owner", "training_preview", { ...preview, max_cost_microusd: 1 })).blocking_reason,
+      "TRAINING_BUDGET_TOO_LOW");
     const plan = await call("test-owner", "training_preview", preview);
     assert.equal(plan.status, "ok");
     assert.equal(plan.machine_state.image_digest, imageDigest);
     assert.equal(plan.machine_state.gpu, "L4");
+    assert.equal(plan.machine_state.estimated_cost_microusd, 88889);
     assert.equal(plan.machine_state.executable, false);
     assert.equal((await call("test-owner", "training_preview",
       { ...preview, runtime_seconds: 3001 })).error, "INVALID_ARGUMENTS");
