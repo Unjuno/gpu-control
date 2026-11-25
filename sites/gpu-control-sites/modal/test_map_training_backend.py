@@ -19,7 +19,7 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch):
     source_sha = "a" * 40
     digest = "sha256:" + "b" * 64
     run_id = "c" * 32
-    expires = int(time.time()) + 600
+    expires = int(time.time()) + 7 * 86400
     settings = {
         "SOURCE_SHA": source_sha, "IMAGE_DIGEST": digest, "RUNTIME_SECONDS": "120",
         "HOURLY_MICROUSD": "400000", "QUOTE_EXPIRES_AT": str(expires),

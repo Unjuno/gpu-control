@@ -198,7 +198,11 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
       "TRAINING_QUOTE_UNAVAILABLE");
     env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
-    env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
+    const quoteNow = Math.floor(Date.now() / 1000);
+    env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(quoteNow + 31 * 86400);
+    assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
+      "TRAINING_QUOTE_UNAVAILABLE");
+    env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(quoteNow + 7 * 86400);
     assert.equal((await call("test-owner", "training_preview", { ...preview, max_cost_microusd: 1 })).blocking_reason,
       "TRAINING_BUDGET_TOO_LOW");
     const plan = await call("test-owner", "training_preview", preview);
@@ -213,6 +217,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const prepare = { ...bySource, idempotency_key: "training-prepare-retry" };
     const saved = await call("test-owner", "training_prepare", prepare);
     assert.match(saved.machine_state.run_id, /^[0-9a-f]{32}$/);
+    assert.ok(saved.machine_state.expires_at <= Math.floor(Date.now() / 1000) + 600);
     const run = { run_id: saved.machine_state.run_id };
     assert.equal((await call("other-owner", "training_cancel", run)).error, "RUN_NOT_FOUND");
     assert.equal((await call("test-owner", "training_status", run)).machine_state.state, "prepared");

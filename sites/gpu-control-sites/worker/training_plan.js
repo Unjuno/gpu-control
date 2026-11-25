@@ -1,6 +1,7 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource } from "./training_source.js";
 
 const MAP_REPOSITORY = "unjuno/model-as-a-paper";
+const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 export async function previewTrainingPlan(env, owner, args) {
   const source = args.registration_id
@@ -20,7 +21,7 @@ export async function previewTrainingPlan(env, owner, args) {
   const hourlyRate = Number(env.MAP_TRAINING_HOURLY_MICROUSD);
   const quoteExpires = Number(env.MAP_TRAINING_QUOTE_EXPIRES_AT);
   if (!Number.isSafeInteger(hourlyRate) || hourlyRate <= 0 || hourlyRate > 1000000000 ||
-      !Number.isSafeInteger(quoteExpires) || quoteExpires <= now || quoteExpires > now + 3600) {
+      !Number.isSafeInteger(quoteExpires) || quoteExpires <= now || quoteExpires > now + MAX_PRICING_AGE_SECONDS) {
     return { schema_version: 2, status: "blocked",
       human_summary: "有効な学習料金の見積もりが設定されていません。",
       machine_state: machine, next_allowed_actions: [], blocking_reason: "TRAINING_QUOTE_UNAVAILABLE" };

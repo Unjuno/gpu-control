@@ -6,6 +6,9 @@ import time
 from map_checkpoint import checkpoint_manifest
 
 
+MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60
+
+
 def validate_map_plan(plan, *, source_sha, image_digest, hourly_microusd, quote_expires_at):
     """Check the exact reviewed profile against trusted provider settings."""
     if (plan["commit"] != source_sha or plan["image_digest"] != image_digest
@@ -19,7 +22,7 @@ def validate_map_plan(plan, *, source_sha, image_digest, hourly_microusd, quote_
     budget = plan["max_cost_microusd"]
     hourly_rate = plan["hourly_microusd"]
     now = int(time.time())
-    if (type(quote_expires_at) is not int or not now < quote_expires_at <= now + 3600
+    if (type(quote_expires_at) is not int or not now < quote_expires_at <= now + MAX_PRICING_AGE_SECONDS
             or plan["quote_expires_at"] != quote_expires_at
             or hourly_rate != hourly_microusd):
         raise ValueError("training_quote_invalid")
