@@ -147,6 +147,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(readFileSync(new URL("../drizzle/0022_training_registrations.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0023_training_plans.sql", import.meta.url), "utf8"));
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner", DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
@@ -206,6 +207,15 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const bySource = { ...args, runtime_seconds: 120, max_cost_microusd: 100000 };
     assert.deepEqual((await call("test-owner", "training_preview", bySource)).machine_state,
       plan.machine_state);
+    const prepare = { ...bySource, idempotency_key: "training-prepare-retry" };
+    const saved = await call("test-owner", "training_prepare", prepare);
+    assert.match(saved.machine_state.run_id, /^[0-9a-f]{32}$/);
+    assert.equal(saved.machine_state.executable, false);
+    assert.deepEqual((await call("test-owner", "training_prepare", prepare)).machine_state, saved.machine_state);
+    assert.equal((await call("test-owner", "training_prepare",
+      { ...prepare, max_cost_microusd: 200000 })).error, "IDEMPOTENCY_KEY_CONFLICT");
+    assert.equal((await call("other-owner", "training_prepare", prepare)).error,
+      "TRAINING_REGISTRATION_NOT_FOUND");
     assert.equal((await call("other-owner", "training_preview", bySource)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
     assert.equal((await call("test-owner", "training_preview",
