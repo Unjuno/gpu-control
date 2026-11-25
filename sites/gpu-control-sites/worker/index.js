@@ -1,4 +1,4 @@
-import { prepareTrainingPlan, previewTrainingPlan, trainingPlanState } from "./training_plan.js";
+import { prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
 import { listTrainingSources, registerTrainingSource } from "./training_source.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
@@ -194,10 +194,18 @@ schemas.training_prepare = {
   required: [...schemas.training_preview.required, "idempotency_key"],
 };
 
+schemas.training_submit = {
+  type: "object", properties: {
+    run_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
+    plan_fingerprint: { type: "string", pattern: "^[0-9a-f]{64}$" },
+    approved_plan: { type: "object", additionalProperties: true, maxProperties: 20 },
+  }, required: ["run_id", "plan_fingerprint", "approved_plan"], additionalProperties: false,
+};
 schemas.training_status = schemas.experiment_status;
 schemas.training_cancel = schemas.experiment_cancel;
 
 const toolDescriptions = {
+  training_submit: "Start one saved training plan after the authenticated owner requests execution. Supply the exact saved approved_plan. This action can incur charges.",
   training_status: "Read the state of your saved training plan.",
   training_cancel: "Cancel your unsubmitted training plan.",
   training_prepare: "Save an exact, expiring plan for your reviewed training source. This does not launch a GPU job.",
@@ -670,6 +678,11 @@ function validProviderApprovedPlan(value) {
 }
 
 function validToolArguments(name, args, env) {
+  if (name === "training_submit") return Object.keys(args).sort().join(",") === "approved_plan,plan_fingerprint,run_id" &&
+    typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
+    typeof args.plan_fingerprint === "string" && /^[0-9a-f]{64}$/.test(args.plan_fingerprint) &&
+    args.approved_plan && typeof args.approved_plan === "object" && !Array.isArray(args.approved_plan) &&
+    Object.keys(args.approved_plan).length <= 20;
   if (name === "training_prepare") {
     const { idempotency_key: key, ...inputs } = args;
     return typeof key === "string" && /^[A-Za-z0-9_-]{16,128}$/.test(key) &&
@@ -1757,6 +1770,7 @@ async function callTool(name, args, request, env, context = null) {
       next_allowed_actions: state === "running" ? ["training_status", "training_cancel"]
         : ["cancel_requested", "uncertain"].includes(state) ? ["training_status"] : [] };
   }
+  if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool, gatewayDelegationConfigured);
   if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);
   if (name === "training_list") return listTrainingSources(env.DB, owner);
@@ -2338,7 +2352,7 @@ async function handleMcp(request, env, context = null) {
   if (message.method === "tools/list") {
     return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: {
       readOnlyHint: ["training_status", "training_preview", "training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
-      destructiveHint: ["training_cancel", "experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
+      destructiveHint: ["training_submit", "training_cancel", "experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
       idempotentHint: !["experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health"].includes(name),
       openWorldHint: false,
     } })) } });
@@ -2353,7 +2367,7 @@ async function handleMcp(request, env, context = null) {
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
-      const known = new Set(["TRAINING_PLAN_EXPIRED", "TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+      const known = new Set(["TRAINING_BUDGET_NOT_CONFIGURED", "TRAINING_PLAN_EXPIRED", "TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
       const runpodProviderCodes = new Set([
         "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
         "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",
