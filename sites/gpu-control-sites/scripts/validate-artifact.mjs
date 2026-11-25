@@ -91,4 +91,14 @@ assert.match(reliableRunHistoryMigration, /ADD COLUMN source_run_id TEXT/);
 assert.match(reliableRunHistoryMigration, /ADD COLUMN submit_attempted_at INTEGER/);
 assert.match(reliableRunHistoryMigration, /CREATE TRIGGER gateway_delegated_terminal_at_once/);
 assert.match(reliableRunHistoryMigration, /CREATE TRIGGER runs_completed_at_once/);
+for (const migration of [
+  "0022_training_registrations.sql",
+  "0023_training_plans.sql",
+  "0024_training_plan_cancellation.sql",
+  "0025_training_submission_claim.sql",
+]) {
+  assert.ok(migrations.includes(migration), `Missing migration ${migration}`);
+}
+const worker = await import(new URL("../dist/server/index.js", import.meta.url));
+assert.equal(typeof worker.default.fetch, "function");
 console.log("Site Worker artifact is complete.");
