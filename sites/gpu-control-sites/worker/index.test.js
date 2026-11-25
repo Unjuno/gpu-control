@@ -272,6 +272,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "dispatching");
     assert.equal(sends, 1);
+    assert.equal((await call("other-owner", "training_status",
+      { run_id: submission.run_id })).error, "RUN_NOT_FOUND");
+    assert.equal((await call("other-owner", "training_checkpoint",
+      { run_id: submission.run_id, offset: 0, max_bytes: 64 })).error, "RUN_NOT_FOUND");
     assert.equal((await call("other-owner", "training_preview", bySource)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
     assert.equal((await call("test-owner", "training_preview",
