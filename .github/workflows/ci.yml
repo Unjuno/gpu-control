@@ -72,6 +72,13 @@ jobs:
       - name: Test
         run: uv run --locked pytest
 
+      - name: Test MAP training provider state and dispatch
+        if: matrix.python-version == '3.12'
+        working-directory: sites/gpu-control-sites/modal
+        run: >-
+          uv run --no-project --python 3.12 --with modal==1.6.4 --with pytest==9.0.2
+          python -m pytest -q test_map_training_backend.py
+
   sites-worker:
     name: Sites Worker and D1 contract
     runs-on: ubuntu-24.04
