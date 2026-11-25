@@ -139,6 +139,14 @@ def test_configuration_failure_is_closed():
     assert client.post("/mcp", json={}).status_code == 503
 
 
+def test_public_readiness_only_reports_availability(web):
+    public = web.client.get("/readyz")
+    assert public.status_code == 503
+    assert public.json() == {"ready": False}
+    assert public.headers["cache-control"] == "no-store"
+    assert TestClient(web.client.app).get("/api/readiness").status_code == 401
+
+
 def test_readiness_requires_current_database_migration_worker_and_registry(web):
     from sqlalchemy import update
     from gpu_gateway.migrations import SCHEMA_VERSION, schema_version
