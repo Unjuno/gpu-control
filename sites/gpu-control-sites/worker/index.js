@@ -1,4 +1,4 @@
-import { prepareTrainingPlan, previewTrainingPlan } from "./training_plan.js";
+import { prepareTrainingPlan, previewTrainingPlan, trainingPlanState } from "./training_plan.js";
 import { listTrainingSources, registerTrainingSource } from "./training_source.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
@@ -194,7 +194,12 @@ schemas.training_prepare = {
   required: [...schemas.training_preview.required, "idempotency_key"],
 };
 
+schemas.training_status = schemas.experiment_status;
+schemas.training_cancel = schemas.experiment_cancel;
+
 const toolDescriptions = {
+  training_status: "Read the state of your saved training plan.",
+  training_cancel: "Cancel your unsubmitted training plan.",
   training_prepare: "Save an exact, expiring plan for your reviewed training source. This does not launch a GPU job.",
   training_preview: "Preview a reviewed training profile by registered repository and commit, or registration ID, with a runtime and budget ceiling in millionths of a US dollar. This action cannot start training or confirm pricing.",
 
@@ -721,7 +726,7 @@ function validToolArguments(name, args, env) {
     (args.state === undefined || ["prepared", "queued", "running", "succeeded", "failed", "cancelled", "expired", "uncertain"].includes(args.state)) &&
     (args.limit === undefined || (Number.isSafeInteger(args.limit) && args.limit >= 1 && args.limit <= 50)) &&
     (args.cursor === undefined || (typeof args.cursor === "string" && /^[0-9]{1,12}:[0-9a-f]{32}$/.test(args.cursor)));
-  if (["experiment_status", "experiment_result", "experiment_cancel"].includes(name)) return Object.keys(args).join(",") === "run_id" &&
+  if (["training_status", "training_cancel", "experiment_status", "experiment_result", "experiment_cancel"].includes(name)) return Object.keys(args).join(",") === "run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id);
   if (name === "experiment_artifact") return Object.keys(args).sort().join(",") === "artifact_id,max_bytes,offset,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) && typeof args.artifact_id === "string" &&
@@ -1737,6 +1742,9 @@ async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
+  if (name === "training_status" || name === "training_cancel") {
+    return trainingPlanState(env.DB, owner, args.run_id, name === "training_cancel");
+  }
   if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);
   if (name === "training_list") return listTrainingSources(env.DB, owner);
@@ -2317,8 +2325,8 @@ async function handleMcp(request, env, context = null) {
   }
   if (message.method === "tools/list") {
     return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: {
-      readOnlyHint: ["training_preview", "training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
-      destructiveHint: ["experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
+      readOnlyHint: ["training_status", "training_preview", "training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
+      destructiveHint: ["training_cancel", "experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
       idempotentHint: !["experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health"].includes(name),
       openWorldHint: false,
     } })) } });

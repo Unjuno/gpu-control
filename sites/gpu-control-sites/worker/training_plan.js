@@ -59,11 +59,28 @@ export async function prepareTrainingPlan(env, owner, args) {
     (id, owner_id, registration_id, idempotency_key, fingerprint, plan_json, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, idempotency_key) DO NOTHING`)
     .bind(crypto.randomUUID().replaceAll("-", ""), owner, plan.registration_id, key, fingerprint, json, now, expires).run();
-  const existing = await env.DB.prepare(`SELECT id, fingerprint, expires_at FROM training_plans
+  const existing = await env.DB.prepare(`SELECT id, fingerprint, expires_at, cancelled_at FROM training_plans
     WHERE owner_id=? AND idempotency_key=?`).bind(owner, key).first();
   if (existing?.fingerprint !== fingerprint) throw new Error("IDEMPOTENCY_KEY_CONFLICT");
   if (existing.expires_at <= now) throw new Error("TRAINING_PLAN_EXPIRED");
   return { ...preview, human_summary: "認証済みの所有者に紐づく学習計画を保存しました。",
     machine_state: { ...plan, executable, run_id: existing.id,
-      plan_fingerprint: fingerprint, expires_at: existing.expires_at } };
+      plan_fingerprint: fingerprint, expires_at: existing.expires_at, state: existing.cancelled_at === null ? "prepared" : "cancelled" } };
+}
+
+export async function trainingPlanState(db, owner, runId, cancel = false) {
+  const now = Math.floor(Date.now() / 1000);
+  if (cancel) {
+    await db.prepare(`UPDATE training_plans SET cancelled_at=?
+      WHERE owner_id=? AND id=? AND cancelled_at IS NULL AND expires_at>?`)
+      .bind(now, owner, runId, now).run();
+  }
+  const row = await db.prepare(`SELECT fingerprint, expires_at, cancelled_at
+    FROM training_plans WHERE owner_id=? AND id=?`).bind(owner, runId).first();
+  if (!row) throw new Error("RUN_NOT_FOUND");
+  const state = row.cancelled_at !== null ? "cancelled" : row.expires_at <= now ? "expired" : "prepared";
+  return { schema_version: 2, status: "ok", human_summary: "保存済みの学習計画の状態です。",
+    machine_state: { run_id: runId, state, plan_fingerprint: row.fingerprint,
+      expires_at: row.expires_at, cancelled_at: row.cancelled_at },
+    next_allowed_actions: state === "prepared" ? ["training_cancel"] : [], blocking_reason: null };
 }
