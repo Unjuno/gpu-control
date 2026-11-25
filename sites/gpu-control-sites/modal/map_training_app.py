@@ -39,6 +39,8 @@ checkpoints = modal.Volume.from_name("gpu-control-map-checkpoints", create_if_mi
 def train_map(plan: dict) -> dict:
     from model_as_a_paper.training import train
 
+    if os.environ.get("MAP_IMAGE_SOURCE_SHA") != SOURCE_SHA:
+        raise ValueError("training_image_revision_mismatch")
     if plan["runtime_seconds"] != RUNTIME_LIMIT:
         raise ValueError("training_runtime_mismatch")
     with Path("/opt/map/configs/map44.json").open(encoding="utf-8") as stream:
