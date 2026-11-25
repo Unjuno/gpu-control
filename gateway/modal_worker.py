@@ -1,6 +1,6 @@
 """Optional Modal CPU worker deployment. Deploying activates billable CPU scheduling.
 
-Do not import this file as the Vercel app. Run manually from gateway/ only after
+Do not import this file as the legacy FastAPI app. Run manually from gateway/ only after
 creating the database schema and the operator-owned gpu-control-worker Secret.
 The Secret contains gateway DB/settings. Provider credentials stay off the Web app.
 """
@@ -11,6 +11,7 @@ import modal
 ROOT = Path(__file__).parent
 app = modal.App('gpu-control-worker')
 image = (modal.Image.debian_slim(python_version='3.12')
+         .env({'GRADIO_ANALYTICS_ENABLED': 'False', 'HF_HUB_DISABLE_TELEMETRY': '1'})
          .pip_install_from_requirements(str(ROOT / 'requirements-worker.txt'))
          .add_local_python_source('gpu_gateway'))
 

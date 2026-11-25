@@ -14,11 +14,14 @@ ApprovedExecutionPlan
 PublishedImageEvidence
 RunPodCatalogPricingEvidence
 account occupancy probe
-optional Pod inventory probe
-optional RunPodCompletionLaunch
+Pod inventory probe
+RunPodCompletionLaunch
+trusted pre-existing Network Volume evidence
+fixed-origin Network Volume S3 result client
+trusted workload id
 ```
 
-The adapter constructor revalidates the plan, immutable published image, exact plan fingerprint, RunPod GPU type, cloud-specific catalog price, pricing validity metadata, and—when present—the per-execution completion launch. The adapter does not accept a raw `WorkloadRequest`.
+The adapter constructor revalidates the plan, immutable published image, exact plan fingerprint, RunPod GPU type, cloud-specific catalog price, pricing validity metadata, and the configured per-execution completion launch. Immediately before submission it also refuses allocation unless the inventory, signer, volume, result client, and workload identity are all present. The adapter does not accept a raw `WorkloadRequest`.
 
 The existing `submit_approved_plan(...)` controller remains the outer paid-compute boundary. It still validates the trusted expected plan fingerprint and pricing freshness before invoking `adapter.submit(...)`.
 
@@ -108,11 +111,23 @@ This supports retries after an ambiguous delete without turning an active Pod in
 
 Reconstructed evidence recomputes the content digest and revalidates every entry before use.
 
-## Results remain disabled because the production transport is missing
+## Authenticated durable results
 
-`collect_results(...)` currently rejects every request. This is no longer because the workload-completion protocol is undefined: the Orbitune workload emits the v2 HMAC completion envelope, the control plane authenticates it offline, and the workload-specific paid-canary acceptance layer is separately implemented.
+The selected Orbitune workload writes bounded `result.json` and
+`completion-v3.json` objects to the trusted pre-existing Network Volume. The
+control plane reads those objects through the fixed RunPod S3 origin and
+authenticates the `gpu-control-hmac-sha256-v3` envelope. The evidence binds the
+plan, execution name, source and image, exact result digest, workload id, and
+effective process exit code. A `pass` result with a nonzero signed exit code,
+or a `fail` result with a zero exit code, is rejected.
 
-The remaining RunPod blocker is transport. The pinned official RunPod audit records the Pod-log SSE operation used by the earlier prototype as unavailable on the production surface. No alternative production-supported authenticated collection transport has yet been verified.
+The transport and root-owned signer are implemented and mock-tested offline,
+but have not been verified in this RunPod account. The per-run signer key is
+sent only as system environment to the digest-pinned root wrapper; that wrapper
+must remove it before launching training as UID/GID 10001. This boundary does
+not attest the RunPod host or account administrator. Secret-bearing create
+errors suppress arbitrary provider detail to prevent reflected environment
+values from reaching exception logs.
 
 The provider-neutral finalization contract supports both:
 
@@ -120,15 +135,19 @@ The provider-neutral finalization contract supports both:
 terminal -> cleanup -> post-cleanup collection
 ```
 
-for transports that survive resource deletion, and:
+for this Network Volume transport, which survives Pod deletion, and:
 
 ```text
 terminal -> durable ProviderResultCapture -> cleanup -> finalized ResultManifest
 ```
 
-for ephemeral transports that must be read before cleanup. Neither path changes the RunPod blocker: `RunPodV2Adapter.collect_results(...)` remains fail-closed until a production-supported authenticated transport is verified and wired.
+for any future ephemeral transport that must be read before cleanup. The
+current blocker is live provider/account acceptance and Sites orchestration,
+not the absence of an offline result verifier.
 
-When that transport exists, it must preserve the existing completion/result identity bindings, including approved plan, exact execution identity, source/image identity, authenticated result digest, provider-job correlation, bounded result policy, and cleanup lifecycle correlation.
+Live acceptance must prove that the provider mount, root-wrapper secret
+scrubbing, durable objects, S3 retrieval, provider-job correlation, bounded
+result policy, and cleanup lifecycle all preserve those bindings.
 
 ## No live resource path yet
 
@@ -136,8 +155,10 @@ This adapter class existing in the package does not enable paid compute by itsel
 
 - reads `RUNPOD_API_KEY`;
 - constructs `RunPodV2HttpClient` with the real network opener;
-- constructs `RunPodV2Adapter` for a public CLI request;
-- invokes it from a GitHub Actions paid workflow;
-- collects live authenticated results through a verified production transport.
+- constructs `RunPodV2Adapter` from a Sites owner-bound one-use authorization;
+- reserves and transitions the D1 account lease atomically with RunPod intent;
+- reconciles provider creation, cancellation, result capture, and cleanup from
+  the Sites lifecycle;
+- collects live authenticated results through the Network Volume transport.
 
 Those remain separately gated future changes.

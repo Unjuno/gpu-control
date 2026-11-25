@@ -27,10 +27,9 @@ from .finalization import (
 )
 from .runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
 from .runpod_current_pricing import (
-    RUNPOD_GRAPHQL_URL,
-    RUNPOD_PRICING_CONTRACT_COMMIT,
+    RUNPOD_PRICING_CONTRACT_REVISION,
     RunPodCurrentPricingEvidence,
-    RunPodPricingGraphQLClient,
+    RunPodPricingCatalogClient,
     build_current_pricing_evidence,
 )
 from .runpod_occupancy import RunPodAccountOccupancyEvidence, build_account_occupancy_evidence
@@ -63,6 +62,12 @@ from .runpod_v2 import (
     translate_pod_status,
     validate_created_pod,
 )
+from .runpod_v2_current_adapter import (
+    RunPodV2CurrentAdapter,
+    RunPodV2CurrentAdapterError,
+    RunPodV2InventoryProbe,
+    RunPodV2OccupancyProbe,
+)
 from .synthetic import SyntheticProviderAdapter
 
 __all__ = [
@@ -75,8 +80,7 @@ __all__ = [
     "ProviderStatusSnapshot",
     "ProviderSubmission",
     "PublishedImageEvidence",
-    "RUNPOD_GRAPHQL_URL",
-    "RUNPOD_PRICING_CONTRACT_COMMIT",
+    "RUNPOD_PRICING_CONTRACT_REVISION",
     "RUNPOD_V1_BASE_URL",
     "RUNPOD_V2_BASE_URL",
     "RunPodAccountOccupancyEvidence",
@@ -84,7 +88,7 @@ __all__ = [
     "RunPodCurrentPricingEvidence",
     "RunPodPodInventoryEntry",
     "RunPodPodInventoryEvidence",
-    "RunPodPricingGraphQLClient",
+    "RunPodPricingCatalogClient",
     "RunPodV1Adapter",
     "RunPodV1AdapterError",
     "RunPodV1HttpClient",
@@ -92,8 +96,12 @@ __all__ = [
     "RunPodV1OccupancyProbe",
     "RunPodV2Adapter",
     "RunPodV2AdapterError",
+    "RunPodV2CurrentAdapter",
+    "RunPodV2CurrentAdapterError",
     "RunPodV2Error",
     "RunPodV2HttpClient",
+    "RunPodV2InventoryProbe",
+    "RunPodV2OccupancyProbe",
     "SubmittedJob",
     "SyntheticProviderAdapter",
     "build_account_occupancy_evidence",

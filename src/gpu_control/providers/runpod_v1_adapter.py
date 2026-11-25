@@ -12,6 +12,7 @@ from .runpod_occupancy import RunPodAccountOccupancyEvidence, build_account_occu
 from .runpod_pricing import validate_created_pod_with_pricing
 from .runpod_reconciliation import RunPodPodInventoryEvidence, build_pod_inventory_evidence
 from .runpod_v1 import RunPodV1HttpClient, build_create_pod_payload_v1
+from .runpod_live_gate import require_runpod_live_allocation_enabled
 from .runpod_v2 import RunPodV2Error
 
 
@@ -91,15 +92,15 @@ class RunPodV1Adapter(RunPodV2Adapter):
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV1AdapterError(str(exc)) from exc
 
-    def _require_plan_identity(self, plan: ApprovedExecutionPlan) -> None:
-        super()._require_plan_identity(plan)
+    def _require_plan_identity(self, plan: ApprovedExecutionPlan, *, now_utc: datetime | None = None) -> None:
+        super()._require_plan_identity(plan, now_utc=now_utc)
         assert self.current_pricing is not None
         assert self.network_volume is not None
         try:
             self.current_pricing.validate_against_plan(
                 plan,
                 network_volume=self.network_volume,
-                now_utc=self.clock(),
+                now_utc=self.clock() if now_utc is None else now_utc,
             )
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV1AdapterError(str(exc)) from exc
@@ -107,8 +108,9 @@ class RunPodV1Adapter(RunPodV2Adapter):
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
         """Submit exactly once through current REST v1 after fresh price/stock checks."""
 
+        require_runpod_live_allocation_enabled()
         self._require_plan_identity(plan)
-        self._probe_before_create(plan)
+        occupancy_evidence = self._probe_before_create(plan)
         payload = build_create_pod_payload_v1(
             plan,
             self.published_image,
@@ -118,8 +120,17 @@ class RunPodV1Adapter(RunPodV2Adapter):
             network_volume=self.network_volume,
         )
 
+        # Recheck authorization, current price/stock evidence, and account state
+        # after payload preparation and immediately before provider allocation.
+        create_checked_at = self.clock()
+        self._require_plan_identity(plan, now_utc=create_checked_at)
         try:
-            pod = self.client.create_pod(payload)
+            occupancy_evidence.validate_before_create(plan, now_utc=create_checked_at)
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV1AdapterError(str(exc)) from exc
+
+        try:
+            pod = self.client.create_pod(payload, plan=plan, live_permit=self.live_permit)
         except RunPodV2Error as create_error:
             return self._reconcile_create_failure(plan, create_error)
 

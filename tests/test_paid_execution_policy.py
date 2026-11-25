@@ -33,11 +33,19 @@ def test_main_must_be_protected_before_live_paid_authorization() -> None:
     assert controls["branch_protection_required"] is True
     assert controls["pull_request_required"] is True
     assert controls["required_status_checks_required"] is True
+    assert controls["required_approving_review_count"] == 1
+    assert controls["approval_after_last_push_required"] is True
+    assert controls["strict_status_checks_required"] is True
+    assert controls["conversation_resolution_required"] is True
+    assert controls["linear_history_required"] is True
+    assert controls["administrators_enforced"] is True
     assert controls["required_status_checks"] == [
         "Python 3.11",
         "Python 3.12",
         "Python 3.13",
         "Trusted reference container",
+        "Project bridge tests",
+        "Sites Worker and D1 contract",
     ]
     assert controls["force_pushes_forbidden"] is True
     assert controls["deletions_forbidden"] is True
@@ -52,11 +60,11 @@ def test_no_paid_workflow_or_provider_secret_access_exists_while_live_is_disable
         assert "environment: paid-runpod" not in content
 
 
-def test_paid_secret_is_environment_only_and_owner_reviewed() -> None:
+def test_paid_secret_is_environment_only_and_independent_review_is_not_configured_yet() -> None:
     environment = policy()["github_environment"]
     assert environment["name"] == "paid-runpod"
-    assert environment["required_reviewer"] == "Unjuno"
-    assert environment["prevent_self_review"] is False
+    assert environment["required_reviewer"] is None
+    assert environment["prevent_self_review"] is True
     assert environment["protected_branch_only"] is True
     assert environment["secret_scope"] == "environment_only"
     assert environment["secret_names"] == ["RUNPOD_API_KEY"]

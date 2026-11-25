@@ -17,6 +17,7 @@ from .runpod_v2 import (
     build_create_pod_payload,
     validate_created_pod,
 )
+from .runpod_network_volume import RunPodNetworkVolumeEvidence
 
 
 _ALLOWED_CLOUDS = {"SECURE", "COMMUNITY"}
@@ -93,6 +94,13 @@ class RunPodCatalogPricingEvidence:
             raise RunPodV2Error("RunPod catalog verified_at does not match approved plan")
         if self.valid_until_utc != plan.pricing_valid_until_utc:
             raise RunPodV2Error("RunPod catalog validity window does not match approved plan")
+
+    def validate_fresh(self, *, now_utc: datetime) -> None:
+        self.validate_shape()
+        now = _parse_utc(_format_utc(now_utc), "now_utc")
+        valid_until = _parse_utc(self.valid_until_utc, "valid_until_utc")
+        if now >= valid_until:
+            raise RunPodV2Error("RunPod catalog pricing evidence expired before provider submission")
 
 
 def _parse_utc(value: str, field: str) -> datetime:
@@ -241,8 +249,15 @@ def validate_created_pod_with_pricing(
     pod: Mapping[str, Any],
     *,
     completion: RunPodCompletionLaunch | None = None,
+    expected_network_volume: RunPodNetworkVolumeEvidence | None = None,
 ) -> str:
     pricing.validate_against_plan(plan)
     if pod.get("cloud") != pricing.cloud:
         raise RunPodV2Error("RunPod create response cloud does not match approved catalog evidence")
-    return validate_created_pod(plan, image, pod, completion=completion)
+    return validate_created_pod(
+        plan,
+        image,
+        pod,
+        completion=completion,
+        expected_network_volume=expected_network_volume,
+    )

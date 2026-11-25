@@ -27,7 +27,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - run: python gateway/project_control/runner.py validate --report "$RUNNER_TEMP/project-result.json"
+      - run: python project_control/runner.py validate --report "$RUNNER_TEMP/project-result.json"
   execute:
     needs: authorize
     runs-on: ubuntu-24.04
@@ -40,7 +40,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Run registered project in credential-free CPU container
-        run: python gateway/project_control/runner.py execute --report "$RUNNER_TEMP/project-result.json"
+        run: python project_control/runner.py execute --report "$RUNNER_TEMP/project-result.json"
       - name: Remove workload container after timeout or cancellation
         if: always()
         env:
@@ -75,4 +75,4 @@ jobs:
       - name: Publish sanitized result from a separate runner
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python gateway/project_control/runner.py publish --report "$RUNNER_TEMP/receipt/project-result.json"
+        run: python project_control/runner.py publish --report "$RUNNER_TEMP/receipt/project-result.json"

@@ -5,16 +5,20 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from ..execution import ApprovedExecutionPlan, ExecutionGateError
+from ..human_authorization import LiveExecutionPermit
+from ..http_security import open_no_redirect, read_bounded
 from .runpod_network_volume import RunPodNetworkVolumeEvidence
+from .runpod_live_gate import require_runpod_live_allocation_enabled, validate_runpod_create_authorization
 from .runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2Error
 
 
 RUNPOD_V1_BASE_URL = "https://rest.runpod.io/v1"
 _ALLOWED_CLOUDS = {"SECURE", "COMMUNITY"}
 _V1_STATUSES = {"RUNNING", "EXITED", "TERMINATED"}
+_MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 def _require_mapping(value: object, label: str) -> Mapping[str, Any]:
@@ -226,7 +230,7 @@ class RunPodV1HttpClient:
         *,
         network_volume: RunPodNetworkVolumeEvidence | None = None,
         timeout: float = 10.0,
-        opener: Callable[..., Any] = urlopen,
+        opener: Callable[..., Any] | None = None,
     ) -> None:
         if not isinstance(api_key, str) or not api_key.strip():
             raise RunPodV2Error("RunPod API key is required")
@@ -234,14 +238,14 @@ class RunPodV1HttpClient:
             raise RunPodV2Error("RunPod API key must not contain whitespace")
         if timeout <= 0:
             raise RunPodV2Error("RunPod HTTP timeout must be positive")
-        if not callable(opener):
+        if opener is not None and not callable(opener):
             raise RunPodV2Error("RunPod HTTP opener must be callable")
         if network_volume is not None:
             network_volume.validate_shape()
         self._api_key = api_key
         self._network_volume = network_volume
         self._timeout = timeout
-        self._opener = opener
+        self._opener = opener or open_no_redirect
 
     def _request(
         self,
@@ -250,9 +254,19 @@ class RunPodV1HttpClient:
         *,
         expected_status: int,
         body: Mapping[str, Any] | None = None,
+        plan: ApprovedExecutionPlan | None = None,
+        live_permit: LiveExecutionPermit | None = None,
     ) -> object | None:
         if not isinstance(path, str) or not path.startswith("/") or path.startswith("//"):
             raise RunPodV2Error("RunPod API path must be an absolute single-origin path")
+        if method.upper() == "POST" and path.split("?", 1)[0] == "/pods":
+            require_runpod_live_allocation_enabled()
+            if plan is None or live_permit is None:
+                raise RunPodV2Error("RunPod create requires an approved plan and issued live permit")
+            try:
+                validate_runpod_create_authorization(plan, live_permit)
+            except ValueError as exc:
+                raise RunPodV2Error(str(exc)) from exc
         data = None
         headers = {
             "Accept": "application/json",
@@ -266,11 +280,11 @@ class RunPodV1HttpClient:
         try:
             with self._opener(request, timeout=self._timeout) as response:
                 status = getattr(response, "status", None)
-                raw = response.read()
+                raw = read_bounded(response, max_bytes=_MAX_API_RESPONSE_BYTES)
         except HTTPError as exc:
             detail = ""
             try:
-                error_payload = json.loads(exc.read().decode("utf-8"))
+                error_payload = json.loads(read_bounded(exc, max_bytes=_MAX_API_RESPONSE_BYTES).decode("utf-8"))
                 if isinstance(error_payload, Mapping):
                     for field in ("message", "detail", "error"):
                         value = error_payload.get(field)
@@ -282,6 +296,8 @@ class RunPodV1HttpClient:
             raise RunPodV2Error(f"RunPod API returned HTTP {exc.code}{detail}") from exc
         except URLError as exc:
             raise RunPodV2Error("RunPod API could not be reached") from exc
+        except ValueError as exc:
+            raise RunPodV2Error(f"RunPod API response was rejected: {exc}") from exc
 
         if status != expected_status:
             raise RunPodV2Error(f"RunPod API returned unexpected HTTP status {status}")
@@ -298,10 +314,30 @@ class RunPodV1HttpClient:
         raw = self._request("GET", "/pods", expected_status=200)
         return normalize_v1_inventory(raw)
 
-    def create_pod(self, payload: Mapping[str, Any]) -> dict[str, object]:
+    def create_pod(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        plan: ApprovedExecutionPlan | None = None,
+        live_permit: LiveExecutionPermit | None = None,
+    ) -> dict[str, object]:
+        require_runpod_live_allocation_enabled()
+        if plan is None or live_permit is None:
+            raise RunPodV2Error("RunPod create requires an approved plan and issued live permit")
+        try:
+            validate_runpod_create_authorization(plan, live_permit)
+        except ValueError as exc:
+            raise RunPodV2Error(str(exc)) from exc
         if not isinstance(payload, Mapping):
             raise RunPodV2Error("RunPod REST v1 create payload must be a mapping")
-        result = self._request("POST", "/pods", expected_status=201, body=payload)
+        result = self._request(
+            "POST",
+            "/pods",
+            expected_status=201,
+            body=payload,
+            plan=plan,
+            live_permit=live_permit,
+        )
         raw = _require_mapping(result, "RunPod REST v1 create response")
         normalized = normalize_v1_pod(
             raw,

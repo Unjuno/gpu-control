@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from ..completion import (
     CompletionChallenge,
@@ -18,6 +18,7 @@ from ..completion import (
     CompletionEvidenceV3,
     verify_completion_v3,
 )
+from ..http_security import open_no_redirect, read_bounded
 from ..lifecycle import JobState
 from .runpod_log_results import (
     _freeze_json,
@@ -155,19 +156,19 @@ class RunPodNetworkVolumeS3Client:
         credentials: RunPodS3Credentials,
         *,
         timeout: float = 10.0,
-        opener: Callable[..., Any] = urlopen,
+        opener: Callable[..., Any] | None = None,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         evidence.validate_shape()
         credentials.validate_shape()
         if timeout <= 0:
             raise RunPodV2Error("RunPod S3 timeout must be positive")
-        if not callable(opener) or not callable(clock):
+        if (opener is not None and not callable(opener)) or not callable(clock):
             raise RunPodV2Error("RunPod S3 opener and clock must be callable")
         self._evidence = evidence
         self._credentials = credentials
         self._timeout = timeout
-        self._opener = opener
+        self._opener = opener or open_no_redirect
         self._clock = clock
 
     def _request(self, object_key: str) -> Request:
@@ -240,13 +241,15 @@ class RunPodNetworkVolumeS3Client:
                         raise RunPodV2Error("RunPod S3 Content-Length is invalid") from exc
                     if length < 0 or length > max_bytes:
                         raise RunPodV2Error("RunPod S3 object exceeds bounded result size")
-                payload = response.read(max_bytes + 1)
+                payload = read_bounded(response, max_bytes=max_bytes)
         except HTTPError as exc:
             if exc.code == 404:
                 raise RunPodV2Error("RunPod S3 result object is missing") from exc
             raise RunPodV2Error(f"RunPod S3 object read failed with HTTP {exc.code}") from exc
         except URLError as exc:
             raise RunPodV2Error("RunPod S3 API could not be reached") from exc
+        except ValueError as exc:
+            raise RunPodV2Error(f"RunPod S3 result response was rejected: {exc}") from exc
         if not isinstance(payload, bytes):
             raise RunPodV2Error("RunPod S3 object body must be bytes")
         if len(payload) > max_bytes:

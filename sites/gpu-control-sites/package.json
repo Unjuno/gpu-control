@@ -1,0 +1,12 @@
+{
+  "name": "gpu-control-sites",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "generate:registry": "node scripts/generate_workload_registry.mjs",
+    "validate": "node scripts/validate-artifact.mjs",
+    "test:migrations": "python3 scripts/test_migrations.py",
+    "test": "node scripts/generate_workload_registry.mjs --check && node --test worker/*.test.js"
+  }
+}

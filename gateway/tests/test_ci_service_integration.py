@@ -21,7 +21,8 @@ from gpu_gateway.store import Store, control, metadata
 
 @pytest.fixture
 def bridge(tmp_path):
-    policy = Policy.load()
+    # Test-only opt-in: production policy intentionally disables this legacy path.
+    policy = replace(Policy.load(), enabled=True)
     settings = Settings(database_url=f"sqlite:///{tmp_path / 'bridge.db'}", public_url=policy.gateway_origin)
     store = Store(settings.database_url)
     # This test concerns the experiment queue, not local-OAuth bootstrap/migrations.

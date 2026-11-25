@@ -1,6 +1,8 @@
 from pathlib import Path
 import re
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -33,3 +35,90 @@ def test_uv_bootstrap_uses_immutable_setup_uv_not_pip_install() -> None:
         assert 'uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9' in content or (
             workflow.name not in {"ci.yml", "dry-run.yml"}
         )
+
+
+def test_dry_run_token_is_limited_to_main_source_verification_step() -> None:
+    workflow = yaml.load((WORKFLOWS / "dry-run.yml").read_text(encoding="utf-8"),
+                         Loader=yaml.BaseLoader)
+    job = workflow["jobs"]["validate"]
+
+    assert job["if"] == "github.ref == 'refs/heads/main'"
+    assert "GITHUB_TOKEN" not in job.get("env", {})
+
+    steps = job["steps"]
+    token_steps = [step for step in steps if "GITHUB_TOKEN" in step.get("env", {})]
+    assert len(token_steps) == 1
+    verify_step = token_steps[0]
+    assert verify_step["name"] == "Validate request and verify source (no GPU resources are created)"
+    assert verify_step["env"]["GITHUB_TOKEN"] == "${{ github.token }}"
+    assert "--target-repo \"$TARGET_REPO\"" in verify_step["run"]
+    assert "--target-sha \"$TARGET_SHA\"" in verify_step["run"]
+
+    token_step_index = steps.index(verify_step)
+    assert all("GITHUB_TOKEN" not in step.get("env", {}) for step in steps[:token_step_index])
+
+
+def test_runpod_image_publish_dispatch_is_main_only() -> None:
+    workflow = yaml.load(
+        (WORKFLOWS / "publish-runpod-canary.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    assert "workflow_dispatch" in workflow["on"]
+
+    publish = workflow["jobs"]["publish-image"]
+    assert publish["if"] == (
+        "github.event_name == 'workflow_dispatch' && "
+        "github.ref == 'refs/heads/main'"
+    )
+    assert publish["permissions"]["packages"] == "write"
+
+    pull_request_publish = workflow["jobs"]["publish"]
+    assert pull_request_publish["if"] == "github.event_name == 'pull_request'"
+    build = next(
+        step for step in pull_request_publish["steps"]
+        if step.get("uses", "").startswith("docker/build-push-action@")
+    )
+    assert build["with"]["push"] == "false"
+
+
+def test_required_ci_checks_are_unique_and_report_for_pull_requests_and_merge_groups() -> None:
+    def load(name: str) -> dict:
+        path = WORKFLOWS / name
+        return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+    # The retired Gateway/Vercel/PostgreSQL workflows live under docs/archive and
+    # are intentionally not part of the supported Sites + D1 product path.
+    workflow_names = ("ci.yml", "project-checks-ci.yml")
+    workflows = {name: load(name) for name in workflow_names}
+    contexts = []
+
+    for name, workflow in workflows.items():
+        triggers = workflow["on"]
+        assert "pull_request" in triggers, name
+        assert triggers["merge_group"]["types"] == ["checks_requested"], name
+        assert triggers["push"]["branches"] == ["main"], name
+        if name == "project-checks-ci.yml":
+            assert "paths" not in (triggers["pull_request"] or {}), name
+
+    ci_jobs = workflows["ci.yml"]["jobs"]
+    contexts.append(ci_jobs["reference-workload"]["name"])
+    contexts.extend(f"Python {version}" for version in
+                    ci_jobs["test"]["strategy"]["matrix"]["python-version"])
+    contexts.append(ci_jobs["sites-worker"]["name"])
+    contexts.append(workflows["project-checks-ci.yml"]["jobs"]["test"]["name"])
+    assert len(contexts) == len(set(contexts)), contexts
+
+
+def test_sites_d1_contract_runs_for_every_pull_request_and_merge_group() -> None:
+    workflow = yaml.load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"),
+                         Loader=yaml.BaseLoader)
+    triggers = workflow["on"]
+    assert "pull_request" in triggers
+    assert triggers["merge_group"]["types"] == ["checks_requested"]
+    assert triggers["push"]["branches"] == ["main"]
+    assert "paths" not in triggers["pull_request"]
+
+    sites_steps = workflow["jobs"]["sites-worker"]["steps"]
+    commands = [step.get("run", "") for step in sites_steps]
+    assert any("npm run validate" in command for command in commands)
+    assert any("npm test" in command for command in commands)

@@ -32,13 +32,19 @@ class RepositorySecurityEvidence:
     pull_request_required: bool
     required_status_checks_enforced: bool
     required_status_checks: tuple[str, ...]
+    required_approving_review_count: int
+    approval_after_last_push_required: bool
+    strict_status_checks_required: bool
+    conversation_resolution_required: bool
+    linear_history_required: bool
+    administrators_enforced: bool
     force_pushes_blocked: bool
     deletions_blocked: bool
     verification_reference: str
-    schema_version: int = 1
+    schema_version: int = 2
 
     def validate_against_policy(self, policy: Mapping[str, Any]) -> None:
-        if self.schema_version != 1:
+        if type(self.schema_version) is not int or self.schema_version != 2:
             raise RepositorySecurityError("unsupported repository security evidence schema_version")
 
         identity = policy.get("github_identity")
@@ -68,6 +74,26 @@ class RepositorySecurityEvidence:
                 self.required_status_checks_enforced,
                 controls.get("required_status_checks_required"),
             ),
+            "approval after last push": (
+                self.approval_after_last_push_required,
+                controls.get("approval_after_last_push_required"),
+            ),
+            "strict status checks": (
+                self.strict_status_checks_required,
+                controls.get("strict_status_checks_required"),
+            ),
+            "conversation resolution": (
+                self.conversation_resolution_required,
+                controls.get("conversation_resolution_required"),
+            ),
+            "linear history": (
+                self.linear_history_required,
+                controls.get("linear_history_required"),
+            ),
+            "administrator enforcement": (
+                self.administrators_enforced,
+                controls.get("administrators_enforced"),
+            ),
             "force-push blocking": (self.force_pushes_blocked, controls.get("force_pushes_forbidden")),
             "branch deletion blocking": (self.deletions_blocked, controls.get("deletions_forbidden")),
         }
@@ -76,6 +102,16 @@ class RepositorySecurityEvidence:
                 raise RepositorySecurityError(f"paid policy must require {label}")
             if actual is not True:
                 raise RepositorySecurityError(f"GitHub repository does not enforce required {label}")
+
+        minimum_approvals = controls.get("required_approving_review_count")
+        if not isinstance(minimum_approvals, int) or isinstance(minimum_approvals, bool) or minimum_approvals < 1:
+            raise RepositorySecurityError("paid policy must require at least one approving review")
+        if not isinstance(self.required_approving_review_count, int) or isinstance(
+            self.required_approving_review_count, bool
+        ):
+            raise RepositorySecurityError("GitHub approving review count must be an integer")
+        if self.required_approving_review_count < minimum_approvals:
+            raise RepositorySecurityError("GitHub repository does not enforce required approving reviews")
 
         expected_checks = controls.get("required_status_checks")
         if not isinstance(expected_checks, list) or not expected_checks or not all(

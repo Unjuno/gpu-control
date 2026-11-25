@@ -124,7 +124,10 @@ def test_submission_timeout_never_blindly_retries(system):
     for _ in range(4):
         w.tick(); system.clock.advance(31)
     assert backend.calls == 1
-    assert system.store.read(run["id"])["state"] == "submit_unknown"
+    final = system.store.read(run["id"])
+    assert final["state"] == "submit_unknown"
+    assert final["last_observed_at"] == system.clock() - 31
+    assert system.service.get(system.owner, run["id"])["last_observed_at"] == final["last_observed_at"]
     assert slots(system) == 1
 
 
@@ -138,6 +141,50 @@ def test_reconciliation_recovers_handle_without_resubmission(system):
     w.tick(); system.clock.advance(6); w.tick()
     assert backend.calls == 1
     assert system.store.read(run["id"])["state"] == "succeeded"
+    assert slots(system) == 0
+
+
+def test_slow_provider_start_cannot_overwrite_recovery_lease_or_duplicate_submit(system):
+    prepared = system.service.prepare(system.owner, Prepare(
+        workload="demo", idempotency_key="slow-start-lease-fence-0001", runtime_seconds=600))
+    system.service.approve(system.browser, prepared["id"], prepared["fingerprint"])
+    run = system.service.submit(system.owner, prepared["id"])
+
+    class SlowStart(DemoBackend):
+        calls = 0
+        recovery_claim = None
+
+        def start(self, job):
+            self.calls += 1
+            # Simulate a provider call that outlives its lease. A second worker
+            # claims the ambiguous submission while the original call is in flight.
+            system.clock.advance(121)
+            self.recovery_claim = Worker(system.store, system.settings, {"demo": self},
+                                         system.clock).claim()
+            return super().start(job)
+
+        def reconcile(self, _job):
+            raise AssertionError("the slow worker persisted its returned handle")
+
+    backend = SlowStart()
+    first = Worker(system.store, system.settings, {"demo": backend}, system.clock)
+    assert first.tick()
+    after_start = system.store.read(run["id"])
+    assert backend.calls == 1
+    assert backend.recovery_claim is not None
+    assert backend.recovery_claim["state"] == "submit_unknown"
+    assert after_start["state"] == "submit_unknown"
+    assert after_start["handle"]["id"] == run["id"]
+
+    # The replacement waits for its own lease, then observes the persisted
+    # resource. It must not invoke start or reconcile a second submission.
+    system.clock.advance(121)
+    assert Worker(system.store, system.settings, {"demo": backend}, system.clock).tick()
+    final = system.store.read(run["id"])
+    assert backend.calls == 1
+    assert final["state"] == "succeeded"
+    assert final["result"]["simulation"] is True
+    assert final["last_observed_at"] == system.clock()
     assert slots(system) == 0
 
 
@@ -177,22 +224,83 @@ def test_current_all_in_quote_required(system):
 
 def test_hosted_sqlite_and_unsecured_origin_rejected():
     with pytest.raises(ValueError, match="HTTPS"):
-        Settings(hosted=True).validate()
+        Settings(hosted=True,
+                 client_ip_hash_key="unique-environment-secret-value-32bytes").validate()
     with pytest.raises(ValueError, match="PostgreSQL"):
-        Settings(hosted=True, public_url="https://gateway.example").validate()
+        Settings(hosted=True, public_url="https://gateway.example",
+                 client_ip_hash_key="unique-environment-secret-value-32bytes").validate()
     with pytest.raises(ValueError):
         Settings(public_url="http://example.com").validate()
 
 
-def test_vercel_neon_standard_env_fallback(monkeypatch):
+def test_hosted_gateway_requires_unique_client_ip_hash_key():
+    with pytest.raises(ValueError, match="GATEWAY_CLIENT_IP_HASH_KEY"):
+        Settings(hosted=True, public_url="https://gateway.example",
+                 database_url="postgresql+psycopg://user:pass@db.example/gateway",
+                 client_ip_mode="trusted_proxy", trusted_proxy_cidrs=("10.0.0.0/8",)).validate_api_security()
+    Settings(hosted=True, public_url="https://gateway.example",
+             database_url="postgresql+psycopg://user:pass@db.example/gateway",
+             client_ip_mode="trusted_proxy", trusted_proxy_cidrs=("10.0.0.0/8",),
+             client_ip_hash_key="unique-environment-secret-value-32bytes").validate_api_security()
+
+
+def test_hosted_worker_settings_do_not_require_api_client_ip_secret():
+    # Dedicated worker/supervisor units load only gateway.env, never api.env.
+    settings = Settings(hosted=True, public_url="https://gateway.example",
+                        database_url="postgresql+psycopg://user:pass@db.example/gateway")
+    settings.validate()
+    with pytest.raises(ValueError, match="client IP"):
+        settings.validate_api_security()
+
+
+def test_hosted_environment_uses_explicit_origin_not_platform_defaults(monkeypatch):
     monkeypatch.delenv("GATEWAY_DATABASE_URL", raising=False)
-    monkeypatch.delenv("GATEWAY_PUBLIC_URL", raising=False)
-    monkeypatch.setenv("VERCEL", "1")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@example.neon.tech/db?sslmode=require")
-    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "gpu-control-gateway.vercel.app")
+    monkeypatch.setenv("GATEWAY_PUBLIC_URL", "https://gateway.example")
+    monkeypatch.setenv("GATEWAY_HOSTED", "true")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db.example/db?sslmode=require")
+    monkeypatch.setenv("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "1073741824")
+    monkeypatch.setenv("GATEWAY_CLIENT_IP_HASH_KEY", "unique-environment-secret-value-32bytes")
 
     settings = Settings.from_env()
 
-    assert settings.database_url == "postgresql+psycopg://user:pass@example.neon.tech/db?sslmode=require"
-    assert settings.public_url == "https://gpu-control-gateway.vercel.app"
+    assert settings.database_url == "postgresql+psycopg://user:pass@db.example/db?sslmode=require"
+    assert settings.public_url == "https://gateway.example"
     assert settings.hosted is True
+    assert settings.artifact_min_free_bytes == 1073741824
+
+
+def test_artifact_minimum_free_bytes_must_be_nonnegative_integer():
+    with pytest.raises(ValueError, match="artifact_min_free_bytes"):
+        Settings(artifact_min_free_bytes=-1).validate()
+    with pytest.raises(ValueError, match="artifact_min_free_bytes"):
+        Settings(artifact_min_free_bytes=True).validate()
+
+
+def test_hugging_face_credentials_are_distinct_and_load_from_environment(monkeypatch):
+    monkeypatch.setenv("HF_ARTIFACT_WRITE_TOKEN", "hf_artifact_only")
+    monkeypatch.setenv("HF_SPACE_READ_TOKEN", "hf_space_and_billing_read")
+
+    settings = Settings.from_env()
+
+    assert settings.hf_artifact_write_token == "hf_artifact_only"
+    assert settings.hf_space_read_token == "hf_space_and_billing_read"
+    with pytest.raises(ValueError, match="must be distinct"):
+        Settings(
+            hf_artifact_write_token="hf_reused",
+            hf_space_read_token="hf_reused",
+        ).validate()
+
+
+def test_kaggle_worker_token_is_required_for_execution_and_evidence(monkeypatch):
+    monkeypatch.setenv("KAGGLE_API_TOKEN", "kaggle-worker-token")
+    loaded = Settings.from_env()
+    assert loaded.kaggle_api_token == "kaggle-worker-token"
+
+    with pytest.raises(ValueError, match="execution requires a worker-only API token"):
+        Settings(
+            enable_kaggle=True,
+            kaggle_username="owner",
+            kaggle_staging_root="/var/lib/gpu-control/kaggle-stage",
+        ).validate()
+    with pytest.raises(ValueError, match="evidence collection requires a worker-only API token"):
+        Settings(enable_kaggle_evidence=True).validate()

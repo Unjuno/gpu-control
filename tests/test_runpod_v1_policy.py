@@ -13,51 +13,32 @@ def load_policy() -> dict:
     return value
 
 
-def test_current_v1_control_and_pricing_contracts_are_offline_only() -> None:
+def test_v1_contract_is_legacy_offline_only() -> None:
     policy = load_policy()
     api = policy["api"]
     migration = policy["migration"]
     pricing = policy["pricing_and_availability"]
 
     assert policy["provider"] == "runpod"
-    assert policy["contract"] == "rest_v1_current_official"
-    assert policy["status"] == "control_and_pricing_paths_implemented_offline_mock_tested"
+    assert policy["contract"] == "rest_v1_legacy_offline_only"
+    assert policy["status"] == "retired_from_canonical_path_offline_tests_only"
     assert api["base_url"] == "https://rest.runpod.io/v1"
     assert api["authentication"] == "bearer_header"
     assert api["openapi_endpoint"] == "GET /openapi.json"
     assert api["live_calls_enabled"] is False
-    assert api["adapter_migrated"] is True
+    assert api["adapter_migrated"] is False
     assert api["workflow_enabled"] is False
+    assert api["canonical_api_version"] == "v2"
+    assert api["forbidden_for_live_provider_calls"] is True
 
-    assert pricing["status"] == "implemented_offline_mock_tested"
-    assert pricing["graphql_url"] == "https://api.runpod.io/graphql"
-    assert pricing["authentication"] == "bearer_header"
+    assert pricing["status"] == "retired_legacy_reference"
     assert pricing["live_calls_enabled"] is False
-    assert pricing["source_repository"] == "runpod/runpodctl"
-    assert pricing["source_commit"] == "51ca7f02ab5cb57c09ad917172af36c29a58790c"
-    assert pricing["selected_cloud"] == "SECURE"
-    assert pricing["price_field"] == "securePrice"
-    assert pricing["exact_network_volume_datacenter_required"] is True
-    assert pricing["required_stock_status"] == "HIGH"
-    assert pricing["evidence_max_ttl_seconds"] == 300
-    assert pricing["evidence_content_digest_required"] is True
-    assert pricing["adapter_rechecks_evidence_before_submit"] is True
-
+    assert migration["canonical_provider_api_version"] == "v2"
+    assert migration["provider_adapter_migrated_to_v2"] is True
+    assert migration["live_v1_calls_forbidden"] is True
     assert migration["current_v1_http_client_implemented"] is True
-    assert migration["current_v1_payload_builder_implemented"] is True
-    assert migration["current_v1_response_normalizer_implemented"] is True
-    assert migration["current_v1_list_array_normalizer_implemented"] is True
-    assert migration["current_v1_fixed_origin_tests_implemented"] is True
     assert migration["current_v1_provider_adapter_implemented"] is True
-    assert migration["current_v1_occupancy_probe_implemented"] is True
-    assert migration["current_v1_reconciliation_probe_implemented"] is True
-    assert migration["current_pricing_graphql_client_implemented"] is True
-    assert migration["current_pricing_evidence_implemented"] is True
-    assert migration["exact_datacenter_stock_binding_implemented"] is True
-    assert migration["provider_adapter_migration_pending"] is False
-    assert migration["occupancy_probe_migration_pending"] is False
-    assert migration["reconciliation_probe_migration_pending"] is False
-    assert migration["current_pricing_catalog_revalidation_pending"] is False
+    assert migration["current_pricing_graphql_client_implemented"] is False
     assert migration["live_provider_verification_pending"] is True
 
 
@@ -99,11 +80,11 @@ def test_v1_pod_contract_matches_current_field_shapes() -> None:
     assert response["machine_evidence_required_for_adapter_identity_validation"] is True
 
 
-def test_v1_forbidden_boundaries_fail_closed_after_pricing_migration() -> None:
+def test_v1_forbidden_boundaries_fail_closed_after_v2_migration() -> None:
     forbidden = set(load_policy()["forbidden"])
-    assert "live_calls_before_adapter_migration" not in forbidden
-    assert "live_calls_before_current_pricing_revalidation" not in forbidden
     assert {
+        "live_calls_to_rest_v1",
+        "canonical_adapter_on_rest_v1",
         "live_calls_before_live_provider_verification",
         "live_submission_without_fresh_current_pricing_evidence",
         "live_submission_with_pricing_for_different_datacenter",

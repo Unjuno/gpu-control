@@ -29,6 +29,41 @@ The RunPod adapter now requires that permit and revalidates its exact plan bindi
 
 **Live paid execution is still disabled.** The paid workflow and provider credentials are not present, the repository remains parked, provider reconciliation is not live-verified, and the selected canary still lacks a verified production-supported authenticated result transport. `runtime_enforced: false` therefore remains accurate for the complete end-to-end live path.
 
+## Sites CPU confirmation paths
+
+The fixed Modal CPU inference has two owner-authenticated approval surfaces.
+The browser path remains available: `experiment_prepare`
+returns a Site URL showing workload, repository commit, prompt, token limit,
+seed, runtime, Sandbox ceiling, and the separate Modal control-function cost
+caveat. The owner opens it while signed in and submits a same-origin form. The
+Worker stores a challenge hash and an owner-, plan-fingerprint-, and expiry-
+bound authorization in D1.
+
+Deployed Site Version 38 provides a ChatGPT-native path. `experiment_prepare`
+returns the same exact plan fields in its structured result. `experiment_submit`
+is marked as a destructive MCP write and its confirmed tool call must repeat
+the plan fields; the Worker compares each field with the current owner-bound
+D1 plan and image digest before it creates an authorization with source
+`chatgpt_mcp_write_confirmation`. The authorization expires no later than the
+plan (at most 10 minutes), permits one run, and is consumed in the same D1 batch
+that reserves that run. A separate browser login is not part of this intended
+ChatGPT flow.
+
+The publishing conversation cached Version 34's tool schema. A later goal turn
+loaded the new schema, prepared an exact plan, and completed one owner-confirmed
+Modal CPU run with result and cleanup. Separate-account denial and stronger
+host-confirmation provenance remain unverified.
+The ChatGPT host's write confirmation is a user-facing approval surface, not a
+cryptographic attestation that a human operated the UI. MCP annotations do not
+replace the Worker's owner authorization, exact-plan validation, short expiry,
+one-use record, provider gates, or cleanup checks. The browser path has the
+same limitation. Neither path proves human interaction against a compromised
+ChatGPT client or an untrusted identity header. The repository-wide structured
+evidence format above still governs the protected RunPod/GPU path. The candidate
+is not live acceptance: verify the actual ChatGPT confirmation UI, trusted
+identity-header provenance, cross-account denial, D1 migration, provider
+result, and cleanup before accepting or expanding compute.
+
 ## Why exact plan binding matters
 
 Without exact binding, an approval for a small canary could be reused for a larger runtime, a different GPU, a different workload commit, or a different image. It could also be replayed after the control-plane code changed.

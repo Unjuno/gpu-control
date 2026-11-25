@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
+import base64
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 
 class Workload(BaseModel):
@@ -15,9 +20,28 @@ class Workload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
     image_id: str = ""
+    image_digest: str = ""
+    execution_profile: str = "general"
     source_revision: str = ""
+    source_repository: str = ""
+    source_sha: str = ""
+    requires_gpu: bool = True
     argv: tuple[str, ...] = ()
     gpu: str = "T4"
+    provider_resource_id: str | None = None
+    provider_data_center_id: str | None = None
+    # Explicit P4 compatibility requirements. None means unknown, never inferred.
+    operating_system: str | None = None
+    architecture: str | None = None
+    gpu_count: int | None = Field(default=None, ge=1, le=16)
+    minimum_vram_mib: int | None = Field(default=None, ge=1, le=1_048_576)
+    network_requirement: str | None = Field(default=None, pattern=r"^(disabled|restricted|required)$")
+    result_transport: str | None = Field(default=None, pattern=r"^(shared_filesystem|object_storage|database|stdout)$")
+    max_result_bytes: int | None = Field(default=None, ge=1, le=1_073_741_824)
+    cancellation_required: bool | None = None
+    cleanup_proof_required: bool | None = None
+    runtime_requirements: tuple[str, ...] = ()
+    max_queue_wait_seconds: int | None = Field(default=None, ge=0, le=604800)
     cpu: float = Field(default=1, ge=0.125, le=8)
     memory_mib: int = Field(default=4096, ge=128, le=65536)
     max_runtime_seconds: int = Field(default=600, ge=1, le=3600)
@@ -47,9 +71,45 @@ class Workload(BaseModel):
             raise ValueError("parameter_schema must reject unknown parameters")
         if any(not isinstance(x, str) or not x or "\x00" in x for x in self.argv):
             raise ValueError("argv must contain nonempty NUL-free arguments")
+        if (not isinstance(self.runtime_requirements, tuple) or
+                any(not isinstance(item, str) or not item or item != item.strip() or
+                    any(ord(char) < 32 or ord(char) == 127 for char in item)
+                    for item in self.runtime_requirements) or
+                len(set(self.runtime_requirements)) != len(self.runtime_requirements)):
+            raise ValueError("runtime_requirements must be unique canonical strings")
         if self.provider == "modal":
             if not self.image_id.startswith("im-") or not self.argv or not self.source_revision:
                 raise ValueError("Modal requires a prebuilt image ID, fixed argv and source revision")
+        if self.execution_profile not in {"general", "smoke", "training"}:
+            raise ValueError("execution_profile is unsupported")
+        if self.provider == "local_cpu":
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.image_digest):
+                raise ValueError("local_cpu requires an immutable image_digest")
+            if self.requires_gpu:
+                raise ValueError("local_cpu workload must not require a GPU")
+            if self.execution_profile != "smoke":
+                raise ValueError("local_cpu policy only supports the smoke profile")
+        if bool(self.source_repository) != bool(self.source_sha):
+            raise ValueError("source_repository and source_sha must be configured together")
+        if self.provider == "runpod" and bool(self.provider_resource_id) != bool(self.provider_data_center_id):
+            raise ValueError("RunPod resource and data-center IDs must be configured together")
+        if self.provider in {"kaggle", "huggingface_space"}:
+            if self.provider_resource_id is None or self.provider_data_center_id is not None:
+                raise ValueError(f"{self.provider} requires one provider resource ID and no data-center ID")
+            if not self.source_repository or not self.source_sha:
+                raise ValueError(f"{self.provider} requires an immutable source repository and SHA")
+        if self.provider == "huggingface_space" and re.fullmatch(r"[0-9a-f]{40}", self.source_revision) is None:
+            raise ValueError("huggingface_space requires an immutable approved Space revision")
+        for field_name, value in (("provider_resource_id", self.provider_resource_id),
+                                  ("provider_data_center_id", self.provider_data_center_id)):
+            if value is not None and (not isinstance(value, str) or not value or
+                                      value != value.strip() or len(value) > 128 or
+                                      any(ord(char) < 32 or ord(char) == 127 for char in value)):
+                raise ValueError(f"{field_name} must be bounded canonical text")
+        if self.source_repository and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.source_repository):
+            raise ValueError("source_repository must be owner/name")
+        if self.source_sha and not re.fullmatch(r"[0-9a-f]{40}", self.source_sha):
+            raise ValueError("source_sha must be a canonical full commit SHA")
         return self
 
 
@@ -67,19 +127,82 @@ class Settings:
     allowed_subjects: tuple[str, ...] = ()
     enable_modal: bool = False
     enable_runpod_bridge: bool = False
+    enable_runpod_evidence: bool = False
+    enable_kaggle: bool = False
+    enable_kaggle_evidence: bool = False
+    enable_huggingface_space: bool = False
+    enable_huggingface_space_evidence: bool = False
+    runpod_api_key: str = field(default="", repr=False, compare=False)
+    runpod_account_scope_id: str = field(default="", repr=False, compare=False)
     runpod_factory: str = ""
+    kaggle_api_token: str = field(default="", repr=False, compare=False)
+    kaggle_username: str = ""
+    kaggle_staging_root: str = ""
+    kaggle_source_cache_root: str = ""
+    hf_artifact_write_token: str = field(default="", repr=False, compare=False)
+    hf_space_read_token: str = field(default="", repr=False, compare=False)
+    hf_artifact_repositories: tuple[str, ...] = ()
+    hf_space_allowlist: tuple[str, ...] = ()
     modal_app: str = "gpu-control"
     max_inflight: int = 1
     approval_ttl_seconds: int = 900
     max_request_bytes: int = 65536
     max_output_bytes: int = 65536
+    artifact_dir: str = ""
+    artifact_min_free_bytes: int = 0
     max_job_cost_usd: Decimal = Decimal("1")
     max_open_requests: int = 100
     hosted: bool = False
+    client_ip_mode: str = "direct"
+    trusted_proxy_cidrs: tuple[str, ...] = ()
+    client_ip_hash_key: str = field(
+        default="local-development-only-do-not-use", repr=False, compare=False)
+    provider_evidence_public_keys_json: str = "{}"
+    candidate_receipt_public_keys_json: str = "{}"
+    candidate_receipt_signing_key_id: str = ""
+    candidate_receipt_signing_key_ids: tuple[str, ...] = ()
+    candidate_receipt_signing_key_pem: bytes | None = field(default=None, repr=False, compare=False)
+    paid_authorization_issuer: str = ""
+    paid_authorization_policy_version: str = ""
+    paid_authorization_public_keys_json: str = "{}"
+    credit_authorization_issuer: str = ""
+    credit_authorization_policy_version: str = ""
+    credit_authorization_public_keys_json: str = "{}"
+    provider_account_scope_hmac_key_b64: str = field(default="", repr=False, compare=False)
+    sites_delegation_key_id: str = ""
+    sites_delegation_hmac_key_b64: str = field(default="", repr=False, compare=False)
+    provider_evidence_signing_key_id: str = ""
+    provider_evidence_signing_key_pem: bytes | None = field(default=None, repr=False, compare=False)
 
     @property
     def resource(self) -> str:
         return self.public_url.rstrip("/") + "/mcp"
+
+    @property
+    def provider_account_scope_hmac_key(self) -> bytes | None:
+        encoded = self.provider_account_scope_hmac_key_b64
+        if not encoded:
+            return None
+        try:
+            key = base64.b64decode(encoded, validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("provider account scope HMAC key must be valid base64") from exc
+        if not 32 <= len(key) <= 4096:
+            raise ValueError("provider account scope HMAC key must decode to 32-4096 bytes")
+        return key
+
+    @property
+    def sites_delegation_hmac_key(self) -> bytes | None:
+        encoded = self.sites_delegation_hmac_key_b64
+        if not encoded:
+            return None
+        try:
+            key = base64.b64decode(encoded, validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("Sites delegation HMAC key must be valid base64") from exc
+        if len(key) < 32 or len(key) > 4096:
+            raise ValueError("Sites delegation HMAC key must decode to 32-4096 bytes")
+        return key
 
     @property
     def auth_ready(self) -> bool:
@@ -89,7 +212,134 @@ class Settings:
     def web_auth_ready(self) -> bool:
         return self.auth_ready and bool(self.cookie_key and self.client_id and self.authorization_endpoint and self.token_endpoint)
 
+    @property
+    def provider_evidence_trusted_keys(self) -> dict[str, bytes]:
+        try:
+            raw = json.loads(self.provider_evidence_public_keys_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("provider evidence public-key configuration is invalid JSON") from exc
+        if not isinstance(raw, dict) or len(raw) > 16:
+            raise ValueError("provider evidence public-key configuration must be an object of at most 16 keys")
+        keys = {}
+        for key_id, pem in raw.items():
+            if (not isinstance(key_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", key_id)
+                    or not isinstance(pem, str) or not pem or len(pem) > 8192):
+                raise ValueError("provider evidence public-key entry is invalid")
+            try:
+                key = serialization.load_pem_public_key(pem.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError) as exc:
+                raise ValueError("provider evidence public key is invalid PEM") from exc
+            if not isinstance(key, Ed25519PublicKey):
+                raise ValueError("provider evidence public key must be Ed25519")
+            keys[key_id] = pem.encode("ascii")
+        return keys
+
+    @property
+    def candidate_receipt_trusted_keys(self) -> dict[str, bytes]:
+        try:
+            raw = json.loads(self.candidate_receipt_public_keys_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("candidate receipt public-key configuration is invalid JSON") from exc
+        if not isinstance(raw, dict) or len(raw) > 16:
+            raise ValueError("candidate receipt public-key configuration must be an object of at most 16 keys")
+        keys = {}
+        for key_id, pem in raw.items():
+            if (not isinstance(key_id, str) or not re.fullmatch(
+                    r"(?:provider|adapter):[a-z][a-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", key_id)
+                    or not isinstance(pem, str) or not pem or len(pem) > 8192):
+                raise ValueError("candidate receipt public-key entry is invalid")
+            try:
+                key = serialization.load_pem_public_key(pem.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError) as exc:
+                raise ValueError("candidate receipt public key is invalid PEM") from exc
+            if not isinstance(key, Ed25519PublicKey):
+                raise ValueError("candidate receipt public key must be Ed25519")
+            keys[key_id] = pem.encode("ascii")
+        return keys
+
+    @property
+    def candidate_receipt_signing_private_key(self) -> Ed25519PrivateKey:
+        if self.candidate_receipt_signing_key_pem is None:
+            raise ValueError("candidate receipt signing key is not configured")
+        try:
+            key = serialization.load_pem_private_key(
+                self.candidate_receipt_signing_key_pem, password=None)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("candidate receipt signing key is invalid PEM") from exc
+        if not isinstance(key, Ed25519PrivateKey):
+            raise ValueError("candidate receipt signing key must be Ed25519")
+        return key
+
+    def candidate_receipt_signer(self, provider: str) -> tuple[str, Ed25519PrivateKey]:
+        configured = tuple(dict.fromkeys(
+            ((self.candidate_receipt_signing_key_id,) if self.candidate_receipt_signing_key_id else ()) +
+            self.candidate_receipt_signing_key_ids
+        ))
+        matches = [key_id for key_id in configured if key_id.startswith(f"adapter:{provider}:")]
+        if len(matches) != 1:
+            raise ValueError("candidate receipt signing key is not scoped to this provider")
+        return matches[0], self.candidate_receipt_signing_private_key
+
+    @property
+    def paid_authorization_trusted_keys(self) -> dict[str, bytes]:
+        try:
+            raw = json.loads(self.paid_authorization_public_keys_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("paid authorization public-key configuration is invalid JSON") from exc
+        if not isinstance(raw, dict) or len(raw) > 16:
+            raise ValueError("paid authorization public-key configuration must be an object of at most 16 keys")
+        keys = {}
+        for key_id, pem in raw.items():
+            if (not isinstance(key_id, str) or
+                    not re.fullmatch(r"paid:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", key_id) or
+                    not isinstance(pem, str) or not pem or len(pem) > 8192):
+                raise ValueError("paid authorization public-key entry is invalid")
+            try:
+                key = serialization.load_pem_public_key(pem.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError) as exc:
+                raise ValueError("paid authorization public key is invalid PEM") from exc
+            if not isinstance(key, Ed25519PublicKey):
+                raise ValueError("paid authorization public key must be Ed25519")
+            keys[key_id] = pem.encode("ascii")
+        return keys
+
+    @property
+    def credit_authorization_trusted_keys(self) -> dict[str, bytes]:
+        try:
+            raw = json.loads(self.credit_authorization_public_keys_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("credit authorization public-key configuration is invalid JSON") from exc
+        if not isinstance(raw, dict) or len(raw) > 16:
+            raise ValueError("credit authorization public-key configuration must be an object of at most 16 keys")
+        keys = {}
+        for key_id, pem in raw.items():
+            if (not isinstance(key_id, str) or
+                    not re.fullmatch(r"credit:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", key_id) or
+                    not isinstance(pem, str) or not pem or len(pem) > 8192):
+                raise ValueError("credit authorization public-key entry is invalid")
+            try:
+                key = serialization.load_pem_public_key(pem.encode("ascii"))
+            except (ValueError, TypeError, UnicodeEncodeError) as exc:
+                raise ValueError("credit authorization public key is invalid PEM") from exc
+            if not isinstance(key, Ed25519PublicKey):
+                raise ValueError("credit authorization public key must be Ed25519")
+            keys[key_id] = pem.encode("ascii")
+        return keys
+
     def validate(self) -> None:
+        if self.client_ip_mode not in {"direct", "trusted_proxy"}:
+            raise ValueError("GATEWAY_CLIENT_IP_MODE must be direct or trusted_proxy")
+        try:
+            trusted_networks = tuple(ipaddress.ip_network(value, strict=False)
+                                     for value in self.trusted_proxy_cidrs)
+        except ValueError:
+            raise ValueError("GATEWAY_TRUSTED_PROXY_CIDRS contains an invalid network") from None
+        if any(network.prefixlen == 0 for network in trusted_networks):
+            raise ValueError("GATEWAY_TRUSTED_PROXY_CIDRS must not trust an entire address family")
+        if self.client_ip_mode == "trusted_proxy" and not trusted_networks:
+            raise ValueError("trusted_proxy mode requires explicit trusted proxy CIDRs")
+        if self.client_ip_mode != "trusted_proxy" and trusted_networks:
+            raise ValueError("trusted proxy CIDRs are only valid in trusted_proxy mode")
         parsed = urlsplit(self.public_url)
         if parsed.path not in ("", "/") or parsed.query or parsed.fragment or parsed.username:
             raise ValueError("public URL must be an origin without credentials, path, query or fragment")
@@ -98,6 +348,12 @@ class Settings:
             raise ValueError("HTTPS required except for local development")
         if self.hosted and not self.database_url.startswith("postgresql+psycopg://"):
             raise ValueError("Hosted deployments require durable PostgreSQL, not SQLite or /tmp")
+        if self.hosted and self.artifact_dir:
+            artifact_path = Path(self.artifact_dir).expanduser().resolve(strict=False)
+            temporary_roots = (Path("/tmp").resolve(), Path("/var/tmp").resolve())
+            if (not Path(self.artifact_dir).is_absolute() or
+                    any(artifact_path == root or root in artifact_path.parents for root in temporary_roots)):
+                raise ValueError("Hosted deployments require an absolute persistent artifact directory")
         for value in (self.issuer, self.jwks_url, self.authorization_endpoint, self.token_endpoint):
             if value:
                 p = urlsplit(value)
@@ -109,6 +365,126 @@ class Settings:
             raise ValueError("max_inflight must be between 1 and 10")
         if not 1 <= self.approval_ttl_seconds <= 900:
             raise ValueError("approval TTL must be between 1 and 900 seconds")
+        if type(self.artifact_min_free_bytes) is not int or self.artifact_min_free_bytes < 0:
+            raise ValueError("artifact_min_free_bytes must be a nonnegative integer")
+        trusted_keys = self.provider_evidence_trusted_keys
+        receipt_keys = self.candidate_receipt_trusted_keys
+        if self.candidate_receipt_signing_key_pem is not None:
+            signing_ids = tuple(dict.fromkeys(
+                ((self.candidate_receipt_signing_key_id,) if self.candidate_receipt_signing_key_id else ()) +
+                self.candidate_receipt_signing_key_ids
+            ))
+            if (not signing_ids or any(not key_id.startswith("adapter:") or key_id not in receipt_keys
+                                       for key_id in signing_ids)):
+                raise ValueError("candidate receipt signing key ID must be a trusted adapter key")
+            private = self.candidate_receipt_signing_private_key
+            derived = private.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            for key_id in signing_ids:
+                expected = serialization.load_pem_public_key(receipt_keys[key_id])
+                if derived != expected.public_bytes(
+                        serialization.Encoding.Raw, serialization.PublicFormat.Raw):
+                    raise ValueError("candidate receipt signing key does not match its trusted public key")
+        elif self.candidate_receipt_signing_key_id or self.candidate_receipt_signing_key_ids:
+            raise ValueError("candidate receipt signing key ID is set without a private key")
+        self.provider_account_scope_hmac_key
+        delegation_key = self.sites_delegation_hmac_key
+        if delegation_key is not None:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.sites_delegation_key_id):
+                raise ValueError("Sites delegation key ID is required with the HMAC key")
+        elif self.sites_delegation_key_id:
+            raise ValueError("Sites delegation key ID is set without an HMAC key")
+        paid_keys = self.paid_authorization_trusted_keys
+        if paid_keys or self.paid_authorization_issuer or self.paid_authorization_policy_version:
+            if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.paid_authorization_issuer) or
+                    not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.paid_authorization_policy_version) or
+                    not paid_keys or any(not key_id.startswith(f"paid:{self.paid_authorization_issuer}:")
+                                         for key_id in paid_keys)):
+                raise ValueError("paid authorization issuer, policy version, and matching trusted keys are required together")
+        credit_keys = self.credit_authorization_trusted_keys
+        if credit_keys or self.credit_authorization_issuer or self.credit_authorization_policy_version:
+            if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.credit_authorization_issuer) or
+                    not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.credit_authorization_policy_version) or
+                    not credit_keys or any(not key_id.startswith(f"credit:{self.credit_authorization_issuer}:")
+                                           for key_id in credit_keys)):
+                raise ValueError("credit authorization issuer, policy version, and matching trusted keys are required together")
+        if self.provider_evidence_signing_key_pem is not None:
+            if not self.provider_evidence_signing_key_id or self.provider_evidence_signing_key_id not in trusted_keys:
+                raise ValueError("worker provider evidence signing key ID must be present in the trusted key set")
+            try:
+                private_key = serialization.load_pem_private_key(
+                    self.provider_evidence_signing_key_pem, password=None)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("worker provider evidence private key is invalid PEM") from exc
+            if not isinstance(private_key, Ed25519PrivateKey):
+                raise ValueError("worker provider evidence signing key must be Ed25519")
+            expected = serialization.load_pem_public_key(trusted_keys[self.provider_evidence_signing_key_id])
+            derived = private_key.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            trusted = expected.public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            if derived != trusted:
+                raise ValueError("worker private key does not match configured trusted public key")
+        elif self.provider_evidence_signing_key_id:
+            raise ValueError("provider evidence signing key ID is set without a private key")
+        if self.enable_runpod_evidence:
+            if not self.runpod_api_key or any(character.isspace() for character in self.runpod_api_key):
+                raise ValueError("RunPod evidence collection requires a worker-only API key")
+            if self.provider_evidence_signing_key_pem is None:
+                raise ValueError("RunPod evidence collection requires a worker signing key")
+        if self.enable_kaggle_evidence:
+            if (not self.kaggle_api_token or
+                    any(character.isspace() for character in self.kaggle_api_token)):
+                raise ValueError("Kaggle evidence collection requires a worker-only API token")
+            if self.provider_evidence_signing_key_pem is None:
+                raise ValueError("Kaggle evidence collection requires a worker signing key")
+        if (self.hf_artifact_write_token and self.hf_space_read_token and
+                self.hf_artifact_write_token == self.hf_space_read_token):
+            raise ValueError("Hugging Face artifact and Space tokens must be distinct")
+        if self.enable_huggingface_space_evidence:
+            if (not self.hf_space_read_token or
+                    any(character.isspace() for character in self.hf_space_read_token)):
+                raise ValueError("Hugging Face evidence collection requires a Space read token")
+            if self.provider_evidence_signing_key_pem is None:
+                raise ValueError("Hugging Face evidence collection requires a worker signing key")
+        if self.enable_kaggle:
+            if (not self.kaggle_api_token or
+                    any(character.isspace() for character in self.kaggle_api_token)):
+                raise ValueError("Kaggle execution requires a worker-only API token")
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,49}", self.kaggle_username):
+                raise ValueError("Kaggle execution requires a canonical account username")
+            root = Path(self.kaggle_staging_root)
+            if not root.is_absolute():
+                raise ValueError("Kaggle staging root must be an absolute operator path")
+            if self.kaggle_source_cache_root and not Path(self.kaggle_source_cache_root).is_absolute():
+                raise ValueError("Kaggle source cache root must be an absolute operator path")
+        if self.hf_artifact_repositories:
+            if (self.hf_artifact_write_token and
+                    any(character.isspace() for character in self.hf_artifact_write_token)):
+                raise ValueError("Hugging Face artifact write token must not contain whitespace")
+            if (len(set(self.hf_artifact_repositories)) != len(self.hf_artifact_repositories) or
+                    any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) is None
+                        for repo in self.hf_artifact_repositories)):
+                raise ValueError("Hugging Face artifact repository allowlist is invalid")
+        if self.enable_huggingface_space:
+            if (self.hf_space_read_token and
+                    any(character.isspace() for character in self.hf_space_read_token)):
+                raise ValueError("Hugging Face Space read token must not contain whitespace")
+            if (not self.hf_space_allowlist or
+                    len(set(self.hf_space_allowlist)) != len(self.hf_space_allowlist) or
+                    any(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", space) is None
+                        for space in self.hf_space_allowlist)):
+                raise ValueError("Hugging Face Space allowlist is invalid")
+
+    def validate_api_security(self) -> None:
+        """Validate public HTTP login source handling; worker processes don't need this secret."""
+        if self.hosted and self.client_ip_mode == "direct":
+            raise ValueError(
+                "Hosted API deployments require a platform client IP or explicitly trusted proxy address mode")
+        if self.hosted and (len(self.client_ip_hash_key.encode("utf-8")) < 32 or
+                            self.client_ip_hash_key == "local-development-only-do-not-use"):
+            raise ValueError(
+                "Hosted API deployments require a unique GATEWAY_CLIENT_IP_HASH_KEY of at least 32 bytes")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -122,8 +498,17 @@ class Settings:
 
         public_url = e.get("GATEWAY_PUBLIC_URL")
         if not public_url:
-            production_host = e.get("VERCEL_PROJECT_PRODUCTION_URL")
-            public_url = f"https://{production_host}" if production_host else "http://127.0.0.1:8000"
+            public_url = "http://127.0.0.1:8000"
+
+        evidence_private = e.get("GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_B64", "")
+        receipt_private = e.get("GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_B64", "")
+        try:
+            evidence_private_pem = (base64.b64decode(evidence_private, validate=True)
+                                    if evidence_private else None)
+            receipt_private_pem = (base64.b64decode(receipt_private, validate=True)
+                                   if receipt_private else None)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("worker signing key must be valid base64") from exc
 
         value = cls(
             database_url=database_url,
@@ -138,11 +523,56 @@ class Settings:
             allowed_subjects=tuple(s.strip() for s in e.get("GATEWAY_ALLOWED_SUBJECTS", "").split(",") if s.strip()),
             enable_modal=e.get("GATEWAY_ENABLE_MODAL") == "true",
             enable_runpod_bridge=e.get("GATEWAY_ENABLE_RUNPOD_BRIDGE") == "true",
+            enable_runpod_evidence=e.get("GATEWAY_ENABLE_RUNPOD_EVIDENCE") == "true",
+            enable_kaggle=e.get("GATEWAY_ENABLE_KAGGLE") == "true",
+            enable_kaggle_evidence=e.get("GATEWAY_ENABLE_KAGGLE_EVIDENCE") == "true",
+            enable_huggingface_space=e.get("GATEWAY_ENABLE_HUGGINGFACE_SPACE") == "true",
+            enable_huggingface_space_evidence=e.get("GATEWAY_ENABLE_HUGGINGFACE_SPACE_EVIDENCE") == "true",
+            runpod_api_key=e.get("RUNPOD_API_KEY", ""),
+            runpod_account_scope_id=e.get("GATEWAY_RUNPOD_ACCOUNT_SCOPE_ID", ""),
             runpod_factory=e.get("GATEWAY_RUNPOD_FACTORY", ""),
+            kaggle_api_token=e.get("KAGGLE_API_TOKEN", ""),
+            kaggle_username=e.get("GATEWAY_KAGGLE_USERNAME", ""),
+            kaggle_staging_root=e.get("GATEWAY_KAGGLE_STAGING_ROOT", ""),
+            kaggle_source_cache_root=e.get("GATEWAY_KAGGLE_SOURCE_CACHE_ROOT", ""),
+            hf_artifact_write_token=e.get("HF_ARTIFACT_WRITE_TOKEN", ""),
+            hf_space_read_token=e.get("HF_SPACE_READ_TOKEN", ""),
+            hf_artifact_repositories=tuple(
+                item.strip() for item in e.get("GATEWAY_HF_ARTIFACT_REPOSITORIES", "").split(",")
+                if item.strip()),
+            hf_space_allowlist=tuple(
+                item.strip() for item in e.get("GATEWAY_HF_SPACE_ALLOWLIST", "").split(",")
+                if item.strip()),
             modal_app=e.get("GATEWAY_MODAL_APP", "gpu-control"),
             max_inflight=int(e.get("GATEWAY_MAX_INFLIGHT", "1")),
             max_job_cost_usd=Decimal(e.get("GATEWAY_MAX_JOB_COST_USD", "1")),
-            hosted=e.get("VERCEL") == "1" or e.get("GATEWAY_HOSTED") == "true",
+            artifact_dir=e.get("GATEWAY_ARTIFACT_DIR", ""),
+            artifact_min_free_bytes=int(e.get("GATEWAY_ARTIFACT_MIN_FREE_BYTES", "0")),
+            hosted=e.get("GATEWAY_HOSTED") == "true",
+            client_ip_mode=e.get("GATEWAY_CLIENT_IP_MODE") or "direct",
+            trusted_proxy_cidrs=tuple(
+                item.strip() for item in e.get("GATEWAY_TRUSTED_PROXY_CIDRS", "").split(",")
+                if item.strip()),
+            client_ip_hash_key=e.get(
+                "GATEWAY_CLIENT_IP_HASH_KEY", "local-development-only-do-not-use"),
+            provider_evidence_public_keys_json=e.get("GATEWAY_PROVIDER_EVIDENCE_PUBLIC_KEYS_JSON", "{}"),
+            candidate_receipt_public_keys_json=e.get("GATEWAY_CANDIDATE_RECEIPT_PUBLIC_KEYS_JSON", "{}"),
+            candidate_receipt_signing_key_id=e.get("GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_ID", ""),
+            candidate_receipt_signing_key_ids=tuple(
+                item.strip() for item in e.get("GATEWAY_CANDIDATE_RECEIPT_SIGNING_KEY_IDS", "").split(",")
+                if item.strip()),
+            candidate_receipt_signing_key_pem=receipt_private_pem,
+            paid_authorization_issuer=e.get("GATEWAY_PAID_AUTHORIZATION_ISSUER", ""),
+            paid_authorization_policy_version=e.get("GATEWAY_PAID_AUTHORIZATION_POLICY_VERSION", ""),
+            paid_authorization_public_keys_json=e.get("GATEWAY_PAID_AUTHORIZATION_PUBLIC_KEYS_JSON", "{}"),
+            credit_authorization_issuer=e.get("GATEWAY_CREDIT_AUTHORIZATION_ISSUER", ""),
+            credit_authorization_policy_version=e.get("GATEWAY_CREDIT_AUTHORIZATION_POLICY_VERSION", ""),
+            credit_authorization_public_keys_json=e.get("GATEWAY_CREDIT_AUTHORIZATION_PUBLIC_KEYS_JSON", "{}"),
+            provider_account_scope_hmac_key_b64=e.get("GATEWAY_PROVIDER_ACCOUNT_SCOPE_HMAC_KEY_B64", ""),
+            sites_delegation_key_id=e.get("GATEWAY_SITES_DELEGATION_KEY_ID", ""),
+            sites_delegation_hmac_key_b64=e.get("GATEWAY_SITES_DELEGATION_HMAC_KEY_B64", ""),
+            provider_evidence_signing_key_id=e.get("GATEWAY_PROVIDER_EVIDENCE_SIGNING_KEY_ID", ""),
+            provider_evidence_signing_key_pem=evidence_private_pem,
         )
         value.validate()
         return value

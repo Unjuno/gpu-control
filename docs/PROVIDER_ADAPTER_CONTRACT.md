@@ -61,7 +61,10 @@ Provider-translated artifacts still pass through `policies/result-policy.yaml` a
 - large checkpoints remain reference-only by default;
 - artifact SHA-256 digests are required;
 - unsafe artifact paths are rejected;
-- external artifact references are not automatically fetched.
+- external artifact references are fetched only through the owner-bound
+  `experiment_artifact` tool. The adapter pins the recorded private repository,
+  revision, canonical run path, size and SHA-256, verifies the complete file,
+  and returns bounded chunks without exposing provider credentials.
 
 ## Async requirement
 

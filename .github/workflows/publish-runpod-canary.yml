@@ -1,0 +1,66 @@
+name: Publish Runpod canary image
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/publish-runpod-canary.yml"
+      - "workloads/runpod-gpu-canary/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SOURCE_REVISION: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: workloads/runpod-gpu-canary/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: |
+            SOURCE_REPOSITORY=${{ github.repository }}
+            SOURCE_REVISION=${{ env.SOURCE_REVISION }}
+          cache-to: type=gha,mode=max
+
+  publish-image:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        id: build
+        with:
+          context: .
+          file: workloads/runpod-gpu-canary/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/unjuno/gpu-control-runpod-canary:${{ env.SOURCE_REVISION }}
+          build-args: |
+            SOURCE_REPOSITORY=${{ github.repository }}
+            SOURCE_REVISION=${{ env.SOURCE_REVISION }}
+          provenance: mode=max
+          sbom: true
+      - name: Record immutable digest
+        run: echo '${{ steps.build.outputs.digest }}' | grep -Eq '^sha256:[0-9a-f]{64}$'

@@ -83,7 +83,7 @@ def _inventory_digest(entries: tuple[RunPodPodInventoryEntry, ...]) -> str:
 
 @dataclass(frozen=True)
 class RunPodPodInventoryEvidence:
-    """Short-lived account-wide Pod inventory derived from one v2 List Pods response."""
+    """Short-lived account-wide Pod inventory derived from all v2 cursor pages."""
 
     plan_fingerprint: str
     pods: tuple[RunPodPodInventoryEntry, ...]
@@ -133,10 +133,10 @@ def build_pod_inventory_evidence(
     checked_at_utc: datetime,
     ttl_seconds: int = 30,
 ) -> RunPodPodInventoryEvidence:
-    """Normalize the official v2 ``GET /pods`` envelope into bounded evidence.
+    """Normalize the complete official v2 ``GET /pods`` inventory into bounded evidence.
 
-    The pinned RunPod v2 contract returns ``{"pods": [...]}`` and exposes no
-    server-side list filters. Reconciliation therefore receives the complete
+    The caller must follow every v2 cursor page before passing the normalized
+    ``{"pods": [...]}`` envelope here. Reconciliation receives the full bounded
     account list and applies exact identity matching locally.
     """
 

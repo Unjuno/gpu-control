@@ -2,7 +2,7 @@ version: 1
 
 provider: runpod
 api:
-  version: v2-beta
+  version: v2
   base_url: https://api.runpod.io/v2
   authentication: bearer_header
   live_calls_enabled: false
@@ -11,36 +11,78 @@ api:
   workflow_enabled: false
 
 api_contract_audit:
-  audited_at_utc: 2026-08-31T12:25:00Z
-  implementation_contract: rest_v2_public_beta_offline
-  implementation_matches_current_official_rest_contract: false
-  current_official_rest_version_observed: v1
-  current_official_rest_base_observed: https://rest.runpod.io/v1
-  current_official_openapi_endpoint: GET /openapi.json
+  audited_at_utc: 2026-11-15T00:00:00Z
+  implementation_contract: rest_v2_openapi_reviewed_offline
+  implementation_matches_current_official_rest_contract: true
+  current_official_rest_version_observed: v2
+  current_official_rest_base_observed: https://api.runpod.io/v2
+  deprecated_rest_v1_retirement_date: "2026-11-15"
+  current_official_openapi_endpoint: https://api.runpod.io/v2/openapi.json
   current_official_create_pod_endpoint: POST /pods
+  current_official_create_pod_immediate_status: 201
+  current_official_create_pod_queued_status: 202
+  current_official_create_pod_202_requires_queue_option: true
+  implementation_pod_queue_enabled: false
+  implementation_create_pod_expected_status: 201
+  implementation_rejects_unrequested_queued_pod_response: true
   current_official_list_pods_endpoint: GET /pods
-  current_official_list_pods_response_shape: array
+  current_official_list_pods_response_shape: cursor_paginated_object_with_pods_array
   current_official_delete_pod_endpoint: DELETE /pods/{id}
+  current_official_get_pod_endpoint: GET /pods/{id}
+  current_official_exec_pod_endpoint: POST /pods/{id}/exec
+  current_official_exec_pod_response_fields:
+    - stdout
+    - stderr
+    - exitCode
+    - timedOut
+    - truncated
+    - durationMs
+  current_official_exec_pod_command_shape: argv_array
+  current_official_exec_pod_timeout_seconds_max: 25
+  current_official_exec_pod_stdout_stderr_cap_bytes_each: 1048576
+  current_official_exec_pod_requires_ssh_or_public_port: false
+  current_official_exec_pod_checked_docs_url: https://docs.runpod.io/api-reference-v2/pods/run-a-command-in-a-pod
+  sites_worker_v2_adapter_status: implemented_offline_mock_tested
+  sites_worker_v2_adapter_live_verified: false
   current_official_network_volume_attach_fields_observed: true
   current_official_network_volume_fields:
-    - networkVolumeId
-    - volumeMountPath
-  migration_to_current_official_rest_contract_required: true
-  current_official_contract_revalidation_required: true
+    - mounts.network[].volumeId
+    - mounts.network[].path
+    - dataCenterIds
+  migration_to_current_official_rest_contract_required: false
+  current_official_contract_revalidation_required: false
   implementation_may_not_be_enabled_live_until_revalidated: true
   live_enablement_by_flag_only_forbidden: true
   create_env_contract_observed: true
   list_pods_contract_observed: true
   implementation_list_pods_endpoint: GET /pods
   implementation_list_pods_response_envelope: pods
+  implementation_list_pods_pagination: opaque_cursor
+  implementation_list_pods_page_limit: 256
+  implementation_list_pods_max_pages: 32
+  implementation_list_pods_max_inventory_entries: 256
+  implementation_list_pods_cursor_cycle_rejected: true
+  implementation_list_pods_duplicate_ids_rejected: true
   implementation_list_pods_server_side_name_filter_supported: false
+  implementation_pricing_endpoint: GET /catalog/gpus
+  implementation_pricing_contract_revision: runpod-v2-catalog-openapi-2026-10-26
+  implementation_exact_volume_datacenter_stock_binding: true
   legacy_v2_list_pods_evidence_repository: runpod/runpod-mcp
   legacy_v2_list_pods_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
   legacy_v2_list_pods_evidence_path: src/tools/pods.ts
-  pod_container_log_sse_status: dev_only_prod_unavailable
+  pod_container_log_sse_status: officially_documented_not_live_verified
   pod_container_log_sse_prod_verified: false
-  pod_container_log_sse_prod_failure: http_422_path_not_found
+  pod_container_log_sse_prod_failure: null
   pod_container_log_sse_live_collection_allowed: false
+  pod_container_log_sse_current_official_openapi_path: /v2/pods/{id}/logs
+  pod_container_log_sse_current_official_openapi_method: GET
+  pod_container_log_sse_current_official_openapi_status: 200
+  pod_container_log_sse_current_official_openapi_media_type: text/event-stream
+  pod_container_log_sse_current_official_openapi_schema_version: 2.0.0
+  pod_container_log_sse_current_official_openapi_checked_at_utc: 2026-11-14T17:01:11Z
+  pod_container_log_sse_current_official_openapi_url: https://api.runpod.io/v2/openapi.json
+  pod_container_log_sse_current_official_docs_url: https://docs.runpod.io/api-reference-v2/pods/stream-pod-logs
+  pod_container_log_sse_previous_mcp_disabled_evidence_is_api_availability_proof: false
   pod_container_log_sse_evidence_repository: runpod/runpod-mcp
   pod_container_log_sse_evidence_commit: 465872464c4f157a2e87afcd855c60a607954c26
   pod_container_log_sse_evidence_path: test.md
@@ -55,7 +97,7 @@ api_contract_audit:
   network_volume_attach_contract_repository: runpod/runpodctl
   network_volume_attach_contract_commit: 51ca7f02ab5cb57c09ad917172af36c29a58790c
   network_volume_attach_contract_path: cmd/pod/create.go
-  note: The checked-in Pod control client still implements the older public v2 beta contract, while current official RunPod documentation exposes the stable REST API at rest.runpod.io/v1 with different Pod request/response shapes. The durable Network Volume S3 result path remains a valid offline candidate, but live Pod control is blocked until the adapter/client is migrated and revalidated against current v1. Production Pod-log SSE remains unavailable and is not used as the result path. All live calls remain disabled.
+  note: Official API v2 documentation was rechecked on 2026-11-15. The current contract includes POST /pods/{id}/exec, which executes a direct argv command without SSH or a public port and returns bounded stdout, stderr, exitCode, timeout, truncation, and duration fields. The Sites adapter exposes no caller-selected command and invokes only a digest-pinned image's registered wrapper. This removes Network Volume and S3 from the minimum canary architecture, avoiding persistent storage cost, but the exec and cleanup behavior are not yet live-verified with this account. Full provider behavior, result integrity, pricing, cleanup, and live account evidence remain unverified. All live calls remain disabled.
 
 submission:
   approved_plan_required: true
@@ -78,8 +120,8 @@ submission:
   user_env_forwarded: false
   user_mounts_forwarded: false
   automatic_create_retry: false
-  trusted_network_volume_required_for_live_canary: true
-  network_volume_must_preexist: true
+  trusted_network_volume_required_for_live_canary: false
+  network_volume_must_preexist: false
   network_volume_auto_create_or_resize: false
   network_volume_mount_path: /outputs
   network_volume_from_trusted_control_plane_only: true
@@ -109,7 +151,18 @@ submission:
 completion_evidence:
   protocol: hmac-sha256-v3
   legacy_v2_compatibility_status: temporary_offline_migration_only
-  implementation_status: v3_signed_exit_code_and_volume_transport_offline_mock_tested
+  implementation_status: root_owned_signer_connected_offline_not_live_verified
+  security_status: ephemeral_key_limited_to_digest_pinned_root_wrapper
+  root_signer_receives_completion_signing_secret: true
+  training_process_receives_completion_signing_secret: false
+  provider_account_or_host_is_outside_signer_threat_model: true
+  root_owned_signer_redesign_required: false
+  root_owned_signer_repository: Unjuno/orbitune
+  root_owned_signer_commit: fc131174a9b529a9825f54fccf1a7df4c63c9a1a
+  root_owned_signer_entrypoint: workloads/runpod-training-canary/entrypoint.py
+  root_owned_signer_uid: 0
+  training_uid: 10001
+  provider_v2_exit_code_field_documented: true
   per_run_nonce_required: true
   pre_create_execution_name_required: true
   minimum_secret_bytes: 32
@@ -139,7 +192,10 @@ completion_evidence:
   completion_marker: "GPU_CONTROL_COMPLETION_JSON_V3:"
   max_marker_bytes: 16384
   offline_marker_authentication_allowed: true
-  production_collection_transport_status: network_volume_s3_implemented_offline_mock_tested
+  production_collection_transport_status: pod_exec_registered_wrapper_implemented_offline_mock_tested
+  production_collection_transport_endpoint: POST /pods/{id}/exec
+  production_collection_transport_arbitrary_command_exposed: false
+  production_collection_transport_requires_persistent_storage: false
   production_collection_transport_live_verified: false
   live_injection_enabled: false
   live_collection_enabled: false
@@ -212,6 +268,12 @@ catalog:
   include_availability: true
   product: POD
   gpu_count: 1
+  cloud: SECURE
+  price_field: price.secure
+  capacity_field: maxCount.secure
+  exact_datacenter_field: dataCenters[].id
+  exact_datacenter_availability_field: dataCenters[].availability
+  pricing_contract_revision: runpod-v2-catalog-openapi-2026-10-26
   evidence_max_ttl_seconds: 300
   required_availability: HIGH
   require_high_availability_datacenter: true
@@ -224,7 +286,7 @@ forbidden:
   - live_runpod_call_from_public_cli
   - live_adapter_from_public_cli
   - live_enablement_without_current_official_api_contract_revalidation
-  - live_enablement_while_provider_adapter_targets_legacy_v2_beta
+  - live_enablement_without_live_provider_acceptance
   - live_enablement_by_policy_flag_only
   - create_without_structured_live_execution_permit
   - create_with_expired_live_execution_permit
@@ -259,7 +321,7 @@ forbidden:
   - treating_exited_as_success_without_v3_signed_exit_code
   - treating_unknown_provider_status_as_success
   - collecting_results_without_authenticated_completion_evidence
-  - collecting_live_results_through_unavailable_prod_pod_log_sse
+  - collecting_live_results_through_unverified_prod_pod_log_sse
   - treating_dev_only_provider_operation_as_production_contract
   - arbitrary_network_volume_id_from_workload
   - user_controlled_volume_mount_path

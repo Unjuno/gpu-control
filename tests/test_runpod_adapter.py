@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from urllib.error import URLError
 
 import pytest
+import gpu_control.providers.runpod_adapter as runpod_adapter_module
 
 from gpu_control.execution import ApprovedExecutionPlan
 from gpu_control.human_authorization import LiveExecutionPermit
@@ -11,11 +14,21 @@ from gpu_control.lifecycle import JobState
 from gpu_control.providers.controller import cleanup_provider_job, observe_provider_job, submit_approved_plan
 from gpu_control.providers.runpod_adapter import RunPodV2Adapter, RunPodV2AdapterError
 from gpu_control.providers.runpod_occupancy import build_account_occupancy_evidence
+from gpu_control.completion import CompletionChallenge, execution_name_for
+from gpu_control.providers.runpod_network_volume import (
+    RunPodNetworkVolumeEvidence,
+    RunPodNetworkVolumeS3Client,
+    RunPodS3Credentials,
+)
 from gpu_control.providers.runpod_pricing import RunPodCatalogPricingEvidence
-from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodV2Error
+from gpu_control.providers.runpod_reconciliation import build_pod_inventory_evidence
+from gpu_control.providers.runpod_v2 import PublishedImageEvidence, RunPodCompletionLaunch, RunPodV2Error
+from gpu_control.providers import runpod_live_gate
+from conftest import issue_live_permit_for_plan
 
 
 DIGEST = "sha256:" + "a" * 64
+SECRET = bytes(range(32))
 SUBMITTED_AT = datetime(2026, 8, 22, 16, 1, tzinfo=timezone.utc)
 
 
@@ -59,17 +72,7 @@ def plan() -> ApprovedExecutionPlan:
 
 
 def permit(value: ApprovedExecutionPlan, *, valid_until_utc: str = "2026-08-22T16:10:00Z") -> LiveExecutionPermit:
-    return LiveExecutionPermit(
-        plan_fingerprint=value.fingerprint(),
-        actor="Unjuno",
-        decision_record_id="decision-test",
-        human_authorization_id="auth-test",
-        human_authorization_reference=value.authorization_reference,
-        paid_authorization_reference="github-actions:test",
-        repository_security_reference="github:main-protection:sha256:" + "b" * 64,
-        control_plane_sha="c" * 40,
-        valid_until_utc=valid_until_utc,
-    )
+    return issue_live_permit_for_plan(value, valid_until_utc=valid_until_utc)
 
 
 def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
@@ -81,12 +84,43 @@ def image(value: ApprovedExecutionPlan) -> PublishedImageEvidence:
     )
 
 
+def completion(value: ApprovedExecutionPlan) -> RunPodCompletionLaunch:
+    nonce = "b" * 64
+    return RunPodCompletionLaunch(
+        challenge=CompletionChallenge(
+            key_id="paid-runpod-v3",
+            nonce=nonce,
+            plan_fingerprint=value.fingerprint(),
+            execution_name=execution_name_for(value.fingerprint(), nonce),
+            source_sha=value.target_sha,
+            image_digest=value.image_digest,
+        ),
+        secret_key=SECRET,
+    )
+
+
+def volume() -> RunPodNetworkVolumeEvidence:
+    return RunPodNetworkVolumeEvidence(
+        network_volume_id="volume-123",
+        data_center_id="US-KS-2",
+        verification_reference="runpod-volume:test",
+    )
+
+
+def unavailable_s3(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+    raise URLError("offline test transport")
+
+
 def pod_payload(value: ApprovedExecutionPlan, *, status: str = "PROVISIONING", cost: float = 0.44):
+    launch = completion(value)
     return {
         "id": "pod-123",
+        "name": launch.challenge.execution_name,
         "image": image(value).image_reference,
         "gpu": {"id": value.provider_resource_id, "count": 1},
         "cloud": "SECURE",
+        "dataCenterId": "US-KS-2",
+        "mounts": {"network": [{"volumeId": "volume-123", "path": "/outputs"}]},
         "cost": cost,
         "status": status,
     }
@@ -96,6 +130,7 @@ class FakeClient:
     def __init__(self, value: ApprovedExecutionPlan) -> None:
         self.value = value
         self.create_calls = 0
+        self.create_payloads = []
         self.get_calls = 0
         self.terminate_calls: list[str] = []
         self.create_response = pod_payload(value)
@@ -103,8 +138,9 @@ class FakeClient:
         self.create_error: Exception | None = None
         self.terminate_error: Exception | None = None
 
-    def create_pod(self, payload):  # type: ignore[no-untyped-def]
+    def create_pod(self, payload, **kwargs):  # type: ignore[no-untyped-def]
         self.create_calls += 1
+        self.create_payloads.append(payload)
         if self.create_error is not None:
             raise self.create_error
         return self.create_response
@@ -142,10 +178,46 @@ class FakeOccupancyProbe:
         )
 
 
-def adapter(value: ApprovedExecutionPlan | None = None) -> tuple[RunPodV2Adapter, FakeClient, FakeOccupancyProbe]:
+class FakeInventoryProbe:
+    def __init__(self, value: ApprovedExecutionPlan, launch: RunPodCompletionLaunch) -> None:
+        self.value = value
+        self.launch = launch
+        self.calls = 0
+
+    def __call__(self, value: ApprovedExecutionPlan):  # type: ignore[no-untyped-def]
+        assert value.fingerprint() == self.value.fingerprint()
+        self.calls += 1
+        return build_pod_inventory_evidence(
+            value,
+            {
+                "pods": [
+                    {
+                        "id": "pod-123",
+                        "name": self.launch.challenge.execution_name,
+                        "status": "PROVISIONING",
+                    }
+                ]
+            },
+            checked_at_utc=SUBMITTED_AT,
+            ttl_seconds=60,
+        )
+
+
+def adapter(
+    value: ApprovedExecutionPlan | None = None,
+    network_volume: RunPodNetworkVolumeEvidence | None = None,
+) -> tuple[RunPodV2Adapter, FakeClient, FakeOccupancyProbe]:
     value = value or plan()
+    network_volume = network_volume or volume()
+    launch = completion(value)
     client = FakeClient(value)
     occupancy = FakeOccupancyProbe(value)
+    s3_client = RunPodNetworkVolumeS3Client(
+        network_volume,
+        RunPodS3Credentials(access_key_id="test-access", secret_access_key="test-secret"),
+        opener=unavailable_s3,
+        clock=lambda: SUBMITTED_AT,
+    )
     return (
         RunPodV2Adapter(
             client=client,  # type: ignore[arg-type]
@@ -154,6 +226,11 @@ def adapter(value: ApprovedExecutionPlan | None = None) -> tuple[RunPodV2Adapter
             catalog_pricing=pricing(),
             occupancy_probe=occupancy,
             live_permit=permit(value),
+            inventory_probe=FakeInventoryProbe(value, launch),
+            completion_launch=launch,
+            network_volume=network_volume,
+            result_client=s3_client,
+            expected_workload_id="orbitune-runpod-training-canary-v1",
             clock=lambda: SUBMITTED_AT + timedelta(seconds=1),
         ),
         client,
@@ -179,17 +256,33 @@ def test_adapter_requires_live_execution_permit_before_any_provider_work() -> No
     assert client.create_calls == 0
 
 
+def test_adapter_rejects_manually_forged_permit() -> None:
+    value = plan()
+    runpod, _client, _occupancy = adapter(value)
+    forged = LiveExecutionPermit(**runpod.live_permit.__dict__)
+
+    with pytest.raises(RunPodV2AdapterError, match="not issued by authorize_live_plan"):
+        replace(runpod, live_permit=forged)
+
+
+def test_parked_adapter_stops_before_any_provider_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runpod_live_gate, "RUNPOD_LIVE_ALLOCATION_ENABLED", False)
+    value = plan()
+    runpod, client, occupancy = adapter(value)
+
+    with pytest.raises(runpod_live_gate.RunPodLiveDisabledError, match="parked"):
+        runpod.submit(value)
+
+    assert occupancy.calls == 0
+    assert client.create_calls == 0
+
+
 def test_live_execution_permit_is_rechecked_at_submit_time() -> None:
     value = plan()
-    client = FakeClient(value)
-    occupancy = FakeOccupancyProbe(value)
+    runpod, client, occupancy = adapter(value)
     now = [SUBMITTED_AT + timedelta(seconds=1)]
-    runpod = RunPodV2Adapter(
-        client=client,  # type: ignore[arg-type]
-        approved_plan=value,
-        published_image=image(value),
-        catalog_pricing=pricing(),
-        occupancy_probe=occupancy,
+    runpod = replace(
+        runpod,
         live_permit=permit(value, valid_until_utc="2026-08-22T16:02:00Z"),
         clock=lambda: now[0],
     )
@@ -197,6 +290,44 @@ def test_live_execution_permit_is_rechecked_at_submit_time() -> None:
     with pytest.raises(RunPodV2AdapterError, match="expired before provider submission"):
         runpod.submit(value)
     assert occupancy.calls == 0
+    assert client.create_calls == 0
+
+
+def test_live_permit_and_pricing_are_rechecked_after_occupancy_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    value = plan()
+    runpod, client, _occupancy = adapter(value)
+    now = [SUBMITTED_AT + timedelta(seconds=1)]
+    runpod = replace(runpod, clock=lambda: now[0])
+    original_builder = runpod_adapter_module.build_priced_create_pod_payload
+
+    def expire_before_provider_create(*args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = original_builder(*args, **kwargs)
+        now[0] = datetime(2026, 8, 22, 16, 3, tzinfo=timezone.utc)
+        return payload
+
+    monkeypatch.setattr(runpod_adapter_module, "build_priced_create_pod_payload", expire_before_provider_create)
+
+    with pytest.raises(RunPodV2AdapterError, match="pricing evidence expired"):
+        runpod.submit(value)
+    assert client.create_calls == 0
+
+
+def test_occupancy_evidence_is_rechecked_after_payload_preparation(monkeypatch: pytest.MonkeyPatch) -> None:
+    value = plan()
+    runpod, client, _occupancy = adapter(value)
+    now = [SUBMITTED_AT + timedelta(seconds=1)]
+    runpod = replace(runpod, clock=lambda: now[0])
+    original_builder = runpod_adapter_module.build_priced_create_pod_payload
+
+    def expire_occupancy(*args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = original_builder(*args, **kwargs)
+        now[0] = SUBMITTED_AT + timedelta(seconds=60)
+        return payload
+
+    monkeypatch.setattr(runpod_adapter_module, "build_priced_create_pod_payload", expire_occupancy)
+
+    with pytest.raises(RunPodV2AdapterError, match="occupancy evidence expired"):
+        runpod.submit(value)
     assert client.create_calls == 0
 
 
@@ -240,8 +371,41 @@ def test_adapter_crosses_existing_trusted_controller_and_cleans_up_failure() -> 
     assert finalized.finalized is True
     assert client.terminate_calls == ["pod-123"]
 
-    with pytest.raises(RunPodV2AdapterError, match="network-volume result transport"):
+    with pytest.raises(RunPodV2AdapterError, match="could not be reached"):
         runpod.collect_results(submitted.receipt, finalized)
+
+
+def test_adapter_binds_network_volume_and_rejects_mismatched_create_response() -> None:
+    value = plan()
+    network_volume = RunPodNetworkVolumeEvidence(
+        network_volume_id="volume-123",
+        data_center_id="US-KS-2",
+        verification_reference="runpod-volume:test",
+    )
+    runpod, client, _occupancy = adapter(value, network_volume)
+    client.create_response = dict(
+        pod_payload(value),
+        dataCenterId="US-KS-2",
+        mounts={"network": [{"volumeId": "volume-123", "path": "/outputs"}]},
+    )
+
+    submission = runpod.submit(value)
+
+    assert submission.provider_job_id == "pod-123"
+    assert client.create_payloads[0]["dataCenterIds"] == ["US-KS-2"]
+    assert client.create_payloads[0]["mounts"] == {
+        "network": [{"volumeId": "volume-123", "path": "/outputs"}]
+    }
+
+    bad_runpod, bad_client, _bad_occupancy = adapter(value, network_volume)
+    bad_client.create_response = dict(
+        pod_payload(value),
+        dataCenterId="US-KS-2",
+        mounts={"network": [{"volumeId": "other-volume", "path": "/outputs"}]},
+    )
+    with pytest.raises(RunPodV2AdapterError, match="post-create validation failed"):
+        bad_runpod.submit(value)
+    assert bad_client.terminate_calls == ["pod-123"]
 
 
 def test_existing_non_terminated_pod_blocks_create_before_paid_allocation() -> None:
@@ -303,24 +467,36 @@ def test_compensating_termination_failure_is_visible() -> None:
     client.create_response = pod_payload(value, cost=0.45)
     client.terminate_error = RunPodV2Error("terminate failed")
 
-    with pytest.raises(RunPodV2AdapterError, match="termination also failed"):
+    with pytest.raises(RunPodV2AdapterError, match="could not be proven released"):
         runpod.submit(value)
 
     assert client.create_calls == 1
     assert client.terminate_calls == ["pod-123"]
 
 
-def test_ambiguous_create_transport_failure_is_not_retried() -> None:
+def test_ambiguous_create_transport_failure_is_reconciled_without_retry() -> None:
     value = plan()
     runpod, client, occupancy = adapter(value)
     client.create_error = RunPodV2Error("RunPod API could not be reached")
 
-    with pytest.raises(RunPodV2Error, match="could not be reached"):
-        runpod.submit(value)
+    submission = runpod.submit(value)
 
-    assert occupancy.calls == 1
+    assert occupancy.calls == 2
     assert client.create_calls == 1
     assert client.terminate_calls == []
+    assert submission.provider_job_id == "pod-123"
+
+
+def test_submission_requires_reconciliation_inventory_before_provider_work() -> None:
+    value = plan()
+    runpod, client, occupancy = adapter(value)
+    runpod = replace(runpod, inventory_probe=None)
+
+    with pytest.raises(RunPodV2AdapterError, match="requires reconciliation inventory"):
+        runpod.submit(value)
+
+    assert occupancy.calls == 0
+    assert client.create_calls == 0
 
 
 def test_different_plan_is_rejected_before_occupancy_or_create() -> None:
@@ -337,7 +513,7 @@ def test_different_plan_is_rejected_before_occupancy_or_create() -> None:
     assert client.create_calls == 0
 
 
-def test_exited_status_remains_ambiguous_and_does_not_fake_success() -> None:
+def test_exited_status_requires_reachable_authenticated_result_transport() -> None:
     value = plan()
     runpod, client, _ = adapter(value)
     submitted = submit_approved_plan(
@@ -348,5 +524,5 @@ def test_exited_status_remains_ambiguous_and_does_not_fake_success() -> None:
     )
     client.status_responses = [pod_payload(value, status="EXITED")]
 
-    with pytest.raises(RunPodV2AdapterError, match="EXITED remains ambiguous"):
+    with pytest.raises(RunPodV2AdapterError, match="S3 API could not be reached"):
         runpod.observe(submitted.receipt)

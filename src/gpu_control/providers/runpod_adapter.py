@@ -33,6 +33,7 @@ from .runpod_reconciliation import (
     cleanup_reconciled,
     reconcile_ambiguous_create,
 )
+from .runpod_live_gate import require_runpod_live_allocation_enabled
 from .runpod_v2 import (
     PublishedImageEvidence,
     RunPodCompletionLaunch,
@@ -89,6 +90,8 @@ class RunPodV2Adapter:
                 self.completion_launch.validate_against_plan(self.approved_plan)
             if self.network_volume is not None:
                 self.network_volume.validate_shape()
+                if self.catalog_pricing.cloud != "SECURE":
+                    raise RunPodV2Error("RunPod Network Volume result transport requires SECURE cloud")
         except (ValueError, RunPodV2Error, HumanAuthorizationError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if self.approved_plan.provider != "runpod":
@@ -115,11 +118,13 @@ class RunPodV2Adapter:
     def provider_name(self) -> str:
         return "runpod"
 
-    def _require_plan_identity(self, plan: ApprovedExecutionPlan) -> None:
+    def _require_plan_identity(self, plan: ApprovedExecutionPlan, *, now_utc: datetime | None = None) -> None:
         try:
             plan.validate_shape()
-            self.live_permit.validate_for_plan(plan, now_utc=self.clock())
-        except (ValueError, HumanAuthorizationError) as exc:
+            checked_at = self.clock() if now_utc is None else now_utc
+            self.live_permit.validate_for_plan(plan, now_utc=checked_at)
+            self.catalog_pricing.validate_fresh(now_utc=checked_at)
+        except (ValueError, HumanAuthorizationError, RunPodV2Error) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
         if plan.fingerprint() != self.approved_plan.fingerprint():
             raise RunPodV2AdapterError("RunPod adapter received a different approved plan")
@@ -138,12 +143,13 @@ class RunPodV2Adapter:
         if receipt.image_digest != self.approved_plan.image_digest:
             raise RunPodV2AdapterError("RunPod receipt image digest mismatch")
 
-    def _probe_before_create(self, plan: ApprovedExecutionPlan) -> None:
+    def _probe_before_create(self, plan: ApprovedExecutionPlan) -> RunPodAccountOccupancyEvidence:
         try:
             evidence = self.occupancy_probe(plan)
             if not isinstance(evidence, RunPodAccountOccupancyEvidence):
                 raise RunPodV2Error("RunPod occupancy probe returned an invalid evidence type")
             evidence.validate_before_create(plan, now_utc=self.clock())
+            return evidence
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
 
@@ -179,6 +185,21 @@ class RunPodV2Adapter:
             )
         except (RunPodV2Error, ValueError) as exc:
             raise RunPodV2AdapterError(str(exc)) from exc
+
+    def _require_authenticated_result_transport(self) -> None:
+        """Require the complete signer and durable-result path before allocation."""
+        if (
+            self.inventory_probe is None
+            or self.completion_launch is None
+            or self.network_volume is None
+            or self.result_client is None
+            or not isinstance(self.expected_workload_id, str)
+            or not self.expected_workload_id.strip()
+        ):
+            raise RunPodV2AdapterError(
+                "RunPod submission requires reconciliation inventory, the root signer, "
+                "and authenticated network-volume result transport"
+            )
 
     def _prove_pod_released(self, pod_id: str) -> None:
         evidence = self._probe_inventory(self.approved_plan)
@@ -233,6 +254,7 @@ class RunPodV2Adapter:
                 self.catalog_pricing,
                 candidate,
                 completion=self.completion_launch,
+                expected_network_volume=self.network_volume,
             )
             if validated_id != candidate_id:
                 raise RunPodV2Error("RunPod reconciled Pod id changed during validation")
@@ -248,8 +270,10 @@ class RunPodV2Adapter:
     def submit(self, plan: ApprovedExecutionPlan) -> ProviderSubmission:
         """Submit exactly once after exact authorization and account checks pass."""
 
+        require_runpod_live_allocation_enabled()
+        self._require_authenticated_result_transport()
         self._require_plan_identity(plan)
-        self._probe_before_create(plan)
+        occupancy_evidence = self._probe_before_create(plan)
         payload = build_priced_create_pod_payload(
             plan,
             self.published_image,
@@ -260,8 +284,17 @@ class RunPodV2Adapter:
         if self.network_volume is not None:
             payload = bind_network_volume_to_create_payload(payload, self.network_volume)
 
+        # Recheck volatile authorization, price, and occupancy after all preparation
+        # and immediately before the provider allocation request.
+        create_checked_at = self.clock()
+        self._require_plan_identity(plan, now_utc=create_checked_at)
         try:
-            pod = self.client.create_pod(payload)
+            occupancy_evidence.validate_before_create(plan, now_utc=create_checked_at)
+        except (RunPodV2Error, ValueError) as exc:
+            raise RunPodV2AdapterError(str(exc)) from exc
+
+        try:
+            pod = self.client.create_pod(payload, plan=plan, live_permit=self.live_permit)
         except RunPodV2Error as create_error:
             return self._reconcile_create_failure(plan, create_error)
 
@@ -273,6 +306,7 @@ class RunPodV2Adapter:
                 self.catalog_pricing,
                 pod,
                 completion=self.completion_launch,
+                expected_network_volume=self.network_volume,
             )
         except RunPodV2Error as validation_error:
             if isinstance(pod_id, str) and pod_id.strip():
@@ -306,6 +340,7 @@ class RunPodV2Adapter:
                     self.catalog_pricing,
                     identity_view,
                     completion=self.completion_launch,
+                    expected_network_volume=self.network_volume,
                 )
                 authenticated = self._collect_authenticated_volume_result()
                 state = authenticated.state
@@ -320,6 +355,7 @@ class RunPodV2Adapter:
                     self.catalog_pricing,
                     pod,
                     completion=self.completion_launch,
+                    expected_network_volume=self.network_volume,
                 )
                 state = translate_pod_status(pod)
                 status_reference = f"runpod-v2:pod:{receipt.provider_job_id}:status"
