@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { getOwnedTrainingSource } from "./training_source.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
@@ -173,6 +174,12 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const own = (await call("test-owner", "training_list", {})).machine_state.registrations;
     assert.equal(own.length, 1);
     assert.equal(own[0].registration_id, first.machine_state.registration_id);
+    const registrationId = own[0].registration_id;
+    assert.deepEqual({ ...await getOwnedTrainingSource(env.DB, "test-owner", registrationId) }, {
+      registration_id: registrationId, repository: "unjuno/model-as-a-paper", commit: sourceSha,
+    });
+    await assert.rejects(getOwnedTrainingSource(env.DB, "other-owner", registrationId),
+      { message: "TRAINING_REGISTRATION_NOT_FOUND" });
   } finally {
     db.close();
   }

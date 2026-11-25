@@ -43,3 +43,15 @@ export async function listTrainingSources(db, owner) {
     })) },
     next_allowed_actions: [], blocking_reason: null };
 }
+
+// Used by planning to resolve the immutable source through the caller's registration.
+export async function getOwnedTrainingSource(db, owner, registrationId) {
+  if (typeof registrationId !== "string" || !/^[0-9a-f]{32}$/.test(registrationId)) {
+    throw new Error("TRAINING_REGISTRATION_NOT_FOUND");
+  }
+  const row = await db.prepare(`SELECT id AS registration_id, repository, source_sha AS "commit"
+    FROM training_registrations WHERE owner_id = ? AND id = ?`)
+    .bind(owner, registrationId).first();
+  if (!row) throw new Error("TRAINING_REGISTRATION_NOT_FOUND");
+  return row;
+}
