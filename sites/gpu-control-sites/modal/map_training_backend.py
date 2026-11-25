@@ -27,9 +27,7 @@ class MapTrainingBackend:
         )
         self._call_lookup = call_lookup or modal.FunctionCall.from_id
 
-    def start(self, plan):
-        # The adapter must durably claim this exact plan before calling start.
-        # Transport errors are ambiguous. Callers must never retry spawn blindly.
+    def validate(self, plan):
         validate_map_plan(
             plan, source_sha=os.environ.get("MAP_TRAINING_SOURCE_SHA"),
             image_digest=os.environ.get("MAP_TRAINING_IMAGE_DIGEST"),
@@ -38,6 +36,10 @@ class MapTrainingBackend:
         )
         if plan["runtime_seconds"] != int(os.environ.get("MAP_TRAINING_RUNTIME_SECONDS", "0")):
             raise ValueError("training_runtime_mismatch")
+
+    def start(self, plan):
+        # Only a durable claim may reach spawn. Never retry ambiguous transport.
+        self.validate(plan)
         call = self._function_lookup().spawn(plan)
         return _required_call_id(call.object_id)
 
@@ -99,6 +101,7 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
         plan = args.get("plan")
         if not isinstance(plan, dict) or plan.get("run_id") != run_id:
             raise ValueError("training_plan_invalid")
+        backend.validate(plan)
         claim = {**binding, "plan": plan, "state": "dispatching"}
         if store.put(key, claim, skip_if_exists=True):
             call_id = backend.start(plan)
