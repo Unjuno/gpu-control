@@ -52,3 +52,15 @@ def train_map(plan: dict) -> dict:
         config=config, corpus_dir=Path("/corpus/papers"), runs_dir=Path("/checkpoints"),
         commit_volume=checkpoints.commit, train=train,
     )
+
+
+@app.function(
+    volumes={"/checkpoints": checkpoints.with_mount_options(read_only=True)},
+    image=modal.Image.debian_slim(python_version="3.11").add_local_python_source("map_checkpoint"),
+    timeout=30, block_network=True, cpu=1, memory=256,
+)
+def read_map_checkpoint(run_id: str, manifest: dict, offset: int, max_bytes: int) -> dict:
+    from map_checkpoint import read_checkpoint_chunk
+
+    checkpoints.reload()
+    return read_checkpoint_chunk(Path("/checkpoints"), run_id, manifest, offset, max_bytes)
