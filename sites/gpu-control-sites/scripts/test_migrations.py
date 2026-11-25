@@ -11,8 +11,9 @@ conn = sqlite3.connect(":memory:")
 conn.execute("PRAGMA foreign_keys=ON")
 
 paths = sorted(MIGRATIONS.glob("*.sql"))
-assert paths[-1].name == "0021_reliable_run_history.sql"
-for path in paths[:-1]:
+assert paths[-1].name == "0025_training_submission_claim.sql"
+history = next(path for path in paths if path.name == "0021_reliable_run_history.sql")
+for path in paths[:paths.index(history)]:
     conn.executescript(path.read_text(encoding="utf-8"))
 
 # Seed rows in the old schema to exercise a real forward upgrade. In
@@ -43,7 +44,8 @@ conn.execute(
      "orbitune-zero-gpu-eval-v1", "{}", 100, 200),
 )
 
-conn.executescript(paths[-1].read_text(encoding="utf-8"))
+for path in paths[paths.index(history):]:
+    conn.executescript(path.read_text(encoding="utf-8"))
 conn.execute(
     "UPDATE gateway_delegated_plans SET cancelled_at=101 WHERE owner_id=? AND id=? AND state='prepared'",
     ("owner", "e" * 32),
