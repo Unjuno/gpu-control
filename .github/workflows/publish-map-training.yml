@@ -1,0 +1,53 @@
+name: Publish MAP training image
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_base:
+        description: Digest-pinned Python 3.11 base (python@sha256:...)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      MAP_SOURCE_REVISION: d32ae5ba1df27f2c93915b68e78ce67a60254c64
+      MAP_PYTHON_BASE: ${{ inputs.python_base }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Unjuno/model-as-a-paper
+          ref: ${{ env.MAP_SOURCE_REVISION }}
+          path: map-source
+          persist-credentials: false
+      - name: Build the reviewed source
+        run: bash sites/gpu-control-sites/workloads/map-training/build.sh map-source "$MAP_SOURCE_REVISION" "$MAP_PYTHON_BASE"
+      - name: Check pinned source and CUDA build without a GPU
+        run: |
+          image="ghcr.io/unjuno/gpu-control-map-training:$MAP_SOURCE_REVISION"
+          docker run --rm --network none -e EXPECTED_MAP_SHA="$MAP_SOURCE_REVISION" "$image" \
+            python -c 'import os, platform, torch; from model_as_a_paper.training import train; assert callable(train); assert platform.machine() == "x86_64"; assert os.environ["MAP_IMAGE_SOURCE_SHA"] == os.environ["EXPECTED_MAP_SHA"]; assert torch.version.cuda == "12.8"'
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish and record the registry digest
+        run: |
+          image="ghcr.io/unjuno/gpu-control-map-training:$MAP_SOURCE_REVISION"
+          docker push "$image"
+          digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "Published image digest: $digest" >> "$GITHUB_STEP_SUMMARY"
