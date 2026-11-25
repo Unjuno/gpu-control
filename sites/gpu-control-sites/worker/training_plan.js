@@ -87,11 +87,19 @@ export async function trainingPlanState(db, owner, runId, cancel = false) {
     next_allowed_actions: state === "prepared" ? ["training_cancel"] : [], blocking_reason: null };
 }
 
-// The caller must validate the user's approval and reserve its provider budget
-// before claiming dispatch. A claim is never reused to start a second job.
-export async function claimTrainingDispatch(db, owner, runId, fingerprint, now) {
+// Authorization must already be established. This single write reserves the
+// whole plan ceiling and prevents concurrent or duplicate dispatch claims.
+export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit) {
+  if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1) {
+    throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
+  }
+  const date = new Date(now * 1000);
+  const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
   return db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
     WHERE owner_id=? AND id=? AND fingerprint=?
       AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?
-    RETURNING plan_json`).bind(now, owner, runId, fingerprint, now).first();
+      AND json_extract(plan_json, '$.max_cost_microusd') +
+        COALESCE((SELECT SUM(json_extract(p.plan_json, '$.max_cost_microusd'))
+          FROM training_plans p WHERE p.dispatch_claimed_at>=?), 0) <= ?
+    RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, monthStart, monthlyLimit).first();
 }

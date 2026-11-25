@@ -228,12 +228,16 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await call("test-owner", "training_prepare", prepare)).machine_state.state, "cancelled");
     const now = Math.floor(Date.now() / 1000);
     assert.equal(await claimTrainingDispatch(env.DB, "test-owner", run.run_id,
-      saved.machine_state.plan_fingerprint, now), undefined);
+      saved.machine_state.plan_fingerprint, now, 100000), undefined);
     const fresh = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-prepare-fresh" })).machine_state;
-    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now);
+    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now, 100000);
     assert.ok(await claim());
     assert.equal(await claim(), undefined);
+    const second = (await call("test-owner", "training_prepare",
+      { ...prepare, idempotency_key: "training-monthly-limit" })).machine_state;
+    assert.equal(await claimTrainingDispatch(env.DB, "test-owner", second.run_id,
+      second.plan_fingerprint, now, 100000), undefined);
     assert.equal((await call("test-owner", "training_cancel",
       { run_id: fresh.run_id })).error, "GATEWAY_DELEGATION_FAILED");
     assert.equal(db.prepare("SELECT cancelled_at FROM training_plans WHERE id=?")
