@@ -6,7 +6,7 @@ const DELEGATION_TTL_SECONDS = 60;
 // spawned asynchronously and is not covered by this HTTP timeout.
 const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
-const TOOL = /^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request)$/;
+const TOOL = /^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request|training_(?:status|cancel))$/;
 const PROVIDER_ADAPTER_HOSTNAME =
   "unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
 

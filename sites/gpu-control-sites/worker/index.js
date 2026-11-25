@@ -1743,7 +1743,19 @@ async function callTool(name, args, request, env, context = null) {
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
   if (name === "training_status" || name === "training_cancel") {
-    return trainingPlanState(env.DB, owner, args.run_id, name === "training_cancel");
+    const local = await trainingPlanState(env.DB, owner, args.run_id, name === "training_cancel");
+    if (local.machine_state.state !== "dispatching") return local;
+    const remote = await delegateGatewayTool(env, owner, name, {
+      run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
+    });
+    const state = remote?.state === "not_found" ? "uncertain" : remote?.state;
+    if (!["running", "cancel_requested", "cancelled", "succeeded", "uncertain"].includes(state)) {
+      throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
+    }
+    return { ...local, human_summary: "Modalの学習実行状態です。",
+      machine_state: { ...local.machine_state, ...remote, state },
+      next_allowed_actions: state === "running" ? ["training_status", "training_cancel"]
+        : ["cancel_requested", "uncertain"].includes(state) ? ["training_status"] : [] };
   }
   if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);

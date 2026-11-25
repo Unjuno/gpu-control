@@ -235,7 +235,9 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.ok(await claim());
     assert.equal(await claim(), undefined);
     assert.equal((await call("test-owner", "training_cancel",
-      { run_id: fresh.run_id })).machine_state.state, "dispatching");
+      { run_id: fresh.run_id })).error, "GATEWAY_DELEGATION_FAILED");
+    assert.equal(db.prepare("SELECT cancelled_at FROM training_plans WHERE id=?")
+      .get(fresh.run_id).cancelled_at, null);
     assert.equal((await call("other-owner", "training_preview", bySource)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
     assert.equal((await call("test-owner", "training_preview",
