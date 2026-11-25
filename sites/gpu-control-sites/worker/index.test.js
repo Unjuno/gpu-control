@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
@@ -139,6 +141,42 @@ async function toolCall(env, user, name, args) {
     body: JSON.stringify({ jsonrpc: "2.0", id: 99, method: "tools/call", params: { name, arguments: args } }),
   }), env);
 }
+
+test("training registration is authenticated, owner-scoped, and repeatable", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(readFileSync(new URL("../drizzle/0022_training_registrations.sql", import.meta.url), "utf8"));
+    const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner", DB: {
+      prepare(sql) {
+        const statement = db.prepare(sql);
+        return { bind: (...args) => ({
+          run: async () => statement.run(...args),
+          first: async () => statement.get(...args),
+          all: async () => ({ results: statement.all(...args) }),
+        }) };
+      },
+    } };
+    const call = async (owner, name, args) => {
+      const response = await toolCall(env, owner, name, args);
+      return JSON.parse((await response.json()).result.content[0].text);
+    };
+    const args = { repository: "Unjuno/model-as-a-paper", commit: sourceSha };
+    assert.equal((await call("", "training_register", args)).error, "AUTHENTICATED_SITE_USER_REQUIRED");
+    assert.equal((await call("unauthorized", "training_register", args)).error, "SITE_USER_NOT_AUTHORIZED");
+    assert.equal((await call("test-owner", "training_register", { ...args, repository: "https://example.com/a/b" })).error, "TRAINING_SOURCE_INVALID");
+    const first = await call("test-owner", "training_register", args);
+    assert.equal(first.machine_state.state, "pending_review");
+    assert.equal(first.machine_state.executable, false);
+    const retry = await call("test-owner", "training_register", { ...args, repository: "https://github.com/unjuno/model-as-a-paper" });
+    assert.equal(retry.machine_state.registration_id, first.machine_state.registration_id);
+    assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.registrations, []);
+    const own = (await call("test-owner", "training_list", {})).machine_state.registrations;
+    assert.equal(own.length, 1);
+    assert.equal(own[0].registration_id, first.machine_state.registration_id);
+  } finally {
+    db.close();
+  }
+});
 
 test("public MCP data tools reject anonymous callers before touching D1", async () => {
   const env = environment();
