@@ -2010,10 +2010,32 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "experiment_cancel") {
     const delegated = await maybeDelegateRunTool(env, owner, name, args);
     if (delegated) return delegated;
-    const selectRun = () => env.DB.prepare("SELECT id, state, cancel_requested, cleanup_state FROM runs WHERE id = ? AND owner_id = ?")
+    const selectRun = () => env.DB.prepare("SELECT id, state, cancel_requested, cleanup_state, failure_code FROM runs WHERE id = ? AND owner_id = ?")
       .bind(args.run_id, owner).first();
     let row = await selectRun();
+    const preparedPlan = row ? null : await env.DB.prepare(
+      "SELECT id FROM plans WHERE id=? AND owner_id=? AND state='prepared'",
+    ).bind(args.run_id, owner).first();
+    if (preparedPlan) {
+      const cancelledAt = Math.floor(Date.now() / 1000);
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO runs (id, owner_id, plan_id, state, cleanup_state, failure_code, created_at, updated_at)
+          SELECT id, owner_id, id, 'cancelled', 'confirmed', 'caller_cancelled_before_submit', created_at, ?
+          FROM plans WHERE id=? AND owner_id=? AND state='prepared' AND expires_at>=?
+          ON CONFLICT(id) DO NOTHING`).bind(cancelledAt, args.run_id, owner, cancelledAt),
+        env.DB.prepare(`UPDATE plans SET state='expired' WHERE id=? AND owner_id=? AND state='prepared'
+          AND EXISTS (SELECT 1 FROM runs WHERE id=? AND owner_id=? AND failure_code='caller_cancelled_before_submit')`)
+          .bind(args.run_id, owner, args.run_id, owner),
+      ]);
+    }
+    if (!row) row = await selectRun();
     if (!row) throw new Error("RUN_NOT_FOUND");
+    if (row.state === "cancelled" && row.failure_code === "caller_cancelled_before_submit") {
+      return { schema_version: 2, status: "ok",
+        human_summary: "Prepared plan cancelled before submission; no provider resource was created.",
+        machine_state: { run_id: row.id, state: row.state, cleanup_state: row.cleanup_state, provider_resource_created: false },
+        next_allowed_actions: [], blocking_reason: null };
+    }
     let cancelProvider = null;
     try {
       cancelProvider = await env.DB.prepare(`SELECT p.provider FROM plans p JOIN runs r ON r.plan_id=p.id
