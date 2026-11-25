@@ -45,7 +45,7 @@ def web(system):
     auth = Auth(system.settings, keys=keys)
     def token(sub="owner", **overrides):
         data = dict(iss=system.settings.issuer, sub=sub, aud=system.settings.resource,
-                    exp=int(time.time()) + 1200, iat=int(time.time()), scope=" ".join(SCOPES))
+                    exp=int(time.time()) + 1200, iat=int(time.time()), scope=" ".join((*SCOPES, "gateway:ops:read")))
         data.update(overrides)
         return jwt.encode(data, key, algorithm="RS256")
     access = token()
