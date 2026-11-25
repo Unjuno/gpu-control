@@ -1,4 +1,4 @@
-import { claimTrainingDispatch } from "./training_plan.js";
+import { claimTrainingDispatch, submitTrainingPlan } from "./training_plan.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { getOwnedTrainingSource } from "./training_source.js";
@@ -242,6 +242,33 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       { run_id: fresh.run_id })).error, "GATEWAY_DELEGATION_FAILED");
     assert.equal(db.prepare("SELECT cancelled_at FROM training_plans WHERE id=?")
       .get(fresh.run_id).cancelled_at, null);
+    const candidate = await call("test-owner", "training_prepare",
+      { ...prepare, idempotency_key: "training-submit-transport" });
+    const submission = { run_id: candidate.machine_state.run_id,
+      plan_fingerprint: candidate.machine_state.plan_fingerprint, approved_plan: candidate.approved_plan };
+    let sends = 0;
+    const transport = async (_env, owner, tool, args) => {
+      sends++;
+      assert.equal(owner, "test-owner");
+      assert.equal(tool, "training_submit");
+      assert.deepEqual(args.plan, { ...candidate.approved_plan, run_id: submission.run_id });
+      throw new Error("simulated lost response");
+    };
+    assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true)).blocking_reason,
+      "TRAINING_ADMISSION_DISABLED");
+    env.MAP_TRAINING_ADMISSION_ENABLED = "true";
+    env.MAP_TRAINING_MONTHLY_MICROUSD = "200000";
+    await assert.rejects(submitTrainingPlan(env, "other-owner", submission, transport, () => true),
+      { message: "RUN_NOT_FOUND" });
+    await assert.rejects(submitTrainingPlan(env, "test-owner",
+      { ...submission, approved_plan: { ...submission.approved_plan, runtime_seconds: 121 } },
+      transport, () => true), { message: "INVALID_ARGUMENTS" });
+    assert.equal(sends, 0);
+    assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
+      .machine_state.state, "uncertain");
+    assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
+      .machine_state.state, "dispatching");
+    assert.equal(sends, 1);
     assert.equal((await call("other-owner", "training_preview", bySource)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
     assert.equal((await call("test-owner", "training_preview",
