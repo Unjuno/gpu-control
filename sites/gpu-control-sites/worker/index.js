@@ -1,3 +1,4 @@
+import { listTrainingSources, registerTrainingSource } from "./training_source.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
 import { submitRunpodExperiment, synchronizeRunpodExperiment, validRunpodApprovedPlan } from "./runpod_lifecycle.js";
@@ -57,6 +58,13 @@ const MODAL_HEALTH_CHECK_COOLDOWN_SECONDS = 60;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 const schemas = {
+  training_list: { type: "object", properties: {}, additionalProperties: false },
+  training_register: {
+    type: "object", properties: {
+      repository: { type: "string", maxLength: 159 },
+      commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
+    }, required: ["repository", "commit"], additionalProperties: false,
+  },
   experiment_capabilities: { type: "object", properties: {}, additionalProperties: false },
   experiment_provider_health: { type: "object", properties: {
     run_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
@@ -170,6 +178,9 @@ const OUTPUT_SCHEMA = {
 };
 
 const toolDescriptions = {
+  training_list: "List up to 50 recent training sources registered by the authenticated owner.",
+  training_register: "Register a GitHub repository and exact commit for the authenticated owner. The source is pending review and this action does not start training.",
+
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
   experiment_provider_health: "Optional standalone Modal readiness diagnostic. It requires an unconsumed exact-plan authorization; normal ChatGPT runs check health inside the confirmed experiment_submit action. This creates no Sandbox, but the Modal control-function call can be billed separately from the Sandbox cost ceiling. A shared workspace cooldown and one-use plan reservation bound calls.",
   experiment_prepare: "Prepare an exact owner-bound plan for a registered workload without executing it. Preferred intent: registered workload_id, with an agent-generated idempotency_key retained and reused only when recovering that same prepare request. Never ask the user to create or remember the key. If omitted, the server accepts the call and generates a key, but a later independent retry cannot be correlated with it. The server supplies fixed repository, commit, parameters, runtime, and cost ceiling. For ZeroGPU it selects the newest owned Kaggle run with a succeeded result, confirmed cleanup, and immutable private artifact reference; optionally pass source_run_id to select a specific completed run. Existing explicit inputs using workload, repository, commit, parameters, runtime_seconds, max_cost_usd, and idempotency_key remain supported. Supported routes are bounded Modal TinyStories CPU inference, a fixed Modal T4 GPU canary, a fixed Runpod GPU canary, Kaggle Orbitune 100-step training, and private Hugging Face ZeroGPU evaluation. Kaggle and ZeroGPU remain FREE_FIRST and never fall back to a paid provider. Modal GPU preparation does not allocate a Function call, and Runpod preparation does not allocate a Pod. Returns the exact plan and cost/quota terms for review in ChatGPT; no provider token is accepted from chat. When the user's current message already instructs ChatGPT to execute this registered workload, treat that message as the conversational execution approval: continue to experiment_submit without asking the user the same question again.",
@@ -634,6 +645,11 @@ function validProviderApprovedPlan(value) {
 }
 
 function validToolArguments(name, args, env) {
+  if (name === "training_list") return Object.keys(args).length === 0;
+  if (name === "training_register") return Object.keys(args).sort().join(",") === "commit,repository" &&
+    typeof args.repository === "string" && args.repository.length <= 159 &&
+    typeof args.commit === "string" && args.commit.length === 40;
+
   if (name === "experiment_prepare") return validPlan(args, env) || validRunpodPrepare(args, env) ||
     validGatewayPrepare(args) || validRegisteredPrepare(args) || validRegisteredZeroGpuPrepare(args);
   if (name === "experiment_submit" && args.provider_approved_plan !== undefined) return Object.keys(args).sort().join(",") === "plan_fingerprint,provider_approved_plan,run_id" &&
@@ -1684,6 +1700,8 @@ async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
+  if (name === "training_list") return listTrainingSources(env.DB, owner);
+  if (name === "training_register") return registerTrainingSource(env.DB, owner, args);
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return capabilities(env, owner);
   if (name === "experiment_prepare") {
@@ -2260,7 +2278,7 @@ async function handleMcp(request, env, context = null) {
   }
   if (message.method === "tools/list") {
     return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: {
-      readOnlyHint: ["experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
+      readOnlyHint: ["training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
       destructiveHint: ["experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
       idempotentHint: !["experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health"].includes(name),
       openWorldHint: false,
@@ -2276,7 +2294,7 @@ async function handleMcp(request, env, context = null) {
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
-      const known = new Set(["AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+      const known = new Set(["TRAINING_SOURCE_INVALID", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
       const runpodProviderCodes = new Set([
         "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
         "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",
