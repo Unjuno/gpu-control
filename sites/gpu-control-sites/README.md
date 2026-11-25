@@ -183,3 +183,33 @@ the ChatGPT Site itself. The staged plan and acceptance criteria are in
 
 The migration directory is append-only after publication. Do not erase D1/R2
 records or rewrite historical acceptance evidence during provider migration.
+
+## MAP-44M training
+
+The training tools are scoped to the authenticated Sites owner. Register a
+GitHub repository and complete commit SHA with `training_register`. Use
+`training_prepare` by repository and commit (or registration ID), with a
+runtime in seconds and a budget in millionths of a US dollar. Use a fresh
+idempotency key per intended execution. The client should show the returned
+plan and budget before calling `training_submit` with its exact
+`approved_plan`, run ID, and fingerprint.
+
+Use `training_status` to recover a submitted run, including after an
+ambiguous submit. Avoid creating a new plan to retry an uncertain run.
+`training_cancel` cancels a prepared plan or requests stopping the Modal
+call. Poll status after requesting cancellation. A succeeded result contains
+the checkpoint size and SHA-256. `training_checkpoint` reads bounded
+base64 ranges for an authenticated client to reconstruct and verify; a typical
+model checkpoint is too large to copy through a chat transcript.
+
+For deployment, build the reviewed MAP source with
+`workloads/map-training/build.sh` and provision the private corpus and
+checkpoint Volumes referenced by `modal/map_training_app.py`. The reviewed
+corpus must be available at `/corpus/papers`. The app and signed adapter need
+the same `MAP_TRAINING_SOURCE_SHA`, `MAP_TRAINING_IMAGE_DIGEST`,
+`MAP_TRAINING_RUNTIME_SECONDS`, `MAP_TRAINING_HOURLY_MICROUSD` and
+`MAP_TRAINING_QUOTE_EXPIRES_AT` as Sites. Apply D1 migrations before updating
+the Worker. Keep admission disabled until the image, dataset, workspace
+billing limit, and exact execution authorization have been verified.
+Sites requires `MAP_TRAINING_MONTHLY_MICROUSD`; its ledger reserves the full
+per-run ceiling and is independent of Modal billing.
