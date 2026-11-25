@@ -49,6 +49,10 @@ class MapTrainingBackend:
             result = call.get(timeout=0)
         except modal.exception.InputCancellation:
             return {"state": "cancelled"}
+        except modal.exception.FunctionTimeoutError:
+            return {"state": "failed", "failure_code": "TRAINING_RUNTIME_LIMIT"}
+        except modal.exception.RemoteError:
+            return {"state": "failed", "failure_code": "TRAINING_PROVIDER_FAILURE"}
         except modal.exception.TimeoutError as exc:
             if type(exc) is not modal.exception.TimeoutError:
                 raise
@@ -124,7 +128,7 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
         raise ValueError("training_tool_invalid")
     if terminal is None:
         result = backend.inspect(record["call_id"], record["plan"])
-        if result["state"] in {"succeeded", "cancelled"}:
+        if result["state"] in {"succeeded", "cancelled", "failed"}:
             terminal = result
             store.put(key, {**record, "state": result["state"], "terminal_result": result})
     else:

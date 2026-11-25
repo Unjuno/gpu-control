@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 import time
 
+import modal
 import pytest
 
 from map_training_backend import MapTrainingBackend, dispatch_training_tool
@@ -49,3 +50,31 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch):
     with pytest.raises(ValueError, match="training_run_identity_mismatch"):
         dispatch_training_tool(store, backend, "other", "training_status", args,
                                admission_enabled=True)
+
+
+def test_provider_wall_timeout_becomes_terminal():
+    run_id = "c" * 32
+    fingerprint = "d" * 64
+    store = Store({f"map-training:{run_id}": {
+        "owner": "owner", "fingerprint": fingerprint, "plan": {},
+        "state": "running", "call_id": "fc-abcdefgh",
+    }})
+    calls = []
+
+    def get(*, timeout):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise modal.exception.TimeoutError()
+        raise modal.exception.FunctionTimeoutError("provider details")
+
+    backend = MapTrainingBackend(call_lookup=lambda _: SimpleNamespace(get=get))
+    args = {"run_id": run_id, "plan_fingerprint": fingerprint}
+
+    def status():
+        return dispatch_training_tool(store, backend, "owner", "training_status", args,
+                                      admission_enabled=False)
+
+    assert status() == {"state": "running"}
+    for _ in range(2):
+        assert status() == {"state": "failed", "failure_code": "TRAINING_RUNTIME_LIMIT"}
+    assert calls == [0, 0]

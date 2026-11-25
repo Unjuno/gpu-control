@@ -1786,7 +1786,7 @@ async function callTool(name, args, request, env, context = null) {
       run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
     });
     const state = remote?.state === "not_found" ? "uncertain" : remote?.state;
-    if (!["running", "cancel_requested", "cancelled", "succeeded", "uncertain"].includes(state)) {
+    if (!["running", "cancel_requested", "cancelled", "succeeded", "failed", "uncertain"].includes(state)) {
       throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
     }
     return { ...local, human_summary: "Modalの学習実行状態です。",
