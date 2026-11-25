@@ -180,6 +180,25 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     });
     await assert.rejects(getOwnedTrainingSource(env.DB, "other-owner", registrationId),
       { message: "TRAINING_REGISTRATION_NOT_FOUND" });
+    const preview = { registration_id: registrationId, runtime_seconds: 120,
+      max_cost_microusd: 100000 };
+    assert.equal((await call("other-owner", "training_preview", preview)).error,
+      "TRAINING_REGISTRATION_NOT_FOUND");
+    assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
+      "TRAINING_PROFILE_UNAVAILABLE");
+    env.MAP_TRAINING_SOURCE_SHA = "c".repeat(40);
+    env.MAP_TRAINING_IMAGE_DIGEST = imageDigest;
+    assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
+      "TRAINING_PROFILE_UNAVAILABLE");
+    env.MAP_TRAINING_SOURCE_SHA = sourceSha;
+    const plan = await call("test-owner", "training_preview", preview);
+    assert.equal(plan.status, "ok");
+    assert.equal(plan.machine_state.image_digest, imageDigest);
+    assert.equal(plan.machine_state.gpu, "L4");
+    assert.equal(plan.machine_state.executable, false);
+    assert.equal((await call("test-owner", "training_preview",
+      { ...preview, runtime_seconds: 3001 })).error, "INVALID_ARGUMENTS");
+
   } finally {
     db.close();
   }
