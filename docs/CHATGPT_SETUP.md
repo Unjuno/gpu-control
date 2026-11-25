@@ -291,3 +291,24 @@ Provider credentials are long-lived, least-privilege runtime configuration and
 are reused across runs. Do not create or rotate them per experiment. Credential
 rotation, deletion, privilege expansion, or a budget increase is a separate
 administrative action and still requires immediate notice before it is done.
+
+## Owner training with MAP-44M
+
+Attach **GPU Control — ChatGPT実験管理** to a new ChatGPT conversation.
+In Chat, use the plugin page's **Try in chat** button. In Work, use the
+composer's **Plugins** menu. Start by asking for a read-only
+`training_list` call to verify the connection and the identity used by the
+client. If the tool is unavailable, check the installed plugin and record
+which client mode returned the error before trying any write operation.
+
+To register a source, provide the GitHub repository and the full commit
+SHA. Registration does not start training. Once the operator has deployed a
+reviewed profile matching that exact source, request a plan by repository
+and commit or by registration ID. Specify a runtime and maximum cost.
+Ask the agent to show the resolved GPU, runtime, and estimated cost before
+submitting. The client may request native approval for the write action.
+
+After submission, preserve the run ID. Use it to check status or request
+cancellation. If the submit response is interrupted, check that run before
+starting another. After success, retrieve and verify the checkpoint with an
+authenticated client that can assemble the ranges and compare SHA-256.
