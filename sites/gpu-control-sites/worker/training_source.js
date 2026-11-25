@@ -55,3 +55,12 @@ export async function getOwnedTrainingSource(db, owner, registrationId) {
   if (!row) throw new Error("TRAINING_REGISTRATION_NOT_FOUND");
   return row;
 }
+
+export async function findOwnedTrainingSource(db, owner, input) {
+  const { repository, commit } = parseTrainingSource(input.repository, input.commit);
+  const row = await db.prepare(`SELECT id AS registration_id, repository, source_sha AS "commit"
+    FROM training_registrations WHERE owner_id = ? AND repository = ? AND source_sha = ?`)
+    .bind(owner, repository, commit).first();
+  if (!row) throw new Error("TRAINING_REGISTRATION_NOT_FOUND");
+  return row;
+}

@@ -62,9 +62,11 @@ const schemas = {
   training_preview: {
     type: "object", properties: {
       registration_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
+      repository: { type: "string", maxLength: 159 },
+      commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
       runtime_seconds: { type: "integer", minimum: 120, maximum: 3000 },
       max_cost_microusd: { type: "integer", minimum: 1, maximum: 1000000 },
-    }, required: ["registration_id", "runtime_seconds", "max_cost_microusd"], additionalProperties: false,
+    }, required: ["runtime_seconds", "max_cost_microusd"], additionalProperties: false,
   },
   training_list: { type: "object", properties: {}, additionalProperties: false },
   training_register: {
@@ -186,7 +188,7 @@ const OUTPUT_SCHEMA = {
 };
 
 const toolDescriptions = {
-  training_preview: "Preview a reviewed training profile for your registration with a runtime and budget ceiling in millionths of a US dollar. This action cannot start training or confirm pricing.",
+  training_preview: "Preview a reviewed training profile by registered repository and commit, or registration ID, with a runtime and budget ceiling in millionths of a US dollar. This action cannot start training or confirm pricing.",
 
   training_list: "List up to 50 recent training sources registered by the authenticated owner.",
   training_register: "Register a GitHub repository and exact commit for the authenticated owner. The source is pending review and this action does not start training.",
@@ -655,11 +657,18 @@ function validProviderApprovedPlan(value) {
 }
 
 function validToolArguments(name, args, env) {
-  if (name === "training_preview") return Object.keys(args).sort().join(",") === "max_cost_microusd,registration_id,runtime_seconds" &&
-    typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id) &&
-    Number.isSafeInteger(args.runtime_seconds) && args.runtime_seconds >= 120 && args.runtime_seconds <= 3000 &&
-    Number.isSafeInteger(args.max_cost_microusd) && args.max_cost_microusd >= 1 && args.max_cost_microusd <= 1000000;
-
+  if (name === "training_preview") {
+    const keys = Object.keys(args).sort().join(",");
+    const byId = keys === "max_cost_microusd,registration_id,runtime_seconds" &&
+      typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
+    const bySource = keys === "commit,max_cost_microusd,repository,runtime_seconds" &&
+      typeof args.repository === "string" && args.repository.length <= 159 &&
+      typeof args.commit === "string" && args.commit.length === 40;
+    return (byId || bySource) && Number.isSafeInteger(args.runtime_seconds) &&
+      args.runtime_seconds >= 120 && args.runtime_seconds <= 3000 &&
+      Number.isSafeInteger(args.max_cost_microusd) && args.max_cost_microusd >= 1 &&
+      args.max_cost_microusd <= 1000000;
+  }
   if (name === "training_list") return Object.keys(args).length === 0;
   if (name === "training_register") return Object.keys(args).sort().join(",") === "commit,repository" &&
     typeof args.repository === "string" && args.repository.length <= 159 &&

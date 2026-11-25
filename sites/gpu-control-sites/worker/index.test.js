@@ -203,6 +203,11 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(plan.machine_state.gpu, "L4");
     assert.equal(plan.machine_state.estimated_cost_microusd, 88889);
     assert.equal(plan.machine_state.executable, false);
+    const bySource = { ...args, runtime_seconds: 120, max_cost_microusd: 100000 };
+    assert.deepEqual((await call("test-owner", "training_preview", bySource)).machine_state,
+      plan.machine_state);
+    assert.equal((await call("other-owner", "training_preview", bySource)).error,
+      "TRAINING_REGISTRATION_NOT_FOUND");
     assert.equal((await call("test-owner", "training_preview",
       { ...preview, runtime_seconds: 3001 })).error, "INVALID_ARGUMENTS");
 

@@ -1,9 +1,11 @@
-import { getOwnedTrainingSource } from "./training_source.js";
+import { findOwnedTrainingSource, getOwnedTrainingSource } from "./training_source.js";
 
 const MAP_REPOSITORY = "unjuno/model-as-a-paper";
 
 export async function previewTrainingPlan(env, owner, args) {
-  const source = await getOwnedTrainingSource(env.DB, owner, args.registration_id);
+  const source = args.registration_id
+    ? await getOwnedTrainingSource(env.DB, owner, args.registration_id)
+    : await findOwnedTrainingSource(env.DB, owner, args);
   const machine = { ...source, executable: false };
   // These values are set by the operator after reviewing the commit and building
   // the image. A registration alone never gives a commit execution authority.
