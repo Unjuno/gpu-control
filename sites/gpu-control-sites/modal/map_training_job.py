@@ -6,10 +6,8 @@ import time
 from map_checkpoint import checkpoint_manifest
 
 
-def run_map_training(plan, *, source_sha, image_digest, hourly_microusd, quote_expires_at,
-                     config, corpus_dir,
-                     runs_dir: Path, commit_volume, train):
-    """Run a previously authorized plan using server-selected data and config."""
+def validate_map_plan(plan, *, source_sha, image_digest, hourly_microusd, quote_expires_at):
+    """Check the exact reviewed profile against trusted provider settings."""
     if (plan["commit"] != source_sha or plan["image_digest"] != image_digest
             or plan["repository"] != "unjuno/model-as-a-paper"
             or plan["gpu"] != "L4" or plan["gpu_count"] != 1):
@@ -31,6 +29,16 @@ def run_map_training(plan, *, source_sha, image_digest, hourly_microusd, quote_e
             or hourly_rate * (seconds + 600) > budget * 3240):
         raise ValueError("training_budget_invalid")
 
+    return run_id, seconds, budget, hourly_rate
+
+
+def run_map_training(plan, *, source_sha, image_digest, hourly_microusd, quote_expires_at,
+                     config, corpus_dir, runs_dir: Path, commit_volume, train):
+    """Run a previously authorized plan using server-selected data and config."""
+    run_id, seconds, budget, hourly_rate = validate_map_plan(
+        plan, source_sha=source_sha, image_digest=image_digest,
+        hourly_microusd=hourly_microusd, quote_expires_at=quote_expires_at,
+    )
     result = train(
         config, corpus_dir, runs_dir / run_id, device="cuda", steps=100_000,
         seconds=seconds, budget_usd=budget / 1_000_000,

@@ -1,7 +1,10 @@
 """Modal transport for the private, fixed MAP training function."""
+import os
 import re
 
 import modal
+
+from map_training_job import validate_map_plan
 
 
 APP_NAME = "gpu-control-map-training"
@@ -27,6 +30,14 @@ class MapTrainingBackend:
     def start(self, plan):
         # The adapter must durably claim this exact plan before calling start.
         # Transport errors are ambiguous. Callers must never retry spawn blindly.
+        validate_map_plan(
+            plan, source_sha=os.environ.get("MAP_TRAINING_SOURCE_SHA"),
+            image_digest=os.environ.get("MAP_TRAINING_IMAGE_DIGEST"),
+            hourly_microusd=int(os.environ.get("MAP_TRAINING_HOURLY_MICROUSD", "0")),
+            quote_expires_at=int(os.environ.get("MAP_TRAINING_QUOTE_EXPIRES_AT", "0")),
+        )
+        if plan["runtime_seconds"] != int(os.environ.get("MAP_TRAINING_RUNTIME_SECONDS", "0")):
+            raise ValueError("training_runtime_mismatch")
         call = self._function_lookup().spawn(plan)
         return _required_call_id(call.object_id)
 
