@@ -51,7 +51,18 @@ def install_ci_routes(app, *, policy=None, verifier=None, comments=None):
     The existing service remains authoritative for approval, price and provider limits.
     Non-demo submission is additionally denied until reviewed paid activation.
     """
-    policy = policy or Policy.load()
+    if policy is None:
+        try:
+            policy = Policy.load()
+        except (OSError, BridgeError):
+            @app.post("/api/ci/comment")
+            async def ci_comment_unconfigured():
+                return JSONResponse(
+                    {"code": "bridge_not_configured"},
+                    status_code=503,
+                    headers={"Cache-Control": "no-store"},
+                )
+            return
     auth = app.state.auth
     service = app.state.service
     deployed_sha = os.environ.get("GATEWAY_DEPLOYED_SHA", "")
