@@ -263,7 +263,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     await assert.rejects(submitTrainingPlan(env, "test-owner",
       { ...submission, approved_plan: { ...submission.approved_plan, runtime_seconds: 121 } },
       transport, () => true), { message: "INVALID_ARGUMENTS" });
+    assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
+      .blocking_reason, "TRAINING_RUNTIME_MISMATCH");
     assert.equal(sends, 0);
+    env.MAP_TRAINING_RUNTIME_SECONDS = "120";
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "uncertain");
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))

@@ -119,6 +119,11 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     return { schema_version: 2, status: "blocked", human_summary: "学習の実行受付は停止中です。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
   }
+  if (Number(env.MAP_TRAINING_RUNTIME_SECONDS) !== plan.runtime_seconds) {
+    return { schema_version: 2, status: "blocked",
+      human_summary: "計画の時間上限がModalに設定された上限と一致しません。",
+      machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_RUNTIME_MISMATCH" };
+  }
   const current = await previewTrainingPlan(env, owner, plan);
   const { executable, ...currentPlan } = current.machine_state;
   if (current.status !== "ok" || JSON.stringify(currentPlan) !== row.plan_json) {
