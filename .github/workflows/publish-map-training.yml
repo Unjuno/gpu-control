@@ -2,11 +2,6 @@ name: Publish MAP training image
 
 on:
   workflow_dispatch:
-    inputs:
-      python_base:
-        description: Digest-pinned Python 3.11 base (python@sha256:...)
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -21,7 +16,7 @@ jobs:
       packages: write
     env:
       MAP_SOURCE_REVISION: d32ae5ba1df27f2c93915b68e78ce67a60254c64
-      MAP_PYTHON_BASE: ${{ inputs.python_base }}
+      MAP_PYTHON_BASE: python@sha256:807598ca5fc229ee3c3df79960185d05138befcd43ebc337d0a0ac3d19612285
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
