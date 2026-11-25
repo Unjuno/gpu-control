@@ -1,3 +1,4 @@
+import { previewTrainingPlan } from "./training_plan.js";
 import { listTrainingSources, registerTrainingSource } from "./training_source.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
@@ -58,6 +59,13 @@ const MODAL_HEALTH_CHECK_COOLDOWN_SECONDS = 60;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 const schemas = {
+  training_preview: {
+    type: "object", properties: {
+      registration_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
+      runtime_seconds: { type: "integer", minimum: 120, maximum: 3000 },
+      max_cost_microusd: { type: "integer", minimum: 1, maximum: 1000000 },
+    }, required: ["registration_id", "runtime_seconds", "max_cost_microusd"], additionalProperties: false,
+  },
   training_list: { type: "object", properties: {}, additionalProperties: false },
   training_register: {
     type: "object", properties: {
@@ -178,6 +186,8 @@ const OUTPUT_SCHEMA = {
 };
 
 const toolDescriptions = {
+  training_preview: "Preview a reviewed training profile for your registration with a runtime and budget ceiling in millionths of a US dollar. This action cannot start training or confirm pricing.",
+
   training_list: "List up to 50 recent training sources registered by the authenticated owner.",
   training_register: "Register a GitHub repository and exact commit for the authenticated owner. The source is pending review and this action does not start training.",
 
@@ -645,6 +655,11 @@ function validProviderApprovedPlan(value) {
 }
 
 function validToolArguments(name, args, env) {
+  if (name === "training_preview") return Object.keys(args).sort().join(",") === "max_cost_microusd,registration_id,runtime_seconds" &&
+    typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id) &&
+    Number.isSafeInteger(args.runtime_seconds) && args.runtime_seconds >= 120 && args.runtime_seconds <= 3000 &&
+    Number.isSafeInteger(args.max_cost_microusd) && args.max_cost_microusd >= 1 && args.max_cost_microusd <= 1000000;
+
   if (name === "training_list") return Object.keys(args).length === 0;
   if (name === "training_register") return Object.keys(args).sort().join(",") === "commit,repository" &&
     typeof args.repository === "string" && args.repository.length <= 159 &&
@@ -1700,6 +1715,7 @@ async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
+  if (name === "training_preview") return previewTrainingPlan(env, owner, args);
   if (name === "training_list") return listTrainingSources(env.DB, owner);
   if (name === "training_register") return registerTrainingSource(env.DB, owner, args);
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
@@ -2278,7 +2294,7 @@ async function handleMcp(request, env, context = null) {
   }
   if (message.method === "tools/list") {
     return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: {
-      readOnlyHint: ["training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
+      readOnlyHint: ["training_preview", "training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
       destructiveHint: ["experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
       idempotentHint: !["experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health"].includes(name),
       openWorldHint: false,
@@ -2294,7 +2310,7 @@ async function handleMcp(request, env, context = null) {
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
-      const known = new Set(["TRAINING_SOURCE_INVALID", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+      const known = new Set(["TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
       const runpodProviderCodes = new Set([
         "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
         "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",
