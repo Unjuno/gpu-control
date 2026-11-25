@@ -28,7 +28,7 @@ SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
 MAX_BODY_BYTES = 64 * 1024
 MAX_CLOCK_SKEW_SECONDS = 60
 MAX_LIFETIME_SECONDS = 120
-TOOLS = re.compile(r"^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request)$")
+TOOLS = re.compile(r"^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request|training_(?:submit|status|cancel))$")
 OWNER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$")
 NONCE = re.compile(r"^[0-9a-f]{32}$")
 RUNPOD_ENDPOINT_ID = "wwlos460xbfw5q"
@@ -542,6 +542,14 @@ async def invoke(tool: str, request: Request):
             raw, request.headers.get("x-gpu-control-sites-signature"), tool)
         if verified_tool == "runpod_queue_request":
             result = _runpod_relay(owner, arguments)
+        elif verified_tool in {"training_submit", "training_status", "training_cancel"}:
+            if "/root/site-modal" not in sys.path:
+                sys.path.insert(0, "/root/site-modal")
+            from map_training_backend import MapTrainingBackend, dispatch_training_tool
+            result = dispatch_training_tool(
+                submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
+                admission_enabled=os.environ.get("MAP_TRAINING_ADMISSION_ENABLED") == "true",
+            )
         elif verified_tool == "experiment_submit":
             result = _async_submit(owner, arguments)
         elif verified_tool in {"experiment_status", "experiment_result", "experiment_cancel"}:

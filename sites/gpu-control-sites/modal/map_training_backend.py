@@ -60,3 +60,44 @@ class MapTrainingBackend:
     def cancel(self, call_id):
         self._call_lookup(_required_call_id(call_id)).cancel(terminate_containers=True)
         return {"state": "cancel_requested"}
+
+
+def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabled):
+    """Bind every provider interaction to the signed owner and saved run."""
+    run_id = args.get("run_id")
+    fingerprint = args.get("plan_fingerprint")
+    if (not isinstance(run_id, str) or re.fullmatch(r"[a-f0-9]{32}", run_id) is None
+            or not isinstance(fingerprint, str) or re.fullmatch(r"[a-f0-9]{64}", fingerprint) is None):
+        raise ValueError("training_run_identity_invalid")
+    key = f"map-training:{run_id}"
+    binding = {"owner": owner, "fingerprint": fingerprint}
+    record = store.get(key)
+    if record is not None and any(record.get(k) != v for k, v in binding.items()):
+        raise ValueError("training_run_identity_mismatch")
+
+    if tool == "training_submit" and record is None:
+        if not admission_enabled:
+            return {"state": "blocked", "reason": "TRAINING_ADMISSION_DISABLED"}
+        plan = args.get("plan")
+        if not isinstance(plan, dict) or plan.get("run_id") != run_id:
+            raise ValueError("training_plan_invalid")
+        claim = {**binding, "plan": plan, "state": "dispatching"}
+        if store.put(key, claim, skip_if_exists=True):
+            call_id = backend.start(plan)
+            store.put(key, {**claim, "call_id": call_id, "state": "running"})
+            return {"state": "running"}
+        record = store.get(key)
+        if not isinstance(record, dict) or any(record.get(k) != v for k, v in binding.items()):
+            raise ValueError("training_run_identity_mismatch")
+
+    if record is None:
+        return {"state": "not_found"}
+    if tool == "training_submit":
+        return {"state": record["state"]}
+    if "call_id" not in record:
+        return {"state": "uncertain"}
+    if tool == "training_cancel":
+        return backend.cancel(record["call_id"])
+    if tool == "training_status":
+        return backend.inspect(record["call_id"], record["plan"])
+    raise ValueError("training_tool_invalid")
