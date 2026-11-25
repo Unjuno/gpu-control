@@ -63,10 +63,16 @@ export async function prepareTrainingPlan(env, owner, args) {
     WHERE owner_id=? AND idempotency_key=?`).bind(owner, key).first();
   if (existing?.fingerprint !== fingerprint) throw new Error("IDEMPOTENCY_KEY_CONFLICT");
   if (existing.expires_at <= now) throw new Error("TRAINING_PLAN_EXPIRED");
-  return { ...preview, approved_plan: plan, human_summary: "認証済みの所有者に紐づく学習計画を保存しました。",
+  const state = existing.cancelled_at !== null ? "cancelled"
+    : existing.dispatch_claimed_at !== null ? "dispatching" : "prepared";
+  const admission = env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
+    Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
+  const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
+  if (state === "prepared" && admission) actions.unshift("training_submit");
+  return { ...preview, approved_plan: plan, next_allowed_actions: actions,
+    human_summary: "認証済みの所有者に紐づく学習計画を保存しました。",
     machine_state: { ...plan, executable, run_id: existing.id,
-      plan_fingerprint: fingerprint, expires_at: existing.expires_at, state: existing.cancelled_at !== null ? "cancelled"
-        : existing.dispatch_claimed_at !== null ? "dispatching" : "prepared" } };
+      plan_fingerprint: fingerprint, expires_at: existing.expires_at, state } };
 }
 
 export async function trainingPlanState(db, owner, runId, cancel = false) {
