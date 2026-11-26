@@ -296,15 +296,22 @@ administrative action and still requires immediate notice before it is done.
 
 Attach **GPU Control — ChatGPT実験管理** to a new ChatGPT conversation.
 In Chat, use the plugin page's **Try in chat** button. In Work, use the
-composer's **Plugins** menu. Start by asking for a read-only
-`training_list` call to verify the connection and the identity used by the
-client. If the tool is unavailable, check the installed plugin and record
-which client mode returned the error before trying any write operation.
+composer's **Plugins** menu. Start with a read-only `training_list` call. An
+owner-scoped response confirms the ChatGPT Sites identity. Do not ask for a
+Modal login for ordinary runs: provider credentials are held by the server-side
+adapter and are separate from the Sites owner session. If the tool is
+unavailable or reports an authentication error, diagnose that exact MCP
+connection before changing provider credentials.
 
-To register a source, provide the GitHub repository and the full commit
-SHA. Registration does not start training. Once the operator has deployed a
-reviewed profile matching that exact source, request a plan by repository
-and commit or by registration ID. Specify a runtime and maximum cost.
+To register the source, provide the GitHub repository and full commit SHA.
+For `unjuno/model-as-a-paper`, the server defaults to dataset `papers`, run
+name `map44m`, and a maximum of 100,000 steps; optional `dataset`, `run_name`,
+and `steps` values can be supplied at registration. The server fixes the
+reviewed source/image, Modal L4 profile, and private Volumes. Registration does
+not start training. Request a plan by repository and commit or by registration
+ID plus the returned execution-spec ID. Specify a runtime and maximum cost.
+The plan exposes the resolved GPU, dataset, run name, step ceiling, runtime,
+and estimated cost.
 Ask the agent to show the resolved GPU, runtime, and estimated cost before
 submitting. The client may request native approval for the write action.
 

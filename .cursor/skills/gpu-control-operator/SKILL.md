@@ -28,6 +28,31 @@ Use `experiment_list` to recover the owner's existing run when the user refers
 to an earlier run or when a previous response was lost. Do not create a
 replacement run merely because status is uncertain.
 
+## MAP-44M owner training
+
+When the user asks to register or run the first-party MAP-44M training source,
+use the `training_*` MCP tools. Start with `training_list` to verify the
+authenticated Sites owner. Do not ask the user to log in to Modal again when
+Sites already returns owner-scoped records; Modal credentials are held by the
+server-side adapter and are not part of the chat connection.
+
+Register the exact GitHub repository and 40-character commit with
+`training_register`. For `unjuno/model-as-a-paper`, the server creates a fixed
+execution profile by default (`papers`, `map44m`, 100,000 maximum steps); the
+owner may set `dataset`, `run_name`, and `steps` at registration. Do not pass a
+shell command, image, GPU type, provider token, or arbitrary URL. The server
+pins the reviewed source/image, one L4, and its private data/checkpoint Volumes.
+
+Call `training_preview` or `training_prepare` with the registration ID,
+execution-spec ID, runtime ceiling, and budget ceiling. If the user has
+already requested execution, continue through `training_submit` with the exact
+returned plan, then monitor that same run. Never ask again merely because the
+plan was prepared. Recover ambiguous submission through `training_status`; do
+not create a duplicate. At terminal success, retrieve private checkpoint
+chunks through `training_checkpoint` and verify the assembled SHA-256. Provider
+login, secret rotation, admission, or budget changes are separate operations;
+do not ask for them as routine per-run steps.
+
 ## Choose a route
 
 The registered workloads are:

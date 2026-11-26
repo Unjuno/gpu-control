@@ -32,7 +32,8 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
         monkeypatch.setenv("MAP_TRAINING_MODAL_IMAGE_ID", digest)
     plan = {"run_id": run_id, "repository": "unjuno/model-as-a-paper", "commit": source_sha,
             "image_digest": digest, "gpu": "L4", "gpu_count": 1, "runtime_seconds": 120,
-            "max_cost_microusd": 100000, "hourly_microusd": 400000, "quote_expires_at": expires}
+            "max_cost_microusd": 100000, "hourly_microusd": 400000, "quote_expires_at": expires,
+            "dataset": "papers", "run_name": "map44m", "steps": 100000}
     starts = []
 
     def spawn(value):
@@ -47,6 +48,11 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
         dispatch_training_tool(store, backend, "owner", "training_submit",
                                {**args, "plan": {**plan, "hourly_microusd": 1}},
                                admission_enabled=True)
+    for invalid in ({"dataset": "../papers"}, {"run_name": "../run"}, {"steps": 0}):
+        with pytest.raises(ValueError, match="training_parameters_invalid"):
+            dispatch_training_tool(store, backend, "owner", "training_submit",
+                                   {**args, "plan": {**plan, **invalid}},
+                                   admission_enabled=True)
     expired = {**args, "authorization_expires_at": int(time.time()) - 1}
     assert dispatch_training_tool(store, backend, "owner", "training_submit", expired,
                                   admission_enabled=True) == {
@@ -157,18 +163,30 @@ def test_timed_out_run_can_recover_a_checkpoint_without_relabeling_the_run():
 def test_gpu_job_leaves_time_to_finalize_checkpoint(monkeypatch, tmp_path):
     import map_training_job as job
 
-    monkeypatch.setattr(job, "validate_map_plan", lambda *args, **kwargs: ("run", 120, 250000, 1100000))
+    monkeypatch.setattr(job, "validate_map_plan", lambda *args, **kwargs:
+                        ("a" * 32, 120, 250000, 1100000, "papers", "test-run", 5))
     monkeypatch.setattr(job, "checkpoint_manifest", lambda *_: {"size_bytes": 1})
 
-    def train(_config, _corpus, _output, *, device, seconds, **_):
+    def train(_config, _corpus, output, *, device, seconds, steps, **_):
         assert device == "cuda"
         assert seconds == 75
+        assert steps == 5
+        output.mkdir()
         return {"device": "cuda:0", "steps": 5}
 
+    corpus = tmp_path / "corpus"
+    (corpus / "papers").mkdir(parents=True)
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    commits = []
     result = job.run_map_training(
-        {}, source_sha="a" * 40, image_digest="im-Abcdefgh1234",
+        {"dataset": "papers", "run_name": "test-run", "steps": 5},
+        source_sha="a" * 40, image_digest="im-Abcdefgh1234",
         hourly_microusd=1100000, quote_expires_at=0, config={},
-        corpus_dir=tmp_path, runs_dir=tmp_path, commit_volume=lambda: None, train=train,
+        corpus_dir=corpus, runs_dir=runs, commit_volume=lambda: commits.append("commit"), train=train,
     )
     assert result["gpu_used"] and result["steps"] == 5
+    assert result["dataset"] == "papers" and result["run_name"] == "test-run"
+    assert (runs / ("a" * 32 + ".gpu-control-run.json")).exists()
+    assert commits == ["commit", "commit"]
     assert result["checkpoint"] == {"size_bytes": 1}

@@ -175,16 +175,25 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const first = await call("test-owner", "training_register", args);
     assert.equal(first.machine_state.state, "pending_review");
     assert.equal(first.machine_state.executable, false);
-    const spec = await call("test-owner", "training_register", { ...args, command: ["python", "train.py"] });
-    const specRetry = await call("test-owner", "training_register", { ...args, command: ["python", "train.py"] });
-    const anotherSpec = await call("test-owner", "training_register", { ...args, command: ["python", "evaluate.py"] });
+    const configured = { ...args, dataset: "papers", run_name: "map44m-first", steps: 100 };
+    const spec = await call("test-owner", "training_register", configured);
+    const specRetry = await call("test-owner", "training_register", configured);
+    const anotherSpec = await call("test-owner", "training_register", { ...args, steps: 50 });
     assert.equal(spec.machine_state.execution_spec_id, specRetry.machine_state.execution_spec_id);
     assert.notEqual(spec.machine_state.execution_spec_id, anotherSpec.machine_state.execution_spec_id);
     const ownSpecs = (await call("test-owner", "training_list", {})).machine_state.execution_specs;
-    assert.deepEqual(ownSpecs.find(item => item.execution_spec_id === spec.machine_state.execution_spec_id).command,
-      ["python", "train.py"]);
+    assert.deepEqual({
+      dataset: ownSpecs.find(item => item.execution_spec_id === spec.machine_state.execution_spec_id).dataset,
+      run_name: ownSpecs.find(item => item.execution_spec_id === spec.machine_state.execution_spec_id).run_name,
+      steps: ownSpecs.find(item => item.execution_spec_id === spec.machine_state.execution_spec_id).steps,
+    }, { dataset: "papers", run_name: "map44m-first", steps: 100 });
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.execution_specs, []);
-    assert.equal((await call("test-owner", "training_register", { ...args, command: [] })).error, "INVALID_ARGUMENTS");
+    assert.equal((await call("test-owner", "training_register", { ...args, dataset: "../papers" })).error, "INVALID_ARGUMENTS");
+    assert.equal((await call("test-owner", "training_register", { ...args, command: ["python", "train.py"] })).error, "INVALID_ARGUMENTS");
+    const unsupportedConfig = await call("test-owner", "training_register", {
+      repository: "some-owner/some-repo", commit: "e".repeat(40), steps: 10,
+    });
+    assert.equal(unsupportedConfig.blocking_reason, "TRAINING_PROFILE_UNAVAILABLE");
     const retry = await call("test-owner", "training_register", { ...args, repository: "https://github.com/unjuno/model-as-a-paper" });
     assert.equal(retry.machine_state.registration_id, first.machine_state.registration_id);
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.registrations, []);
@@ -196,32 +205,39 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       execution_spec_id: spec.machine_state.execution_spec_id, runtime_seconds: 120, max_cost_microusd: 100000 };
     const previewSpec = await call("test-owner", "training_preview", specPreview);
     assert.equal(previewSpec.blocking_reason, "TRAINING_PROFILE_UNAVAILABLE");
-    assert.deepEqual(previewSpec.machine_state.command, ["python", "train.py"]);
+    assert.equal(previewSpec.machine_state.dataset, "papers");
+    assert.equal(previewSpec.machine_state.steps, 100);
     const prepareSpec = await call("test-owner", "training_prepare",
-      { ...specPreview, idempotency_key: "custom-command-no-execution" });
+      { ...specPreview, idempotency_key: "map-training-no-profile" });
     assert.equal(prepareSpec.status, "blocked");
     assert.equal(prepareSpec.blocking_reason, "TRAINING_PROFILE_UNAVAILABLE");
     assert.ok(!prepareSpec.next_allowed_actions.includes("training_submit"));
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_plans WHERE owner_id=?")
       .get("test-owner").count, 0);
-    env.CUSTOM_TRAINING_MODAL_IMAGE_ID = "im-Abcdefgh1234";
-    env.CUSTOM_TRAINING_GPU = "L4";
-    env.CUSTOM_TRAINING_HOURLY_MICROUSD = "400000";
-    env.CUSTOM_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
+    env.MAP_TRAINING_SOURCE_SHA = sourceSha;
+    env.MAP_TRAINING_IMAGE_DIGEST = imageDigest;
+    env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
+    env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
     const readyPreview = await call("test-owner", "training_preview", specPreview);
     assert.equal(readyPreview.status, "ok");
-    assert.equal(readyPreview.machine_state.image_id, env.CUSTOM_TRAINING_MODAL_IMAGE_ID);
+    assert.equal(readyPreview.machine_state.image_digest, env.MAP_TRAINING_IMAGE_DIGEST);
     const savedPlan = await call("test-owner", "training_prepare",
-      { ...specPreview, idempotency_key: "custom-prepared-without-admission" });
+      { ...specPreview, idempotency_key: "map-prepared-without-admission" });
     assert.equal(savedPlan.status, "ok");
-    assert.deepEqual(savedPlan.approved_plan.command, ["python", "train.py"]);
+    assert.equal(savedPlan.approved_plan.dataset, "papers");
+    assert.equal(savedPlan.approved_plan.run_name, "map44m-first");
+    assert.equal(savedPlan.approved_plan.steps, 100);
     assert.equal(savedPlan.machine_state.executable, false);
     assert.ok(!savedPlan.next_allowed_actions.includes("training_submit"));
     env.MAP_TRAINING_ADMISSION_ENABLED = "true";
     const attempted = await call("test-owner", "training_submit", { run_id: savedPlan.machine_state.run_id,
       plan_fingerprint: savedPlan.machine_state.plan_fingerprint, approved_plan: savedPlan.approved_plan });
-    assert.equal(attempted.error, "INVALID_ARGUMENTS");
+    assert.equal(attempted.blocking_reason, "TRAINING_ADMISSION_DISABLED");
     delete env.MAP_TRAINING_ADMISSION_ENABLED;
+    delete env.MAP_TRAINING_SOURCE_SHA;
+    delete env.MAP_TRAINING_IMAGE_DIGEST;
+    delete env.MAP_TRAINING_HOURLY_MICROUSD;
+    delete env.MAP_TRAINING_QUOTE_EXPIRES_AT;
     assert.equal((await call("other-owner", "training_preview", specPreview)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
     const otherSource = await call("test-owner", "training_register", { ...args, commit: "f".repeat(40) });
@@ -234,7 +250,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     });
     await assert.rejects(getOwnedTrainingSource(env.DB, "other-owner", registrationId),
       { message: "TRAINING_REGISTRATION_NOT_FOUND" });
-    const preview = { registration_id: registrationId, runtime_seconds: 120,
+    const preview = { registration_id: registrationId, execution_spec_id: spec.machine_state.execution_spec_id,
+      runtime_seconds: 120,
       max_cost_microusd: 100000 };
     assert.equal((await call("other-owner", "training_preview", preview)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
@@ -270,9 +287,9 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(plan.machine_state.estimated_cost_microusd, 88889);
     assert.equal(plan.machine_state.executable, false);
     const bySource = { ...args, runtime_seconds: 120, max_cost_microusd: 100000 };
-    assert.deepEqual((await call("test-owner", "training_preview", bySource)).machine_state,
-      plan.machine_state);
-    const prepare = { ...bySource, idempotency_key: "training-prepare-retry" };
+    assert.equal((await call("test-owner", "training_preview", bySource)).blocking_reason,
+      "TRAINING_CONFIGURATION_SELECTION_REQUIRED");
+    const prepare = { ...preview, idempotency_key: "training-prepare-retry" };
     const saved = await call("test-owner", "training_prepare", prepare);
     assert.match(saved.machine_state.run_id, /^[0-9a-f]{32}$/);
     assert.ok(saved.machine_state.expires_at <= Math.floor(Date.now() / 1000) + 600);

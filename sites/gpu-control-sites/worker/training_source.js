@@ -19,6 +19,13 @@ export function parseTrainingSource(repository, commit) {
 
 export async function registerTrainingSource(db, owner, input) {
   const { repository, commit } = parseTrainingSource(input.repository, input.commit);
+  const hasMapOverrides = input.dataset !== undefined || input.run_name !== undefined || input.steps !== undefined;
+  if (hasMapOverrides && repository !== "unjuno/model-as-a-paper") return {
+    schema_version: 2, status: "blocked",
+    human_summary: "dataset、run_name、stepsの登録設定は現在MAP-44Mでのみ利用できます。",
+    machine_state: { repository, commit }, next_allowed_actions: [],
+    blocking_reason: "TRAINING_PROFILE_UNAVAILABLE",
+  };
   const id = crypto.randomUUID().replaceAll("-", "");
   await db.prepare(`INSERT INTO training_registrations (id, owner_id, repository, source_sha, created_at)
     VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id, repository, source_sha) DO NOTHING`)
@@ -26,8 +33,11 @@ export async function registerTrainingSource(db, owner, input) {
   const row = await db.prepare(`SELECT id, repository, source_sha FROM training_registrations
     WHERE owner_id = ? AND repository = ? AND source_sha = ?`).bind(owner, repository, commit).first();
   let executionSpecId;
-  if (input.command !== undefined) {
-    const spec = JSON.stringify({ command: input.command });
+  const execution = repository === "unjuno/model-as-a-paper"
+    ? { dataset: input.dataset ?? "papers", run_name: input.run_name ?? "map44m", steps: input.steps ?? 100000 }
+    : {};
+  if (Object.keys(execution).length) {
+    const spec = JSON.stringify(execution);
     await db.prepare(`INSERT INTO training_execution_specs (id, owner_id, registration_id, spec_json, created_at)
       VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id, registration_id, spec_json) DO NOTHING`)
       .bind(crypto.randomUUID().replaceAll("-", ""), owner, row.id, spec, Math.floor(Date.now() / 1000)).run();
@@ -36,7 +46,9 @@ export async function registerTrainingSource(db, owner, input) {
     executionSpecId = saved.id;
   }
   return { schema_version: 2, status: "ok",
-    human_summary: "学習ソースを登録しました。検証済み実行環境の設定後に実行できます。",
+    human_summary: executionSpecId
+      ? "MAP-44Mの学習ソースを登録し、固定学習設定を保存しました。"
+      : "学習ソースを登録しました。実行プロファイルの審査後に利用できます。",
     machine_state: { registration_id: row.id, repository: row.repository, commit: row.source_sha,
       ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
       state: "pending_review", executable: false },

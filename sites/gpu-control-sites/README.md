@@ -186,12 +186,17 @@ records or rewrite historical acceptance evidence during provider migration.
 
 ## MAP-44M training
 
-The training tools are scoped to the authenticated Sites owner. Register a
-GitHub repository and complete commit SHA with `training_register`. Use
-`training_prepare` by repository and commit (or registration ID), with a
-runtime in seconds and a budget in millionths of a US dollar. Use a fresh
-idempotency key per intended execution. The client should show the returned
-plan and budget before calling `training_submit` with its exact
+The training tools are scoped to the authenticated Sites owner. Register the
+reviewed `unjuno/model-as-a-paper` GitHub commit with `training_register`.
+Omitting optional training settings selects `papers`, `map44m`, and a maximum
+of 100,000 steps; `dataset`, `run_name`, and `steps` may be set on registration.
+The execution entrypoint, L4 GPU, image, corpus/checkpoint Volumes, and Modal
+credentials remain selected by the server. No shell command or image can be
+provided through MCP. Use `training_prepare` by repository and commit (or
+registration ID plus execution-spec ID), with runtime seconds and a budget in
+millionths of a US dollar. Use a fresh idempotency key per intended execution.
+The returned plan binds source, image, GPU, dataset, run name, step ceiling,
+runtime, and cost ceiling before `training_submit` accepts its exact
 `approved_plan`, run ID, and fingerprint.
 
 Use `training_status` to recover a submitted run, including after an
@@ -204,8 +209,9 @@ model checkpoint is too large to copy through a chat transcript.
 
 For deployment, build the reviewed MAP source with
 `workloads/map-training/build.sh` and provision the private corpus and
-checkpoint Volumes referenced by `modal/map_training_app.py`. The reviewed
-corpus must be available at `/corpus/papers`. The app and signed adapter need
+checkpoint Volumes referenced by `modal/map_training_app.py`. The selected
+corpus must be available as a direct child of `/corpus` (the default is
+`/corpus/papers`). The app and signed adapter need
 the same `MAP_TRAINING_SOURCE_SHA`, `MAP_TRAINING_IMAGE_DIGEST`,
 `MAP_TRAINING_RUNTIME_SECONDS`, `MAP_TRAINING_HOURLY_MICROUSD` and
 `MAP_TRAINING_QUOTE_EXPIRES_AT` as Sites. Apply D1 migrations before updating

@@ -2,43 +2,47 @@ import { findOwnedTrainingSource, getOwnedTrainingSource } from "./training_sour
 
 const MAP_REPOSITORY = "unjuno/model-as-a-paper";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
+const DEFAULT_MAP_EXECUTION = Object.freeze({ dataset: "papers", run_name: "map44m", steps: 100000 });
+
+function validMapExecution(value) {
+  return value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).sort().join(",") === "dataset,run_name,steps" &&
+    typeof value.dataset === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value.dataset) &&
+    typeof value.run_name === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value.run_name) &&
+    Number.isSafeInteger(value.steps) && value.steps >= 1 && value.steps <= 100000;
+}
 
 export async function previewTrainingPlan(env, owner, args) {
   const source = args.registration_id
     ? await getOwnedTrainingSource(env.DB, owner, args.registration_id)
     : await findOwnedTrainingSource(env.DB, owner, args);
   const machine = { ...source, executable: false };
-  if (args.execution_spec_id) {
+  let execution = DEFAULT_MAP_EXECUTION;
+  let executionSpecId = args.execution_spec_id;
+  if (!executionSpecId) {
+    const { results = [] } = await env.DB.prepare(`SELECT id AS execution_spec_id, spec_json
+      FROM training_execution_specs WHERE owner_id=? AND registration_id=?
+      ORDER BY created_at DESC, id DESC LIMIT 2`).bind(owner, source.registration_id).all();
+    if (results.length > 1) return { schema_version: 2, status: "blocked",
+      human_summary: "このソースには複数の学習設定があります。training_listから実行設定を選んでください。",
+      machine_state: { ...machine, execution_specs: results.map(({ execution_spec_id, spec_json }) => ({
+        execution_spec_id, ...JSON.parse(spec_json),
+      })) }, next_allowed_actions: [], blocking_reason: "TRAINING_CONFIGURATION_SELECTION_REQUIRED" };
+    if (results.length === 1) {
+      executionSpecId = results[0].execution_spec_id;
+      execution = JSON.parse(results[0].spec_json);
+    }
+  } else {
     const spec = await env.DB.prepare(`SELECT spec_json FROM training_execution_specs
       WHERE owner_id=? AND registration_id=? AND id=?`)
-      .bind(owner, source.registration_id, args.execution_spec_id).first();
+      .bind(owner, source.registration_id, executionSpecId).first();
     if (!spec) throw new Error("TRAINING_REGISTRATION_NOT_FOUND");
-    const saved = JSON.parse(spec.spec_json);
-    const image = env.CUSTOM_TRAINING_MODAL_IMAGE_ID;
-    const rate = Number(env.CUSTOM_TRAINING_HOURLY_MICROUSD);
-    const expires = Number(env.CUSTOM_TRAINING_QUOTE_EXPIRES_AT);
-    const gpu = env.CUSTOM_TRAINING_GPU;
-    const now = Math.floor(Date.now() / 1000);
-    if (/^im-[A-Za-z0-9]{8,128}$/.test(image || "") && ["L4", "T4"].includes(gpu) &&
-        Number.isSafeInteger(rate) && rate > 0 && rate <= 1000000000 &&
-        Number.isSafeInteger(expires) && expires > now && expires <= now + MAX_PRICING_AGE_SECONDS) {
-      const cost = Math.ceil(rate * (args.runtime_seconds + 600) / 3240);
-      if (cost > args.max_cost_microusd) return { schema_version: 2, status: "blocked",
-        human_summary: "指定された予算上限では、学習環境の見積もりをカバーできません。",
-        machine_state: { ...machine, execution_spec_id: args.execution_spec_id, estimated_cost_microusd: cost },
-        next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_TOO_LOW" };
-      return { schema_version: 2, status: "ok",
-        human_summary: "独自学習の条件を確認しました。実行計画を準備できます。",
-        machine_state: { ...machine, execution_spec_id: args.execution_spec_id, command: saved.command,
-          image_id: image, gpu, gpu_count: 1, runtime_seconds: args.runtime_seconds,
-          max_cost_microusd: args.max_cost_microusd, hourly_microusd: rate, quote_expires_at: expires },
-        next_allowed_actions: [], blocking_reason: null };
-    }
-    return { schema_version: 2, status: "blocked",
-      human_summary: "この実行コマンドに対応する実行環境はまだ用意されていません。",
-      machine_state: { ...machine, execution_spec_id: args.execution_spec_id, ...saved },
-      next_allowed_actions: [], blocking_reason: "TRAINING_PROFILE_UNAVAILABLE" };
+    execution = JSON.parse(spec.spec_json);
   }
+  if (!validMapExecution(execution)) return { schema_version: 2, status: "blocked",
+    human_summary: "MAP-44Mの学習設定が不正です。登録済み設定を確認してください。",
+    machine_state: { ...machine, ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}) },
+    next_allowed_actions: [], blocking_reason: "TRAINING_PROFILE_INVALID" };
   const imageId = env.MAP_TRAINING_MODAL_IMAGE_ID;
   const imageIdentity = imageId || env.MAP_TRAINING_IMAGE_DIGEST;
   const imagePattern = imageId ? /^im-[A-Za-z0-9]{8,128}$/ : /^sha256:[0-9a-f]{64}$/;
@@ -49,7 +53,9 @@ export async function previewTrainingPlan(env, owner, args) {
       !imagePattern.test(imageIdentity || "")) {
     return { schema_version: 2, status: "blocked",
       human_summary: "このコミットに対応する検証済みの学習イメージが設定されていません。",
-      machine_state: machine, next_allowed_actions: [], blocking_reason: "TRAINING_PROFILE_UNAVAILABLE" };
+      machine_state: { ...machine, ...execution,
+        ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}) },
+      next_allowed_actions: [], blocking_reason: "TRAINING_PROFILE_UNAVAILABLE" };
   }
   const now = Math.floor(Date.now() / 1000);
   const hourlyRate = Number(env.MAP_TRAINING_HOURLY_MICROUSD);
@@ -58,7 +64,9 @@ export async function previewTrainingPlan(env, owner, args) {
       !Number.isSafeInteger(quoteExpires) || quoteExpires <= now || quoteExpires > now + MAX_PRICING_AGE_SECONDS) {
     return { schema_version: 2, status: "blocked",
       human_summary: "有効な学習料金の見積もりが設定されていません。",
-      machine_state: machine, next_allowed_actions: [], blocking_reason: "TRAINING_QUOTE_UNAVAILABLE" };
+      machine_state: { ...machine, ...execution,
+        ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}) },
+      next_allowed_actions: [], blocking_reason: "TRAINING_QUOTE_UNAVAILABLE" };
   }
   // The source app allows up to 600 seconds of startup. Reserve that
   // separately and apply the source policy's 10 percent budget margin.
@@ -66,12 +74,15 @@ export async function previewTrainingPlan(env, owner, args) {
   if (estimatedCost > args.max_cost_microusd) {
     return { schema_version: 2, status: "blocked",
       human_summary: "指定された予算上限では、この実行時間の見積もりをカバーできません。",
-      machine_state: { ...machine, estimated_cost_microusd: estimatedCost },
+      machine_state: { ...machine, ...execution,
+        ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
+        estimated_cost_microusd: estimatedCost },
       next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_TOO_LOW" };
   }
   return { schema_version: 2, status: "ok",
-    human_summary: "学習条件を確認しました。実行受付は別途必要です。",
-    machine_state: { ...machine, image_digest: imageIdentity,
+    human_summary: "MAP-44Mの学習条件を確認しました。実行計画を準備できます。",
+    machine_state: { ...machine, ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
+      ...execution, image_digest: imageIdentity,
       gpu: "L4", gpu_count: 1, runtime_seconds: args.runtime_seconds,
       estimated_cost_microusd: estimatedCost, hourly_microusd: hourlyRate, quote_expires_at: quoteExpires,
       max_cost_microusd: args.max_cost_microusd, checkpoint_visibility: "owner_private" },
@@ -100,10 +111,8 @@ export async function prepareTrainingPlan(env, owner, args) {
   if (existing.expires_at <= now) throw new Error("TRAINING_PLAN_EXPIRED");
   const state = existing.cancelled_at !== null ? "cancelled"
     : existing.dispatch_claimed_at !== null ? "dispatching" : "prepared";
-  const admission = plan.execution_spec_id
-    ? env.CUSTOM_TRAINING_ADMISSION_ENABLED === "true"
-    : env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
-      Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
+  const admission = env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
+    Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
   const executableNow = state === "prepared" && admission;
   if (executableNow) actions.unshift("training_submit");
@@ -162,15 +171,11 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     throw new Error("INVALID_ARGUMENTS");
   }
   if (row.dispatch_claimed_at !== null) return trainingPlanState(env.DB, owner, runId);
-  if (plan.execution_spec_id && env.CUSTOM_TRAINING_ADMISSION_ENABLED !== "true") return {
-    schema_version: 2, status: "blocked", human_summary: "独自学習の実行受付は停止中です。",
-    machine_state: { run_id: runId, state: "prepared" },
-    next_allowed_actions: ["training_status", "training_cancel"], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
-  if (!plan.execution_spec_id && (env.MAP_TRAINING_ADMISSION_ENABLED !== "true" || !isConfigured(env))) {
+  if (env.MAP_TRAINING_ADMISSION_ENABLED !== "true" || !isConfigured(env)) {
     return { schema_version: 2, status: "blocked", human_summary: "学習の実行受付は停止中です。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
   }
-  if (!plan.execution_spec_id && Number(env.MAP_TRAINING_RUNTIME_SECONDS) !== plan.runtime_seconds) {
+  if (Number(env.MAP_TRAINING_RUNTIME_SECONDS) !== plan.runtime_seconds) {
     return { schema_version: 2, status: "blocked",
       human_summary: "計画の時間上限がModalに設定された上限と一致しません。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_RUNTIME_MISMATCH" };
@@ -182,38 +187,6 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   }
   const now = Math.floor(Date.now() / 1000);
   const authorizationExpiresAt = row.expires_at;
-  if (plan.execution_spec_id) {
-    const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
-      Number(env.CUSTOM_TRAINING_MONTHLY_MICROUSD));
-    if (!claimed) return { schema_version: 2, status: "blocked",
-      human_summary: "独自学習の計画または月間予算枠を確保できませんでした。",
-      machine_state: { run_id: runId }, next_allowed_actions: ["training_status"],
-      blocking_reason: "TRAINING_DISPATCH_NOT_RESERVED" };
-    try {
-      const response = await delegate(env, owner, "training_submit", {
-        run_id: runId, plan_fingerprint: fingerprint,
-        approved_plan: { ...plan, owner, plan_fingerprint: fingerprint },
-        authorization_expires_at: authorizationExpiresAt,
-      });
-      if (response?.state === "blocked") {
-        await env.DB.prepare(`UPDATE training_plans SET dispatch_rejection=?
-          WHERE owner_id=? AND id=? AND fingerprint=? AND dispatch_claimed_at IS NOT NULL`)
-          .bind(response.reason || "TRAINING_PROVIDER_REJECTED", owner, runId, fingerprint).run();
-        return { schema_version: 2, status: "blocked", human_summary: "Modalが学習計画を受け付けませんでした。",
-          machine_state: { run_id: runId, state: "blocked" }, next_allowed_actions: ["training_status"],
-          blocking_reason: response.reason || "TRAINING_PROVIDER_REJECTED" };
-      }
-      return { schema_version: 2, status: "pending", human_summary: "独自学習をModalへ送信しました。状態を確認してください。",
-        machine_state: { ...plan, run_id: runId, plan_fingerprint: fingerprint, state: response?.state || "uncertain" },
-        next_allowed_actions: ["training_status"], blocking_reason: null };
-    } catch {
-      // Delivery can be ambiguous. The next operation is status recovery; do
-      // not release the reservation or submit again.
-      return { schema_version: 2, status: "pending", human_summary: "送信結果が未確定です。既存runの状態を照合してください。",
-        machine_state: { run_id: runId, state: "uncertain" }, next_allowed_actions: ["training_status"],
-        blocking_reason: null };
-    }
-  }
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
     Number(env.MAP_TRAINING_MONTHLY_MICROUSD));
   if (!claimed) return { schema_version: 2, status: "blocked", human_summary: "計画または予算枠を確保できませんでした。",

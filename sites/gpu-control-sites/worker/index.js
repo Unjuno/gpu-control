@@ -75,7 +75,9 @@ const schemas = {
     type: "object", properties: {
       repository: { type: "string", maxLength: 159 },
       commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
-      command: { type: "array", minItems: 1, maxItems: 32, items: { type: "string", minLength: 1, maxLength: 1024 } },
+      dataset: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+      run_name: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+      steps: { type: "integer", minimum: 1, maximum: 100000 },
     }, required: ["repository", "commit"], additionalProperties: false,
   },
   experiment_capabilities: { type: "object", properties: {}, additionalProperties: false },
@@ -220,10 +222,10 @@ const toolDescriptions = {
   training_status: "Read the state of your saved training plan.",
   training_cancel: "Cancel your unsubmitted training plan.",
   training_prepare: "Save an exact, expiring plan for your reviewed training source. This does not launch a GPU job.",
-  training_preview: "Preview a training profile by registered repository and commit, or registration ID, with a runtime and budget ceiling in millionths of a US dollar. A saved command can be selected with registration_id and execution_spec_id. This action cannot start training.",
+  training_preview: "Preview the fixed MAP-44M Modal L4 training profile for an owner-registered model-as-a-paper commit. The server supplies the pinned image, dataset, run settings, GPU count, price and cost calculation. A saved training configuration can be selected with registration_id and execution_spec_id. This action cannot start training.",
 
   training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
-  training_register: "Register a GitHub repository and exact commit for the authenticated owner. Optionally save a command as an argument array; use training_list to discover its execution_spec_id, then preview and prepare it. This action does not start training.",
+  training_register: "Register a GitHub repository and exact commit for the authenticated owner. For MAP-44M, optional dataset, run_name and steps override the server defaults. The server selects a fixed training entrypoint; this API accepts no shell command or image. Use training_list to discover its execution_spec_id, then preview and prepare it. This action does not start training.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
   experiment_provider_health: "Optional standalone Modal readiness diagnostic. It requires an unconsumed exact-plan authorization; normal ChatGPT runs check health inside the confirmed experiment_submit action. This creates no Sandbox, but the Modal control-function call can be billed separately from the Sandbox cost ceiling. A shared workspace cooldown and one-use plan reservation bound calls.",
@@ -765,11 +767,18 @@ function validToolArguments(name, args, env) {
       args.max_cost_microusd <= 1000000;
   }
   if (name === "training_list") return Object.keys(args).length === 0;
-  if (name === "training_register") return ["commit,repository", "command,commit,repository"].includes(Object.keys(args).sort().join(",")) &&
-    (args.command === undefined || (Array.isArray(args.command) && args.command.length >= 1 && args.command.length <= 32 &&
-      args.command.every(value => typeof value === "string" && value.length >= 1 && value.length <= 1024 && !value.includes("\0")))) &&
-    typeof args.repository === "string" && args.repository.length <= 159 &&
-    typeof args.commit === "string" && args.commit.length === 40;
+  if (name === "training_register") {
+    const keys = Object.keys(args);
+    const allowed = new Set(["repository", "commit", "dataset", "run_name", "steps"]);
+    return keys.includes("repository") && keys.includes("commit") && keys.every(key => allowed.has(key)) &&
+      typeof args.repository === "string" && args.repository.length <= 159 &&
+      typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit) &&
+      (args.dataset === undefined || (typeof args.dataset === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(args.dataset))) &&
+      (args.run_name === undefined || (typeof args.run_name === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(args.run_name))) &&
+      (args.steps === undefined || (Number.isSafeInteger(args.steps) && args.steps >= 1 && args.steps <= 100000));
+  }
 
   if (name === "experiment_prepare") return validPlan(args, env) || validRunpodPrepare(args, env) ||
     validGatewayPrepare(args) || validRegisteredPrepare(args) || validRegisteredZeroGpuPrepare(args);
@@ -1836,13 +1845,8 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "training_status" || name === "training_cancel") {
     const local = await trainingPlanState(env.DB, owner, args.run_id, name === "training_cancel");
     if (local.machine_state.state !== "dispatching") return local;
-    const planRow = await env.DB.prepare(`SELECT plan_json FROM training_plans WHERE owner_id=? AND id=?`)
-      .bind(owner, args.run_id).first();
-    const custom = planRow && JSON.parse(planRow.plan_json).execution_spec_id;
     const remote = await delegateGatewayTool(env, owner, name, {
       run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
-      ...(custom ? { approved_plan: { ...JSON.parse(planRow.plan_json), owner,
-        plan_fingerprint: local.machine_state.plan_fingerprint } } : {}),
     });
     const state = remote?.state === "not_found" ? "uncertain" : remote?.state;
     if (!["running", "cancel_requested", "cancelled", "succeeded", "failed", "uncertain"].includes(state)) {

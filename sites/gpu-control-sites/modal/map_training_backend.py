@@ -65,8 +65,10 @@ class MapTrainingBackend:
                 or result.get("run_id") != plan["run_id"]
                 or result.get("source_sha") != plan["commit"]
                 or result.get("image_digest") != plan["image_digest"]
+                or result.get("dataset") != plan["dataset"]
+                or result.get("run_name") != plan["run_name"]
                 or result.get("gpu_used") is not True
-                or type(result.get("steps")) is not int or result["steps"] < 1):
+                or type(result.get("steps")) is not int or not 1 <= result["steps"] <= plan["steps"]):
             raise ValueError("training_result_identity_mismatch")
         checkpoint = result.get("checkpoint")
         if (not isinstance(checkpoint, dict)
@@ -76,6 +78,7 @@ class MapTrainingBackend:
                 or not 1 <= checkpoint["size_bytes"] <= 1024 ** 3):
             raise ValueError("training_checkpoint_manifest_invalid")
         return {"state": "succeeded", "steps": result["steps"], "gpu_used": True,
+                "dataset": result["dataset"], "run_name": result["run_name"],
                 "checkpoint": {key: checkpoint[key] for key in ("filename", "sha256", "size_bytes")}}
 
     def checkpoint_download(self, run_id, manifest):
