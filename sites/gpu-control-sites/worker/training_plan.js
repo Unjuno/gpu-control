@@ -72,10 +72,12 @@ export async function prepareTrainingPlan(env, owner, args) {
   const admission = env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
     Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
-  if (state === "prepared" && admission) actions.unshift("training_submit");
+  const executableNow = state === "prepared" && admission &&
+    matchesTrainingAuthorization(env, owner, existing.id, fingerprint, now);
+  if (executableNow) actions.unshift("training_submit");
   return { ...preview, approved_plan: plan, next_allowed_actions: actions,
     human_summary: "認証済みの所有者に紐づく学習計画を保存しました。",
-    machine_state: { ...plan, executable, run_id: existing.id,
+    machine_state: { ...plan, executable: executableNow, run_id: existing.id,
       plan_fingerprint: fingerprint, expires_at: existing.expires_at, state } };
 }
 
@@ -114,6 +116,25 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
     RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, monthStart, monthlyLimit).first();
 }
 
+// Only trusted server configuration may supply this evidence. The caller's
+// approved_plan confirms plan integrity but cannot confer execution authority.
+function matchesTrainingAuthorization(env, owner, runId, fingerprint, now) {
+  if (!/^[0-9a-f]{40}$/.test(env.MAP_TRAINING_CONTROL_PLANE_SHA || "")) return false;
+  let authorization;
+  try { authorization = JSON.parse(env.MAP_TRAINING_EXECUTION_AUTHORIZATION || "null"); }
+  catch { return false; }
+  return authorization?.schema_version === 1 &&
+    authorization.owner === owner && authorization.run_id === runId &&
+    authorization.plan_fingerprint === fingerprint &&
+    authorization.control_plane_sha === env.MAP_TRAINING_CONTROL_PLANE_SHA &&
+    typeof authorization.authorization_reference === "string" &&
+    authorization.authorization_reference.trim().length > 0 &&
+    Number.isSafeInteger(authorization.authorized_at) &&
+    Number.isSafeInteger(authorization.expires_at) &&
+    authorization.authorized_at <= now && now < authorization.expires_at &&
+    authorization.expires_at - authorization.authorized_at <= 900;
+}
+
 export async function submitTrainingPlan(env, owner, args, delegate, isConfigured) {
   const { run_id: runId, plan_fingerprint: fingerprint, approved_plan: approved } = args;
   const row = await env.DB.prepare(`SELECT plan_json, dispatch_claimed_at FROM training_plans
@@ -140,6 +161,12 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     throw new Error("TRAINING_PLAN_EXPIRED");
   }
   const now = Math.floor(Date.now() / 1000);
+  if (!matchesTrainingAuthorization(env, owner, runId, fingerprint, now)) {
+    return { schema_version: 2, status: "blocked",
+      human_summary: "この学習計画に対する有効な実行許可がありません。",
+      machine_state: { run_id: runId }, next_allowed_actions: [],
+      blocking_reason: "TRAINING_AUTHORIZATION_REQUIRED" };
+  }
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
     Number(env.MAP_TRAINING_MONTHLY_MICROUSD));
   if (!claimed) return { schema_version: 2, status: "blocked", human_summary: "計画または予算枠を確保できませんでした。",
