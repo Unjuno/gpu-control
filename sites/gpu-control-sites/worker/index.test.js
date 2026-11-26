@@ -192,6 +192,17 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(own.length, 1);
     assert.equal(own[0].execution_profile_configured, false);
     assert.equal(own[0].registration_id, first.machine_state.registration_id);
+    const specPreview = { registration_id: first.machine_state.registration_id,
+      execution_spec_id: spec.machine_state.execution_spec_id, runtime_seconds: 120, max_cost_microusd: 100000 };
+    const previewSpec = await call("test-owner", "training_preview", specPreview);
+    assert.equal(previewSpec.blocking_reason, "TRAINING_PROFILE_UNAVAILABLE");
+    assert.deepEqual(previewSpec.machine_state.command, ["python", "train.py"]);
+    assert.equal((await call("other-owner", "training_preview", specPreview)).error,
+      "TRAINING_REGISTRATION_NOT_FOUND");
+    const otherSource = await call("test-owner", "training_register", { ...args, commit: "f".repeat(40) });
+    assert.equal((await call("test-owner", "training_preview",
+      { ...specPreview, registration_id: otherSource.machine_state.registration_id })).error,
+      "TRAINING_REGISTRATION_NOT_FOUND");
     const registrationId = own[0].registration_id;
     assert.deepEqual({ ...await getOwnedTrainingSource(env.DB, "test-owner", registrationId) }, {
       registration_id: registrationId, repository: "unjuno/model-as-a-paper", commit: sourceSha,
@@ -209,7 +220,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
       "TRAINING_PROFILE_UNAVAILABLE");
     env.MAP_TRAINING_SOURCE_SHA = sourceSha;
-    assert.equal((await call("test-owner", "training_list", {})).machine_state.registrations[0].execution_profile_configured, true);
+    assert.equal((await call("test-owner", "training_list", {})).machine_state.registrations.find(item => item.registration_id === registrationId).execution_profile_configured, true);
     assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
       "TRAINING_QUOTE_UNAVAILABLE");
     env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
