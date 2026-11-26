@@ -16,6 +16,7 @@ cp "$project_root/worker/runpod_lifecycle.js" "$dist_root/server/runpod_lifecycl
 cp "$project_root/worker/runpod_plan.js" "$dist_root/server/runpod_plan.js"
 cp "$project_root/worker/runpod_provider.js" "$dist_root/server/runpod_provider.js"
 cp "$project_root/worker/runpod_secret.js" "$dist_root/server/runpod_secret.js"
+cp "$project_root/worker/training_authorization.js" "$dist_root/server/training_authorization.js"
 cp "$project_root/worker/training_plan.js" "$dist_root/server/training_plan.js"
 cp "$project_root/worker/training_source.js" "$dist_root/server/training_source.js"
 cp "$project_root/.openai/hosting.json" "$dist_root/.openai/hosting.json"
