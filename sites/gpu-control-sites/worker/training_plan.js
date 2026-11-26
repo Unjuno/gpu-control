@@ -151,7 +151,7 @@ export async function prepareTrainingPlan(env, owner, args) {
       ? "学習計画を保存しました。所有者確認済みなので、このplanを送信できます。"
       : "学習計画を保存しました。送信前にauthorization_urlを開き、このplanの有料実行を確認してください。Modalへのログインは不要です。",
     machine_state: { ...plan, executable: executableNow, run_id: existing.id,
-      plan_fingerprint: fingerprint, expires_at: existing.expires_at, state,
+      plan_fingerprint: fingerprint, idempotency_key: key, expires_at: existing.expires_at, state,
       authorization_state: !admission ? "unavailable" : authorized ? "authorized" : "required",
       ...(admission && !authorized && state === "prepared"
         ? { authorization_url: trainingAuthorizationUrl(existing.id, fingerprint) } : {}) } };

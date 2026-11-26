@@ -244,9 +244,21 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     env.MAP_TRAINING_IMAGE_DIGEST = imageDigest;
     env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
     env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
+    env.GPU_CONTROL_ALLOWED_USER_IDS += ",minimal-owner";
+    const repoOnly = await call("minimal-owner", "training_register", { repository: "unjuno/model-as-a-paper" });
+    assert.equal(repoOnly.machine_state.commit, sourceSha);
+    assert.match(repoOnly.machine_state.registration_id, /^[0-9a-f]{32}$/);
     const readyPreview = await call("test-owner", "training_preview", specPreview);
     assert.equal(readyPreview.status, "ok");
     assert.equal(readyPreview.machine_state.image_digest, env.MAP_TRAINING_IMAGE_DIGEST);
+    const minimalPreview = await call("minimal-owner", "training_preview", { registration_id: repoOnly.machine_state.registration_id });
+    assert.equal(minimalPreview.status, "ok");
+    assert.equal(minimalPreview.machine_state.runtime_seconds, 120);
+    assert.equal(minimalPreview.machine_state.max_cost_microusd, 250000);
+    const minimalPrepare = await call("minimal-owner", "training_prepare", { registration_id: repoOnly.machine_state.registration_id });
+    assert.equal(minimalPrepare.status, "ok");
+    assert.match(minimalPrepare.machine_state.idempotency_key, /^map-[0-9a-f]{32}$/);
+    assert.equal((await call("minimal-owner", "training_cancel", { run_id: minimalPrepare.machine_state.run_id })).machine_state.state, "cancelled");
     const savedPlan = await call("test-owner", "training_prepare",
       { ...specPreview, idempotency_key: "map-prepared-without-admission" });
     assert.equal(savedPlan.status, "ok");

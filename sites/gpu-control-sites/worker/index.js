@@ -68,7 +68,7 @@ const schemas = {
       commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
       runtime_seconds: { type: "integer", minimum: MAP_TRAINING_MAX_RUNTIME_SECONDS, maximum: MAP_TRAINING_MAX_RUNTIME_SECONDS },
       max_cost_microusd: { type: "integer", minimum: 1, maximum: MAP_TRAINING_MAX_COST_MICROUSD },
-    }, required: ["runtime_seconds", "max_cost_microusd"], additionalProperties: false,
+    }, required: [], additionalProperties: false,
   },
   training_list: { type: "object", properties: {}, additionalProperties: false },
   training_register: {
@@ -78,7 +78,7 @@ const schemas = {
       dataset: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
       run_name: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
       steps: { type: "integer", minimum: 1, maximum: 100000 },
-    }, required: ["repository", "commit"], additionalProperties: false,
+    }, required: ["repository"], additionalProperties: false,
   },
   experiment_capabilities: { type: "object", properties: {}, additionalProperties: false },
   experiment_provider_health: { type: "object", properties: {
@@ -196,7 +196,7 @@ schemas.training_prepare = {
   ...schemas.training_preview,
   properties: { ...schemas.training_preview.properties,
     idempotency_key: { type: "string", pattern: "^[A-Za-z0-9_-]{16,128}$" } },
-  required: [...schemas.training_preview.required, "idempotency_key"],
+  required: [],
 };
 
 schemas.training_submit = {
@@ -221,11 +221,11 @@ const toolDescriptions = {
   training_submit: "Start one exact saved MAP-44M plan after the owner has confirmed that exact plan on the authenticated GPU Control Site. If authorization is missing, training_prepare or training_status returns the owner confirmation link. ChatGPT MCP owner login is separate from this one-time exact-plan execution authorization; Modal login is not needed. Supply the exact saved approved_plan.",
   training_status: "Read the state of your saved training plan.",
   training_cancel: "Cancel your unsubmitted training plan.",
-  training_prepare: "Save an exact, expiring plan for your reviewed training source. This does not launch a GPU job.",
-  training_preview: "Preview the fixed MAP-44M Modal L4 training profile for an owner-registered model-as-a-paper commit. The server supplies the pinned image, dataset, run settings, GPU count, price and cost calculation. A saved training configuration can be selected with registration_id and execution_spec_id. This action cannot start training.",
+  training_prepare: "Save an exact, expiring plan for your reviewed training source. Usually pass only registration_id; the server fills the fixed 120-second runtime and $0.25 ceiling and generates an idempotency key. This does not launch a GPU job.",
+  training_preview: "Preview MAP-44M by passing only registration_id. The server fills the fixed 120-second runtime and $0.25 ceiling, and supplies the pinned image, dataset, run settings, GPU count, price and cost calculation. A saved training configuration can be selected with execution_spec_id. This action cannot start training.",
 
   training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
-  training_register: "Register a GitHub repository and exact commit for the authenticated owner. For MAP-44M, optional dataset, run_name and steps override the server defaults. The server selects a fixed training entrypoint; this API accepts no shell command or image. Use training_list to discover its execution_spec_id, then preview and prepare it. This action does not start training.",
+  training_register: "Register a GitHub repository for the authenticated owner. For unjuno/model-as-a-paper, the server pins its configured commit when commit is omitted; other repositories require an exact commit. Optional MAP-44M dataset, run_name and steps override server defaults. The server selects a fixed training entrypoint; this API accepts no shell command or image. Use training_list to inspect it, then preview and prepare. This action does not start training.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
   experiment_provider_health: "Optional standalone Modal readiness diagnostic. It requires an unconsumed exact-plan authorization; normal ChatGPT runs check health inside the confirmed experiment_submit action. This creates no Sandbox, but the Modal control-function call can be billed separately from the Sandbox cost ceiling. A shared workspace cooldown and one-use plan reservation bound calls.",
@@ -739,6 +739,21 @@ function validProviderApprovedPlan(value) {
   return validGatewayApprovedPlan(value) || validRunpodApprovedPlan(value);
 }
 
+function normalizeTrainingArguments(name, input, env) {
+  const args = { ...input };
+  if (name === "training_register" && args.commit === undefined &&
+      typeof args.repository === "string" &&
+      ["unjuno/model-as-a-paper", "https://github.com/unjuno/model-as-a-paper"].includes(args.repository)) {
+    args.commit = env.MAP_TRAINING_SOURCE_SHA;
+  }
+  if (["training_preview", "training_prepare"].includes(name)) {
+    if (args.runtime_seconds === undefined) args.runtime_seconds = MAP_TRAINING_MAX_RUNTIME_SECONDS;
+    if (args.max_cost_microusd === undefined) args.max_cost_microusd = MAP_TRAINING_MAX_COST_MICROUSD;
+    if (name === "training_prepare" && args.idempotency_key === undefined) args.idempotency_key = `map-${randomHex(16)}`;
+  }
+  return args;
+}
+
 function validToolArguments(name, args, env) {
   if (name === "training_checkpoint") return Object.keys(args).sort().join(",") === "max_bytes,offset,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
@@ -756,6 +771,8 @@ function validToolArguments(name, args, env) {
   }
   if (name === "training_preview") {
     const keys = Object.keys(args).sort().join(",");
+    const byRegistration = keys === "registration_id" &&
+      typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
     const bySpec = keys === "execution_spec_id,max_cost_microusd,registration_id,runtime_seconds" &&
       typeof args.execution_spec_id === "string" && /^[0-9a-f]{32}$/.test(args.execution_spec_id) &&
       typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
@@ -764,7 +781,7 @@ function validToolArguments(name, args, env) {
     const bySource = keys === "commit,max_cost_microusd,repository,runtime_seconds" &&
       typeof args.repository === "string" && args.repository.length <= 159 &&
       typeof args.commit === "string" && args.commit.length === 40;
-    return (byId || bySource || bySpec) && Number.isSafeInteger(args.runtime_seconds) &&
+    return (byRegistration || byId || bySource || bySpec) && Number.isSafeInteger(args.runtime_seconds) &&
       args.runtime_seconds === MAP_TRAINING_MAX_RUNTIME_SECONDS &&
       Number.isSafeInteger(args.max_cost_microusd) && args.max_cost_microusd >= 1 &&
       args.max_cost_microusd <= MAP_TRAINING_MAX_COST_MICROUSD;
@@ -773,9 +790,11 @@ function validToolArguments(name, args, env) {
   if (name === "training_register") {
     const keys = Object.keys(args);
     const allowed = new Set(["repository", "commit", "dataset", "run_name", "steps"]);
-    return keys.includes("repository") && keys.includes("commit") && keys.every(key => allowed.has(key)) &&
+    const hasPinnedMapCommit = args.commit === env.MAP_TRAINING_SOURCE_SHA &&
+      ["unjuno/model-as-a-paper", "https://github.com/unjuno/model-as-a-paper"].includes(args.repository);
+    return keys.includes("repository") && keys.every(key => allowed.has(key)) &&
       typeof args.repository === "string" && args.repository.length <= 159 &&
-      typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit) &&
+      ((typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit)) || hasPinnedMapCommit) &&
       (args.dataset === undefined || (typeof args.dataset === "string" &&
         /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(args.dataset))) &&
       (args.run_name === undefined || (typeof args.run_name === "string" &&
@@ -2451,7 +2470,7 @@ async function handleMcp(request, env, context = null) {
   if (message.method === "tools/call") {
     try {
       const name = message.params?.name;
-      const args = message.params?.arguments ?? {};
+      const args = normalizeTrainingArguments(name, message.params?.arguments ?? {}, env);
       if (!schemas[name] || !args || typeof args !== "object" || Array.isArray(args) || !validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
       const value = envelope(name, await callTool(name, args, request, env, context));
       const result = { content: [{ type: "text", text: JSON.stringify(value) }], isError: false };
