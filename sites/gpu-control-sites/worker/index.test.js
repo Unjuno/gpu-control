@@ -361,6 +361,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       assert.equal(owner, "test-owner");
       assert.equal(tool, "training_submit");
       assert.deepEqual(args.plan, { ...candidate.approved_plan, run_id: submission.run_id });
+      assert.equal(args.authorization.owner, owner);
+      assert.equal(args.authorization.authorized_by, owner);
+      assert.equal(args.authorization.run_id, submission.run_id);
+      assert.equal(args.authorization.plan_fingerprint, submission.plan_fingerprint);
       throw new Error("simulated lost response");
     };
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true)).blocking_reason,

@@ -231,7 +231,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   try {
     const response = await delegate(env, owner, "training_submit", {
       run_id: runId, plan_fingerprint: fingerprint, plan: { ...plan, run_id: runId },
-      authorization: { ...authorization, run_id: runId, plan_fingerprint: fingerprint,
+      authorization: { ...authorization, owner, run_id: runId, plan_fingerprint: fingerprint,
         provider: plan.provider, provider_resource_id: plan.provider_resource_id,
         target_repository: plan.repository, target_sha: plan.commit, image_digest: plan.image_digest,
         gpu_count: plan.gpu_count, runtime_seconds: plan.runtime_seconds,
