@@ -87,14 +87,16 @@ export async function trainingPlanState(db, owner, runId, cancel = false) {
       WHERE owner_id=? AND id=? AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?`)
       .bind(now, owner, runId, now).run();
   }
-  const row = await db.prepare(`SELECT fingerprint, expires_at, cancelled_at, dispatch_claimed_at
+  const row = await db.prepare(`SELECT fingerprint, expires_at, cancelled_at, dispatch_claimed_at, dispatch_rejection
     FROM training_plans WHERE owner_id=? AND id=?`).bind(owner, runId).first();
   if (!row) throw new Error("RUN_NOT_FOUND");
   const state = row.cancelled_at !== null ? "cancelled"
+    : row.dispatch_rejection ? "blocked"
     : row.dispatch_claimed_at !== null ? "dispatching" : row.expires_at <= now ? "expired" : "prepared";
   return { schema_version: 2, status: "ok", human_summary: "保存済みの学習計画の状態です。",
     machine_state: { run_id: runId, state, plan_fingerprint: row.fingerprint,
-      expires_at: row.expires_at, cancelled_at: row.cancelled_at },
+      expires_at: row.expires_at, cancelled_at: row.cancelled_at,
+      ...(row.dispatch_rejection ? { reason: row.dispatch_rejection } : {}) },
     next_allowed_actions: state === "prepared" ? ["training_cancel"] : [], blocking_reason: null };
 }
 
@@ -154,6 +156,9 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     });
     if (response?.state === "blocked" &&
         ["TRAINING_ADMISSION_DISABLED", "TRAINING_AUTHORIZATION_EXPIRED"].includes(response.reason)) {
+      await env.DB.prepare(`UPDATE training_plans SET dispatch_rejection=?
+        WHERE owner_id=? AND id=? AND fingerprint=? AND dispatch_claimed_at IS NOT NULL`)
+        .bind(response.reason, owner, runId, fingerprint).run();
       return { schema_version: 2, status: "blocked",
         human_summary: "プロバイダーは学習の受付を拒否しました。",
         machine_state: { run_id: runId, state: "blocked" },

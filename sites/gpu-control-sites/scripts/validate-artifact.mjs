@@ -97,6 +97,7 @@ for (const migration of [
   "0024_training_plan_cancellation.sql",
   "0025_training_submission_claim.sql",
   "0026_training_authorizations.sql",
+  "0027_training_dispatch_rejection.sql",
 ]) {
   assert.ok(migrations.includes(migration), `Missing migration ${migration}`);
 }

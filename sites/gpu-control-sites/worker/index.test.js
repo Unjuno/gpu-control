@@ -152,6 +152,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0024_training_plan_cancellation.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0025_training_submission_claim.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0026_training_authorizations.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0027_training_dispatch_rejection.sql", import.meta.url), "utf8"));
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner", DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
