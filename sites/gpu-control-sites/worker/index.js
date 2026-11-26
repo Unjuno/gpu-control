@@ -221,7 +221,7 @@ const toolDescriptions = {
   training_preview: "Preview a reviewed training profile by registered repository and commit, or registration ID, with a runtime and budget ceiling in millionths of a US dollar. This action cannot start training or confirm pricing.",
 
   training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
-  training_register: "Register a GitHub repository and exact commit for the authenticated owner. The source is pending review and this action does not start training.",
+  training_register: "Register a GitHub repository and exact commit for the authenticated owner. Registration alone cannot build an execution environment or make a source runnable. Currently training execution supports only the configured MAP-44M repository and pinned commit; use training_preview to check a source before preparing it. This action does not start training.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
   experiment_provider_health: "Optional standalone Modal readiness diagnostic. It requires an unconsumed exact-plan authorization; normal ChatGPT runs check health inside the confirmed experiment_submit action. This creates no Sandbox, but the Modal control-function call can be billed separately from the Sandbox cost ceiling. A shared workspace cooldown and one-use plan reservation bound calls.",
