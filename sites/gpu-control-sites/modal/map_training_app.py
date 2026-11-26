@@ -23,6 +23,14 @@ if not re.fullmatch(image_pattern, IMAGE_DIGEST):
 if not 120 <= RUNTIME_LIMIT <= 3000:
     raise ValueError("invalid MAP runtime")
 
+# Modal imports this module in both function containers. Forward only the
+# non-secret settings required for that import and the runtime checks.
+deployment_env = {key: os.environ[key] for key in (
+    "MAP_TRAINING_SOURCE_SHA", "MAP_TRAINING_MODAL_IMAGE_ID", "MAP_TRAINING_IMAGE_DIGEST",
+    "MAP_TRAINING_RUNTIME_SECONDS", "MAP_TRAINING_HOURLY_MICROUSD",
+    "MAP_TRAINING_QUOTE_EXPIRES_AT",
+) if key in os.environ}
+
 app = modal.App("gpu-control-map-training")
 base_image = (modal.Image.from_id(MODAL_IMAGE_ID) if MODAL_IMAGE_ID else
               modal.Image.from_registry(f"ghcr.io/unjuno/gpu-control-map-training@{IMAGE_DIGEST}"))
@@ -32,7 +40,7 @@ checkpoints = modal.Volume.from_name("gpu-control-map-checkpoints", create_if_mi
 
 
 @app.function(
-    image=image, gpu="L4", cpu=2, memory=8192, block_network=True,
+    image=image, env=deployment_env, gpu="L4", cpu=2, memory=8192, block_network=True,
     volumes={"/corpus": corpus.with_mount_options(read_only=True), "/checkpoints": checkpoints},
     timeout=RUNTIME_LIMIT, startup_timeout=600, retries=0, max_containers=1,
     single_use_containers=True,
@@ -58,7 +66,7 @@ def train_map(plan: dict) -> dict:
 @app.function(
     volumes={"/checkpoints": checkpoints.with_mount_options(read_only=True)},
     image=modal.Image.debian_slim(python_version="3.11").add_local_python_source("map_checkpoint"),
-    timeout=30, block_network=True, cpu=1, memory=256,
+    env=deployment_env, timeout=30, block_network=True, cpu=1, memory=256,
 )
 def read_map_checkpoint(run_id: str, manifest: dict, offset: int, max_bytes: int) -> dict:
     from map_checkpoint import read_checkpoint_chunk
