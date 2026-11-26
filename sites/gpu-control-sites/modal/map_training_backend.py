@@ -54,8 +54,8 @@ class MapTrainingBackend:
             return {"state": "failed", "failure_code": "TRAINING_RUNTIME_LIMIT"}
         except modal.exception.RemoteError:
             return {"state": "failed", "failure_code": "TRAINING_PROVIDER_FAILURE"}
-        except modal.exception.TimeoutError as exc:
-            if type(exc) is not modal.exception.TimeoutError:
+        except (TimeoutError, modal.exception.TimeoutError) as exc:
+            if type(exc) not in (TimeoutError, modal.exception.TimeoutError):
                 raise
             return {"state": "running"}
         if (not isinstance(result, dict)

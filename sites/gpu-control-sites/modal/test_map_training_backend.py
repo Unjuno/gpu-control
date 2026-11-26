@@ -56,7 +56,8 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
                                admission_enabled=True)
 
 
-def test_provider_wall_timeout_becomes_terminal():
+@pytest.mark.parametrize("poll_timeout", [TimeoutError, modal.exception.TimeoutError])
+def test_provider_wall_timeout_becomes_terminal(poll_timeout):
     run_id = "c" * 32
     fingerprint = "d" * 64
     store = Store({f"map-training:{run_id}": {
@@ -68,7 +69,7 @@ def test_provider_wall_timeout_becomes_terminal():
     def get(*, timeout):
         calls.append(timeout)
         if len(calls) == 1:
-            raise modal.exception.TimeoutError()
+            raise poll_timeout()
         raise modal.exception.FunctionTimeoutError("provider details")
 
     backend = MapTrainingBackend(call_lookup=lambda _: SimpleNamespace(get=get))
