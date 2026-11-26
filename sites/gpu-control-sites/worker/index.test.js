@@ -153,6 +153,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0025_training_submission_claim.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0026_training_authorizations.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0027_training_dispatch_rejection.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0028_training_execution_specs.sql", import.meta.url), "utf8"));
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner", DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
@@ -174,6 +175,12 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const first = await call("test-owner", "training_register", args);
     assert.equal(first.machine_state.state, "pending_review");
     assert.equal(first.machine_state.executable, false);
+    const spec = await call("test-owner", "training_register", { ...args, command: ["python", "train.py"] });
+    const specRetry = await call("test-owner", "training_register", { ...args, command: ["python", "train.py"] });
+    const anotherSpec = await call("test-owner", "training_register", { ...args, command: ["python", "evaluate.py"] });
+    assert.equal(spec.machine_state.execution_spec_id, specRetry.machine_state.execution_spec_id);
+    assert.notEqual(spec.machine_state.execution_spec_id, anotherSpec.machine_state.execution_spec_id);
+    assert.equal((await call("test-owner", "training_register", { ...args, command: [] })).error, "INVALID_ARGUMENTS");
     const retry = await call("test-owner", "training_register", { ...args, repository: "https://github.com/unjuno/model-as-a-paper" });
     assert.equal(retry.machine_state.registration_id, first.machine_state.registration_id);
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.registrations, []);

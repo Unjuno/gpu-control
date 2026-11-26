@@ -74,6 +74,7 @@ const schemas = {
     type: "object", properties: {
       repository: { type: "string", maxLength: 159 },
       commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
+      command: { type: "array", minItems: 1, maxItems: 32, items: { type: "string", minLength: 1, maxLength: 1024 } },
     }, required: ["repository", "commit"], additionalProperties: false,
   },
   experiment_capabilities: { type: "object", properties: {}, additionalProperties: false },
@@ -760,7 +761,9 @@ function validToolArguments(name, args, env) {
       args.max_cost_microusd <= 1000000;
   }
   if (name === "training_list") return Object.keys(args).length === 0;
-  if (name === "training_register") return Object.keys(args).sort().join(",") === "commit,repository" &&
+  if (name === "training_register") return ["commit,repository", "command,commit,repository"].includes(Object.keys(args).sort().join(",")) &&
+    (args.command === undefined || (Array.isArray(args.command) && args.command.length >= 1 && args.command.length <= 32 &&
+      args.command.every(value => typeof value === "string" && value.length >= 1 && value.length <= 1024 && !value.includes("\0")))) &&
     typeof args.repository === "string" && args.repository.length <= 159 &&
     typeof args.commit === "string" && args.commit.length === 40;
 

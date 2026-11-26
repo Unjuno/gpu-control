@@ -25,9 +25,20 @@ export async function registerTrainingSource(db, owner, input) {
     .bind(id, owner, repository, commit, Math.floor(Date.now() / 1000)).run();
   const row = await db.prepare(`SELECT id, repository, source_sha FROM training_registrations
     WHERE owner_id = ? AND repository = ? AND source_sha = ?`).bind(owner, repository, commit).first();
+  let executionSpecId;
+  if (input.command !== undefined) {
+    const spec = JSON.stringify({ command: input.command });
+    await db.prepare(`INSERT INTO training_execution_specs (id, owner_id, registration_id, spec_json, created_at)
+      VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id, registration_id, spec_json) DO NOTHING`)
+      .bind(crypto.randomUUID().replaceAll("-", ""), owner, row.id, spec, Math.floor(Date.now() / 1000)).run();
+    const saved = await db.prepare(`SELECT id FROM training_execution_specs
+      WHERE owner_id=? AND registration_id=? AND spec_json=?`).bind(owner, row.id, spec).first();
+    executionSpecId = saved.id;
+  }
   return { schema_version: 2, status: "ok",
     human_summary: "学習ソースを登録しました。検証済み実行環境の設定後に実行できます。",
     machine_state: { registration_id: row.id, repository: row.repository, commit: row.source_sha,
+      ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
       state: "pending_review", executable: false },
     next_allowed_actions: [], blocking_reason: null };
 }
