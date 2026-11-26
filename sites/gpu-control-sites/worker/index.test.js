@@ -179,6 +179,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.registrations, []);
     const own = (await call("test-owner", "training_list", {})).machine_state.registrations;
     assert.equal(own.length, 1);
+    assert.equal(own[0].execution_profile_configured, false);
     assert.equal(own[0].registration_id, first.machine_state.registration_id);
     const registrationId = own[0].registration_id;
     assert.deepEqual({ ...await getOwnedTrainingSource(env.DB, "test-owner", registrationId) }, {
@@ -197,6 +198,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
       "TRAINING_PROFILE_UNAVAILABLE");
     env.MAP_TRAINING_SOURCE_SHA = sourceSha;
+    assert.equal((await call("test-owner", "training_list", {})).machine_state.registrations[0].execution_profile_configured, true);
     assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
       "TRAINING_QUOTE_UNAVAILABLE");
     env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
