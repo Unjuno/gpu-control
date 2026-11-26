@@ -245,7 +245,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
     env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
     env.GPU_CONTROL_ALLOWED_USER_IDS += ",minimal-owner";
-    const repoOnly = await call("minimal-owner", "training_register", { repository: "unjuno/model-as-a-paper" });
+    const repoOnly = await call("minimal-owner", "training_register", { repository: "https://github.com/Unjuno/model-as-a-paper" });
     assert.equal(repoOnly.machine_state.commit, sourceSha);
     assert.match(repoOnly.machine_state.registration_id, /^[0-9a-f]{32}$/);
     const readyPreview = await call("test-owner", "training_preview", specPreview);

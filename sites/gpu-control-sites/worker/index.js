@@ -741,9 +741,10 @@ function validProviderApprovedPlan(value) {
 
 function normalizeTrainingArguments(name, input, env) {
   const args = { ...input };
+  const canonicalRepository = typeof args.repository === "string"
+    ? args.repository.replace(/^https:\/\/github\.com\//i, "").toLowerCase() : "";
   if (name === "training_register" && args.commit === undefined &&
-      typeof args.repository === "string" &&
-      ["unjuno/model-as-a-paper", "https://github.com/unjuno/model-as-a-paper"].includes(args.repository)) {
+      canonicalRepository === "unjuno/model-as-a-paper") {
     args.commit = env.MAP_TRAINING_SOURCE_SHA;
   }
   if (["training_preview", "training_prepare"].includes(name)) {
@@ -790,8 +791,10 @@ function validToolArguments(name, args, env) {
   if (name === "training_register") {
     const keys = Object.keys(args);
     const allowed = new Set(["repository", "commit", "dataset", "run_name", "steps"]);
+    const canonicalRepository = typeof args.repository === "string"
+      ? args.repository.replace(/^https:\/\/github\.com\//i, "").toLowerCase() : "";
     const hasPinnedMapCommit = args.commit === env.MAP_TRAINING_SOURCE_SHA &&
-      ["unjuno/model-as-a-paper", "https://github.com/unjuno/model-as-a-paper"].includes(args.repository);
+      canonicalRepository === "unjuno/model-as-a-paper";
     return keys.includes("repository") && keys.every(key => allowed.has(key)) &&
       typeof args.repository === "string" && args.repository.length <= 159 &&
       ((typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit)) || hasPinnedMapCommit) &&
