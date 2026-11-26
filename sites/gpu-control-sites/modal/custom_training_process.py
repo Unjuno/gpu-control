@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def run_command(command, source_dir, runtime_seconds, *, cancelled=lambda: False,
-                output_limit=65536, poll_interval=0.1):
+                output_limit=65536, poll_interval=0.1, checkpoint_dir=None):
     if (not isinstance(command, list) or not 1 <= len(command) <= 64
             or any(not isinstance(arg, str) or not arg or '\x00' in arg
                    or len(arg) > 4096 for arg in command)):
@@ -26,6 +26,11 @@ def run_command(command, source_dir, runtime_seconds, *, cancelled=lambda: False
     # No inherited provider credentials or arbitrary ambient environment.
     env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp",
            "PYTHONUNBUFFERED": "1"}
+    if checkpoint_dir is not None:
+        checkpoint_path = Path(checkpoint_dir).resolve(strict=True)
+        if not checkpoint_path.is_dir():
+            raise ValueError("invalid_checkpoint_directory")
+        env["GPU_CONTROL_CHECKPOINT_DIR"] = os.fspath(checkpoint_path)
     with subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           start_new_session=True) as process:
