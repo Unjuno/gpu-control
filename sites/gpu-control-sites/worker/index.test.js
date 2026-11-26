@@ -204,6 +204,24 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.ok(!prepareSpec.next_allowed_actions.includes("training_submit"));
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_plans WHERE owner_id=?")
       .get("test-owner").count, 0);
+    env.CUSTOM_TRAINING_MODAL_IMAGE_ID = "im-Abcdefgh1234";
+    env.CUSTOM_TRAINING_GPU = "L4";
+    env.CUSTOM_TRAINING_HOURLY_MICROUSD = "400000";
+    env.CUSTOM_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
+    const readyPreview = await call("test-owner", "training_preview", specPreview);
+    assert.equal(readyPreview.status, "ok");
+    assert.equal(readyPreview.machine_state.image_id, env.CUSTOM_TRAINING_MODAL_IMAGE_ID);
+    const savedPlan = await call("test-owner", "training_prepare",
+      { ...specPreview, idempotency_key: "custom-prepared-without-admission" });
+    assert.equal(savedPlan.status, "ok");
+    assert.deepEqual(savedPlan.approved_plan.command, ["python", "train.py"]);
+    assert.equal(savedPlan.machine_state.executable, false);
+    assert.ok(!savedPlan.next_allowed_actions.includes("training_submit"));
+    env.MAP_TRAINING_ADMISSION_ENABLED = "true";
+    const attempted = await call("test-owner", "training_submit", { run_id: savedPlan.machine_state.run_id,
+      plan_fingerprint: savedPlan.machine_state.plan_fingerprint, approved_plan: savedPlan.approved_plan });
+    assert.equal(attempted.blocking_reason, "TRAINING_ADMISSION_DISABLED");
+    delete env.MAP_TRAINING_ADMISSION_ENABLED;
     assert.equal((await call("other-owner", "training_preview", specPreview)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
     const otherSource = await call("test-owner", "training_register", { ...args, commit: "f".repeat(40) });
