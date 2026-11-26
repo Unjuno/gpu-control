@@ -83,3 +83,31 @@ def test_provider_wall_timeout_becomes_terminal(poll_timeout):
     for _ in range(2):
         assert status() == {"state": "failed", "failure_code": "TRAINING_RUNTIME_LIMIT"}
     assert calls == [0, 0]
+
+
+def test_cancel_request_is_retained_until_provider_reports_terminal():
+    run_id = "c" * 32
+    fingerprint = "d" * 64
+    store = Store({f"map-training:{run_id}": {
+        "owner": "owner", "fingerprint": fingerprint, "plan": {},
+        "state": "running", "call_id": "fc-abcdefgh",
+    }})
+    cancellations = []
+    observations = iter([{"state": "running"}, {"state": "cancelled"}])
+
+    def cancel(call_id):
+        cancellations.append(call_id)
+        return {"state": "cancel_requested"}
+
+    backend = SimpleNamespace(cancel=cancel, inspect=lambda *_: next(observations))
+    args = {"run_id": run_id, "plan_fingerprint": fingerprint}
+
+    def call(tool):
+        return dispatch_training_tool(store, backend, "owner", tool, args,
+                                      admission_enabled=False)
+
+    assert call("training_cancel") == {"state": "cancel_requested"}
+    assert call("training_cancel") == {"state": "cancel_requested"}
+    assert call("training_status") == {"state": "cancel_requested"}
+    assert call("training_status") == {"state": "cancelled"}
+    assert cancellations == ["fc-abcdefgh"]

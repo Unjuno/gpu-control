@@ -124,7 +124,11 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
         return {"state": "uncertain"}
     terminal = record.get("terminal_result")
     if tool == "training_cancel" and terminal is None:
-        return backend.cancel(record["call_id"])
+        if record["state"] == "cancel_requested":
+            return {"state": "cancel_requested"}
+        response = backend.cancel(record["call_id"])
+        store.put(key, {**record, "state": "cancel_requested"})
+        return response
     if tool not in {"training_cancel", "training_status", "training_checkpoint"}:
         raise ValueError("training_tool_invalid")
     if terminal is None:
@@ -134,6 +138,8 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
             store.put(key, {**record, "state": result["state"], "terminal_result": result})
     else:
         result = terminal
+    if result["state"] == "running" and record["state"] == "cancel_requested":
+        result = {"state": "cancel_requested"}
     if tool == "training_checkpoint":
         if result["state"] != "succeeded":
             return {"state": "checkpoint_not_ready"}
