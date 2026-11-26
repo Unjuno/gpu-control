@@ -1,6 +1,7 @@
 """Modal transport for the private, fixed MAP training function."""
 import os
 import re
+import time
 
 import modal
 
@@ -121,6 +122,10 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
         if not isinstance(plan, dict) or plan.get("run_id") != run_id:
             raise ValueError("training_plan_invalid")
         backend.validate(plan)
+        deadline = args.get("authorization_expires_at")
+        now = int(time.time())
+        if type(deadline) is not int or not now < deadline <= now + 900:
+            return {"state": "blocked", "reason": "TRAINING_AUTHORIZATION_EXPIRED"}
         claim = {**binding, "plan": plan, "state": "dispatching"}
         if store.put(key, claim, skip_if_exists=True):
             call_id = backend.start(plan)

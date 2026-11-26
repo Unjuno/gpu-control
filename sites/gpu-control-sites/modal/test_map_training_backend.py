@@ -41,11 +41,17 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
 
     backend = MapTrainingBackend(function_lookup=lambda: SimpleNamespace(spawn=spawn))
     store = Store()
-    args = {"run_id": run_id, "plan_fingerprint": "d" * 64, "plan": plan}
+    args = {"run_id": run_id, "plan_fingerprint": "d" * 64, "plan": plan,
+            "authorization_expires_at": int(time.time()) + 60}
     with pytest.raises(ValueError, match="training_quote_invalid"):
         dispatch_training_tool(store, backend, "owner", "training_submit",
                                {**args, "plan": {**plan, "hourly_microusd": 1}},
                                admission_enabled=True)
+    expired = {**args, "authorization_expires_at": int(time.time()) - 1}
+    assert dispatch_training_tool(store, backend, "owner", "training_submit", expired,
+                                  admission_enabled=True) == {
+        "state": "blocked", "reason": "TRAINING_AUTHORIZATION_EXPIRED",
+    }
     assert not store and not starts
     for _ in range(2):
         assert dispatch_training_tool(store, backend, "owner", "training_submit", args,
