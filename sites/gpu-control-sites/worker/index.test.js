@@ -1,5 +1,5 @@
 import { claimTrainingDispatch, submitTrainingPlan } from "./training_plan.js";
-import { authorizeTrainingPlanFromMcp } from "./training_authorization.js";
+import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_authorization.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { getOwnedTrainingSource } from "./training_source.js";
@@ -251,6 +251,11 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(savedPlan.approved_plan.steps, 100);
     assert.equal(savedPlan.machine_state.executable, false);
     assert.ok(!savedPlan.next_allowed_actions.includes("training_submit"));
+    assert.equal(savedPlan.machine_state.authorization_state, "unavailable");
+    assert.equal(savedPlan.machine_state.authorization_url, undefined);
+    const disabledStatus = await call("test-owner", "training_status", { run_id: savedPlan.machine_state.run_id });
+    assert.equal(disabledStatus.machine_state.authorization_state, "unavailable");
+    assert.equal(disabledStatus.machine_state.authorization_url, undefined);
     env.MAP_TRAINING_ADMISSION_ENABLED = "true";
     const attempted = await call("test-owner", "training_submit", { run_id: savedPlan.machine_state.run_id,
       plan_fingerprint: savedPlan.machine_state.plan_fingerprint, approved_plan: savedPlan.approved_plan });
@@ -334,8 +339,33 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     { message: "TRAINING_AUTHORIZATION_INVALID" });
     const fresh = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-prepare-fresh" })).machine_state;
-    const freshAuthorization = await authorizeTrainingPlanFromMcp(env.DB, "test-owner", fresh.run_id,
-      fresh.plan_fingerprint, env.MAP_TRAINING_CONTROL_PLANE_SHA, now);
+    const authorizePlan = async (plan) => {
+      const challenge = await issueTrainingChallenge(env.DB, "test-owner", plan.run_id,
+        plan.plan_fingerprint, env.MAP_TRAINING_CONTROL_PLANE_SHA, now);
+      assert.ok(challenge);
+      assert.equal(await confirmTrainingChallenge(env.DB, "test-owner", plan.run_id,
+        plan.plan_fingerprint, env.MAP_TRAINING_CONTROL_PLANE_SHA, challenge.token, now), true);
+    };
+    const authorizationPageUrl = `${siteOrigin}/authorize-training?run_id=${fresh.run_id}&plan_fingerprint=${fresh.plan_fingerprint}`;
+    const authorizationPage = await worker.fetch(new Request(authorizationPageUrl, {
+      headers: { "oai-authenticated-user-id": "test-owner" },
+    }), env);
+    assert.equal(authorizationPage.status, 200);
+    const authorizationHtml = await authorizationPage.text();
+    assert.match(authorizationHtml, /unjuno\/model-as-a-paper/);
+    assert.match(authorizationHtml, /Modal \/ L4 × 1/);
+    const challengeToken = authorizationHtml.match(/name="challenge" value="([0-9a-f]{64})"/)?.[1];
+    assert.ok(challengeToken);
+    const confirmationResponse = await worker.fetch(new Request(`${siteOrigin}/authorize-training`, {
+      method: "POST",
+      headers: { "oai-authenticated-user-id": "test-owner", origin: siteOrigin,
+        "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ run_id: fresh.run_id, plan_fingerprint: fresh.plan_fingerprint,
+        challenge: challengeToken, confirm: "yes" }),
+    }), env);
+    assert.equal(confirmationResponse.status, 200);
+    assert.match(await confirmationResponse.text(), /学習計画を承認しました/);
+    const freshAuthorization = db.prepare(`SELECT * FROM training_authorizations WHERE plan_id=?`).get(fresh.run_id);
     const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id,
       fresh.plan_fingerprint, now, 100000, freshAuthorization);
     const concurrentClaims = await Promise.all([claim(), claim()]);
@@ -343,8 +373,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(await claim(), null);
     const second = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-monthly-limit" })).machine_state;
-    const secondAuthorization = await authorizeTrainingPlanFromMcp(env.DB, "test-owner", second.run_id,
-      second.plan_fingerprint, env.MAP_TRAINING_CONTROL_PLANE_SHA, now);
+    await authorizePlan(second);
+    const secondAuthorization = db.prepare(`SELECT * FROM training_authorizations WHERE plan_id=?`).get(second.run_id);
     assert.equal(await claimTrainingDispatch(env.DB, "test-owner", second.run_id,
       second.plan_fingerprint, now, 100000, secondAuthorization), null);
     assert.equal((await call("test-owner", "training_cancel",
@@ -380,13 +410,19 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       .blocking_reason, "TRAINING_RUNTIME_MISMATCH");
     assert.equal(sends, 0);
     env.MAP_TRAINING_RUNTIME_SECONDS = "120";
+    const unconfirmed = await submitTrainingPlan(env, "test-owner", submission, transport, () => true);
+    assert.equal(unconfirmed.blocking_reason, "TRAINING_AUTHORIZATION_REQUIRED");
+    assert.equal(unconfirmed.machine_state.authorization_state, "required");
+    assert.match(unconfirmed.machine_state.authorization_url, /authorize-training/);
+    assert.equal(sends, 0);
+    await authorizePlan(candidate.machine_state);
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "uncertain");
     const authorization = db.prepare(`SELECT authorization_source, decision_record_id, authorized_by,
       control_plane_sha, target_repository, target_sha, image_digest, provider, provider_resource_id,
       gpu_count, runtime_seconds, max_cost_microusd, authorized_at, expires_at, consumed_at
       FROM training_authorizations WHERE plan_id=?`).get(submission.run_id);
-    assert.equal(authorization.authorization_source, "chatgpt_mcp_write_confirmation");
+    assert.equal(authorization.authorization_source, "site_owner_plan_confirmation");
     assert.equal(authorization.decision_record_id,
       `training-plan:${submission.run_id}:${submission.plan_fingerprint}`);
     assert.equal(authorization.authorized_by, "test-owner");
@@ -409,6 +445,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.runs, []);
     const rejectedPlan = await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-definite-rejection" });
+    await authorizePlan(rejectedPlan.machine_state);
     const rejectedArgs = { run_id: rejectedPlan.machine_state.run_id,
       plan_fingerprint: rejectedPlan.machine_state.plan_fingerprint,
       approved_plan: rejectedPlan.approved_plan };
@@ -485,8 +522,8 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   assert.match(submitTool.description, /do not ask a second conversational confirmation/);
   assert.match(submitTool.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
   assert.equal(trainingSubmitTool.annotations.destructiveHint, true);
-  assert.match(trainingSubmitTool.description, /native write confirmation/);
-  assert.match(trainingSubmitTool.description, /No separate Modal login/);
+  assert.match(trainingSubmitTool.description, /authenticated GPU Control Site/);
+  assert.match(trainingSubmitTool.description, /Modal login is not needed/);
 
   for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list"]) {
     assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);

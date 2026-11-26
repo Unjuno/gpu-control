@@ -47,7 +47,7 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
     now = int(time.time())
     fingerprint = "d" * 64
     authorization = {"authorization_id": "f" * 32,
-        "authorization_source": "chatgpt_mcp_write_confirmation", "authorization_reference": "a" * 64,
+        "authorization_source": "site_owner_plan_confirmation", "authorization_reference": "a" * 64,
         "decision_record_id": f"training-plan:{run_id}:{fingerprint}", "authorized_by": "owner",
         "control_plane_sha": "e" * 40, "target_repository": plan["repository"],
         "target_sha": plan["commit"], "image_digest": plan["image_digest"], "provider": plan["provider"],

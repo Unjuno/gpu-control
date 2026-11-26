@@ -45,18 +45,20 @@ pins the reviewed source/image, one L4, and its private data/checkpoint Volumes.
 
 Call `training_preview` or `training_prepare` with the registration ID,
 execution-spec ID, runtime ceiling, and budget ceiling. If the user has
-already requested execution, continue through `training_submit` with the exact
-returned plan. `training_submit` is the single billable write action and is
-marked destructive so ChatGPT can show its native write confirmation; do not
-add a separate Modal login, browser approval, or repeated conversational
-confirmation. The server records this confirmation for the exact owner, plan,
-control-plane commit, workload/image, provider resource, runtime, and budget,
-then consumes it atomically with the one-use dispatch reservation. Monitor that
-same run. Recover ambiguous submission through `training_status`; do not create
-a duplicate. At terminal success, retrieve private checkpoint chunks through
-`training_checkpoint` and verify the assembled SHA-256. Provider login, secret
-rotation, admission, or budget changes are separate operations; do not ask for
-them as routine per-run steps.
+already requested execution, prepare the exact plan. The first
+`training_prepare` returns an `authorization_url` for this plan. Open it using
+the authenticated ChatGPT Sites owner session and confirm the displayed source,
+image, GPU, runtime, and cost once. This is not a request to sign in to Modal or
+reconnect the Sites MCP. After confirmation, call `training_status` to verify
+`authorization_state=authorized`, then call `training_submit` with the exact
+returned plan without asking the user to repeat the execution request. The
+server consumes the short-lived, exact-plan owner evidence atomically with the
+one-use dispatch reservation. Monitor that same run. Recover ambiguous
+submission through `training_status`; do not create a duplicate. At terminal
+success, retrieve private checkpoint chunks through `training_checkpoint` and
+verify the assembled SHA-256. Provider login, secret rotation, admission, or
+budget changes are separate operations; do not ask for them as routine per-run
+steps.
 
 ## Choose a route
 

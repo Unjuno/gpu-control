@@ -312,13 +312,17 @@ not start training. Request a plan by repository and commit or by registration
 ID plus the returned execution-spec ID. Specify a runtime and maximum cost.
 The plan exposes the resolved GPU, dataset, run name, step ceiling, runtime,
 and estimated cost. When the user requests execution, submit that exact plan.
-`training_submit` is the one billable write action and is marked destructive;
-ChatGPT's native write confirmation is the single confirmation boundary. The
-Worker records it against the authenticated owner, exact plan fingerprint,
-current control-plane commit, source/image, Modal function, runtime, and budget,
-then consumes it with the dispatch reservation. Do not require a separate
-Modal login or browser approval for an ordinary run. Continue monitoring the
-same run after submission; do not resubmit after an ambiguous response.
+`training_submit` is the one billable write action. Before dispatch, open the
+`authorization_url` returned by `training_prepare` and confirm the exact source,
+image, GPU, runtime, and cost in the authenticated GPU Control Site. This is
+not another MCP or Modal login. After returning to ChatGPT, check
+`training_status` for `authorization_state=authorized` and continue with the
+exact `training_submit` plan; do not ask the user to repeat their run request.
+The Worker records short-lived evidence against the authenticated owner, exact
+plan fingerprint, current control-plane commit, source/image, Modal function,
+runtime, and budget, then consumes it with the dispatch reservation. Continue
+monitoring the same run after submission; do not resubmit after an ambiguous
+response.
 
 After submission, preserve the run ID. Use it to check status or request
 cancellation. If the submit response is interrupted, check that run before

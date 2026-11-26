@@ -218,7 +218,7 @@ schemas.training_cancel = schemas.experiment_cancel;
 
 const toolDescriptions = {
   training_checkpoint: "Read an owned completed training checkpoint in bounded base64 chunks. Verify the assembled file against the returned SHA-256.",
-  training_submit: "Start one exact saved MAP-44M plan after the owner requests execution. This is the single billable write action; ChatGPT's native write confirmation is recorded as a short-lived, owner-, plan-, source-, image-, provider-, runtime-, and budget-bound authorization. No separate Modal login or browser approval is required. Supply the exact saved approved_plan.",
+  training_submit: "Start one exact saved MAP-44M plan after the owner has confirmed that exact plan on the authenticated GPU Control Site. If authorization is missing, training_prepare or training_status returns the owner confirmation link. ChatGPT MCP owner login is separate from this one-time exact-plan execution authorization; Modal login is not needed. Supply the exact saved approved_plan.",
   training_status: "Read the state of your saved training plan.",
   training_cancel: "Cancel your unsubmitted training plan.",
   training_prepare: "Save an exact, expiring plan for your reviewed training source. This does not launch a GPU job.",
@@ -1831,7 +1831,7 @@ async function callTool(name, args, request, env, context = null) {
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
   if (name === "training_checkpoint") {
-    const local = await trainingPlanState(env.DB, owner, args.run_id);
+    const local = await trainingPlanState(env, owner, args.run_id);
     if (local.machine_state.state !== "dispatching") throw new Error("RESULT_NOT_READY");
     const remote = await delegateGatewayTool(env, owner, name, {
       ...args, plan_fingerprint: local.machine_state.plan_fingerprint,
@@ -1843,7 +1843,7 @@ async function callTool(name, args, request, env, context = null) {
       next_allowed_actions: remote.checkpoint_chunk.eof ? [] : ["training_checkpoint"], blocking_reason: null };
   }
   if (name === "training_status" || name === "training_cancel") {
-    const local = await trainingPlanState(env.DB, owner, args.run_id, name === "training_cancel");
+    const local = await trainingPlanState(env, owner, args.run_id, name === "training_cancel");
     if (local.machine_state.state !== "dispatching") return local;
     const remote = await delegateGatewayTool(env, owner, name, {
       run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,

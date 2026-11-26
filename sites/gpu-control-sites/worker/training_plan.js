@@ -1,9 +1,17 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource } from "./training_source.js";
-import { authorizeTrainingPlanFromMcp } from "./training_authorization.js";
+import { getTrainingAuthorization } from "./training_authorization.js";
 
 const MAP_REPOSITORY = "unjuno/model-as-a-paper";
+const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_MAP_EXECUTION = Object.freeze({ dataset: "papers", run_name: "map44m", steps: 100000 });
+
+function trainingAuthorizationUrl(runId, fingerprint) {
+  const url = new URL("/authorize-training", SITE_PUBLIC_ORIGIN);
+  url.searchParams.set("run_id", runId);
+  url.searchParams.set("plan_fingerprint", fingerprint);
+  return url.toString();
+}
 
 function validMapExecution(value) {
   return value && typeof value === "object" && !Array.isArray(value) &&
@@ -113,18 +121,30 @@ export async function prepareTrainingPlan(env, owner, args) {
   if (existing.expires_at <= now) throw new Error("TRAINING_PLAN_EXPIRED");
   const state = existing.cancelled_at !== null ? "cancelled"
     : existing.dispatch_claimed_at !== null ? "dispatching" : "prepared";
+  const authorization = await getTrainingAuthorization(env.DB, owner, existing.id, fingerprint);
+  const authorized = state === "prepared" && authorization?.authorized_at !== null &&
+    authorization?.authorized_at !== undefined && authorization?.expires_at > now &&
+    authorization?.consumed_at === null;
   const admission = env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
     Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
-  const executableNow = state === "prepared" && admission;
+  const executableNow = state === "prepared" && admission && authorized;
   if (executableNow) actions.unshift("training_submit");
   return { ...preview, approved_plan: plan, next_allowed_actions: actions,
-    human_summary: "認証済みの所有者に紐づく学習計画を保存しました。",
+    human_summary: !admission
+      ? "学習計画は保存しましたが、現在この条件の実行受付は停止中です。"
+      : authorized
+      ? "学習計画を保存しました。所有者確認済みなので、このplanを送信できます。"
+      : "学習計画を保存しました。送信前にauthorization_urlを開き、このplanの有料実行を確認してください。Modalへのログインは不要です。",
     machine_state: { ...plan, executable: executableNow, run_id: existing.id,
-      plan_fingerprint: fingerprint, expires_at: existing.expires_at, state } };
+      plan_fingerprint: fingerprint, expires_at: existing.expires_at, state,
+      authorization_state: !admission ? "unavailable" : authorized ? "authorized" : "required",
+      ...(admission && !authorized && state === "prepared"
+        ? { authorization_url: trainingAuthorizationUrl(existing.id, fingerprint) } : {}) } };
 }
 
-export async function trainingPlanState(db, owner, runId, cancel = false) {
+export async function trainingPlanState(env, owner, runId, cancel = false) {
+  const db = env.DB;
   const now = Math.floor(Date.now() / 1000);
   if (cancel) {
     await db.prepare(`UPDATE training_plans SET cancelled_at=?
@@ -134,14 +154,23 @@ export async function trainingPlanState(db, owner, runId, cancel = false) {
   const row = await db.prepare(`SELECT fingerprint, expires_at, cancelled_at, dispatch_claimed_at, dispatch_rejection
     FROM training_plans WHERE owner_id=? AND id=?`).bind(owner, runId).first();
   if (!row) throw new Error("RUN_NOT_FOUND");
+  const authorization = await getTrainingAuthorization(db, owner, runId, row.fingerprint);
   const state = row.cancelled_at !== null ? "cancelled"
     : row.dispatch_rejection ? "blocked"
     : row.dispatch_claimed_at !== null ? "dispatching" : row.expires_at <= now ? "expired" : "prepared";
+  const authorized = state === "prepared" && authorization?.authorized_at !== null &&
+    authorization?.authorized_at !== undefined && authorization?.expires_at > now &&
+    authorization?.consumed_at === null;
+  const admission = env.MAP_TRAINING_ADMISSION_ENABLED === "true";
   return { schema_version: 2, status: "ok", human_summary: "保存済みの学習計画の状態です。",
     machine_state: { run_id: runId, state, plan_fingerprint: row.fingerprint,
       expires_at: row.expires_at, cancelled_at: row.cancelled_at,
+      authorization_state: state !== "prepared" ? "none" : !admission ? "unavailable" : authorized ? "authorized" : "required",
+      ...(admission && !authorized && state === "prepared"
+        ? { authorization_url: trainingAuthorizationUrl(runId, row.fingerprint) } : {}),
       ...(row.dispatch_rejection ? { reason: row.dispatch_rejection } : {}) },
-    next_allowed_actions: state === "prepared" ? ["training_cancel"] : [], blocking_reason: null };
+    next_allowed_actions: state === "prepared"
+      ? [...(admission && authorized ? ["training_submit"] : []), "training_cancel"] : [], blocking_reason: null };
 }
 
 // Authorization must already be established. This single write reserves the
@@ -150,7 +179,7 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1) {
     throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
   }
-  if (!authorization || authorization.authorization_source !== "chatgpt_mcp_write_confirmation" ||
+  if (!authorization || authorization.authorization_source !== "site_owner_plan_confirmation" ||
       authorization.authorized_by !== owner || authorization.decision_record_id !== `training-plan:${runId}:${fingerprint}` ||
       !/^[0-9a-f]{40}$/.test(authorization.control_plane_sha || "") ||
       !/^[0-9a-f]{32}$/.test(authorization.authorization_id || "") ||
@@ -160,28 +189,34 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
   const date = new Date(now * 1000);
   const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
   const results = await db.batch([
-    db.prepare(`UPDATE training_authorizations SET consumed_at=?
-      WHERE plan_id=? AND owner_id=? AND fingerprint=? AND control_plane_sha=?
-        AND authorization_id=? AND authorization_reference=?
-        AND authorization_source='chatgpt_mcp_write_confirmation' AND authorized_by=?
-        AND decision_record_id=? AND authorized_at IS NOT NULL AND expires_at>?
-        AND consumed_at IS NULL`).bind(now, runId, owner, fingerprint, authorization.control_plane_sha,
-      authorization.authorization_id, authorization.authorization_reference, owner,
-      authorization.decision_record_id, now),
     db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
     WHERE owner_id=? AND id=? AND fingerprint=?
       AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?
       AND EXISTS (SELECT 1 FROM training_authorizations a WHERE a.plan_id=training_plans.id
         AND a.owner_id=training_plans.owner_id AND a.fingerprint=training_plans.fingerprint
         AND a.authorization_id=? AND a.authorization_reference=? AND a.control_plane_sha=?
-        AND a.consumed_at=? AND a.expires_at>?)
+        AND a.authorization_source='site_owner_plan_confirmation' AND a.authorized_by=?
+        AND a.decision_record_id=? AND a.authorized_at IS NOT NULL
+        AND a.consumed_at IS NULL AND a.expires_at>?)
       AND json_extract(plan_json, '$.max_cost_microusd') +
         COALESCE((SELECT SUM(json_extract(p.plan_json, '$.max_cost_microusd'))
           FROM training_plans p WHERE p.dispatch_claimed_at>=?), 0) <= ?
     RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, authorization.authorization_id,
-      authorization.authorization_reference, authorization.control_plane_sha, now, now, monthStart, monthlyLimit),
+      authorization.authorization_reference, authorization.control_plane_sha, owner,
+      authorization.decision_record_id, now, monthStart, monthlyLimit),
+    db.prepare(`UPDATE training_authorizations SET consumed_at=?
+      WHERE plan_id=? AND owner_id=? AND fingerprint=? AND control_plane_sha=?
+        AND authorization_id=? AND authorization_reference=?
+        AND authorization_source='site_owner_plan_confirmation' AND authorized_by=?
+        AND decision_record_id=? AND authorized_at IS NOT NULL AND expires_at>?
+        AND consumed_at IS NULL AND EXISTS (SELECT 1 FROM training_plans p
+          WHERE p.id=training_authorizations.plan_id AND p.owner_id=training_authorizations.owner_id
+            AND p.fingerprint=training_authorizations.fingerprint AND p.dispatch_claimed_at=?)`)
+      .bind(now, runId, owner, fingerprint, authorization.control_plane_sha,
+        authorization.authorization_id, authorization.authorization_reference, owner,
+        authorization.decision_record_id, now, now),
   ]);
-  return results?.[1]?.results?.[0] || null;
+  return results?.[0]?.results?.[0] || null;
 }
 
 export async function submitTrainingPlan(env, owner, args, delegate, isConfigured) {
@@ -195,7 +230,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       Object.entries(plan).some(([key, value]) => !Object.hasOwn(approvedPlan, key) || approvedPlan[key] !== value)) {
     throw new Error("INVALID_ARGUMENTS");
   }
-  if (row.dispatch_claimed_at !== null) return trainingPlanState(env.DB, owner, runId);
+  if (row.dispatch_claimed_at !== null) return trainingPlanState(env, owner, runId);
   const controlPlaneSha = env.MAP_TRAINING_CONTROL_PLANE_SHA;
   if (typeof controlPlaneSha !== "string" || !/^[0-9a-f]{40}$/.test(controlPlaneSha)) {
     return { schema_version: 2, status: "blocked", human_summary: "学習の認証境界が設定されていません。",
@@ -217,11 +252,19 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     throw new Error("TRAINING_PLAN_EXPIRED");
   }
   const now = Math.floor(Date.now() / 1000);
-  const authorization = await authorizeTrainingPlanFromMcp(env.DB, owner, runId,
-    fingerprint, controlPlaneSha, now);
-  if (!authorization) return { schema_version: 2, status: "blocked",
-    human_summary: "有効な所有者確認をこの学習計画へ結び付けられませんでした。",
-    machine_state: { run_id: runId }, next_allowed_actions: ["training_status"],
+  const authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);
+  const expectedAuthorization = authorization && authorization.authorization_source === "site_owner_plan_confirmation" &&
+    authorization.authorized_by === owner && authorization.control_plane_sha === controlPlaneSha &&
+    authorization.decision_record_id === `training-plan:${runId}:${fingerprint}` &&
+    authorization.target_repository === plan.repository && authorization.target_sha === plan.commit &&
+    authorization.image_digest === plan.image_digest && authorization.provider === plan.provider &&
+    authorization.provider_resource_id === plan.provider_resource_id && authorization.gpu_count === plan.gpu_count &&
+    authorization.runtime_seconds === plan.runtime_seconds && authorization.max_cost_microusd === plan.max_cost_microusd &&
+    authorization.authorized_at !== null && authorization.expires_at > now && authorization.consumed_at === null;
+  if (!expectedAuthorization) return { schema_version: 2, status: "blocked",
+    human_summary: "このplanはまだSite上で有料実行の確認が済んでいません。authorization_urlを開いて確認してください。",
+    machine_state: { run_id: runId, authorization_state: "required",
+      authorization_url: trainingAuthorizationUrl(runId, fingerprint) }, next_allowed_actions: ["training_status"],
     blocking_reason: "TRAINING_AUTHORIZATION_REQUIRED" };
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
     Number(env.MAP_TRAINING_MONTHLY_MICROUSD), authorization);

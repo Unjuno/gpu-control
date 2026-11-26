@@ -20,7 +20,7 @@ def _required_call_id(value):
 
 
 def _validate_training_authorization(value, owner, run_id, fingerprint, plan):
-    """Require the exact one-use Sites confirmation at the provider boundary."""
+    """Require the exact one-use owner confirmation at the Sites boundary."""
     now = int(time.time())
     control_plane_sha = os.environ.get("MAP_TRAINING_CONTROL_PLANE_SHA", "")
     required = {
@@ -30,7 +30,7 @@ def _validate_training_authorization(value, owner, run_id, fingerprint, plan):
         "authorized_at", "expires_at", "owner", "run_id", "plan_fingerprint",
     }
     if (not isinstance(value, dict) or set(value) != required
-            or value.get("authorization_source") != "chatgpt_mcp_write_confirmation"
+            or value.get("authorization_source") != "site_owner_plan_confirmation"
             or value.get("owner") != owner or value.get("authorized_by") != owner
             or value.get("run_id") != run_id or value.get("plan_fingerprint") != fingerprint
             or value.get("decision_record_id") != f"training-plan:{run_id}:{fingerprint}"
