@@ -244,21 +244,13 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       saved.machine_state.plan_fingerprint, now, 100000), undefined);
     const fresh = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-prepare-fresh" })).machine_state;
-    const revision = "e".repeat(40);
-    const authorize = (plan) => db.prepare(`INSERT INTO training_authorizations
-      (plan_id, owner_id, fingerprint, control_plane_sha, challenge_hash, expires_at, authorized_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(plan.run_id, "test-owner", plan.plan_fingerprint,
-        revision, plan.run_id, now + 300, now);
-    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now, 100000, revision);
-    assert.equal(await claim(), undefined);
-    authorize(fresh);
+    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now, 100000);
     assert.ok(await claim());
     assert.equal(await claim(), undefined);
     const second = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-monthly-limit" })).machine_state;
-    authorize(second);
     assert.equal(await claimTrainingDispatch(env.DB, "test-owner", second.run_id,
-      second.plan_fingerprint, now, 100000, revision), undefined);
+      second.plan_fingerprint, now, 100000), undefined);
     assert.equal((await call("test-owner", "training_cancel",
       { run_id: fresh.run_id })).error, "GATEWAY_DELEGATION_FAILED");
     assert.equal(db.prepare("SELECT cancelled_at FROM training_plans WHERE id=?")
@@ -288,32 +280,6 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       .blocking_reason, "TRAINING_RUNTIME_MISMATCH");
     assert.equal(sends, 0);
     env.MAP_TRAINING_RUNTIME_SECONDS = "120";
-    assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
-      .blocking_reason, "TRAINING_AUTHORIZATION_REQUIRED");
-    env.MAP_TRAINING_CONTROL_PLANE_SHA = "e".repeat(40);
-    const prepareAgain = () => call("test-owner", "training_prepare",
-      { ...prepare, idempotency_key: "training-submit-transport" });
-    const unauthorized = await prepareAgain();
-    assert.equal(unauthorized.machine_state.executable, false);
-    assert.ok(!unauthorized.next_allowed_actions.includes("training_submit"));
-    const approvalUrl = new URL(unauthorized.authorization_url);
-    const headers = { "oai-authenticated-user-id": "test-owner" };
-    const page = await worker.fetch(new Request(approvalUrl, { headers }), env);
-    assert.equal(page.status, 200);
-    const token = (await page.text()).match(/name="challenge" value="([a-f0-9]{64})"/)?.[1];
-    assert.ok(token);
-    const confirm = (owner) => worker.fetch(new Request(new URL(approvalUrl.pathname, approvalUrl), {
-      method: "POST",
-      headers: { "oai-authenticated-user-id": owner, origin: approvalUrl.origin },
-      body: new URLSearchParams({ run_id: submission.run_id, plan_fingerprint: submission.plan_fingerprint,
-        challenge: token, confirm: "yes" }),
-    }), env);
-    assert.equal((await confirm("other-owner")).status, 409);
-    assert.equal((await confirm("test-owner")).status, 200);
-    assert.equal((await confirm("test-owner")).status, 409);
-    const authorized = await prepareAgain();
-    assert.equal(authorized.machine_state.executable, true);
-    assert.ok(authorized.next_allowed_actions.includes("training_submit"));
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "uncertain");
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))

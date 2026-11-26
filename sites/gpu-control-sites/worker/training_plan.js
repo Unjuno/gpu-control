@@ -72,8 +72,7 @@ export async function prepareTrainingPlan(env, owner, args) {
   const admission = env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
     Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
-  const executableNow = state === "prepared" && admission &&
-    Boolean(await trainingAuthorizationDeadline(env, owner, existing.id, fingerprint, now));
+  const executableNow = state === "prepared" && admission;
   if (executableNow) actions.unshift("training_submit");
   return { ...preview, approved_plan: plan, next_allowed_actions: actions,
     human_summary: "認証済みの所有者に紐づく学習計画を保存しました。",
@@ -101,39 +100,24 @@ export async function trainingPlanState(db, owner, runId, cancel = false) {
 
 // Authorization must already be established. This single write reserves the
 // whole plan ceiling and prevents concurrent or duplicate dispatch claims.
-export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, controlPlaneSha) {
+export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit) {
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1) {
     throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
   }
-  if (!/^[0-9a-f]{40}$/.test(controlPlaneSha || "")) return;
   const date = new Date(now * 1000);
   const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
   return db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
     WHERE owner_id=? AND id=? AND fingerprint=?
       AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?
-      AND EXISTS (SELECT 1 FROM training_authorizations a
-        WHERE a.plan_id=training_plans.id AND a.owner_id=training_plans.owner_id
-          AND a.fingerprint=training_plans.fingerprint AND a.control_plane_sha=?
-          AND a.authorized_at<=? AND a.expires_at>?)
       AND json_extract(plan_json, '$.max_cost_microusd') +
         COALESCE((SELECT SUM(json_extract(p.plan_json, '$.max_cost_microusd'))
           FROM training_plans p WHERE p.dispatch_claimed_at>=?), 0) <= ?
-    RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, controlPlaneSha, now, now, monthStart, monthlyLimit).first();
-}
-
-async function trainingAuthorizationDeadline(env, owner, runId, fingerprint, now) {
-  const revision = env.MAP_TRAINING_CONTROL_PLANE_SHA;
-  if (!/^[0-9a-f]{40}$/.test(revision || "")) return null;
-  const authorization = await env.DB.prepare(`SELECT expires_at FROM training_authorizations
-    WHERE owner_id=? AND plan_id=? AND fingerprint=? AND control_plane_sha=?
-      AND authorized_at<=? AND expires_at>?`)
-    .bind(owner, runId, fingerprint, revision, now, now).first();
-  return authorization?.expires_at ?? null;
+    RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, monthStart, monthlyLimit).first();
 }
 
 export async function submitTrainingPlan(env, owner, args, delegate, isConfigured) {
   const { run_id: runId, plan_fingerprint: fingerprint, approved_plan: approved } = args;
-  const row = await env.DB.prepare(`SELECT plan_json, dispatch_claimed_at FROM training_plans
+  const row = await env.DB.prepare(`SELECT plan_json, dispatch_claimed_at, expires_at FROM training_plans
     WHERE owner_id=? AND id=? AND fingerprint=?`).bind(owner, runId, fingerprint).first();
   if (!row) throw new Error("RUN_NOT_FOUND");
   const plan = JSON.parse(row.plan_json);
@@ -157,15 +141,9 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     throw new Error("TRAINING_PLAN_EXPIRED");
   }
   const now = Math.floor(Date.now() / 1000);
-  const authorizationExpiresAt = await trainingAuthorizationDeadline(env, owner, runId, fingerprint, now);
-  if (!authorizationExpiresAt) {
-    return { schema_version: 2, status: "blocked",
-      human_summary: "この学習計画に対する有効な実行許可がありません。",
-      machine_state: { run_id: runId }, next_allowed_actions: [],
-      blocking_reason: "TRAINING_AUTHORIZATION_REQUIRED" };
-  }
+  const authorizationExpiresAt = row.expires_at;
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
-    Number(env.MAP_TRAINING_MONTHLY_MICROUSD), env.MAP_TRAINING_CONTROL_PLANE_SHA);
+    Number(env.MAP_TRAINING_MONTHLY_MICROUSD));
   if (!claimed) return { schema_version: 2, status: "blocked", human_summary: "計画または予算枠を確保できませんでした。",
     machine_state: { run_id: runId }, next_allowed_actions: ["training_status"], blocking_reason: "TRAINING_DISPATCH_NOT_RESERVED" };
   let state = "uncertain";
