@@ -291,6 +291,19 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.ok(history.machine_state.runs.every(run => Number.isInteger(run.dispatch_claimed_at)));
     assert.deepEqual(history.next_allowed_actions, ["training_status"]);
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.runs, []);
+    const rejectedPlan = await call("test-owner", "training_prepare",
+      { ...prepare, idempotency_key: "training-definite-rejection" });
+    const rejectedArgs = { run_id: rejectedPlan.machine_state.run_id,
+      plan_fingerprint: rejectedPlan.machine_state.plan_fingerprint,
+      approved_plan: rejectedPlan.approved_plan };
+    env.MAP_TRAINING_MONTHLY_MICROUSD = "400000";
+    const rejected = await submitTrainingPlan(env, "test-owner", rejectedArgs,
+      async () => ({ state: "blocked", reason: "TRAINING_ADMISSION_DISABLED" }), () => true);
+    assert.equal(rejected.blocking_reason, "TRAINING_ADMISSION_DISABLED");
+    const rejectedStatus = await call("test-owner", "training_status", { run_id: rejectedArgs.run_id });
+    assert.equal(rejectedStatus.machine_state.state, "blocked");
+    assert.equal(rejectedStatus.machine_state.reason, "TRAINING_ADMISSION_DISABLED");
+    assert.deepEqual(rejectedStatus.next_allowed_actions, []);
     assert.equal((await call("other-owner", "training_status",
       { run_id: submission.run_id })).error, "RUN_NOT_FOUND");
     assert.equal((await call("other-owner", "training_checkpoint",
