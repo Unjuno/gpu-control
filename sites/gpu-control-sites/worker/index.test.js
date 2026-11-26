@@ -195,8 +195,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await call("unauthorized", "training_register", args)).error, "SITE_USER_NOT_AUTHORIZED");
     assert.equal((await call("test-owner", "training_register", { ...args, repository: "https://example.com/a/b" })).error, "TRAINING_SOURCE_INVALID");
     const first = await call("test-owner", "training_register", args);
-    assert.equal(first.machine_state.state, "pending_review");
-    assert.equal(first.machine_state.executable, false);
+    assert.equal(first.machine_state.state, "registered");
+    assert.equal(first.machine_state.executable, undefined);
     const configured = { ...args, dataset: "papers", run_name: "map44m-first", steps: 100 };
     const spec = await call("test-owner", "training_register", configured);
     const specRetry = await call("test-owner", "training_register", configured);
@@ -222,6 +222,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const own = (await call("test-owner", "training_list", {})).machine_state.registrations;
     assert.equal(own.length, 1);
     assert.equal(own[0].execution_profile_configured, false);
+    assert.equal(own[0].state, "registered");
+    assert.equal(own[0].can_prepare, false);
     assert.equal(own[0].registration_id, first.machine_state.registration_id);
     const specPreview = { registration_id: first.machine_state.registration_id,
       execution_spec_id: spec.machine_state.execution_spec_id, runtime_seconds: 120, max_cost_microusd: 100000 };
@@ -290,6 +292,11 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       "TRAINING_PROFILE_UNAVAILABLE");
     env.MAP_TRAINING_SOURCE_SHA = sourceSha;
     assert.equal((await call("test-owner", "training_list", {})).machine_state.registrations.find(item => item.registration_id === registrationId).execution_profile_configured, true);
+    const configuredList = await call("test-owner", "training_list", {});
+    const configuredRegistration = configuredList.machine_state.registrations.find(item => item.registration_id === registrationId);
+    assert.equal(configuredRegistration.state, "registered");
+    assert.equal(configuredRegistration.can_prepare, true);
+    assert.ok(configuredList.next_allowed_actions.includes("training_preview"));
     assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
       "TRAINING_QUOTE_UNAVAILABLE");
     env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
@@ -452,7 +459,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const history = await call("test-owner", "training_list", {});
     assert.ok(history.machine_state.runs.some(run => run.run_id === submission.run_id));
     assert.ok(history.machine_state.runs.every(run => Number.isInteger(run.dispatch_claimed_at)));
-    assert.deepEqual(history.next_allowed_actions, ["training_status"]);
+    assert.deepEqual(history.next_allowed_actions, ["training_preview", "training_status"]);
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.runs, []);
     const rejectedPlan = await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-definite-rejection" });

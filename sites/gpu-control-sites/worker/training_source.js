@@ -47,12 +47,19 @@ export async function registerTrainingSource(db, owner, input) {
   }
   return { schema_version: 2, status: "ok",
     human_summary: executionSpecId
-      ? "MAP-44Mの学習ソースを登録し、固定学習設定を保存しました。"
-      : "学習ソースを登録しました。実行プロファイルの審査後に利用できます。",
+      ? "MAP-44Mの学習ソースと固定学習設定を登録しました。training_listで実行プロファイルを確認できます。"
+      : "学習ソースを登録しました。training_listで利用可能な実行プロファイルを確認できます。",
     machine_state: { registration_id: row.id, repository: row.repository, commit: row.source_sha,
       ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
-      state: "pending_review", executable: false },
-    next_allowed_actions: [], blocking_reason: null };
+      state: "registered" },
+    next_allowed_actions: ["training_list"], blocking_reason: null };
+}
+
+function hasConfiguredExecutionProfile(row, env) {
+  if (row.repository !== "unjuno/model-as-a-paper" || row.commit !== env.MAP_TRAINING_SOURCE_SHA) return false;
+  const imageId = env.MAP_TRAINING_MODAL_IMAGE_ID;
+  if (imageId) return /^im-[A-Za-z0-9]{8,128}$/.test(imageId);
+  return /^sha256:[0-9a-f]{64}$/.test(env.MAP_TRAINING_IMAGE_DIGEST || "");
 }
 
 export async function listTrainingSources(db, owner, env = {}) {
@@ -68,16 +75,19 @@ export async function listTrainingSources(db, owner, env = {}) {
   const { results: specs } = await db.prepare(`SELECT id AS execution_spec_id, registration_id, spec_json, created_at
     FROM training_execution_specs WHERE owner_id=?
     ORDER BY created_at DESC, id DESC LIMIT 50`).bind(owner).all();
+  const registrations = results.map((row) => {
+    const executionProfileConfigured = hasConfiguredExecutionProfile(row, env);
+    return { ...row, state: "registered", execution_profile_configured: executionProfileConfigured,
+      can_prepare: executionProfileConfigured };
+  });
+  const nextActions = [];
+  if (registrations.some((row) => row.can_prepare)) nextActions.push("training_preview");
+  if (runs.length) nextActions.push("training_status");
   return { schema_version: 2, status: "ok",
-    human_summary: "登録済みソースと、送信を試行した学習計画の一覧です。実行結果は training_status で確認できます。",
-    machine_state: { registrations: results.map((row) => ({
-      ...row, state: "pending_review", executable: false,
-      execution_profile_configured: row.repository === "unjuno/model-as-a-paper" &&
-        row.commit === env.MAP_TRAINING_SOURCE_SHA &&
-        Boolean(env.MAP_TRAINING_MODAL_IMAGE_ID || env.MAP_TRAINING_IMAGE_DIGEST),
-    })), runs,
+    human_summary: "登録済みソースと送信済み学習計画の一覧です。can_prepare=trueのソースはtraining_previewで条件と費用を確認できます。実行結果はtraining_statusで確認できます。",
+    machine_state: { registrations, runs,
       execution_specs: specs.map(({ spec_json, ...item }) => ({ ...item, ...JSON.parse(spec_json) })) },
-    next_allowed_actions: runs.length ? ["training_status"] : [], blocking_reason: null };
+    next_allowed_actions: nextActions, blocking_reason: null };
 }
 
 // Used by planning to resolve the immutable source through the caller's registration.
