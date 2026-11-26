@@ -197,6 +197,13 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const previewSpec = await call("test-owner", "training_preview", specPreview);
     assert.equal(previewSpec.blocking_reason, "TRAINING_PROFILE_UNAVAILABLE");
     assert.deepEqual(previewSpec.machine_state.command, ["python", "train.py"]);
+    const prepareSpec = await call("test-owner", "training_prepare",
+      { ...specPreview, idempotency_key: "custom-command-no-execution" });
+    assert.equal(prepareSpec.status, "blocked");
+    assert.equal(prepareSpec.blocking_reason, "TRAINING_PROFILE_UNAVAILABLE");
+    assert.ok(!prepareSpec.next_allowed_actions.includes("training_submit"));
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_plans WHERE owner_id=?")
+      .get("test-owner").count, 0);
     assert.equal((await call("other-owner", "training_preview", specPreview)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");
     const otherSource = await call("test-owner", "training_register", { ...args, commit: "f".repeat(40) });
