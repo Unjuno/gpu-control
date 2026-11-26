@@ -151,6 +151,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0023_training_plans.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0024_training_plan_cancellation.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0025_training_submission_claim.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0026_training_authorizations.sql", import.meta.url), "utf8"));
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner", DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
@@ -282,29 +283,26 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .blocking_reason, "TRAINING_AUTHORIZATION_REQUIRED");
     env.MAP_TRAINING_CONTROL_PLANE_SHA = "e".repeat(40);
-    const authorization = {
-      schema_version: 1, owner: "test-owner", run_id: submission.run_id,
-      plan_fingerprint: submission.plan_fingerprint,
-      control_plane_sha: env.MAP_TRAINING_CONTROL_PLANE_SHA,
-      authorization_reference: "test-authorization",
-      authorized_at: now - 15, expires_at: now + 300,
-    };
-    for (const mismatch of [
-      { owner: "other-owner" }, { run_id: "f".repeat(32) },
-      { plan_fingerprint: "f".repeat(64) }, { control_plane_sha: "f".repeat(40) },
-      { expires_at: now - 1 }, { expires_at: now + 901 },
-    ]) {
-      env.MAP_TRAINING_EXECUTION_AUTHORIZATION = JSON.stringify({ ...authorization, ...mismatch });
-      assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
-        .blocking_reason, "TRAINING_AUTHORIZATION_REQUIRED");
-    }
-    assert.equal(sends, 0);
     const prepareAgain = () => call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-submit-transport" });
     const unauthorized = await prepareAgain();
     assert.equal(unauthorized.machine_state.executable, false);
     assert.ok(!unauthorized.next_allowed_actions.includes("training_submit"));
-    env.MAP_TRAINING_EXECUTION_AUTHORIZATION = JSON.stringify(authorization);
+    const approvalUrl = new URL(unauthorized.authorization_url);
+    const headers = { "oai-authenticated-user-id": "test-owner" };
+    const page = await worker.fetch(new Request(approvalUrl, { headers }), env);
+    assert.equal(page.status, 200);
+    const token = (await page.text()).match(/name="challenge" value="([a-f0-9]{64})"/)?.[1];
+    assert.ok(token);
+    const confirm = (owner) => worker.fetch(new Request(new URL(approvalUrl.pathname, approvalUrl), {
+      method: "POST",
+      headers: { "oai-authenticated-user-id": owner, origin: approvalUrl.origin },
+      body: new URLSearchParams({ run_id: submission.run_id, plan_fingerprint: submission.plan_fingerprint,
+        challenge: token, confirm: "yes" }),
+    }), env);
+    assert.equal((await confirm("other-owner")).status, 409);
+    assert.equal((await confirm("test-owner")).status, 200);
+    assert.equal((await confirm("test-owner")).status, 409);
     const authorized = await prepareAgain();
     assert.equal(authorized.machine_state.executable, true);
     assert.ok(authorized.next_allowed_actions.includes("training_submit"));

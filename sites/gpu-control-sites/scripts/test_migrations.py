@@ -11,7 +11,7 @@ conn = sqlite3.connect(":memory:")
 conn.execute("PRAGMA foreign_keys=ON")
 
 paths = sorted(MIGRATIONS.glob("*.sql"))
-assert paths[-1].name == "0025_training_submission_claim.sql"
+assert paths[-1].name == "0026_training_authorizations.sql"
 history = next(path for path in paths if path.name == "0021_reliable_run_history.sql")
 for path in paths[:paths.index(history)]:
     conn.executescript(path.read_text(encoding="utf-8"))

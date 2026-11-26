@@ -1,3 +1,4 @@
+import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
 import { listTrainingSources, registerTrainingSource } from "./training_source.js";
 import { runpodConfigured } from "./runpod_provider.js";
@@ -339,7 +340,7 @@ function authorizationReturnPath(request) {
   const runId = url.searchParams.get("run_id") || "";
   const fingerprint = url.searchParams.get("plan_fingerprint") || "";
   if (!/^[0-9a-f]{32}$/.test(runId) || !/^[0-9a-f]{64}$/.test(fingerprint)) return "/";
-  const returnTo = new URL("/authorize", SITE_PUBLIC_ORIGIN);
+  const returnTo = new URL(url.pathname, SITE_PUBLIC_ORIGIN);
   returnTo.searchParams.set("run_id", runId);
   returnTo.searchParams.set("plan_fingerprint", fingerprint);
   return `${returnTo.pathname}${returnTo.search}`;
@@ -402,6 +403,38 @@ async function renderAuthorizationPage(request, env, owner) {
   return htmlPage("実験の実行を確認", content);
 }
 
+async function renderTrainingAuthorizationPage(request, env, owner) {
+  const url = new URL(request.url);
+  const runId = url.searchParams.get("run_id") || "";
+  const fingerprint = url.searchParams.get("plan_fingerprint") || "";
+  if (!/^[0-9a-f]{32}$/.test(runId) || !/^[0-9a-f]{64}$/.test(fingerprint)) {
+    return htmlPage("承認リンクが無効です", "<p>チャットで学習計画を確認してください。</p>", 400);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const row = await env.DB.prepare(`SELECT plan_json FROM training_plans
+    WHERE id=? AND owner_id=? AND fingerprint=? AND expires_at>?
+      AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL`).bind(runId, owner, fingerprint, now).first();
+  if (!row) return htmlPage("学習計画を確認できません", "<p>チャットで学習計画の状態を確認してください。</p>", 404);
+  const plan = JSON.parse(row.plan_json);
+  const challenge = await issueTrainingChallenge(env.DB, owner, runId, fingerprint,
+    env.MAP_TRAINING_CONTROL_PLANE_SHA, now);
+  if (!challenge) return htmlPage("承認状態", "<p>チャットに戻り、学習計画の状態を確認してください。</p>");
+  return htmlPage("GPU学習の実行を確認", `<dl>
+    <dt>リポジトリとコミット</dt><dd>${escapeHtml(plan.repository)}<br><code>${escapeHtml(plan.commit)}</code></dd>
+    <dt>実行イメージ</dt><dd><code>${escapeHtml(plan.image_digest)}</code></dd>
+    <dt>プロバイダーとGPU</dt><dd>Modal / ${escapeHtml(plan.gpu)} × ${escapeHtml(plan.gpu_count)}</dd>
+    <dt>実行時間上限</dt><dd>${escapeHtml(plan.runtime_seconds)}秒</dd>
+    <dt>計画の費用上限</dt><dd>USD ${escapeHtml((plan.max_cost_microusd / 1000000).toFixed(6))}</dd>
+    </dl>
+    <form method="post" action="/authorize-training">
+      <input type="hidden" name="run_id" value="${runId}">
+      <input type="hidden" name="plan_fingerprint" value="${fingerprint}">
+      <input type="hidden" name="challenge" value="${challenge.token}">
+      <label><input type="checkbox" name="confirm" value="yes" required> この条件で有料のGPU学習を1回承認します。</label>
+      <button type="submit">承認する</button>
+    </form>`);
+}
+
 async function handleAuthorizationRequest(request, env) {
   const authenticatedUserId = request.headers.get("oai-authenticated-user-id");
   const owner = userId(request, env);
@@ -412,7 +445,14 @@ async function handleAuthorizationRequest(request, env) {
   }
   if (!owner) return htmlPage("このアカウントは許可されていません", "<p>GPU Controlを許可したChatGPTアカウントで開いてください。</p>", 403);
   if (!env.DB) return htmlPage("データベースを利用できません", "<p>このSiteでは承認を記録できません。</p>", 503);
-  if (request.method === "GET") return renderAuthorizationPage(request, env, owner);
+  const training = new URL(request.url).pathname === "/authorize-training";
+  if (training && !/^[0-9a-f]{40}$/.test(env.MAP_TRAINING_CONTROL_PLANE_SHA || "")) {
+    return htmlPage("学習の承認を受け付けていません", "<p>チャットで学習計画の状態を確認してください。</p>", 503);
+  }
+  if (request.method === "GET") {
+    return training ? renderTrainingAuthorizationPage(request, env, owner)
+      : renderAuthorizationPage(request, env, owner);
+  }
   if (request.method !== "POST") return htmlPage("Method Not Allowed", "<p>この操作にはGETまたはPOSTを使用してください。</p>", 405);
   const url = new URL(request.url);
   const origin = request.headers.get("origin");
@@ -437,6 +477,13 @@ async function handleAuthorizationRequest(request, env) {
     return htmlPage("承認内容が不完全です", "<p>チャットから承認リンクを開き直してください。</p>", 400);
   }
   const now = Math.floor(Date.now() / 1000);
+  if (training) {
+    const confirmed = await confirmTrainingChallenge(env.DB, owner, runId, fingerprint,
+      env.MAP_TRAINING_CONTROL_PLANE_SHA, token, now);
+    return confirmed
+      ? htmlPage("学習計画を承認しました", "<p>チャットに戻り、この学習計画を実行してください。</p>")
+      : htmlPage("承認できませんでした", "<p>チャットで学習計画の状態を確認してください。</p>", 409);
+  }
   const challengeHash = await sha256(token);
   const authorizationId = randomHex(16);
   let results;
@@ -1796,7 +1843,18 @@ async function callTool(name, args, request, env, context = null) {
         : state === "succeeded" || remote.failure_code === "TRAINING_RUNTIME_LIMIT" ? ["training_checkpoint"] : [] };
   }
   if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool, gatewayDelegationConfigured);
-  if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
+  if (name === "training_prepare") {
+    const prepared = await prepareTrainingPlan(env, owner, args);
+    const state = prepared.machine_state;
+    if (state.state !== "prepared" || state.executable ||
+        env.MAP_TRAINING_ADMISSION_ENABLED !== "true" ||
+        !/^[0-9a-f]{40}$/.test(env.MAP_TRAINING_CONTROL_PLANE_SHA || "")) return prepared;
+    const url = new URL("/authorize-training", SITE_PUBLIC_ORIGIN);
+    url.searchParams.set("run_id", state.run_id);
+    url.searchParams.set("plan_fingerprint", state.plan_fingerprint);
+    return { ...prepared, authorization_url: url.toString(),
+      human_summary: "承認リンクで実行条件を確認してください。承認後、チャットで同じ計画を再取得すると実行できます。" };
+  }
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);
   if (name === "training_list") return listTrainingSources(env.DB, owner);
   if (name === "training_register") return registerTrainingSource(env.DB, owner, args);
@@ -2421,7 +2479,7 @@ export default {
     }
     if (url.pathname === "/health" && request.method === "GET") return json({ ok: true, service: "gpu-control-sites", storage: !!env.DB });
     if (url.pathname.startsWith("/runner/")) return json({ error: "NOT_FOUND" }, 404);
-    if (url.pathname === "/authorize") {
+    if (url.pathname === "/authorize" || url.pathname === "/authorize-training") {
       try { return await handleAuthorizationRequest(request, env); }
       catch { return htmlPage("承認処理を完了できません", "<p>チャットでplanの状態を確認してください。</p>", 500); }
     }
