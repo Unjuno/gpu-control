@@ -30,7 +30,8 @@ class MapTrainingBackend:
     def validate(self, plan):
         validate_map_plan(
             plan, source_sha=os.environ.get("MAP_TRAINING_SOURCE_SHA"),
-            image_digest=os.environ.get("MAP_TRAINING_IMAGE_DIGEST"),
+            image_digest=(os.environ.get("MAP_TRAINING_MODAL_IMAGE_ID")
+                          or os.environ.get("MAP_TRAINING_IMAGE_DIGEST")),
             hourly_microusd=int(os.environ.get("MAP_TRAINING_HOURLY_MICROUSD", "0")),
             quote_expires_at=int(os.environ.get("MAP_TRAINING_QUOTE_EXPIRES_AT", "0")),
         )

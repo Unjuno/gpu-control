@@ -10,22 +10,23 @@ from map_training_job import run_map_training
 
 
 SOURCE_SHA = os.environ["MAP_TRAINING_SOURCE_SHA"]
-IMAGE_DIGEST = os.environ["MAP_TRAINING_IMAGE_DIGEST"]
+MODAL_IMAGE_ID = os.environ.get("MAP_TRAINING_MODAL_IMAGE_ID")
+IMAGE_DIGEST = MODAL_IMAGE_ID or os.environ["MAP_TRAINING_IMAGE_DIGEST"]
 RUNTIME_LIMIT = int(os.environ["MAP_TRAINING_RUNTIME_SECONDS"])
 HOURLY_MICROUSD = int(os.environ["MAP_TRAINING_HOURLY_MICROUSD"])
 QUOTE_EXPIRES_AT = int(os.environ["MAP_TRAINING_QUOTE_EXPIRES_AT"])
 if not re.fullmatch(r"[0-9a-f]{40}", SOURCE_SHA):
     raise ValueError("invalid MAP source commit")
-if not re.fullmatch(r"sha256:[0-9a-f]{64}", IMAGE_DIGEST):
+image_pattern = r"im-[A-Za-z0-9]{8,128}" if MODAL_IMAGE_ID else r"sha256:[0-9a-f]{64}"
+if not re.fullmatch(image_pattern, IMAGE_DIGEST):
     raise ValueError("invalid MAP image digest")
 if not 120 <= RUNTIME_LIMIT <= 3000:
     raise ValueError("invalid MAP runtime")
 
 app = modal.App("gpu-control-map-training")
-image = (
-    modal.Image.from_registry(f"ghcr.io/unjuno/gpu-control-map-training@{IMAGE_DIGEST}")
-    .add_local_python_source("map_training_job", "map_checkpoint")
-)
+base_image = (modal.Image.from_id(MODAL_IMAGE_ID) if MODAL_IMAGE_ID else
+              modal.Image.from_registry(f"ghcr.io/unjuno/gpu-control-map-training@{IMAGE_DIGEST}"))
+image = base_image.add_local_python_source("map_training_job", "map_checkpoint")
 corpus = modal.Volume.from_name("gpu-control-map-corpus", create_if_missing=False)
 checkpoints = modal.Volume.from_name("gpu-control-map-checkpoints", create_if_missing=False)
 

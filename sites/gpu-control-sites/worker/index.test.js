@@ -208,6 +208,13 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const plan = await call("test-owner", "training_preview", preview);
     assert.equal(plan.status, "ok");
     assert.equal(plan.machine_state.image_digest, imageDigest);
+    env.MAP_TRAINING_MODAL_IMAGE_ID = "invalid";
+    assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
+      "TRAINING_PROFILE_UNAVAILABLE");
+    env.MAP_TRAINING_MODAL_IMAGE_ID = "im-Abcdefgh1234";
+    assert.equal((await call("test-owner", "training_preview", preview)).machine_state.image_digest,
+      env.MAP_TRAINING_MODAL_IMAGE_ID);
+    delete env.MAP_TRAINING_MODAL_IMAGE_ID;
     assert.equal(plan.machine_state.gpu, "L4");
     assert.equal(plan.machine_state.estimated_cost_microusd, 88889);
     assert.equal(plan.machine_state.executable, false);

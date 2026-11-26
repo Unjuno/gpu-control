@@ -210,6 +210,9 @@ the same `MAP_TRAINING_SOURCE_SHA`, `MAP_TRAINING_IMAGE_DIGEST`,
 `MAP_TRAINING_RUNTIME_SECONDS`, `MAP_TRAINING_HOURLY_MICROUSD` and
 `MAP_TRAINING_QUOTE_EXPIRES_AT` as Sites. Apply D1 migrations before updating
 the Worker. Set the checked pricing configuration to expire within 30 days.
+For a privately built Modal image, set `MAP_TRAINING_MODAL_IMAGE_ID` to the
+immutable `im-…` ID in all three components instead of setting a GHCR digest.
+The existing MCP field `image_digest` carries that ID in this mode.
 Each prepared plan still expires within 10 minutes. Keep admission disabled until the image, dataset, workspace
 billing limit, and exact execution authorization have been verified.
 Sites requires `MAP_TRAINING_MONTHLY_MICROUSD`; its ledger reserves the full
