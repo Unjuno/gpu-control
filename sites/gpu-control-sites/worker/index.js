@@ -1845,7 +1845,7 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool, gatewayDelegationConfigured);
   if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);
-  if (name === "training_list") return listTrainingSources(env.DB, owner);
+  if (name === "training_list") return listTrainingSources(env.DB, owner, env);
   if (name === "training_register") return registerTrainingSource(env.DB, owner, args);
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return capabilities(env, owner);

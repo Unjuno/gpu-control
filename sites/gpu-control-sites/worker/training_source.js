@@ -32,7 +32,7 @@ export async function registerTrainingSource(db, owner, input) {
     next_allowed_actions: [], blocking_reason: null };
 }
 
-export async function listTrainingSources(db, owner) {
+export async function listTrainingSources(db, owner, env = {}) {
   const { results } = await db.prepare(`SELECT id AS registration_id, repository, source_sha AS "commit", created_at
     FROM training_registrations WHERE owner_id = ?
     ORDER BY created_at DESC, id DESC LIMIT 50`).bind(owner).all();
@@ -46,6 +46,9 @@ export async function listTrainingSources(db, owner) {
     human_summary: "登録済みソースと、送信を試行した学習計画の一覧です。実行結果は training_status で確認できます。",
     machine_state: { registrations: results.map((row) => ({
       ...row, state: "pending_review", executable: false,
+      execution_profile_configured: row.repository === "unjuno/model-as-a-paper" &&
+        row.commit === env.MAP_TRAINING_SOURCE_SHA &&
+        Boolean(env.MAP_TRAINING_MODAL_IMAGE_ID || env.MAP_TRAINING_IMAGE_DIGEST),
     })), runs },
     next_allowed_actions: runs.length ? ["training_status"] : [], blocking_reason: null };
 }
