@@ -6,6 +6,7 @@ arbitrary code, commands, images, URLs, repositories, or credentials.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -546,8 +547,8 @@ async def invoke(tool: str, request: Request):
             if "/root/site-modal" not in sys.path:
                 sys.path.insert(0, "/root/site-modal")
             from map_training_backend import MapTrainingBackend, dispatch_training_tool
-            result = dispatch_training_tool(
-                submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
+            result = await asyncio.to_thread(
+                dispatch_training_tool, submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
                 admission_enabled=os.environ.get("MAP_TRAINING_ADMISSION_ENABLED") == "true",
             )
         elif verified_tool == "experiment_submit":
@@ -560,7 +561,8 @@ async def invoke(tool: str, request: Request):
             result = _service().invoke(owner, verified_tool, arguments)
         if len(_canonical(result)) > MAX_BODY_BYTES:
             return _error("response_too_large", 502)
-        data_volume.commit()
+        if not verified_tool.startswith("training_"):
+            data_volume.commit()
         return result
     except PermissionError:
         return _error("invalid_delegation", 401)
@@ -572,6 +574,8 @@ async def invoke(tool: str, request: Request):
         from provider_adapter_core import AdapterError
         if isinstance(exc, AdapterError):
             return _error(exc.code, exc.status)
+        if tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint"}:
+            print(f"MAP adapter failure in {tool}: {type(exc).__module__}.{type(exc).__name__}")
         return _error("provider_operation_failed", 503)
 
 
