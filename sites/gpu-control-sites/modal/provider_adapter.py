@@ -548,7 +548,8 @@ async def invoke(tool: str, request: Request):
         elif verified_tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint"}:
             if "/root/site-modal" not in sys.path:
                 sys.path.insert(0, "/root/site-modal")
-            if arguments.get("approved_plan", {}).get("execution_spec_id"):
+            approved_plan = arguments.get("approved_plan", {})
+            if approved_plan.get("execution_spec_id"):
                 from custom_training_plan import validate_custom_plan
                 from custom_training_stage import stage_to_volumes
                 from custom_training_lifecycle import dispatch
@@ -561,7 +562,9 @@ async def invoke(tool: str, request: Request):
                         quote_expires_at=int(os.environ.get("CUSTOM_TRAINING_QUOTE_EXPIRES_AT", "0")),
                         gpu=os.environ.get("CUSTOM_TRAINING_GPU"))
                     if (plan.get("plan_fingerprint") != fingerprint or plan.get("owner") != owner_id or
-                            plan.get("execution_spec_id") != arguments["approved_plan"].get("execution_spec_id")):
+                            plan.get("execution_spec_id") != approved_plan.get("execution_spec_id") or
+                            plan.get("run_id") != arguments.get("run_id") or
+                            plan.get("image_id") != os.environ.get("CUSTOM_TRAINING_MODAL_IMAGE_ID")):
                         raise ValueError("training_plan_identity_mismatch")
 
                 def create_sandbox(*args, **kwargs):
@@ -580,8 +583,11 @@ async def invoke(tool: str, request: Request):
                     stage=lambda repository, commit, run_id: stage_to_volumes(
                         repository, commit, run_id, source_volume=custom_training_source_volume,
                         checkpoint_volume=custom_training_checkpoint_volume))
+                action = verified_tool.removeprefix("training_")
+                if action == "checkpoint":
+                    return _error("custom_checkpoint_transport_unavailable", 501)
                 result = await asyncio.to_thread(dispatch, submission_store, backend, owner,
-                    verified_tool.removeprefix("training_"), arguments,
+                    action, arguments,
                     validate=validate_custom,
                     admission_enabled=os.environ.get("CUSTOM_TRAINING_ADMISSION_ENABLED") == "true")
             else:

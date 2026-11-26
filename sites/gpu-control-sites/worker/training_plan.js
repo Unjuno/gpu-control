@@ -182,6 +182,38 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   }
   const now = Math.floor(Date.now() / 1000);
   const authorizationExpiresAt = row.expires_at;
+  if (plan.execution_spec_id) {
+    const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
+      Number(env.CUSTOM_TRAINING_MONTHLY_MICROUSD));
+    if (!claimed) return { schema_version: 2, status: "blocked",
+      human_summary: "独自学習の計画または月間予算枠を確保できませんでした。",
+      machine_state: { run_id: runId }, next_allowed_actions: ["training_status"],
+      blocking_reason: "TRAINING_DISPATCH_NOT_RESERVED" };
+    try {
+      const response = await delegate(env, owner, "training_submit", {
+        run_id: runId, plan_fingerprint: fingerprint,
+        approved_plan: { ...plan, owner, plan_fingerprint: fingerprint },
+        authorization_expires_at: authorizationExpiresAt,
+      });
+      if (response?.state === "blocked") {
+        await env.DB.prepare(`UPDATE training_plans SET dispatch_rejection=?
+          WHERE owner_id=? AND id=? AND fingerprint=? AND dispatch_claimed_at IS NOT NULL`)
+          .bind(response.reason || "TRAINING_PROVIDER_REJECTED", owner, runId, fingerprint).run();
+        return { schema_version: 2, status: "blocked", human_summary: "Modalが学習計画を受け付けませんでした。",
+          machine_state: { run_id: runId, state: "blocked" }, next_allowed_actions: ["training_status"],
+          blocking_reason: response.reason || "TRAINING_PROVIDER_REJECTED" };
+      }
+      return { schema_version: 2, status: "pending", human_summary: "独自学習をModalへ送信しました。状態を確認してください。",
+        machine_state: { ...plan, run_id: runId, plan_fingerprint: fingerprint, state: response?.state || "uncertain" },
+        next_allowed_actions: ["training_status"], blocking_reason: null };
+    } catch {
+      // Delivery can be ambiguous. The next operation is status recovery; do
+      // not release the reservation or submit again.
+      return { schema_version: 2, status: "pending", human_summary: "送信結果が未確定です。既存runの状態を照合してください。",
+        machine_state: { run_id: runId, state: "uncertain" }, next_allowed_actions: ["training_status"],
+        blocking_reason: null };
+    }
+  }
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
     Number(env.MAP_TRAINING_MONTHLY_MICROUSD));
   if (!claimed) return { schema_version: 2, status: "blocked", human_summary: "計画または予算枠を確保できませんでした。",

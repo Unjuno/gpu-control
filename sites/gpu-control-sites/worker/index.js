@@ -1836,8 +1836,13 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "training_status" || name === "training_cancel") {
     const local = await trainingPlanState(env.DB, owner, args.run_id, name === "training_cancel");
     if (local.machine_state.state !== "dispatching") return local;
+    const planRow = await env.DB.prepare(`SELECT plan_json FROM training_plans WHERE owner_id=? AND id=?`)
+      .bind(owner, args.run_id).first();
+    const custom = planRow && JSON.parse(planRow.plan_json).execution_spec_id;
     const remote = await delegateGatewayTool(env, owner, name, {
       run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
+      ...(custom ? { approved_plan: { ...JSON.parse(planRow.plan_json), owner,
+        plan_fingerprint: local.machine_state.plan_fingerprint } } : {}),
     });
     const state = remote?.state === "not_found" ? "uncertain" : remote?.state;
     if (!["running", "cancel_requested", "cancelled", "succeeded", "failed", "uncertain"].includes(state)) {

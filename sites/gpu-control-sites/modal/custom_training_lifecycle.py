@@ -11,6 +11,8 @@ import time
 def dispatch(store, backend, owner, action, args, *, validate, admission_enabled):
     run_id = args.get("run_id")
     fingerprint = args.get("plan_fingerprint")
+    if action in {"status", "cancel"} and fingerprint is None:
+        raise ValueError("invalid_run_identity")
     if (not isinstance(owner, str) or not owner or
             not isinstance(run_id, str) or re.fullmatch(r"[a-f0-9]{32}", run_id) is None or
             not isinstance(fingerprint, str) or re.fullmatch(r"[a-f0-9]{64}", fingerprint) is None):
@@ -24,7 +26,8 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
             return {"state": "blocked", "reason": "TRAINING_ADMISSION_DISABLED"}
         plan, expiry = args.get("plan"), args.get("authorization_expires_at")
         now = int(time.time())
-        if not isinstance(plan, dict) or plan.get("run_id") != run_id:
+        if (not isinstance(plan, dict) or plan.get("run_id") != run_id or
+                plan.get("plan_fingerprint") != fingerprint or plan.get("owner") != owner):
             raise ValueError("invalid_plan")
         if type(expiry) is not int or not now < expiry <= now + 900:
             return {"state": "blocked", "reason": "TRAINING_AUTHORIZATION_EXPIRED"}
@@ -46,6 +49,10 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
         return {"state": record["state"] if "handle" in record else "uncertain"}
     if action not in {"status", "cancel"}:
         raise ValueError("invalid_action")
+    plan = args.get("approved_plan")
+    if (not isinstance(plan, dict) or plan.get("owner") != owner or
+            plan.get("plan_fingerprint") != fingerprint or plan.get("run_id") != run_id):
+        raise ValueError("run_identity_mismatch")
     if "handle" not in record:
         return {"state": "uncertain"}
     if record.get("terminal") is not None:

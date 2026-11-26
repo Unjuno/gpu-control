@@ -16,7 +16,8 @@ class Store(dict):
 
 def test_one_start_bound_to_owner_and_cancel_until_terminal():
     run = "a" * 32
-    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": {"run_id": run},
+    plan = {"run_id": run, "plan_fingerprint": "b" * 64, "owner": "owner"}
+    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": plan,
             "authorization_expires_at": int(time.time()) + 60}
     starts, cancels = [], []
     states = iter([{"state": "running"}, {"state": "cancelled", "cleanup": "confirmed"}])
@@ -25,7 +26,8 @@ def test_one_start_bound_to_owner_and_cancel_until_terminal():
                               inspect=lambda *_: next(states))
     store = Store()
     def call(action, owner="owner"):
-        return dispatch(store, backend, owner, action, args, validate=lambda *_: None, admission_enabled=True)
+        bound = {**args, "approved_plan": plan}
+        return dispatch(store, backend, owner, action, bound, validate=lambda *_: None, admission_enabled=True)
     assert call("submit") == {"state": "running"}
     assert call("submit") == {"state": "running"}
     with pytest.raises(ValueError, match="run_identity_mismatch"):
@@ -39,7 +41,8 @@ def test_one_start_bound_to_owner_and_cancel_until_terminal():
 
 def test_ambiguous_start_never_retries():
     run = "a" * 32
-    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": {"run_id": run},
+    plan = {"run_id": run, "plan_fingerprint": "b" * 64, "owner": "owner"}
+    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": plan,
             "authorization_expires_at": int(time.time()) + 60}
     attempts = []
     def start(_):
@@ -56,7 +59,8 @@ def test_ambiguous_start_never_retries():
 
 def test_closed_admission_and_invalid_plan_never_claim_or_start():
     run = "a" * 32
-    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": {"run_id": run},
+    plan = {"run_id": run, "plan_fingerprint": "b" * 64, "owner": "owner"}
+    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": plan,
             "authorization_expires_at": int(time.time()) + 60}
     store = Store()
     backend = SimpleNamespace(start=lambda _: pytest.fail("must not start"))
