@@ -303,15 +303,20 @@ adapter and are separate from the Sites owner session. If the tool is
 unavailable or reports an authentication error, diagnose that exact MCP
 connection before changing provider credentials.
 
-To register the source, provide the GitHub repository and full commit SHA.
-For `unjuno/model-as-a-paper`, the server defaults to dataset `papers`, run
-name `map44m`, and a maximum of 100,000 steps; optional `dataset`, `run_name`,
-and `steps` values can be supplied at registration. The server fixes the
-reviewed source/image, Modal L4 profile, and private Volumes. Registration does
-not start training. Request a plan by repository and commit or by registration
-ID plus the returned execution-spec ID. Specify a runtime and maximum cost.
-The plan exposes the resolved GPU, dataset, run name, step ceiling, runtime,
-and estimated cost. When the user requests execution, submit that exact plan.
+Register with `training_register` using only
+`{"repository":"unjuno/model-as-a-paper"}`. The server supplies its
+configured, reviewed commit. For this repository, the server defaults to
+dataset `papers`, run name `map44m`, and a maximum of 100,000 steps; optional
+`dataset`, `run_name`, and `steps` values can be supplied at registration.
+The server fixes the reviewed source/image, Modal L4 profile, and private
+Volumes. Registration does not start training. Preview or prepare using only
+the returned `registration_id`; the server supplies the fixed 120-second
+runtime, $0.25 per-run ceiling, and prepare idempotency key. If `training_list`
+shows multiple execution profiles, include the selected `execution_spec_id`.
+The explicit commit, runtime, budget, and idempotency-key inputs remain
+available for compatibility. The plan exposes the resolved GPU, dataset, run
+name, step ceiling, runtime, and estimated cost. When the user requests
+execution, submit that exact plan.
 `training_submit` is the one billable write action. Before dispatch, open the
 `authorization_url` returned by `training_prepare` and confirm the exact source, image, dataset, run name, step ceiling, GPU,
 runtime, and cost in the authenticated GPU Control Site. This is

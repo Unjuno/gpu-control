@@ -36,16 +36,23 @@ authenticated Sites owner. Do not ask the user to log in to Modal again when
 Sites already returns owner-scoped records; Modal credentials are held by the
 server-side adapter and are not part of the chat connection.
 
-Register the exact GitHub repository and 40-character commit with
-`training_register`. For `unjuno/model-as-a-paper`, the server creates a fixed
-execution profile by default (`papers`, `map44m`, 100,000 maximum steps); the
-owner may set `dataset`, `run_name`, and `steps` at registration. Do not pass a
-shell command, image, GPU type, provider token, or arbitrary URL. The server
-pins the reviewed source/image, one L4, and its private data/checkpoint Volumes.
+Register `unjuno/model-as-a-paper` with `training_register`. The server fills
+the configured, reviewed commit when this repository is supplied without a
+commit. For this repository it creates a fixed execution profile by default
+(`papers`, `map44m`, 100,000 maximum steps); the owner may set `dataset`,
+`run_name`, and `steps` at registration. Do not ask the user to look up or
+repeat the pinned SHA. Do not pass a shell command, image, GPU type, provider
+token, or arbitrary URL. The server pins the reviewed source/image, one L4,
+and its private data/checkpoint Volumes.
 
-Call `training_preview` or `training_prepare` with the registration ID,
-execution-spec ID, runtime ceiling, and budget ceiling. If the user has
-already requested execution, prepare the exact plan. The first
+Call `training_preview` or `training_prepare` with only the registration ID
+when it has one execution profile. The server supplies the fixed 120-second
+runtime and $0.25 per-run ceiling and generates an idempotency key for prepare.
+If the registration has multiple execution profiles, select the desired
+`execution_spec_id` from `training_list`. Existing explicit runtime, budget,
+commit, and idempotency-key inputs remain supported, but do not ask the user
+to provide fixed values. If the user has already requested execution, prepare
+the exact plan. The first
 `training_prepare` returns an `authorization_url` for this plan. Open it using
 the authenticated ChatGPT Sites owner session and confirm the displayed source,
 image, dataset, run name, step ceiling, GPU, runtime, and cost once. This is not a request to sign in to Modal or
