@@ -311,6 +311,11 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "dispatching");
     assert.equal(sends, 1);
+    const history = await call("test-owner", "training_list", {});
+    assert.ok(history.machine_state.runs.some(run => run.run_id === submission.run_id));
+    assert.ok(history.machine_state.runs.every(run => Number.isInteger(run.dispatch_claimed_at)));
+    assert.deepEqual(history.next_allowed_actions, ["training_status"]);
+    assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.runs, []);
     assert.equal((await call("other-owner", "training_status",
       { run_id: submission.run_id })).error, "RUN_NOT_FOUND");
     assert.equal((await call("other-owner", "training_checkpoint",

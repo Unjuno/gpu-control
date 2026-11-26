@@ -220,7 +220,7 @@ const toolDescriptions = {
   training_prepare: "Save an exact, expiring plan for your reviewed training source. This does not launch a GPU job.",
   training_preview: "Preview a reviewed training profile by registered repository and commit, or registration ID, with a runtime and budget ceiling in millionths of a US dollar. This action cannot start training or confirm pricing.",
 
-  training_list: "List up to 50 recent training sources registered by the authenticated owner.",
+  training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
   training_register: "Register a GitHub repository and exact commit for the authenticated owner. The source is pending review and this action does not start training.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",

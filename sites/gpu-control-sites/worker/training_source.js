@@ -36,12 +36,18 @@ export async function listTrainingSources(db, owner) {
   const { results } = await db.prepare(`SELECT id AS registration_id, repository, source_sha AS "commit", created_at
     FROM training_registrations WHERE owner_id = ?
     ORDER BY created_at DESC, id DESC LIMIT 50`).bind(owner).all();
+  const { results: runs } = await db.prepare(`SELECT p.id AS run_id, r.repository, r.source_sha AS "commit",
+      p.dispatch_claimed_at
+    FROM training_plans p JOIN training_registrations r
+      ON p.registration_id=r.id AND p.owner_id=r.owner_id
+    WHERE p.owner_id=? AND p.dispatch_claimed_at IS NOT NULL
+    ORDER BY p.dispatch_claimed_at DESC, p.id DESC LIMIT 50`).bind(owner).all();
   return { schema_version: 2, status: "ok",
-    human_summary: "あなたが登録した学習ソースの一覧です。",
+    human_summary: "登録済みソースと、送信を試行した学習計画の一覧です。実行結果は training_status で確認できます。",
     machine_state: { registrations: results.map((row) => ({
       ...row, state: "pending_review", executable: false,
-    })) },
-    next_allowed_actions: [], blocking_reason: null };
+    })), runs },
+    next_allowed_actions: runs.length ? ["training_status"] : [], blocking_reason: null };
 }
 
 // Used by planning to resolve the immutable source through the caller's registration.
