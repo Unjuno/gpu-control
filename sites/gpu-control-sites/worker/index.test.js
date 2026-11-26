@@ -244,13 +244,21 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       saved.machine_state.plan_fingerprint, now, 100000), undefined);
     const fresh = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-prepare-fresh" })).machine_state;
-    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now, 100000);
+    const revision = "e".repeat(40);
+    const authorize = (plan) => db.prepare(`INSERT INTO training_authorizations
+      (plan_id, owner_id, fingerprint, control_plane_sha, challenge_hash, expires_at, authorized_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(plan.run_id, "test-owner", plan.plan_fingerprint,
+        revision, plan.run_id, now + 300, now);
+    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now, 100000, revision);
+    assert.equal(await claim(), undefined);
+    authorize(fresh);
     assert.ok(await claim());
     assert.equal(await claim(), undefined);
     const second = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-monthly-limit" })).machine_state;
+    authorize(second);
     assert.equal(await claimTrainingDispatch(env.DB, "test-owner", second.run_id,
-      second.plan_fingerprint, now, 100000), undefined);
+      second.plan_fingerprint, now, 100000, revision), undefined);
     assert.equal((await call("test-owner", "training_cancel",
       { run_id: fresh.run_id })).error, "GATEWAY_DELEGATION_FAILED");
     assert.equal(db.prepare("SELECT cancelled_at FROM training_plans WHERE id=?")

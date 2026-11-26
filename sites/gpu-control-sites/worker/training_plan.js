@@ -101,23 +101,24 @@ export async function trainingPlanState(db, owner, runId, cancel = false) {
 
 // Authorization must already be established. This single write reserves the
 // whole plan ceiling and prevents concurrent or duplicate dispatch claims.
-export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, controlPlaneSha = null) {
+export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, controlPlaneSha) {
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1) {
     throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
   }
+  if (!/^[0-9a-f]{40}$/.test(controlPlaneSha || "")) return;
   const date = new Date(now * 1000);
   const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
   return db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
     WHERE owner_id=? AND id=? AND fingerprint=?
       AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?
-      AND (? IS NULL OR EXISTS (SELECT 1 FROM training_authorizations a
+      AND EXISTS (SELECT 1 FROM training_authorizations a
         WHERE a.plan_id=training_plans.id AND a.owner_id=training_plans.owner_id
           AND a.fingerprint=training_plans.fingerprint AND a.control_plane_sha=?
-          AND a.authorized_at<=? AND a.expires_at>?))
+          AND a.authorized_at<=? AND a.expires_at>?)
       AND json_extract(plan_json, '$.max_cost_microusd') +
         COALESCE((SELECT SUM(json_extract(p.plan_json, '$.max_cost_microusd'))
           FROM training_plans p WHERE p.dispatch_claimed_at>=?), 0) <= ?
-    RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, controlPlaneSha, controlPlaneSha, now, now, monthStart, monthlyLimit).first();
+    RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, controlPlaneSha, now, now, monthStart, monthlyLimit).first();
 }
 
 async function trainingAuthorizationDeadline(env, owner, runId, fingerprint, now) {
