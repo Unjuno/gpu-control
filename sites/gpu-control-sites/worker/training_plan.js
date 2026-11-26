@@ -1,4 +1,5 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource } from "./training_source.js";
+import { authorizeTrainingPlanFromMcp } from "./training_authorization.js";
 
 const MAP_REPOSITORY = "unjuno/model-as-a-paper";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -82,7 +83,8 @@ export async function previewTrainingPlan(env, owner, args) {
   return { schema_version: 2, status: "ok",
     human_summary: "MAP-44Mの学習条件を確認しました。実行計画を準備できます。",
     machine_state: { ...machine, ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
-      ...execution, image_digest: imageIdentity,
+      ...execution, image_digest: imageIdentity, provider: "modal",
+      provider_resource_id: "gpu-control-map-training/train_map",
       gpu: "L4", gpu_count: 1, runtime_seconds: args.runtime_seconds,
       estimated_cost_microusd: estimatedCost, hourly_microusd: hourlyRate, quote_expires_at: quoteExpires,
       max_cost_microusd: args.max_cost_microusd, checkpoint_visibility: "owner_private" },
@@ -144,19 +146,42 @@ export async function trainingPlanState(db, owner, runId, cancel = false) {
 
 // Authorization must already be established. This single write reserves the
 // whole plan ceiling and prevents concurrent or duplicate dispatch claims.
-export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit) {
+export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, authorization) {
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1) {
     throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
   }
+  if (!authorization || authorization.authorization_source !== "chatgpt_mcp_write_confirmation" ||
+      authorization.authorized_by !== owner || authorization.decision_record_id !== `training-plan:${runId}:${fingerprint}` ||
+      !/^[0-9a-f]{40}$/.test(authorization.control_plane_sha || "") ||
+      !/^[0-9a-f]{32}$/.test(authorization.authorization_id || "") ||
+      !/^[0-9a-f]{64}$/.test(authorization.authorization_reference || "")) {
+    throw new Error("TRAINING_AUTHORIZATION_INVALID");
+  }
   const date = new Date(now * 1000);
   const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
-  return db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
+  const results = await db.batch([
+    db.prepare(`UPDATE training_authorizations SET consumed_at=?
+      WHERE plan_id=? AND owner_id=? AND fingerprint=? AND control_plane_sha=?
+        AND authorization_id=? AND authorization_reference=?
+        AND authorization_source='chatgpt_mcp_write_confirmation' AND authorized_by=?
+        AND decision_record_id=? AND authorized_at IS NOT NULL AND expires_at>?
+        AND consumed_at IS NULL`).bind(now, runId, owner, fingerprint, authorization.control_plane_sha,
+      authorization.authorization_id, authorization.authorization_reference, owner,
+      authorization.decision_record_id, now),
+    db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
     WHERE owner_id=? AND id=? AND fingerprint=?
       AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?
+      AND EXISTS (SELECT 1 FROM training_authorizations a WHERE a.plan_id=training_plans.id
+        AND a.owner_id=training_plans.owner_id AND a.fingerprint=training_plans.fingerprint
+        AND a.authorization_id=? AND a.authorization_reference=? AND a.control_plane_sha=?
+        AND a.consumed_at=? AND a.expires_at>?)
       AND json_extract(plan_json, '$.max_cost_microusd') +
         COALESCE((SELECT SUM(json_extract(p.plan_json, '$.max_cost_microusd'))
           FROM training_plans p WHERE p.dispatch_claimed_at>=?), 0) <= ?
-    RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, monthStart, monthlyLimit).first();
+    RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, authorization.authorization_id,
+      authorization.authorization_reference, authorization.control_plane_sha, now, now, monthStart, monthlyLimit),
+  ]);
+  return results?.[1]?.results?.[0] || null;
 }
 
 export async function submitTrainingPlan(env, owner, args, delegate, isConfigured) {
@@ -171,6 +196,12 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     throw new Error("INVALID_ARGUMENTS");
   }
   if (row.dispatch_claimed_at !== null) return trainingPlanState(env.DB, owner, runId);
+  const controlPlaneSha = env.MAP_TRAINING_CONTROL_PLANE_SHA;
+  if (typeof controlPlaneSha !== "string" || !/^[0-9a-f]{40}$/.test(controlPlaneSha)) {
+    return { schema_version: 2, status: "blocked", human_summary: "学習の認証境界が設定されていません。",
+      machine_state: { run_id: runId }, next_allowed_actions: ["training_status"],
+      blocking_reason: "TRAINING_AUTHORIZATION_NOT_CONFIGURED" };
+  }
   if (env.MAP_TRAINING_ADMISSION_ENABLED !== "true" || !isConfigured(env)) {
     return { schema_version: 2, status: "blocked", human_summary: "学習の実行受付は停止中です。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
@@ -186,16 +217,26 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     throw new Error("TRAINING_PLAN_EXPIRED");
   }
   const now = Math.floor(Date.now() / 1000);
-  const authorizationExpiresAt = row.expires_at;
+  const authorization = await authorizeTrainingPlanFromMcp(env.DB, owner, runId,
+    fingerprint, controlPlaneSha, now);
+  if (!authorization) return { schema_version: 2, status: "blocked",
+    human_summary: "有効な所有者確認をこの学習計画へ結び付けられませんでした。",
+    machine_state: { run_id: runId }, next_allowed_actions: ["training_status"],
+    blocking_reason: "TRAINING_AUTHORIZATION_REQUIRED" };
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
-    Number(env.MAP_TRAINING_MONTHLY_MICROUSD));
+    Number(env.MAP_TRAINING_MONTHLY_MICROUSD), authorization);
   if (!claimed) return { schema_version: 2, status: "blocked", human_summary: "計画または予算枠を確保できませんでした。",
     machine_state: { run_id: runId }, next_allowed_actions: ["training_status"], blocking_reason: "TRAINING_DISPATCH_NOT_RESERVED" };
   let state = "uncertain";
   try {
     const response = await delegate(env, owner, "training_submit", {
       run_id: runId, plan_fingerprint: fingerprint, plan: { ...plan, run_id: runId },
-      authorization_expires_at: authorizationExpiresAt,
+      authorization: { ...authorization, run_id: runId, plan_fingerprint: fingerprint,
+        provider: plan.provider, provider_resource_id: plan.provider_resource_id,
+        target_repository: plan.repository, target_sha: plan.commit, image_digest: plan.image_digest,
+        gpu_count: plan.gpu_count, runtime_seconds: plan.runtime_seconds,
+        max_cost_microusd: plan.max_cost_microusd },
+      authorization_expires_at: authorization.expires_at,
     });
     if (response?.state === "blocked" &&
         ["TRAINING_ADMISSION_DISABLED", "TRAINING_AUTHORIZATION_EXPIRED"].includes(response.reason)) {

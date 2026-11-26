@@ -1,4 +1,5 @@
 import { claimTrainingDispatch, submitTrainingPlan } from "./training_plan.js";
+import { authorizeTrainingPlanFromMcp } from "./training_authorization.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { getOwnedTrainingSource } from "./training_source.js";
@@ -154,14 +155,35 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0026_training_authorizations.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0027_training_dispatch_rejection.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0028_training_execution_specs.sql", import.meta.url), "utf8"));
-    const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner", DB: {
+    db.exec(readFileSync(new URL("../drizzle/0029_training_authorization_evidence.sql", import.meta.url), "utf8"));
+    const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner",
+      MAP_TRAINING_CONTROL_PLANE_SHA: "e".repeat(40), DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
-        return { bind: (...args) => ({
+        return { sql, bind: (...args) => ({ sql, values: args,
           run: async () => statement.run(...args),
           first: async () => statement.get(...args),
           all: async () => ({ results: statement.all(...args) }),
         }) };
+      },
+      async batch(statements) {
+        db.exec("BEGIN");
+        try {
+          const results = statements.map(({ sql, values }) => {
+            const statement = db.prepare(sql);
+            if (sql.includes("RETURNING")) {
+              const rows = statement.all(...values);
+              return { results: rows, meta: { changes: rows.length } };
+            }
+            const result = statement.run(...values);
+            return { results: [], meta: { changes: Number(result.changes) } };
+          });
+          db.exec("COMMIT");
+          return results;
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
       },
     } };
     const call = async (owner, name, args) => {
@@ -307,18 +329,24 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.deepEqual(await call("test-owner", "training_cancel", run), cancelled);
     assert.equal((await call("test-owner", "training_prepare", prepare)).machine_state.state, "cancelled");
     const now = Math.floor(Date.now() / 1000);
-    assert.equal(await claimTrainingDispatch(env.DB, "test-owner", run.run_id,
-      saved.machine_state.plan_fingerprint, now, 100000), undefined);
+    await assert.rejects(claimTrainingDispatch(env.DB, "test-owner", run.run_id,
+      saved.machine_state.plan_fingerprint, now, 100000, null),
+    { message: "TRAINING_AUTHORIZATION_INVALID" });
     const fresh = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-prepare-fresh" })).machine_state;
-    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now, 100000);
+    const freshAuthorization = await authorizeTrainingPlanFromMcp(env.DB, "test-owner", fresh.run_id,
+      fresh.plan_fingerprint, env.MAP_TRAINING_CONTROL_PLANE_SHA, now);
+    const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id,
+      fresh.plan_fingerprint, now, 100000, freshAuthorization);
     const concurrentClaims = await Promise.all([claim(), claim()]);
     assert.equal(concurrentClaims.filter(Boolean).length, 1);
-    assert.equal(await claim(), undefined);
+    assert.equal(await claim(), null);
     const second = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-monthly-limit" })).machine_state;
+    const secondAuthorization = await authorizeTrainingPlanFromMcp(env.DB, "test-owner", second.run_id,
+      second.plan_fingerprint, env.MAP_TRAINING_CONTROL_PLANE_SHA, now);
     assert.equal(await claimTrainingDispatch(env.DB, "test-owner", second.run_id,
-      second.plan_fingerprint, now, 100000), undefined);
+      second.plan_fingerprint, now, 100000, secondAuthorization), null);
     assert.equal((await call("test-owner", "training_cancel",
       { run_id: fresh.run_id })).error, "GATEWAY_DELEGATION_FAILED");
     assert.equal(db.prepare("SELECT cancelled_at FROM training_plans WHERE id=?")
@@ -350,6 +378,23 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     env.MAP_TRAINING_RUNTIME_SECONDS = "120";
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "uncertain");
+    const authorization = db.prepare(`SELECT authorization_source, decision_record_id, authorized_by,
+      control_plane_sha, target_repository, target_sha, image_digest, provider, provider_resource_id,
+      gpu_count, runtime_seconds, max_cost_microusd, authorized_at, expires_at, consumed_at
+      FROM training_authorizations WHERE plan_id=?`).get(submission.run_id);
+    assert.equal(authorization.authorization_source, "chatgpt_mcp_write_confirmation");
+    assert.equal(authorization.decision_record_id,
+      `training-plan:${submission.run_id}:${submission.plan_fingerprint}`);
+    assert.equal(authorization.authorized_by, "test-owner");
+    assert.equal(authorization.control_plane_sha, env.MAP_TRAINING_CONTROL_PLANE_SHA);
+    assert.equal(authorization.target_repository, "unjuno/model-as-a-paper");
+    assert.equal(authorization.target_sha, sourceSha);
+    assert.equal(authorization.provider, "modal");
+    assert.equal(authorization.provider_resource_id, "gpu-control-map-training/train_map");
+    assert.equal(authorization.gpu_count, 1);
+    assert.equal(authorization.runtime_seconds, 120);
+    assert.equal(authorization.max_cost_microusd, 100000);
+    assert.equal(authorization.consumed_at, authorization.authorized_at);
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "dispatching");
     assert.equal(sends, 1);
@@ -429,11 +474,15 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   const healthTool = rpc.result.tools.find((item) => item.name === "experiment_provider_health");
   const prepareTool = rpc.result.tools.find((item) => item.name === "experiment_prepare");
   const submitTool = rpc.result.tools.find((item) => item.name === "experiment_submit");
+  const trainingSubmitTool = rpc.result.tools.find((item) => item.name === "training_submit");
   assert.deepEqual(healthTool.inputSchema.required, ["run_id", "plan_fingerprint"]);
   assert.deepEqual(submitTool.inputSchema.required, ["plan_fingerprint", "run_id"]);
   assert.match(prepareTool.description, /without asking the user the same question again/);
   assert.match(submitTool.description, /do not ask a second conversational confirmation/);
   assert.match(submitTool.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
+  assert.equal(trainingSubmitTool.annotations.destructiveHint, true);
+  assert.match(trainingSubmitTool.description, /native write confirmation/);
+  assert.match(trainingSubmitTool.description, /No separate Modal login/);
 
   for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list"]) {
     assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);

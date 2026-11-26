@@ -218,7 +218,7 @@ schemas.training_cancel = schemas.experiment_cancel;
 
 const toolDescriptions = {
   training_checkpoint: "Read an owned completed training checkpoint in bounded base64 chunks. Verify the assembled file against the returned SHA-256.",
-  training_submit: "Start one saved training plan after the authenticated owner requests execution. Supply the exact saved approved_plan. This action can incur charges.",
+  training_submit: "Start one exact saved MAP-44M plan after the owner requests execution. This is the single billable write action; ChatGPT's native write confirmation is recorded as a short-lived, owner-, plan-, source-, image-, provider-, runtime-, and budget-bound authorization. No separate Modal login or browser approval is required. Supply the exact saved approved_plan.",
   training_status: "Read the state of your saved training plan.",
   training_cancel: "Cancel your unsubmitted training plan.",
   training_prepare: "Save an exact, expiring plan for your reviewed training source. This does not launch a GPU job.",

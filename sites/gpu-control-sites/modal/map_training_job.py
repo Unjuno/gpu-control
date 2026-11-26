@@ -17,7 +17,9 @@ def validate_map_plan(plan, *, source_sha, image_digest, hourly_microusd, quote_
         raise ValueError("training_plan_invalid")
     if (plan["commit"] != source_sha or plan["image_digest"] != image_digest
             or plan["repository"] != "unjuno/model-as-a-paper"
-            or plan["gpu"] != "L4" or plan["gpu_count"] != 1):
+            or plan["gpu"] != "L4" or plan["gpu_count"] != 1
+            or plan.get("provider") != "modal"
+            or plan.get("provider_resource_id") != "gpu-control-map-training/train_map"):
         raise ValueError("training_profile_mismatch")
     dataset, run_name, steps = plan.get("dataset"), plan.get("run_name"), plan.get("steps")
     if (not isinstance(dataset, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", dataset) is None

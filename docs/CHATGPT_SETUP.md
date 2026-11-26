@@ -311,9 +311,14 @@ reviewed source/image, Modal L4 profile, and private Volumes. Registration does
 not start training. Request a plan by repository and commit or by registration
 ID plus the returned execution-spec ID. Specify a runtime and maximum cost.
 The plan exposes the resolved GPU, dataset, run name, step ceiling, runtime,
-and estimated cost.
-Ask the agent to show the resolved GPU, runtime, and estimated cost before
-submitting. The client may request native approval for the write action.
+and estimated cost. When the user requests execution, submit that exact plan.
+`training_submit` is the one billable write action and is marked destructive;
+ChatGPT's native write confirmation is the single confirmation boundary. The
+Worker records it against the authenticated owner, exact plan fingerprint,
+current control-plane commit, source/image, Modal function, runtime, and budget,
+then consumes it with the dispatch reservation. Do not require a separate
+Modal login or browser approval for an ordinary run. Continue monitoring the
+same run after submission; do not resubmit after an ambiguous response.
 
 After submission, preserve the run ID. Use it to check status or request
 cancellation. If the submit response is interrupted, check that run before

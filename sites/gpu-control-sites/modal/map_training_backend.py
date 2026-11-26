@@ -19,6 +19,40 @@ def _required_call_id(value):
     return value
 
 
+def _validate_training_authorization(value, owner, run_id, fingerprint, plan):
+    """Require the exact one-use Sites confirmation at the provider boundary."""
+    now = int(time.time())
+    control_plane_sha = os.environ.get("MAP_TRAINING_CONTROL_PLANE_SHA", "")
+    required = {
+        "authorization_id", "authorization_source", "authorization_reference", "decision_record_id",
+        "authorized_by", "control_plane_sha", "target_repository", "target_sha", "image_digest",
+        "provider", "provider_resource_id", "gpu_count", "runtime_seconds", "max_cost_microusd",
+        "authorized_at", "expires_at", "owner", "run_id", "plan_fingerprint",
+    }
+    if (not isinstance(value, dict) or set(value) != required
+            or value.get("authorization_source") != "chatgpt_mcp_write_confirmation"
+            or value.get("owner") != owner or value.get("authorized_by") != owner
+            or value.get("run_id") != run_id or value.get("plan_fingerprint") != fingerprint
+            or value.get("decision_record_id") != f"training-plan:{run_id}:{fingerprint}"
+            or value.get("control_plane_sha") != control_plane_sha
+            or re.fullmatch(r"[0-9a-f]{40}", control_plane_sha) is None
+            or re.fullmatch(r"[0-9a-f]{32}", str(value.get("authorization_id", ""))) is None
+            or re.fullmatch(r"[0-9a-f]{64}", str(value.get("authorization_reference", ""))) is None
+            or value.get("target_repository") != plan.get("repository")
+            or value.get("target_sha") != plan.get("commit")
+            or value.get("image_digest") != plan.get("image_digest")
+            or value.get("provider") != plan.get("provider")
+            or value.get("provider_resource_id") != plan.get("provider_resource_id")
+            or value.get("gpu_count") != plan.get("gpu_count")
+            or value.get("runtime_seconds") != plan.get("runtime_seconds")
+            or value.get("max_cost_microusd") != plan.get("max_cost_microusd")
+            or type(value.get("authorized_at")) is not int
+            or type(value.get("expires_at")) is not int
+            or value["authorized_at"] > now or value["authorized_at"] < now - 600
+            or not now < value["expires_at"] <= min(value["authorized_at"] + 600, now + 600)):
+        raise ValueError("training_authorization_invalid")
+
+
 class MapTrainingBackend:
     """Only the trusted adapter may supply plans and persisted call handles."""
 
@@ -125,10 +159,12 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
         if not isinstance(plan, dict) or plan.get("run_id") != run_id:
             raise ValueError("training_plan_invalid")
         backend.validate(plan)
+        authorization = args.get("authorization")
         deadline = args.get("authorization_expires_at")
-        now = int(time.time())
-        if type(deadline) is not int or not now < deadline <= now + 900:
+        if (not isinstance(authorization, dict) or type(deadline) is not int
+                or deadline != authorization.get("expires_at") or deadline <= int(time.time())):
             return {"state": "blocked", "reason": "TRAINING_AUTHORIZATION_EXPIRED"}
+        _validate_training_authorization(authorization, owner, run_id, fingerprint, plan)
         claim = {**binding, "plan": plan, "state": "dispatching"}
         if store.put(key, claim, skip_if_exists=True):
             call_id = backend.start(plan)

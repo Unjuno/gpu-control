@@ -25,6 +25,7 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
     settings = {
         "SOURCE_SHA": source_sha, "IMAGE_DIGEST": digest, "RUNTIME_SECONDS": "120",
         "HOURLY_MICROUSD": "400000", "QUOTE_EXPIRES_AT": str(expires),
+        "CONTROL_PLANE_SHA": "e" * 40,
     }
     for key, value in settings.items():
         monkeypatch.setenv("MAP_TRAINING_" + key, value)
@@ -33,7 +34,8 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
     plan = {"run_id": run_id, "repository": "unjuno/model-as-a-paper", "commit": source_sha,
             "image_digest": digest, "gpu": "L4", "gpu_count": 1, "runtime_seconds": 120,
             "max_cost_microusd": 100000, "hourly_microusd": 400000, "quote_expires_at": expires,
-            "dataset": "papers", "run_name": "map44m", "steps": 100000}
+            "dataset": "papers", "run_name": "map44m", "steps": 100000,
+            "provider": "modal", "provider_resource_id": "gpu-control-map-training/train_map"}
     starts = []
 
     def spawn(value):
@@ -42,8 +44,19 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
 
     backend = MapTrainingBackend(function_lookup=lambda: SimpleNamespace(spawn=spawn))
     store = Store()
-    args = {"run_id": run_id, "plan_fingerprint": "d" * 64, "plan": plan,
-            "authorization_expires_at": int(time.time()) + 60}
+    now = int(time.time())
+    fingerprint = "d" * 64
+    authorization = {"authorization_id": "f" * 32,
+        "authorization_source": "chatgpt_mcp_write_confirmation", "authorization_reference": "a" * 64,
+        "decision_record_id": f"training-plan:{run_id}:{fingerprint}", "authorized_by": "owner",
+        "control_plane_sha": "e" * 40, "target_repository": plan["repository"],
+        "target_sha": plan["commit"], "image_digest": plan["image_digest"], "provider": plan["provider"],
+        "provider_resource_id": plan["provider_resource_id"], "gpu_count": plan["gpu_count"],
+        "runtime_seconds": plan["runtime_seconds"], "max_cost_microusd": plan["max_cost_microusd"],
+        "authorized_at": now, "expires_at": now + 60, "owner": "owner", "run_id": run_id,
+        "plan_fingerprint": fingerprint}
+    args = {"run_id": run_id, "plan_fingerprint": fingerprint, "plan": plan,
+            "authorization": authorization, "authorization_expires_at": authorization["expires_at"]}
     with pytest.raises(ValueError, match="training_quote_invalid"):
         dispatch_training_tool(store, backend, "owner", "training_submit",
                                {**args, "plan": {**plan, "hourly_microusd": 1}},
@@ -53,11 +66,22 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
             dispatch_training_tool(store, backend, "owner", "training_submit",
                                    {**args, "plan": {**plan, **invalid}},
                                    admission_enabled=True)
-    expired = {**args, "authorization_expires_at": int(time.time()) - 1}
+    expired = {**args, "authorization": {**authorization, "expires_at": now - 1},
+               "authorization_expires_at": now - 1}
     assert dispatch_training_tool(store, backend, "owner", "training_submit", expired,
                                   admission_enabled=True) == {
         "state": "blocked", "reason": "TRAINING_AUTHORIZATION_EXPIRED",
     }
+    assert not store and not starts
+    for invalid in (
+        {**authorization, "authorized_by": "other-owner"},
+        {**authorization, "control_plane_sha": "f" * 40},
+        {**authorization, "max_cost_microusd": 1000000},
+        {**authorization, "provider_resource_id": "another-function"},
+    ):
+        with pytest.raises(ValueError, match="training_authorization_invalid"):
+            dispatch_training_tool(store, backend, "owner", "training_submit",
+                                   {**args, "authorization": invalid}, admission_enabled=True)
     assert not store and not starts
     for _ in range(2):
         assert dispatch_training_tool(store, backend, "owner", "training_submit", args,

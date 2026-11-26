@@ -197,7 +197,12 @@ registration ID plus execution-spec ID), with runtime seconds and a budget in
 millionths of a US dollar. Use a fresh idempotency key per intended execution.
 The returned plan binds source, image, GPU, dataset, run name, step ceiling,
 runtime, and cost ceiling before `training_submit` accepts its exact
-`approved_plan`, run ID, and fingerprint.
+`approved_plan`, run ID, and fingerprint. `training_submit` is the single
+billable write action. It is marked destructive for ChatGPT's native write
+confirmation; the Worker records that confirmation against the exact owner,
+plan, control-plane SHA, source, image, Modal function, runtime, and budget,
+and consumes it with the one-use dispatch reservation. There is no separate
+Modal login or browser approval for normal runs.
 
 Use `training_status` to recover a submitted run, including after an
 ambiguous submit. Avoid creating a new plan to retry an uncertain run.
@@ -214,7 +219,10 @@ corpus must be available as a direct child of `/corpus` (the default is
 `/corpus/papers`). The app and signed adapter need
 the same `MAP_TRAINING_SOURCE_SHA`, `MAP_TRAINING_IMAGE_DIGEST`,
 `MAP_TRAINING_RUNTIME_SECONDS`, `MAP_TRAINING_HOURLY_MICROUSD` and
-`MAP_TRAINING_QUOTE_EXPIRES_AT` as Sites. Apply D1 migrations before updating
+`MAP_TRAINING_QUOTE_EXPIRES_AT` as Sites. Set
+`MAP_TRAINING_CONTROL_PLANE_SHA` to the exact Sites source commit in both Sites
+and the signed Modal adapter; it is required to bind the one-use authorization
+to the running control-plane revision. Apply D1 migrations before updating
 the Worker. Set the checked pricing configuration to expire within 30 days.
 For a privately built Modal image, set `MAP_TRAINING_MODAL_IMAGE_ID` to the
 immutable `im-…` ID in all three components instead of setting a GHCR digest.

@@ -585,6 +585,7 @@ async def invoke(tool: str, request: Request):
         "MAP_TRAINING_SOURCE_SHA", "MAP_TRAINING_MODAL_IMAGE_ID", "MAP_TRAINING_IMAGE_DIGEST",
         "MAP_TRAINING_RUNTIME_SECONDS", "MAP_TRAINING_HOURLY_MICROUSD",
         "MAP_TRAINING_QUOTE_EXPIRES_AT", "MAP_TRAINING_ADMISSION_ENABLED",
+        "MAP_TRAINING_CONTROL_PLANE_SHA",
     ) if key in os.environ},
     volumes={"/data": data_volume}, timeout=120, cpu=1, memory=1024,
     max_containers=1,

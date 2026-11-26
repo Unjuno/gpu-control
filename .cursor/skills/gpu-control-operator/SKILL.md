@@ -46,12 +46,17 @@ pins the reviewed source/image, one L4, and its private data/checkpoint Volumes.
 Call `training_preview` or `training_prepare` with the registration ID,
 execution-spec ID, runtime ceiling, and budget ceiling. If the user has
 already requested execution, continue through `training_submit` with the exact
-returned plan, then monitor that same run. Never ask again merely because the
-plan was prepared. Recover ambiguous submission through `training_status`; do
-not create a duplicate. At terminal success, retrieve private checkpoint
-chunks through `training_checkpoint` and verify the assembled SHA-256. Provider
-login, secret rotation, admission, or budget changes are separate operations;
-do not ask for them as routine per-run steps.
+returned plan. `training_submit` is the single billable write action and is
+marked destructive so ChatGPT can show its native write confirmation; do not
+add a separate Modal login, browser approval, or repeated conversational
+confirmation. The server records this confirmation for the exact owner, plan,
+control-plane commit, workload/image, provider resource, runtime, and budget,
+then consumes it atomically with the one-use dispatch reservation. Monitor that
+same run. Recover ambiguous submission through `training_status`; do not create
+a duplicate. At terminal success, retrieve private checkpoint chunks through
+`training_checkpoint` and verify the assembled SHA-256. Provider login, secret
+rotation, admission, or budget changes are separate operations; do not ask for
+them as routine per-run steps.
 
 ## Choose a route
 
