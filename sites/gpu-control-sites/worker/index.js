@@ -1843,18 +1843,7 @@ async function callTool(name, args, request, env, context = null) {
         : state === "succeeded" || remote.failure_code === "TRAINING_RUNTIME_LIMIT" ? ["training_checkpoint"] : [] };
   }
   if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool, gatewayDelegationConfigured);
-  if (name === "training_prepare") {
-    const prepared = await prepareTrainingPlan(env, owner, args);
-    const state = prepared.machine_state;
-    if (state.state !== "prepared" || state.executable ||
-        env.MAP_TRAINING_ADMISSION_ENABLED !== "true" ||
-        !/^[0-9a-f]{40}$/.test(env.MAP_TRAINING_CONTROL_PLANE_SHA || "")) return prepared;
-    const url = new URL("/authorize-training", SITE_PUBLIC_ORIGIN);
-    url.searchParams.set("run_id", state.run_id);
-    url.searchParams.set("plan_fingerprint", state.plan_fingerprint);
-    return { ...prepared, authorization_url: url.toString(),
-      human_summary: "承認リンクで実行条件を確認してください。承認後、チャットで同じ計画を再取得すると実行できます。" };
-  }
+  if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);
   if (name === "training_list") return listTrainingSources(env.DB, owner);
   if (name === "training_register") return registerTrainingSource(env.DB, owner, args);
