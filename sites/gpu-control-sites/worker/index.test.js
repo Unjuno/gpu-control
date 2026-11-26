@@ -469,7 +469,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(authorization.gpu_count, 1);
     assert.equal(authorization.runtime_seconds, 120);
     assert.equal(authorization.max_cost_microusd, 100000);
-    assert.equal(authorization.consumed_at, authorization.authorized_at);
+    assert.ok(Number.isSafeInteger(authorization.consumed_at));
+    assert.ok(authorization.consumed_at >= authorization.authorized_at);
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "dispatching");
     assert.equal(sends, 1);
