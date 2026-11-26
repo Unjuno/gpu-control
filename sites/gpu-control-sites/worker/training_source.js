@@ -53,6 +53,9 @@ export async function listTrainingSources(db, owner, env = {}) {
       ON p.registration_id=r.id AND p.owner_id=r.owner_id
     WHERE p.owner_id=? AND p.dispatch_claimed_at IS NOT NULL
     ORDER BY p.dispatch_claimed_at DESC, p.id DESC LIMIT 50`).bind(owner).all();
+  const { results: specs } = await db.prepare(`SELECT id AS execution_spec_id, registration_id, spec_json, created_at
+    FROM training_execution_specs WHERE owner_id=?
+    ORDER BY created_at DESC, id DESC LIMIT 50`).bind(owner).all();
   return { schema_version: 2, status: "ok",
     human_summary: "登録済みソースと、送信を試行した学習計画の一覧です。実行結果は training_status で確認できます。",
     machine_state: { registrations: results.map((row) => ({
@@ -60,7 +63,8 @@ export async function listTrainingSources(db, owner, env = {}) {
       execution_profile_configured: row.repository === "unjuno/model-as-a-paper" &&
         row.commit === env.MAP_TRAINING_SOURCE_SHA &&
         Boolean(env.MAP_TRAINING_MODAL_IMAGE_ID || env.MAP_TRAINING_IMAGE_DIGEST),
-    })), runs },
+    })), runs,
+      execution_specs: specs.map(({ spec_json, ...item }) => ({ ...item, ...JSON.parse(spec_json) })) },
     next_allowed_actions: runs.length ? ["training_status"] : [], blocking_reason: null };
 }
 
