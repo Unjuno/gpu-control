@@ -43,22 +43,28 @@ checkpoints = modal.Volume.from_name("gpu-control-map-checkpoints", create_if_mi
     single_use_containers=True,
 )
 def train_map(plan: dict) -> dict:
-    from map_training_job import run_map_training
-    from model_as_a_paper.training import train
+    try:
+        from map_training_job import run_map_training
+        from model_as_a_paper.training import train
 
-    if os.environ.get("MAP_IMAGE_SOURCE_SHA") != SOURCE_SHA:
-        raise ValueError("training_image_revision_mismatch")
-    if plan["runtime_seconds"] != RUNTIME_LIMIT:
-        raise ValueError("training_runtime_mismatch")
-    with Path("/opt/map/configs/map44.json").open(encoding="utf-8") as stream:
-        config = json.load(stream)
-    checkpoints.reload()
-    return run_map_training(
-        plan, source_sha=SOURCE_SHA, image_digest=IMAGE_DIGEST,
-        hourly_microusd=HOURLY_MICROUSD, quote_expires_at=QUOTE_EXPIRES_AT,
-        config=config, corpus_dir=Path("/corpus/papers"), runs_dir=Path("/checkpoints"),
-        commit_volume=checkpoints.commit, train=train,
-    )
+        if os.environ.get("MAP_IMAGE_SOURCE_SHA") != SOURCE_SHA:
+            raise ValueError("training_image_revision_mismatch")
+        if plan["runtime_seconds"] != RUNTIME_LIMIT:
+            raise ValueError("training_runtime_mismatch")
+        with Path("/opt/map/configs/map44.json").open(encoding="utf-8") as stream:
+            config = json.load(stream)
+        checkpoints.reload()
+        return run_map_training(
+            plan, source_sha=SOURCE_SHA, image_digest=IMAGE_DIGEST,
+            hourly_microusd=HOURLY_MICROUSD, quote_expires_at=QUOTE_EXPIRES_AT,
+            config=config, corpus_dir=Path("/corpus/papers"), runs_dir=Path("/checkpoints"),
+            commit_volume=checkpoints.commit, train=train,
+        )
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        return {"run_id": plan["run_id"], "failure_code": "TRAINING_WORKLOAD_FAILURE"}
 
 
 @app.function(

@@ -58,6 +58,8 @@ class MapTrainingBackend:
             if type(exc) not in (TimeoutError, modal.exception.TimeoutError):
                 raise
             return {"state": "running"}
+        if result == {"run_id": plan.get("run_id"), "failure_code": "TRAINING_WORKLOAD_FAILURE"}:
+            return {"state": "failed", "failure_code": "TRAINING_WORKLOAD_FAILURE"}
         if (not isinstance(result, dict)
                 or result.get("run_id") != plan["run_id"]
                 or result.get("source_sha") != plan["commit"]

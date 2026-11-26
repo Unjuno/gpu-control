@@ -57,11 +57,12 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
 
 
 @pytest.mark.parametrize("poll_timeout", [TimeoutError, modal.exception.TimeoutError])
-def test_provider_wall_timeout_becomes_terminal(poll_timeout):
+@pytest.mark.parametrize("failure_code", ["TRAINING_RUNTIME_LIMIT", "TRAINING_WORKLOAD_FAILURE"])
+def test_provider_failure_becomes_terminal(poll_timeout, failure_code):
     run_id = "c" * 32
     fingerprint = "d" * 64
     store = Store({f"map-training:{run_id}": {
-        "owner": "owner", "fingerprint": fingerprint, "plan": {},
+        "owner": "owner", "fingerprint": fingerprint, "plan": {"run_id": run_id},
         "state": "running", "call_id": "fc-abcdefgh",
     }})
     calls = []
@@ -70,7 +71,9 @@ def test_provider_wall_timeout_becomes_terminal(poll_timeout):
         calls.append(timeout)
         if len(calls) == 1:
             raise poll_timeout()
-        raise modal.exception.FunctionTimeoutError("provider details")
+        if failure_code == "TRAINING_RUNTIME_LIMIT":
+            raise modal.exception.FunctionTimeoutError("provider details")
+        return {"run_id": run_id, "failure_code": failure_code}
 
     backend = MapTrainingBackend(call_lookup=lambda _: SimpleNamespace(get=get))
     args = {"run_id": run_id, "plan_fingerprint": fingerprint}
@@ -81,7 +84,7 @@ def test_provider_wall_timeout_becomes_terminal(poll_timeout):
 
     assert status() == {"state": "running"}
     for _ in range(2):
-        assert status() == {"state": "failed", "failure_code": "TRAINING_RUNTIME_LIMIT"}
+        assert status() == {"state": "failed", "failure_code": failure_code}
     assert calls == [0, 0]
 
 
