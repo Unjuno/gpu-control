@@ -162,7 +162,7 @@ completion       gpu-control-hmac-sha256-v3
 
 The workload's source CI, authenticated completion envelope, offline result parser, and result-side canary acceptance are implemented and tested.
 
-That is **not** the same as a live provider-finalized success path. The repository remains parked and all paid calls remain disabled.
+That is **not** the same as a live provider-finalized success path. The repository remains parked: generic paid execution is disabled, with only the exact owner-confirmed acceptance lanes recorded in `policies/repository-state.yaml` eligible after their release and account gates pass.
 
 ## Why live RunPod execution is not enabled yet
 

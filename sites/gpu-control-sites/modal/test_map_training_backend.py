@@ -83,6 +83,13 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
             dispatch_training_tool(store, backend, "owner", "training_submit",
                                    {**args, "authorization": invalid}, admission_enabled=True)
     assert not store and not starts
+    over_budget_plan = {**plan, "max_cost_microusd": 250001}
+    over_budget_authorization = {**authorization, "max_cost_microusd": 250001}
+    with pytest.raises(ValueError, match="training_budget_invalid"):
+        dispatch_training_tool(store, backend, "owner", "training_submit",
+                              {**args, "plan": over_budget_plan,
+                               "authorization": over_budget_authorization}, admission_enabled=True)
+    assert not store and not starts
     for _ in range(2):
         assert dispatch_training_tool(store, backend, "owner", "training_submit", args,
                                       admission_enabled=True) == {"state": "running"}

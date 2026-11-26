@@ -41,6 +41,9 @@ While parked, do not create a paid workflow, configure or reference provider sec
 The only external-compute exceptions while parked are the exact lanes in
 `policies/repository-state.yaml`. `modal_cpu_smoke_exception` permits the
 registered one-run Modal CPU inference within its fixed bounds.
+`map_training_acceptance_exception` permits one owner-confirmed MAP-44M Modal
+L4 run only for its exact source, image, 120-second runtime, $0.25 per-run
+ceiling, and $1 monthly project cap, after its release and account guards pass.
 `free_gpu_acceptance_exception` permits only one owner-confirmed Kaggle training
 job and one owner-confirmed private ZeroGPU evaluation for the exact registered
 Orbitune commit, after included quota is verified. It permits a trusted worker
@@ -48,8 +51,9 @@ to reference provider credentials but never exposes them to the public API,
 ChatGPT, MCP results, Kaggle, or workload code. It forbids paid fallback,
 Hugging Face Jobs, ZeroGPU credit extension, ambiguous-submit retries, and
 public artifacts/Spaces. Configuration alone is not execution authorization.
-Neither exception permits RunPod GPU execution, generic external containers,
-paid training, or unattended retries.
+The MAP exception does not permit other commits, commands, images, providers,
+generic external containers, or unattended retries. The RunPod canary remains
+the only RunPod execution exception.
 
 Leaving parked mode requires an explicit human request plus a reviewed repository change. Changing the mode is not itself spend authorization; all independent GitHub, provider, pricing, workload, prompt/context security, completion-evidence, and cleanup gates still apply.
 

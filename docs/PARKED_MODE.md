@@ -2,7 +2,7 @@
 
 `gpu-control` is currently intentionally parked even though an active workload has now been selected. The frozen workload candidate is Orbitune commit `fc131174a9b529a9825f54fccf1a7df4c63c9a1a`, recorded in `policies/repository-state.yaml`.
 
-Parked mode is not a degraded state. It is a deliberate safety posture: the control-plane contracts, tests, and provider boundaries remain available, while all billable and generic external-execution paths stay disabled until the remaining activation prerequisites are satisfied.
+Parked mode is not a degraded state. It is a deliberate safety posture: the control-plane contracts, tests, and provider boundaries remain available, while generic paid and external-execution paths stay disabled. Only the exact, separately gated acceptance lanes in `policies/repository-state.yaml` may proceed without leaving parked mode.
 
 ## What remains usable
 
@@ -45,14 +45,19 @@ execution, or account-wide RunPod access.
 
 CI cross-checks these invariants against the existing paid, RunPod, agent, context-trust, container, and workflow configuration.
 
-Two exact, non-general exceptions are machine-readable in that policy. The
+The exact, non-general exceptions are machine-readable in that policy. The
 Modal CPU smoke lane remains bounded to its registered one-run inference. The
-Kaggle/Hugging Face lane permits only the fixed 100-step Orbitune acceptance
-job and one private ZeroGPU evaluation after current included-quota evidence
-and exact one-use owner confirmation. It forbids paid fallback, public
-artifacts/Spaces, Hugging Face Jobs, write credentials in provider workloads,
-and retrying an ambiguous submission. These exceptions do not change `mode` or
-authorize any RunPod operation beyond the fixed serverless canary above.
+Modal GPU canary remains a fixed 30-second vector-add test. The MAP-44M lane
+permits one owner-confirmed run for the exact registered commit and image, on
+one L4 for at most 120 seconds, with a $0.25 per-run ceiling and $1 monthly
+project ceiling; it requires a private checkpoint, blocked network, current
+Modal usage/charge checks, and confirmed cleanup. The Kaggle/Hugging Face lane
+permits only the fixed 100-step Orbitune acceptance job and one private
+ZeroGPU evaluation after current included-quota evidence and exact one-use
+owner confirmation. It forbids paid fallback, public artifacts/Spaces,
+Hugging Face Jobs, write credentials in provider workloads, and retrying an
+ambiguous submission. These exceptions do not change `mode`; the RunPod
+exception remains limited to the fixed serverless canary above.
 
 ## Selected workload
 

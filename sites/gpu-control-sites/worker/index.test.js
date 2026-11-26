@@ -227,6 +227,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(own[0].registration_id, first.machine_state.registration_id);
     const specPreview = { registration_id: first.machine_state.registration_id,
       execution_spec_id: spec.machine_state.execution_spec_id, runtime_seconds: 120, max_cost_microusd: 100000 };
+    assert.equal((await call("test-owner", "training_preview",
+      { ...specPreview, max_cost_microusd: 250001 })).error, "INVALID_ARGUMENTS");
     const previewSpec = await call("test-owner", "training_preview", specPreview);
     assert.equal(previewSpec.blocking_reason, "TRAINING_PROFILE_UNAVAILABLE");
     assert.equal(previewSpec.machine_state.dataset, "papers");

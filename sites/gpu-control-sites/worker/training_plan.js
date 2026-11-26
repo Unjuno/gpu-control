@@ -4,6 +4,7 @@ import { getTrainingAuthorization } from "./training_authorization.js";
 const MAP_REPOSITORY = "unjuno/model-as-a-paper";
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
+export const MAP_TRAINING_MAX_COST_MICROUSD = 250_000;
 const DEFAULT_MAP_EXECUTION = Object.freeze({ dataset: "papers", run_name: "map44m", steps: 100000 });
 
 function trainingAuthorizationUrl(runId, fingerprint) {
@@ -52,6 +53,13 @@ export async function previewTrainingPlan(env, owner, args) {
     human_summary: "MAP-44Mの学習設定が不正です。登録済み設定を確認してください。",
     machine_state: { ...machine, ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}) },
     next_allowed_actions: [], blocking_reason: "TRAINING_PROFILE_INVALID" };
+  if (!Number.isSafeInteger(args.max_cost_microusd) || args.max_cost_microusd < 1 ||
+      args.max_cost_microusd > MAP_TRAINING_MAX_COST_MICROUSD) return { schema_version: 2, status: "blocked",
+    human_summary: "MAP-44Mの1回あたりの費用上限は$0.25です。",
+    machine_state: { ...machine, ...execution,
+      ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
+      max_cost_ceiling_microusd: MAP_TRAINING_MAX_COST_MICROUSD },
+    next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_TOO_HIGH" };
   const imageId = env.MAP_TRAINING_MODAL_IMAGE_ID;
   const imageIdentity = imageId || env.MAP_TRAINING_IMAGE_DIGEST;
   const imagePattern = imageId ? /^im-[A-Za-z0-9]{8,128}$/ : /^sha256:[0-9a-f]{64}$/;

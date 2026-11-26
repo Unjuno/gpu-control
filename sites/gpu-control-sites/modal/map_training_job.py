@@ -8,6 +8,7 @@ from map_checkpoint import checkpoint_manifest
 
 
 MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60
+MAX_TRAINING_BUDGET_MICROUSD = 250_000
 CHECKPOINT_FINALIZATION_SECONDS = 45
 
 
@@ -38,7 +39,7 @@ def validate_map_plan(plan, *, source_sha, image_digest, hourly_microusd, quote_
             or hourly_rate != hourly_microusd):
         raise ValueError("training_quote_invalid")
     if (type(seconds) is not int or not 120 <= seconds <= 3000
-            or type(budget) is not int or not 1 <= budget <= 1_000_000
+            or type(budget) is not int or not 1 <= budget <= MAX_TRAINING_BUDGET_MICROUSD
             or type(hourly_rate) is not int or not 1 <= hourly_rate <= 1_000_000_000
             or hourly_rate * (seconds + 600) > budget * 3240):
         raise ValueError("training_budget_invalid")
