@@ -220,7 +220,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     env.MAP_TRAINING_ADMISSION_ENABLED = "true";
     const attempted = await call("test-owner", "training_submit", { run_id: savedPlan.machine_state.run_id,
       plan_fingerprint: savedPlan.machine_state.plan_fingerprint, approved_plan: savedPlan.approved_plan });
-    assert.equal(attempted.blocking_reason, "TRAINING_ADMISSION_DISABLED");
+    assert.equal(attempted.error, "INVALID_ARGUMENTS");
     delete env.MAP_TRAINING_ADMISSION_ENABLED;
     assert.equal((await call("other-owner", "training_preview", specPreview)).error,
       "TRAINING_REGISTRATION_NOT_FOUND");

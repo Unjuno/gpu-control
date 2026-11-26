@@ -1,8 +1,8 @@
 """Authenticated Modal adapter for registered external and Modal GPU work.
 
-This is infrastructure for two of the four compute providers, not another
-provider or a general Gateway.  It has no PostgreSQL dependency and no API for
-arbitrary code, commands, images, URLs, repositories, or credentials.
+This is infrastructure for the registered providers plus an owner-bound
+custom-training lane. It has no API for arbitrary public provider operations
+or credentials; custom code requires an exact signed, budget-validated plan.
 """
 from __future__ import annotations
 
@@ -44,6 +44,8 @@ app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name("gpu-control-provider-adapter-data", create_if_missing=True)
 nonce_store = modal.Dict.from_name("gpu-control-provider-adapter-nonces", create_if_missing=True)
 submission_store = modal.Dict.from_name("gpu-control-provider-adapter-submissions", create_if_missing=True)
+custom_training_source_volume = modal.Volume.from_name("gpu-control-custom-training-source", create_if_missing=True)
+custom_training_checkpoint_volume = modal.Volume.from_name("gpu-control-custom-training-checkpoints", create_if_missing=True)
 provider_secret = modal.Secret.from_name("gpu-control-worker")
 adapter_auth_secret = modal.Secret.from_name("gpu-control-provider-adapter-auth")
 
@@ -546,11 +548,48 @@ async def invoke(tool: str, request: Request):
         elif verified_tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint"}:
             if "/root/site-modal" not in sys.path:
                 sys.path.insert(0, "/root/site-modal")
-            from map_training_backend import MapTrainingBackend, dispatch_training_tool
-            result = await asyncio.to_thread(
-                dispatch_training_tool, submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
-                admission_enabled=os.environ.get("MAP_TRAINING_ADMISSION_ENABLED") == "true",
-            )
+            if arguments.get("approved_plan", {}).get("execution_spec_id"):
+                from custom_training_plan import validate_custom_plan
+                from custom_training_stage import stage_to_volumes
+                from custom_training_lifecycle import dispatch
+                from custom_training_backend import CustomTrainingBackend
+
+                def validate_custom(owner_id, fingerprint, plan):
+                    validate_custom_plan(plan,
+                        image_id=os.environ.get("CUSTOM_TRAINING_MODAL_IMAGE_ID"),
+                        hourly_microusd=int(os.environ.get("CUSTOM_TRAINING_HOURLY_MICROUSD", "0")),
+                        quote_expires_at=int(os.environ.get("CUSTOM_TRAINING_QUOTE_EXPIRES_AT", "0")),
+                        gpu=os.environ.get("CUSTOM_TRAINING_GPU"))
+                    if (plan.get("plan_fingerprint") != fingerprint or plan.get("owner") != owner_id or
+                            plan.get("execution_spec_id") != arguments["approved_plan"].get("execution_spec_id")):
+                        raise ValueError("training_plan_identity_mismatch")
+
+                def create_sandbox(*args, **kwargs):
+                    import modal
+                    return modal.Sandbox.create(*args, **kwargs)
+
+                def lookup_sandbox(handle):
+                    import modal
+                    return modal.Sandbox.from_id(handle, environment_name="main")
+
+                backend = CustomTrainingBackend(app=app,
+                    image=modal.Image.from_id(os.environ.get("CUSTOM_TRAINING_MODAL_IMAGE_ID", "")),
+                    source_volume=custom_training_source_volume,
+                    checkpoint_volume=custom_training_checkpoint_volume,
+                    create=create_sandbox, lookup=lookup_sandbox,
+                    stage=lambda repository, commit, run_id: stage_to_volumes(
+                        repository, commit, run_id, source_volume=custom_training_source_volume,
+                        checkpoint_volume=custom_training_checkpoint_volume))
+                result = await asyncio.to_thread(dispatch, submission_store, backend, owner,
+                    verified_tool.removeprefix("training_"), arguments,
+                    validate=validate_custom,
+                    admission_enabled=os.environ.get("CUSTOM_TRAINING_ADMISSION_ENABLED") == "true")
+            else:
+                from map_training_backend import MapTrainingBackend, dispatch_training_tool
+                result = await asyncio.to_thread(
+                    dispatch_training_tool, submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
+                    admission_enabled=os.environ.get("MAP_TRAINING_ADMISSION_ENABLED") == "true",
+                )
         elif verified_tool == "experiment_submit":
             result = _async_submit(owner, arguments)
         elif verified_tool in {"experiment_status", "experiment_result", "experiment_cancel"}:

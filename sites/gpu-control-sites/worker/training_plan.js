@@ -28,7 +28,7 @@ export async function previewTrainingPlan(env, owner, args) {
         machine_state: { ...machine, execution_spec_id: args.execution_spec_id, estimated_cost_microusd: cost },
         next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_TOO_LOW" };
       return { schema_version: 2, status: "ok",
-        human_summary: "独自学習の条件を確認しました。実行受付はまだ接続されていません。",
+        human_summary: "独自学習の条件を確認しました。実行計画を準備できます。",
         machine_state: { ...machine, execution_spec_id: args.execution_spec_id, command: saved.command,
           image_id: image, gpu, gpu_count: 1, runtime_seconds: args.runtime_seconds,
           max_cost_microusd: args.max_cost_microusd, hourly_microusd: rate, quote_expires_at: expires },
@@ -100,8 +100,10 @@ export async function prepareTrainingPlan(env, owner, args) {
   if (existing.expires_at <= now) throw new Error("TRAINING_PLAN_EXPIRED");
   const state = existing.cancelled_at !== null ? "cancelled"
     : existing.dispatch_claimed_at !== null ? "dispatching" : "prepared";
-  const admission = !plan.execution_spec_id && env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
-    Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
+  const admission = plan.execution_spec_id
+    ? env.CUSTOM_TRAINING_ADMISSION_ENABLED === "true"
+    : env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
+      Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
   const executableNow = state === "prepared" && admission;
   if (executableNow) actions.unshift("training_submit");
@@ -154,20 +156,21 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     WHERE owner_id=? AND id=? AND fingerprint=?`).bind(owner, runId, fingerprint).first();
   if (!row) throw new Error("RUN_NOT_FOUND");
   const plan = JSON.parse(row.plan_json);
-  // A saved custom plan must never fall through to the fixed MAP adapter.
-  if (plan.execution_spec_id) return { schema_version: 2, status: "blocked",
-    human_summary: "独自学習の実行受付はまだ接続されていません。",
-    machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
-  if (Object.keys(approved).length !== Object.keys(plan).length ||
-      Object.entries(plan).some(([key, value]) => !Object.hasOwn(approved, key) || approved[key] !== value)) {
+  const { admission_token: _admissionToken, ...approvedPlan } = approved;
+  if (Object.keys(approvedPlan).length !== Object.keys(plan).length ||
+      Object.entries(plan).some(([key, value]) => !Object.hasOwn(approvedPlan, key) || approvedPlan[key] !== value)) {
     throw new Error("INVALID_ARGUMENTS");
   }
   if (row.dispatch_claimed_at !== null) return trainingPlanState(env.DB, owner, runId);
-  if (env.MAP_TRAINING_ADMISSION_ENABLED !== "true" || !isConfigured(env)) {
+  if (plan.execution_spec_id && env.CUSTOM_TRAINING_ADMISSION_ENABLED !== "true") return {
+    schema_version: 2, status: "blocked", human_summary: "独自学習の実行受付は停止中です。",
+    machine_state: { run_id: runId, state: "prepared" },
+    next_allowed_actions: ["training_status", "training_cancel"], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
+  if (!plan.execution_spec_id && (env.MAP_TRAINING_ADMISSION_ENABLED !== "true" || !isConfigured(env))) {
     return { schema_version: 2, status: "blocked", human_summary: "学習の実行受付は停止中です。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
   }
-  if (Number(env.MAP_TRAINING_RUNTIME_SECONDS) !== plan.runtime_seconds) {
+  if (!plan.execution_spec_id && Number(env.MAP_TRAINING_RUNTIME_SECONDS) !== plan.runtime_seconds) {
     return { schema_version: 2, status: "blocked",
       human_summary: "計画の時間上限がModalに設定された上限と一致しません。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_RUNTIME_MISMATCH" };
