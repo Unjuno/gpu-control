@@ -214,3 +214,10 @@ def test_gpu_job_leaves_time_to_finalize_checkpoint(monkeypatch, tmp_path):
     assert (runs / ("a" * 32 + ".gpu-control-run.json")).exists()
     assert commits == ["commit", "commit"]
     assert result["checkpoint"] == {"size_bytes": 1}
+
+
+def test_modal_app_passes_volume_root_for_selected_dataset():
+    from pathlib import Path
+
+    source = Path(__file__).with_name("map_training_app.py").read_text(encoding="utf-8")
+    assert 'corpus_dir=Path("/corpus")' in source

@@ -57,7 +57,7 @@ def train_map(plan: dict) -> dict:
         return run_map_training(
             plan, source_sha=SOURCE_SHA, image_digest=IMAGE_DIGEST,
             hourly_microusd=HOURLY_MICROUSD, quote_expires_at=QUOTE_EXPIRES_AT,
-            config=config, corpus_dir=Path("/corpus/papers"), runs_dir=Path("/checkpoints"),
+            config=config, corpus_dir=Path("/corpus"), runs_dir=Path("/checkpoints"),
             commit_volume=checkpoints.commit, train=train,
         )
     except Exception:
