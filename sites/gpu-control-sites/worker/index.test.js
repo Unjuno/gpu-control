@@ -248,7 +248,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const fresh = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-prepare-fresh" })).machine_state;
     const claim = () => claimTrainingDispatch(env.DB, "test-owner", fresh.run_id, fresh.plan_fingerprint, now, 100000);
-    assert.ok(await claim());
+    const concurrentClaims = await Promise.all([claim(), claim()]);
+    assert.equal(concurrentClaims.filter(Boolean).length, 1);
     assert.equal(await claim(), undefined);
     const second = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-monthly-limit" })).machine_state;
