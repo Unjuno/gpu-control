@@ -129,7 +129,8 @@ def test_timed_out_run_can_recover_a_checkpoint_without_relabeling_the_run():
         return recovered
 
     backend = SimpleNamespace(recover_checkpoint=recover,
-                              checkpoint=lambda *args: {"offset": args[-2]})
+                              checkpoint=lambda *args: {"offset": args[-2]},
+                              checkpoint_download=lambda run_id, manifest: {"path": f"/{run_id}/{manifest['filename']}"})
     args = {"run_id": run_id, "plan_fingerprint": fingerprint, "offset": 0, "max_bytes": 1}
 
     def tool(name):
@@ -137,5 +138,8 @@ def test_timed_out_run_can_recover_a_checkpoint_without_relabeling_the_run():
 
     for _ in range(2):
         assert tool("training_checkpoint") == {"state": "succeeded", "checkpoint_chunk": {"offset": 0}}
-    assert tool("training_status") == {**failure, "checkpoint": recovered}
+    assert tool("training_status") == {
+        **failure, "checkpoint": recovered,
+        "checkpoint_download": {"path": f"/{run_id}/{recovered['filename']}"},
+    }
     assert recoveries == [run_id]

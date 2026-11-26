@@ -75,6 +75,14 @@ class MapTrainingBackend:
         return {"state": "succeeded", "steps": result["steps"], "gpu_used": True,
                 "checkpoint": {key: checkpoint[key] for key in ("filename", "sha256", "size_bytes")}}
 
+    def checkpoint_download(self, run_id, manifest):
+        volume = modal.Volume.from_name("gpu-control-map-checkpoints", environment_name="main")
+        return {
+            "url": volume.get_dashboard_url(),
+            "path": f"/{run_id}/{manifest['filename']}",
+            "authentication": "modal_workspace",
+        }
+
     def recover_checkpoint(self, run_id):
         reader = modal.Function.from_name(APP_NAME, "read_map_checkpoint", environment_name="main")
         return reader.remote(run_id, None, 0, 0)
@@ -155,4 +163,6 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
             return {"state": "checkpoint_not_ready"}
         return {"state": "succeeded", "checkpoint_chunk": backend.checkpoint(
             run_id, checkpoint, args.get("offset"), args.get("max_bytes"))}
+    if tool == "training_status" and result.get("checkpoint"):
+        return {**result, "checkpoint_download": backend.checkpoint_download(run_id, result["checkpoint"])}
     return result
