@@ -7,6 +7,7 @@ from map_checkpoint import checkpoint_manifest
 
 
 MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60
+CHECKPOINT_FINALIZATION_SECONDS = 45
 
 
 def validate_map_plan(plan, *, source_sha, image_digest, hourly_microusd, quote_expires_at):
@@ -44,7 +45,7 @@ def run_map_training(plan, *, source_sha, image_digest, hourly_microusd, quote_e
     )
     result = train(
         config, corpus_dir, runs_dir / run_id, device="cuda", steps=100_000,
-        seconds=seconds, budget_usd=budget / 1_000_000,
+        seconds=seconds - CHECKPOINT_FINALIZATION_SECONDS, budget_usd=budget / 1_000_000,
         hourly_rate=hourly_rate / 1_000_000, on_save=commit_volume,
     )
     if (not isinstance(result, dict) or not str(result.get("device", "")).startswith("cuda")

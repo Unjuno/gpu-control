@@ -143,3 +143,23 @@ def test_timed_out_run_can_recover_a_checkpoint_without_relabeling_the_run():
         "checkpoint_download": {"path": f"/{run_id}/{recovered['filename']}"},
     }
     assert recoveries == [run_id]
+
+
+def test_gpu_job_leaves_time_to_finalize_checkpoint(monkeypatch, tmp_path):
+    import map_training_job as job
+
+    monkeypatch.setattr(job, "validate_map_plan", lambda *args, **kwargs: ("run", 120, 250000, 1100000))
+    monkeypatch.setattr(job, "checkpoint_manifest", lambda *_: {"size_bytes": 1})
+
+    def train(_config, _corpus, _output, *, device, seconds, **_):
+        assert device == "cuda"
+        assert seconds == 75
+        return {"device": "cuda:0", "steps": 5}
+
+    result = job.run_map_training(
+        {}, source_sha="a" * 40, image_digest="im-Abcdefgh1234",
+        hourly_microusd=1100000, quote_expires_at=0, config={},
+        corpus_dir=tmp_path, runs_dir=tmp_path, commit_volume=lambda: None, train=train,
+    )
+    assert result["gpu_used"] and result["steps"] == 5
+    assert result["checkpoint"] == {"size_bytes": 1}
