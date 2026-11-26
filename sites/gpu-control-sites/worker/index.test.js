@@ -180,6 +180,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const anotherSpec = await call("test-owner", "training_register", { ...args, command: ["python", "evaluate.py"] });
     assert.equal(spec.machine_state.execution_spec_id, specRetry.machine_state.execution_spec_id);
     assert.notEqual(spec.machine_state.execution_spec_id, anotherSpec.machine_state.execution_spec_id);
+    const ownSpecs = (await call("test-owner", "training_list", {})).machine_state.execution_specs;
+    assert.deepEqual(ownSpecs.find(item => item.execution_spec_id === spec.machine_state.execution_spec_id).command,
+      ["python", "train.py"]);
+    assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.execution_specs, []);
     assert.equal((await call("test-owner", "training_register", { ...args, command: [] })).error, "INVALID_ARGUMENTS");
     const retry = await call("test-owner", "training_register", { ...args, repository: "https://github.com/unjuno/model-as-a-paper" });
     assert.equal(retry.machine_state.registration_id, first.machine_state.registration_id);
