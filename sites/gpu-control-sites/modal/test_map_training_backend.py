@@ -15,9 +15,11 @@ class Store(dict):
         return True
 
 
-def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch):
+@pytest.mark.parametrize("native_image", [False, True])
+def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, native_image):
     source_sha = "a" * 40
-    digest = "sha256:" + "b" * 64
+    digest = "im-Abcdefgh1234" if native_image else "sha256:" + "b" * 64
+    monkeypatch.delenv("MAP_TRAINING_MODAL_IMAGE_ID", raising=False)
     run_id = "c" * 32
     expires = int(time.time()) + 7 * 86400
     settings = {
@@ -26,6 +28,8 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch):
     }
     for key, value in settings.items():
         monkeypatch.setenv("MAP_TRAINING_" + key, value)
+    if native_image:
+        monkeypatch.setenv("MAP_TRAINING_MODAL_IMAGE_ID", digest)
     plan = {"run_id": run_id, "repository": "unjuno/model-as-a-paper", "commit": source_sha,
             "image_digest": digest, "gpu": "L4", "gpu_count": 1, "runtime_seconds": 120,
             "max_cost_microusd": 100000, "hourly_microusd": 400000, "quote_expires_at": expires}
