@@ -89,6 +89,12 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
         dispatch_training_tool(store, backend, "owner", "training_submit",
                               {**args, "plan": over_budget_plan,
                                "authorization": over_budget_authorization}, admission_enabled=True)
+    over_runtime_plan = {**plan, "runtime_seconds": 121}
+    over_runtime_authorization = {**authorization, "runtime_seconds": 121}
+    with pytest.raises(ValueError, match="training_budget_invalid"):
+        dispatch_training_tool(store, backend, "owner", "training_submit",
+                              {**args, "plan": over_runtime_plan,
+                               "authorization": over_runtime_authorization}, admission_enabled=True)
     assert not store and not starts
     for _ in range(2):
         assert dispatch_training_tool(store, backend, "owner", "training_submit", args,
@@ -228,3 +234,4 @@ def test_modal_app_passes_volume_root_for_selected_dataset():
 
     source = Path(__file__).with_name("map_training_app.py").read_text(encoding="utf-8")
     assert 'corpus_dir=Path("/corpus")' in source
+    assert "if RUNTIME_LIMIT != 120:" in source

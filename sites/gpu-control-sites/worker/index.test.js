@@ -346,6 +346,9 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     await assert.rejects(claimTrainingDispatch(env.DB, "test-owner", run.run_id,
       saved.machine_state.plan_fingerprint, now, 100000, null),
     { message: "TRAINING_AUTHORIZATION_INVALID" });
+    await assert.rejects(claimTrainingDispatch(env.DB, "test-owner", run.run_id,
+      saved.machine_state.plan_fingerprint, now, 1000001, null),
+    { message: "TRAINING_BUDGET_NOT_CONFIGURED" });
     const fresh = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-prepare-fresh" })).machine_state;
     const authorizePlan = async (plan) => {
@@ -485,6 +488,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       "TRAINING_REGISTRATION_NOT_FOUND");
     assert.equal((await call("test-owner", "training_preview",
       { ...preview, runtime_seconds: 3001 })).error, "INVALID_ARGUMENTS");
+    assert.equal((await call("test-owner", "training_preview",
+      { ...preview, runtime_seconds: 121 })).error, "INVALID_ARGUMENTS");
 
   } finally {
     db.close();

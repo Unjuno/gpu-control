@@ -5,6 +5,8 @@ const MAP_REPOSITORY = "unjuno/model-as-a-paper";
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
 export const MAP_TRAINING_MAX_COST_MICROUSD = 250_000;
+export const MAP_TRAINING_MAX_RUNTIME_SECONDS = 120;
+export const MAP_TRAINING_MAX_MONTHLY_MICROUSD = 1_000_000;
 const DEFAULT_MAP_EXECUTION = Object.freeze({ dataset: "papers", run_name: "map44m", steps: 100000 });
 
 function trainingAuthorizationUrl(runId, fingerprint) {
@@ -23,6 +25,10 @@ function validMapExecution(value) {
 }
 
 export async function previewTrainingPlan(env, owner, args) {
+  if (args.runtime_seconds !== MAP_TRAINING_MAX_RUNTIME_SECONDS) return { schema_version: 2, status: "blocked",
+    human_summary: "MAP-44Mの1回あたりの実行時間上限は120秒です。",
+    machine_state: { max_runtime_seconds: MAP_TRAINING_MAX_RUNTIME_SECONDS },
+    next_allowed_actions: [], blocking_reason: "TRAINING_RUNTIME_TOO_HIGH" };
   const source = args.registration_id
     ? await getOwnedTrainingSource(env.DB, owner, args.registration_id)
     : await findOwnedTrainingSource(env.DB, owner, args);
@@ -184,7 +190,8 @@ export async function trainingPlanState(env, owner, runId, cancel = false) {
 // Authorization must already be established. This single write reserves the
 // whole plan ceiling and prevents concurrent or duplicate dispatch claims.
 export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, authorization) {
-  if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1) {
+  if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1 ||
+      monthlyLimit > MAP_TRAINING_MAX_MONTHLY_MICROUSD) {
     throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
   }
   if (!authorization || authorization.authorization_source !== "site_owner_plan_confirmation" ||

@@ -1,5 +1,5 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
-import { MAP_TRAINING_MAX_COST_MICROUSD, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
+import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
 import { listTrainingSources, registerTrainingSource } from "./training_source.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
@@ -66,7 +66,7 @@ const schemas = {
       execution_spec_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
       repository: { type: "string", maxLength: 159 },
       commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
-      runtime_seconds: { type: "integer", minimum: 120, maximum: 3000 },
+      runtime_seconds: { type: "integer", minimum: MAP_TRAINING_MAX_RUNTIME_SECONDS, maximum: MAP_TRAINING_MAX_RUNTIME_SECONDS },
       max_cost_microusd: { type: "integer", minimum: 1, maximum: MAP_TRAINING_MAX_COST_MICROUSD },
     }, required: ["runtime_seconds", "max_cost_microusd"], additionalProperties: false,
   },
@@ -765,7 +765,7 @@ function validToolArguments(name, args, env) {
       typeof args.repository === "string" && args.repository.length <= 159 &&
       typeof args.commit === "string" && args.commit.length === 40;
     return (byId || bySource || bySpec) && Number.isSafeInteger(args.runtime_seconds) &&
-      args.runtime_seconds >= 120 && args.runtime_seconds <= 3000 &&
+      args.runtime_seconds === MAP_TRAINING_MAX_RUNTIME_SECONDS &&
       Number.isSafeInteger(args.max_cost_microusd) && args.max_cost_microusd >= 1 &&
       args.max_cost_microusd <= MAP_TRAINING_MAX_COST_MICROUSD;
   }

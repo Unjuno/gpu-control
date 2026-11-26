@@ -17,7 +17,7 @@ if not re.fullmatch(r"[0-9a-f]{40}", SOURCE_SHA):
 image_pattern = r"im-[A-Za-z0-9]{8,128}" if MODAL_IMAGE_ID else r"sha256:[0-9a-f]{64}"
 if not re.fullmatch(image_pattern, IMAGE_DIGEST):
     raise ValueError("invalid MAP image digest")
-if not 120 <= RUNTIME_LIMIT <= 3000:
+if RUNTIME_LIMIT != 120:
     raise ValueError("invalid MAP runtime")
 
 # Modal imports this module in both function containers. Forward only the
