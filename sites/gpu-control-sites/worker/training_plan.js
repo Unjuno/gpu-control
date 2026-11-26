@@ -270,15 +270,32 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     Number(env.MAP_TRAINING_MONTHLY_MICROUSD), authorization);
   if (!claimed) return { schema_version: 2, status: "blocked", human_summary: "計画または予算枠を確保できませんでした。",
     machine_state: { run_id: runId }, next_allowed_actions: ["training_status"], blocking_reason: "TRAINING_DISPATCH_NOT_RESERVED" };
+  const delegatedAuthorization = {
+    authorization_id: authorization.authorization_id,
+    authorization_source: authorization.authorization_source,
+    authorization_reference: authorization.authorization_reference,
+    decision_record_id: authorization.decision_record_id,
+    authorized_by: authorization.authorized_by,
+    control_plane_sha: authorization.control_plane_sha,
+    target_repository: authorization.target_repository,
+    target_sha: authorization.target_sha,
+    image_digest: authorization.image_digest,
+    provider: authorization.provider,
+    provider_resource_id: authorization.provider_resource_id,
+    gpu_count: authorization.gpu_count,
+    runtime_seconds: authorization.runtime_seconds,
+    max_cost_microusd: authorization.max_cost_microusd,
+    authorized_at: authorization.authorized_at,
+    expires_at: authorization.expires_at,
+    owner,
+    run_id: runId,
+    plan_fingerprint: fingerprint,
+  };
   let state = "uncertain";
   try {
     const response = await delegate(env, owner, "training_submit", {
       run_id: runId, plan_fingerprint: fingerprint, plan: { ...plan, run_id: runId },
-      authorization: { ...authorization, owner, run_id: runId, plan_fingerprint: fingerprint,
-        provider: plan.provider, provider_resource_id: plan.provider_resource_id,
-        target_repository: plan.repository, target_sha: plan.commit, image_digest: plan.image_digest,
-        gpu_count: plan.gpu_count, runtime_seconds: plan.runtime_seconds,
-        max_cost_microusd: plan.max_cost_microusd },
+      authorization: delegatedAuthorization,
       authorization_expires_at: authorization.expires_at,
     });
     if (response?.state === "blocked" &&
