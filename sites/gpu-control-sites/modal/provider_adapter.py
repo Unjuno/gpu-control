@@ -577,6 +577,11 @@ async def invoke(tool: str, request: Request):
 
 @app.function(
     image=adapter_image, secrets=[provider_secret, adapter_auth_secret],
+    env={key: os.environ[key] for key in (
+        "MAP_TRAINING_SOURCE_SHA", "MAP_TRAINING_MODAL_IMAGE_ID", "MAP_TRAINING_IMAGE_DIGEST",
+        "MAP_TRAINING_RUNTIME_SECONDS", "MAP_TRAINING_HOURLY_MICROUSD",
+        "MAP_TRAINING_QUOTE_EXPIRES_AT", "MAP_TRAINING_ADMISSION_ENABLED",
+    ) if key in os.environ},
     volumes={"/data": data_volume}, timeout=120, cpu=1, memory=1024,
     max_containers=1,
 )
