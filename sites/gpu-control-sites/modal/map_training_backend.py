@@ -75,6 +75,10 @@ class MapTrainingBackend:
         return {"state": "succeeded", "steps": result["steps"], "gpu_used": True,
                 "checkpoint": {key: checkpoint[key] for key in ("filename", "sha256", "size_bytes")}}
 
+    def recover_checkpoint(self, run_id):
+        reader = modal.Function.from_name(APP_NAME, "read_map_checkpoint", environment_name="main")
+        return reader.remote(run_id, None, 0, 0)
+
     def checkpoint(self, run_id, manifest, offset, max_bytes):
         if (type(offset) is not int or not 0 <= offset < manifest["size_bytes"]
                 or type(max_bytes) is not int or not 1 <= max_bytes <= 24576):
@@ -141,8 +145,14 @@ def dispatch_training_tool(store, backend, owner, tool, args, *, admission_enabl
     if result["state"] == "running" and record["state"] == "cancel_requested":
         result = {"state": "cancel_requested"}
     if tool == "training_checkpoint":
-        if result["state"] != "succeeded":
+        checkpoint = result.get("checkpoint")
+        if not checkpoint and result.get("failure_code") == "TRAINING_RUNTIME_LIMIT":
+            checkpoint = backend.recover_checkpoint(run_id)
+            if checkpoint:
+                recovered = {**result, "checkpoint": checkpoint}
+                store.put(key, {**record, "state": result["state"], "terminal_result": recovered})
+        if not checkpoint:
             return {"state": "checkpoint_not_ready"}
         return {"state": "succeeded", "checkpoint_chunk": backend.checkpoint(
-            run_id, result["checkpoint"], args.get("offset"), args.get("max_bytes"))}
+            run_id, checkpoint, args.get("offset"), args.get("max_bytes"))}
     return result

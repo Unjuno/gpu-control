@@ -66,8 +66,16 @@ def train_map(plan: dict) -> dict:
     image=modal.Image.debian_slim(python_version="3.11").add_local_python_source("map_checkpoint"),
     env=deployment_env, timeout=30, block_network=True, cpu=1, memory=256,
 )
-def read_map_checkpoint(run_id: str, manifest: dict, offset: int, max_bytes: int) -> dict:
-    from map_checkpoint import read_checkpoint_chunk
+def read_map_checkpoint(run_id: str, manifest: dict | None, offset: int, max_bytes: int) -> dict:
+    from map_checkpoint import checkpoint_manifest, read_checkpoint_chunk
 
     checkpoints.reload()
+    if manifest is None:
+        try:
+            recovered = checkpoint_manifest(Path("/checkpoints"), run_id)
+        except FileNotFoundError:
+            return {}
+        if int(recovered["filename"].split("-")[1]) == 0:
+            return {}
+        return recovered
     return read_checkpoint_chunk(Path("/checkpoints"), run_id, manifest, offset, max_bytes)

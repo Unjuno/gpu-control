@@ -111,3 +111,31 @@ def test_cancel_request_is_retained_until_provider_reports_terminal():
     assert call("training_status") == {"state": "cancel_requested"}
     assert call("training_status") == {"state": "cancelled"}
     assert cancellations == ["fc-abcdefgh"]
+
+
+def test_timed_out_run_can_recover_a_checkpoint_without_relabeling_the_run():
+    run_id = "c" * 32
+    fingerprint = "d" * 64
+    failure = {"state": "failed", "failure_code": "TRAINING_RUNTIME_LIMIT"}
+    store = Store({f"map-training:{run_id}": {
+        "owner": "owner", "fingerprint": fingerprint, "plan": {},
+        "state": "failed", "call_id": "fc-abcdefgh", "terminal_result": failure,
+    }})
+    recovered = {"filename": "step-000000100-123abcde.pt", "size_bytes": 2, "sha256": "a" * 64}
+    recoveries = []
+
+    def recover(value):
+        recoveries.append(value)
+        return recovered
+
+    backend = SimpleNamespace(recover_checkpoint=recover,
+                              checkpoint=lambda *args: {"offset": args[-2]})
+    args = {"run_id": run_id, "plan_fingerprint": fingerprint, "offset": 0, "max_bytes": 1}
+
+    def tool(name):
+        return dispatch_training_tool(store, backend, "owner", name, args, admission_enabled=False)
+
+    for _ in range(2):
+        assert tool("training_checkpoint") == {"state": "succeeded", "checkpoint_chunk": {"offset": 0}}
+    assert tool("training_status") == {**failure, "checkpoint": recovered}
+    assert recoveries == [run_id]

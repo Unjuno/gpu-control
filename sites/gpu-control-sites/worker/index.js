@@ -1792,7 +1792,8 @@ async function callTool(name, args, request, env, context = null) {
     return { ...local, human_summary: "Modalの学習実行状態です。",
       machine_state: { ...local.machine_state, ...remote, state },
       next_allowed_actions: state === "running" ? ["training_status", "training_cancel"]
-        : ["cancel_requested", "uncertain"].includes(state) ? ["training_status"] : [] };
+        : ["cancel_requested", "uncertain"].includes(state) ? ["training_status"]
+        : state === "succeeded" || remote.failure_code === "TRAINING_RUNTIME_LIMIT" ? ["training_checkpoint"] : [] };
   }
   if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool, gatewayDelegationConfigured);
   if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
