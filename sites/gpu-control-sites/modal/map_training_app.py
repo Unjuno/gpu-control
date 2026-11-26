@@ -6,9 +6,6 @@ from pathlib import Path
 
 import modal
 
-from map_training_job import run_map_training
-
-
 SOURCE_SHA = os.environ["MAP_TRAINING_SOURCE_SHA"]
 MODAL_IMAGE_ID = os.environ.get("MAP_TRAINING_MODAL_IMAGE_ID")
 IMAGE_DIGEST = MODAL_IMAGE_ID or os.environ["MAP_TRAINING_IMAGE_DIGEST"]
@@ -46,6 +43,7 @@ checkpoints = modal.Volume.from_name("gpu-control-map-checkpoints", create_if_mi
     single_use_containers=True,
 )
 def train_map(plan: dict) -> dict:
+    from map_training_job import run_map_training
     from model_as_a_paper.training import train
 
     if os.environ.get("MAP_IMAGE_SOURCE_SHA") != SOURCE_SHA:
