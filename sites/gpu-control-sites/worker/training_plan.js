@@ -8,6 +8,16 @@ export async function previewTrainingPlan(env, owner, args) {
     ? await getOwnedTrainingSource(env.DB, owner, args.registration_id)
     : await findOwnedTrainingSource(env.DB, owner, args);
   const machine = { ...source, executable: false };
+  if (args.execution_spec_id) {
+    const spec = await env.DB.prepare(`SELECT spec_json FROM training_execution_specs
+      WHERE owner_id=? AND registration_id=? AND id=?`)
+      .bind(owner, source.registration_id, args.execution_spec_id).first();
+    if (!spec) throw new Error("TRAINING_REGISTRATION_NOT_FOUND");
+    return { schema_version: 2, status: "blocked",
+      human_summary: "この実行コマンドに対応する実行環境はまだ用意されていません。",
+      machine_state: { ...machine, execution_spec_id: args.execution_spec_id, ...JSON.parse(spec.spec_json) },
+      next_allowed_actions: [], blocking_reason: "TRAINING_PROFILE_UNAVAILABLE" };
+  }
   const imageId = env.MAP_TRAINING_MODAL_IMAGE_ID;
   const imageIdentity = imageId || env.MAP_TRAINING_IMAGE_DIGEST;
   const imagePattern = imageId ? /^im-[A-Za-z0-9]{8,128}$/ : /^sha256:[0-9a-f]{64}$/;

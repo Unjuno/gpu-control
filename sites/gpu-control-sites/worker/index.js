@@ -63,6 +63,7 @@ const schemas = {
   training_preview: {
     type: "object", properties: {
       registration_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
+      execution_spec_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
       repository: { type: "string", maxLength: 159 },
       commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
       runtime_seconds: { type: "integer", minimum: 120, maximum: 3000 },
@@ -750,12 +751,15 @@ function validToolArguments(name, args, env) {
   }
   if (name === "training_preview") {
     const keys = Object.keys(args).sort().join(",");
+    const bySpec = keys === "execution_spec_id,max_cost_microusd,registration_id,runtime_seconds" &&
+      typeof args.execution_spec_id === "string" && /^[0-9a-f]{32}$/.test(args.execution_spec_id) &&
+      typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
     const byId = keys === "max_cost_microusd,registration_id,runtime_seconds" &&
       typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
     const bySource = keys === "commit,max_cost_microusd,repository,runtime_seconds" &&
       typeof args.repository === "string" && args.repository.length <= 159 &&
       typeof args.commit === "string" && args.commit.length === 40;
-    return (byId || bySource) && Number.isSafeInteger(args.runtime_seconds) &&
+    return (byId || bySource || bySpec) && Number.isSafeInteger(args.runtime_seconds) &&
       args.runtime_seconds >= 120 && args.runtime_seconds <= 3000 &&
       Number.isSafeInteger(args.max_cost_microusd) && args.max_cost_microusd >= 1 &&
       args.max_cost_microusd <= 1000000;
