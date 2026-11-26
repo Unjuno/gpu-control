@@ -152,6 +152,13 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       run_id: runId, plan_fingerprint: fingerprint, plan: { ...plan, run_id: runId },
       authorization_expires_at: authorizationExpiresAt,
     });
+    if (response?.state === "blocked" &&
+        ["TRAINING_ADMISSION_DISABLED", "TRAINING_AUTHORIZATION_EXPIRED"].includes(response.reason)) {
+      return { schema_version: 2, status: "blocked",
+        human_summary: "プロバイダーは学習の受付を拒否しました。",
+        machine_state: { run_id: runId, state: "blocked" },
+        next_allowed_actions: ["training_status"], blocking_reason: response.reason };
+    }
     if (response?.state === "running") state = "running";
   } catch {
     // The provider may have accepted the call. Recover by status, never respawn.
