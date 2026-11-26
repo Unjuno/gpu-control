@@ -427,6 +427,9 @@ async function renderTrainingAuthorizationPage(request, env, owner) {
     <dt>リポジトリとコミット</dt><dd>${escapeHtml(plan.repository)}<br><code>${escapeHtml(plan.commit)}</code></dd>
     <dt>実行イメージ</dt><dd><code>${escapeHtml(plan.image_digest)}</code></dd>
     <dt>プロバイダーとGPU</dt><dd>Modal / ${escapeHtml(plan.gpu)} × ${escapeHtml(plan.gpu_count)}</dd>
+    <dt>データセット</dt><dd>${escapeHtml(plan.dataset)}</dd>
+    <dt>run名</dt><dd>${escapeHtml(plan.run_name)}</dd>
+    <dt>学習step上限</dt><dd>${escapeHtml(plan.steps.toLocaleString("en-US"))}</dd>
     <dt>実行時間上限</dt><dd>${escapeHtml(plan.runtime_seconds)}秒</dd>
     <dt>計画の費用上限</dt><dd>USD ${escapeHtml((plan.max_cost_microusd / 1000000).toFixed(6))}</dd>
     </dl>

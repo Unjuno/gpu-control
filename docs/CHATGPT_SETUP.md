@@ -313,8 +313,8 @@ ID plus the returned execution-spec ID. Specify a runtime and maximum cost.
 The plan exposes the resolved GPU, dataset, run name, step ceiling, runtime,
 and estimated cost. When the user requests execution, submit that exact plan.
 `training_submit` is the one billable write action. Before dispatch, open the
-`authorization_url` returned by `training_prepare` and confirm the exact source,
-image, GPU, runtime, and cost in the authenticated GPU Control Site. This is
+`authorization_url` returned by `training_prepare` and confirm the exact source, image, dataset, run name, step ceiling, GPU,
+runtime, and cost in the authenticated GPU Control Site. This is
 not another MCP or Modal login. After returning to ChatGPT, check
 `training_status` for `authorization_state=authorized` and continue with the
 exact `training_submit` plan; do not ask the user to repeat their run request.

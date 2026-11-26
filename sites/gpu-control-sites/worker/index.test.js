@@ -354,6 +354,9 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const authorizationHtml = await authorizationPage.text();
     assert.match(authorizationHtml, /unjuno\/model-as-a-paper/);
     assert.match(authorizationHtml, /Modal \/ L4 × 1/);
+    assert.match(authorizationHtml, /<dd>papers<\/dd>/);
+    assert.match(authorizationHtml, /<dd>map44m-first<\/dd>/);
+    assert.match(authorizationHtml, /<dd>100<\/dd>/);
     const challengeToken = authorizationHtml.match(/name="challenge" value="([0-9a-f]{64})"/)?.[1];
     assert.ok(challengeToken);
     const confirmationResponse = await worker.fetch(new Request(`${siteOrigin}/authorize-training`, {

@@ -48,7 +48,7 @@ execution-spec ID, runtime ceiling, and budget ceiling. If the user has
 already requested execution, prepare the exact plan. The first
 `training_prepare` returns an `authorization_url` for this plan. Open it using
 the authenticated ChatGPT Sites owner session and confirm the displayed source,
-image, GPU, runtime, and cost once. This is not a request to sign in to Modal or
+image, dataset, run name, step ceiling, GPU, runtime, and cost once. This is not a request to sign in to Modal or
 reconnect the Sites MCP. After confirmation, call `training_status` to verify
 `authorization_state=authorized`, then call `training_submit` with the exact
 returned plan without asking the user to repeat the execution request. The
