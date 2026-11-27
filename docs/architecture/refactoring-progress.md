@@ -107,3 +107,19 @@ authoritative `mcp_tool_contract.js`; the focused test and complete Python suite
 exact-head CI checks passed on `ae9b96347864cdfa93574c43738dad0213bbb58b`. PR #70
 remains open, blocked on required review. No Site deployment, live D1 migration,
 provider change or experiment was performed.
+
+## 2026-11-28 — A0: repair the public source/release documentation boundary
+
+**Goal:** prevent old hosted-state notes from being mistaken for the current
+Site and keep the documented chat journey aligned with PR #70 source.
+
+**Changes:** relabeled the November 14 provider/environment section as a dated,
+unrefreshed historical snapshot; replaced the obsolete PR #68 approval passage
+with the current PR #70 source/deployment distinction; updated migration,
+Modal adapter, selected-repository, tool-contract and build descriptions; and
+refreshed the architecture map to identify `mcp_tool_contract.js` as the MCP
+contract authority.
+
+**Evidence:** PR #70 source head `ae9b96347864cdfa93574c43738dad0213bbb58b` had all
+seven required CI checks pass. This documentation-only follow-up changes no
+runtime files and does not claim deployment or live provider readiness.

@@ -18,7 +18,11 @@ for source ownership and state authority, and
 [the refactoring backlog](../../docs/architecture/refactoring-backlog.md) for
 the product and architecture acceptance sequence.
 
-## Current hosted state
+## Historical hosted-state snapshot — last recorded 2026-11-14
+
+The following provider, environment, token, and run details are a dated
+historical record. They have not been refreshed for 2026-11-28 and must not be
+used to infer today's live Site, billing, provider readiness, or acceptance.
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
 - Site Version 34 is live from source commit
@@ -80,18 +84,19 @@ the product and architecture acceptance sequence.
   [Modal deployment acceptance](../../docs/acceptance/2026-11-13-modal-main-deploy.md),
   and [latest Modal local smoke and live gate](../../docs/acceptance/2026-11-14-modal-local-smoke-and-live-gate.md).
 
-## ChatGPT-native approval candidate
+## ChatGPT-native approval and owner-training source — PR #70 candidate
 
-PR #68 now includes a candidate flow that returns the exact plan fields to the
-ChatGPT conversation and requires approval of the destructive `experiment_submit`
-MCP action. Its confirmation request carries the reviewed fields. The Worker
-binds them to the authenticated Site owner, stored plan fingerprint, image digest, expiry, and one-use D1
-authorization. This removes the separate browser sign-in from the intended
-ChatGPT workflow while keeping the Site public and MCP execution owner-scoped.
-This candidate is not live: Site Version 34 still uses the browser confirmation
-page. Verify how ChatGPT renders the exact tool arguments before approval, the
-platform identity source, cross-account denial, migration, and end-to-end
-cleanup before publishing.
+PR #70 retains the ChatGPT-native destructive `experiment_submit` authorization
+and adds an owner-selected GitHub repository training path. The current source
+pins a repository commit, validates its `.gpu-control/experiment.json` and
+hash-locked requirements, prepares a bounded Modal GPU plan, and binds submit to
+the authenticated Site owner and one-use authorization. The tool descriptions
+and the operator Skill are intended to let ChatGPT carry registration IDs
+internally. PR #70 remains an unmerged source candidate; the historical Site
+snapshot above does not prove this path is deployed or accepted. See the
+[architecture map](../../docs/architecture/repository-map.md) and [ChatGPT
+workflow](../../docs/architecture/chat-operations.md) for source behavior and
+its remaining release gates.
 
 ## Target execution architecture
 
@@ -100,11 +105,12 @@ providers are exactly Modal, RunPod, Kaggle, and Hugging Face. Each stays behind
 separate authorization, pricing or free-quota, availability, result-integrity,
 and cleanup gates. D1/R2 lifecycle data is authoritative.
 
-### Modal provider adapter (staged, disabled by default)
+### Modal provider adapter (source candidate, disabled by repository policy)
 
 The source includes a fail-closed Sites-to-Modal-adapter transport for the
-Kaggle/Hugging Face extension. It is not enabled merely by publishing this
-Site. D1 must be migrated through `0016_provider_adapter_state.sql`. Configure
+Kaggle/Hugging Face extension and selected-repository Modal training. It is not
+enabled merely by publishing this Site. PR #70 requires forward D1 migrations
+through `0032_modal_compute_budget.sql`. Configure
 the Site only with `PROVIDER_ADAPTER_URL` (the authenticated Modal HTTPS
 origin), `PROVIDER_ADAPTER_KEY_ID`, and secret
 `PROVIDER_ADAPTER_HMAC_KEY_B64`, plus the adapter-specific Modal proxy token
@@ -155,9 +161,10 @@ does not include Modal control-function charges, Kaggle/Hugging Face provider
 adapter hosting, external-provider costs, or unrelated Modal usage.
 
 Offline Worker, adapter, GPU-backend, canary, packaging, migration, and artifact
-tests pass for this candidate. This is not live acceptance: Modal currently
-requires a payment method before the T4 app can be deployed, and no GPU call is
-authorized merely by publishing the Site.
+tests pass for this candidate. This is not live acceptance. The payment-method
+requirement was recorded on 2026-11-14 and must be rechecked before any current
+provider or billing claim. No GPU call is authorized merely by publishing the
+Site.
 
 The browser confirmation page remains as a fallback. The new ChatGPT path must
 not infer approval from a prompt or plan preparation alone; the submit tool is
@@ -180,10 +187,14 @@ untouched.
 
 ## Source layout
 
-- `worker/index.js`: ChatGPT MCP Worker and D1/R2 control-plane logic.
+- `worker/mcp_tool_contract.js`: canonical MCP names, schemas, descriptions,
+  output contract, and tool annotations.
+- `worker/index.js`: ChatGPT MCP transport, authentication, and composition
+  root for D1/R2 domain modules.
 - `drizzle/`: append-only D1 schema migrations.
-- `modal/`: authenticated, fixed-purpose Modal control API. Its Sandbox can
-  start only the pinned CPU workload and has outbound networking blocked.
+- `modal/`: authenticated Modal control API, fixed GPU canary, provider adapter,
+  and selected-repository training candidate. Sandboxes remain pinned,
+  bounded, and isolated from provider credentials.
 - `workloads/tiny_stories_inference/`: pinned workload and container recipe.
   Provider-specific packaging must verify the source and model digests before
   use.
@@ -192,7 +203,8 @@ untouched.
 - `../../workloads/runpod-gpu-canary/`: fixed RunPod Serverless GPU worker.
   It accepts only an owner-approved execution binding, returns HMAC-bound
   evidence, and relies on RunPod's per-job timeout and scale-to-zero lifecycle.
-- `scripts/`: deterministic Worker build and artifact validation.
+- `scripts/`: static Worker import-graph validation and exact reachable-module
+  packaging, plus artifact validation.
 
 ## Verification and acceptance
 
@@ -213,9 +225,10 @@ Omitting optional training settings selects `papers`, `map44m`, and a maximum
 of 100,000 steps; `dataset`, `run_name`, and `steps` may be set on registration.
 The execution entrypoint, L4 GPU, image, corpus/checkpoint Volumes, and Modal
 credentials remain selected by the server. No shell command or image can be
-provided through MCP. Use `training_prepare` by repository and commit (or
-registration ID plus execution-spec ID), with runtime seconds and a budget in
-millionths of a US dollar. Use a fresh idempotency key per intended execution.
+provided through MCP. Use `training_prepare` with the returned registration ID;
+the server supplies the reviewed runtime, execution profile and cost ceiling.
+Use a fresh idempotency key per intended execution when one is needed for
+recovery.
 The returned plan binds source, image, GPU, dataset, run name, step ceiling,
 runtime, and cost ceiling before `training_submit` accepts its exact
 `approved_plan`, run ID, and fingerprint. `training_submit` is the single

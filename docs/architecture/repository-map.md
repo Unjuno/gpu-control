@@ -81,7 +81,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 
 | Area | Canonical responsibility | Main source | Boundary / status |
 | --- | --- | --- | --- |
-| Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `sites/gpu-control-sites/worker/index.js` and ``CHATGPT_SETUP.md` | `mcp_tool_contract.js` owns schemas, descriptions, output schema and annotations; `index.js` owns transport/dispatch. Sites is intended ChatGPT surface; `index.js` remains a large composition root. |
+| Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `worker/mcp_tool_contract.js`, `worker/index.js`, `docs/CHATGPT_SETUP.md` | `mcp_tool_contract.js` owns schemas, descriptions, output schema and annotations; `index.js` owns transport/dispatch. Sites is intended ChatGPT surface; `index.js` remains a large composition root. |
 | Fixed workload definitions | IDs, provider, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator drift check is the established single-source pattern. |
 | Owner-selected source identity | GitHub App install selection, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/training_source.js` | Owner-bound selected repos; token is trusted control-plane/stager input, never workload input. The MAP-44M repo slug is centralized here. |
 | Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `.gpu-control/experiment.json` at immutable commit; no repository Dockerfile or arbitrary shell command. |
@@ -149,7 +149,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Generic control library | Python 3.11+ | `pyproject.toml`, `uv.lock`, pytest; package exposes `gpu-control` CLI |
 | Gateway compatibility/service area | Python 3.11+, FastAPI/SQLAlchemy modules retained in source | `gateway/pyproject.toml`; current Gateway CI tests only the Sites-owned provider runtime and compatibility imports, not the FastAPI/PostgreSQL service |
 | Project bridge | Python/GitHub Actions | Separate workflow and Docker-based check |
-| External contracts | MCP JSON schemas, D1 schema, GitHub App API, Modal adapter HMAC envelope, provider APIs | Schemas/validation are spread across JavaScript, Python and docs; see backlog for contract ownership. |
+| External contracts | MCP JSON schemas, D1 schema, GitHub App API, Modal adapter HMAC envelope, provider APIs | MCP schemas/descriptions/annotations are canonical in `worker/mcp_tool_contract.js`; plan/lifecycle and cross-runtime provider semantics remain distributed across JavaScript, Python and docs. |
 
 ## Duplication and complexity inventory
 
