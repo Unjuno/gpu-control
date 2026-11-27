@@ -82,18 +82,25 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   cover response loss, duplicate delivery, provider terminal mismatch and
   cleanup pending without duplicate allocation.
 
-### A4. Decide whether Gateway is product runtime or retireable test/service code
+### A4. Retire or isolate the legacy Gateway service without losing its real callers
 
-- **Evidence:** `gateway/README.md` says maintained; `docs/CHATGPT_SETUP.md`
-  and the Sites architecture describe Sites as the only ChatGPT-facing
-  production control plane and a separate Gateway as not in the path. Gateway
-  has a separate FastAPI/OAuth/Postgres/queue stack and CI still covers it.
-- **Work:** inventory real deployment and import/test consumers; record an
-  architecture decision. If not a supported product, migrate required provider
-  contracts/tests, then retire deployment/API/service code in an isolated
-  sequence. If supported, make its responsibility and public API explicit.
-- **Done when:** product docs, CI, package metadata, deployment files and actual
-  callers agree on its status. Do not delete based on a stale label alone.
+- **Evidence:** the user-facing product boundary is Sites; `gateway/app.py`
+  labels its FastAPI app a local compatibility entrypoint. The Gateway CI
+  workflow tests the Sites-owned provider runtime and its wrappers, not the
+  FastAPI/PostgreSQL service. `gateway/scripts/comment_bridge.py` still imports
+  `gpu_gateway.ci_bridge`; historical service tests also cover the retained
+  API/store/worker implementation.
+- **Decision:** do not treat Gateway as a production deployment. Keep its three
+  concerns separate: GitHub Issue bridge, provider-runtime compatibility
+  imports, and legacy Gateway service code.
+- **Work:** inventory exact app/service tests and imports; either move the
+  Issue bridge to its own package or keep its narrow import with ownership
+  documented. Remove or archive the legacy API/OAuth/store/queue/deploy stack
+  only after its required contracts and historical evidence are preserved and
+  the now-unused tests/build dependencies are migrated or retired.
+- **Done when:** no current doc suggests deploying Gateway for ChatGPT GPU
+  Control; CI names the behavior it truly checks; each retained module has a
+  caller or an explicit archival reason.
 
 ### A5. Make provider capability and cost policy queryable from one contract
 

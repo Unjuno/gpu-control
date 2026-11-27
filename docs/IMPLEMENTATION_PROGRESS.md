@@ -4460,3 +4460,22 @@ branch and refs remain unchanged.
   passed. These are local source checks only; the PR head must rerun exact-head
   CI. No provider API, experiment submit, credential, admission flag,
   deployment, or hosted migration was touched.
+
+### Gateway ownership clarification — 2026-11-28
+
+- Inspected Gateway README, app entrypoint, CI workflow, Project Checks imports,
+  provider-runtime wrapper imports, deployment templates and the production
+  setup docs. The former README described an un-deployed FastAPI/PostgreSQL
+  service as maintained provider runtime, while current product docs correctly
+  keep Sites as the only ChatGPT control plane.
+- Rewrote `gateway/README.md` to separate the legacy FastAPI/PostgreSQL service,
+  GitHub Issue bridge helper, and Sites-owned Kaggle/HF provider-runtime
+  compatibility imports. Clarified that current `gateway-ci.yml` tests only
+  the provider runtime and wrappers, not the Gateway service deployment.
+- Updated the repository map and A4 backlog: Gateway is not a production
+  deployment; its service code is a staged retirement/isolation candidate, but
+  the Issue bridge and provider-runtime imports have identified callers and
+  must be migrated or preserved before deletion.
+- Validation: inspected direct imports and workflow scope; documentation
+  relative links and `git diff --check` passed. No service, deployment,
+  database, provider, or GitHub Actions configuration was changed.

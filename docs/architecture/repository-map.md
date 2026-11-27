@@ -89,8 +89,8 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Custom GPU staging/execution | Fetch pinned source, install locked wheels, execute manifest entrypoint, collect bounded outputs and cleanup | `modal/custom_training_*.py`, `modal/custom_sandbox_entrypoint.py` | Implemented in PR #70 source; admission and release acceptance are separate. Source fetch and job execution are separate sandboxes. |
 | Provider runtime shared with Gateway tests | Shared Kaggle/HF contracts, backends, artifacts, settings | `modal/provider_runtime/` | Packaged into adapter and imported/wrapped by Gateway tests. Verify every wrapper's real caller before retirement. |
 | Generic Python control library | Offline policy, source/container verification, execution plans, provider lifecycle and RunPod client | `src/gpu_control/` | Root package; Gateway depends on it. Sites Worker does not import it. It is not automatically the live Sites policy engine. |
-| Gateway service | OAuth, FastAPI, PostgreSQL store, queue worker, recovery supervisor and API | `gateway/gpu_gateway/`, `gateway/deploy/` | `gateway/README.md` says maintained and describes future hosting; `docs/CHATGPT_SETUP.md` says a separate Gateway is not production. That ownership/release ambiguity is unresolved. |
-| Issue/CI bridge | Restricted GitHub project check and submission workflow | `project_control/`, `.github/workflows/project-checks-ci.yml` | Separate GitHub Actions product/interface. Do not confuse with ChatGPT GPU execution. |
+| Legacy Gateway service | OAuth, FastAPI, PostgreSQL store, queue worker, recovery supervisor and API | `gateway/gpu_gateway/`, `gateway/deploy/` | Not the current production path; `gateway/app.py` identifies local compatibility use. Do not deploy its templates for Sites. |
+| GitHub Issue bridge | Restricted GitHub project check and submission workflow | `gateway/scripts/comment_bridge.py`, `gateway/gpu_gateway/ci_bridge.py`, `project_control/`, `.github/workflows/project-checks-ci.yml` | Separate GitHub Actions interface. A subset of Gateway package modules remains a real caller; do not confuse with GPU experiment orchestration. |
 | Workload examples | Fixed and research workloads, Dockerfiles, data contracts | `workloads/`, `sites/gpu-control-sites/modal/provider_runtime/workloads/` | Source payloads and workload instructions are untrusted data, not control-plane policy. |
 | Policy and release evidence | Parked mode, trust rules, authorization constraints, dated acceptance evidence | `policies/`, `docs/acceptance/`, `docs/RELEASE_MATRIX.md` | Policy files constrain activation. Dated records are not current runtime state. |
 
@@ -142,7 +142,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Sites control plane | JavaScript ES modules, Cloudflare Worker | D1/Drizzle forward-only SQL, R2; npm; Node test runner; registry generator |
 | Modal adapter and workloads | Python, Modal | Modal Dict/Volumes and provider APIs; pinned requirements; pytest; custom packaging checks |
 | Generic control library | Python 3.11+ | `pyproject.toml`, `uv.lock`, pytest; package exposes `gpu-control` CLI |
-| Gateway service | Python 3.11+, FastAPI/SQLAlchemy | Independent `gateway/pyproject.toml` and lock, PostgreSQL migrations, API/queue/recovery roles |
+| Gateway compatibility/service area | Python 3.11+, FastAPI/SQLAlchemy modules retained in source | `gateway/pyproject.toml`; current Gateway CI tests only the Sites-owned provider runtime and compatibility imports, not the FastAPI/PostgreSQL service |
 | Project bridge | Python/GitHub Actions | Separate workflow and Docker-based check |
 | External contracts | MCP JSON schemas, D1 schema, GitHub App API, Modal adapter HMAC envelope, provider APIs | Schemas/validation are spread across JavaScript, Python and docs; see backlog for contract ownership. |
 
@@ -150,12 +150,12 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 
 These are investigation targets, not automatic deletion instructions.
 
-1. **Two orchestration surfaces:** Sites and Gateway both contain plans,
-   lifecycle, authorization and provider-facing logic. Gateway README describes
-   it as maintained; product setup docs describe Sites as the only ChatGPT path
-   and external Gateway as non-production. Decide whether Gateway is a live
-   supported product, a test harness, or a retirement candidate before sharing
-   more business logic.
+1. **Legacy orchestration remains in source:** Sites owns the product path;
+   the separate Gateway retains its own plans, lifecycle, authorization,
+   persistence and provider logic, plus non-product CI-bridge and compatibility
+   callers. Its FastAPI/PostgreSQL runtime is not current production. Inventory
+   the legacy runtime's tests and remaining callers before staged removal; do
+   not keep advertising it as a production alternative.
 2. **Python/JavaScript parallel contracts:** `src/gpu_control` models policy,
    execution plans and provider lifecycle; Sites Worker implements the live
    user-facing contract independently in JavaScript. Some overlap is required
