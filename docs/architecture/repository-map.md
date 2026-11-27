@@ -2,8 +2,10 @@
 
 **Snapshot:** 2026-11-28 (Asia/Tokyo)  
 **Source under inspection:** PR #70, `codex/owner-training-workloads`  
-**Release status:** open, `REVIEW_REQUIRED`, merge state `BLOCKED`; not proof of
-deployment. `policies/repository-state.yaml` remains `mode: parked`.
+**Release status:** PR #70 is open and unmerged; GitHub reports the current
+head mergeable. Exact-head CI is queued and no unresolved inline review threads
+were returned in the latest read. This is not proof of deployment.
+`policies/repository-state.yaml` remains `mode: parked`.
 
 This is an evidence-backed map of the current repository, not a claim that all
 listed source paths are active in the hosted product.

@@ -187,8 +187,36 @@ changed, and no experiment was started.
 
 **Status:** code batch committed as ed76b405039f8b0c737ccce46e1e55b9caf51441
 and pushed to PR #70. The PR is open and unmerged; all seven exact-head checks
-were queued at the last read. The independent security scan remains
+were queued at that batch's last read. The independent security scan remains
 incomplete; the local scanner has previously rejected valid worktrees without
 producing results. Migration/deployment, GitHub OAuth hosted-flow test,
 admission, real external-GPU acceptance, and end-to-end ChatGPT verification
 remain release gates. Repository mode remains parked.
+
+## 2026-11-28 — A0: refresh exact PR and release evidence
+
+**Goal:** keep the architecture record aligned with the actual GitHub head and
+the user's core product requirement: ordinary ChatGPT conversation must reach
+authorized external GPU compute when the experiment needs it. A CPU container
+route or a fixed-workload provider canary is not equivalent acceptance.
+
+**Evidence refreshed:** PR #70 is open and unmerged at
+`aa9f1003a8c19994eef803dbd8d7b4fb431a7f1a`; GitHub reports `mergeable: true`.
+All seven checks on that exact head remain queued. The inline review-thread read
+returned zero unresolved threads. PR metadata records a 104-file diff
+(+10,460/−349). The candidate only implements owner-selected arbitrary source
+execution on Modal GPU; RunPod remains a fixed canary, Kaggle/Hugging Face remain
+fixed-workload routes, and Colab is not integrated. The candidate is unmerged,
+undeployed, and the repository remains parked.
+
+**Change:** refreshed A0 and the repository-map release header so mergeability,
+review, CI, deployment, and provider acceptance are described as separate
+facts. The product outcome and external-GPU acceptance boundary remain explicit.
+
+**Validation:** read-only GitHub PR/check/review-thread queries and local
+worktree/commit inspection. No provider, production D1, credentials, admission,
+deployment, or experiment was touched.
+
+**Status:** documentation only; no new commit yet. Next priority is continue
+A1/A3 implementation and architecture batches against the actual ChatGPT-to-
+external-GPU lifecycle. Do not represent PR #70 as a complete product.
