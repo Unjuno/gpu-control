@@ -54,7 +54,7 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
         return {"state": "not_found"}
     if action == "submit":
         return {"state": record["state"] if "handle" in record else "uncertain"}
-    if action not in {"status", "cancel", "checkpoint"}:
+    if action not in {"status", "cancel", "checkpoint", "artifact"}:
         raise ValueError("invalid_action")
     plan = args.get("approved_plan")
     if ((plan is not None and (not isinstance(plan, dict) or plan != record.get("plan"))) or
@@ -78,6 +78,13 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
                 return {"state": "checkpoint_not_ready"}
             return {"state": "succeeded", "checkpoint_chunk": backend.checkpoint(
                 run_id, checkpoint, args.get("offset"), args.get("max_bytes"))}
+        if action == "artifact":
+            artifact = next((item for item in result.get("artifacts", [])
+                             if item.get("artifact_id") == args.get("artifact_id")), None)
+            if result.get("state") != "succeeded" or artifact is None:
+                return {"state": "artifact_not_ready"}
+            return {"state": "succeeded", "artifact_chunk": backend.artifact(
+                run_id, artifact, args.get("offset"), args.get("max_bytes"))}
         return result
     if action == "cancel" and record["state"] != "cancel_requested":
         cancelled = backend.cancel(record["handle"])
@@ -110,4 +117,11 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
             return {"state": "checkpoint_not_ready"}
         return {"state": "succeeded", "checkpoint_chunk": backend.checkpoint(
             run_id, checkpoint, args.get("offset"), args.get("max_bytes"))}
+    if action == "artifact":
+        artifacts = result.get("artifacts", [])
+        artifact = next((item for item in artifacts if item.get("artifact_id") == args.get("artifact_id")), None)
+        if result.get("state") != "succeeded" or artifact is None:
+            return {"state": "artifact_not_ready"}
+        return {"state": "succeeded", "artifact_chunk": backend.artifact(
+            run_id, artifact, args.get("offset"), args.get("max_bytes"))}
     return result

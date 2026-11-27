@@ -29,7 +29,7 @@ SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
 MAX_BODY_BYTES = 64 * 1024
 MAX_CLOCK_SKEW_SECONDS = 60
 MAX_LIFETIME_SECONDS = 120
-TOOLS = re.compile(r"^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request|training_(?:submit|status|cancel|checkpoint))$")
+TOOLS = re.compile(r"^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request|training_(?:submit|status|cancel|checkpoint|artifact))$")
 OWNER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$")
 NONCE = re.compile(r"^[0-9a-f]{32}$")
 RUNPOD_ENDPOINT_ID = "wwlos460xbfw5q"
@@ -653,7 +653,7 @@ async def invoke(tool: str, request: Request):
             raw, request.headers.get("x-gpu-control-sites-signature"), tool)
         if verified_tool == "runpod_queue_request":
             result = _runpod_relay(owner, arguments)
-        elif verified_tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint"}:
+        elif verified_tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint", "training_artifact"}:
             if "/root/site-modal" not in sys.path:
                 sys.path.insert(0, "/root/site-modal")
             custom_run_id = arguments.get("run_id")
@@ -666,6 +666,8 @@ async def invoke(tool: str, request: Request):
                 # serializes status/cancel around the staging-to-GPU handoff.
                 result = _dispatch_custom_training(owner, verified_tool, arguments)
             else:
+                if verified_tool == "training_artifact":
+                    raise ValueError("artifact_not_available_for_registered_workload")
                 from map_training_backend import MapTrainingBackend, dispatch_training_tool
                 result = await asyncio.to_thread(
                     dispatch_training_tool, submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
@@ -694,7 +696,7 @@ async def invoke(tool: str, request: Request):
         from provider_adapter_core import AdapterError
         if isinstance(exc, AdapterError):
             return _error(exc.code, exc.status)
-        if tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint"}:
+        if tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint", "training_artifact"}:
             print(f"MAP adapter failure in {tool}: {type(exc).__module__}.{type(exc).__name__}")
         return _error("provider_operation_failed", 503)
 

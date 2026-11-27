@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from custom_training_process import run_command
+from custom_training_plan import validate_output_paths
 from custom_training_source import stage_commit
 
 
@@ -77,6 +78,52 @@ def metrics_manifest(output_dir, *, max_bytes=8 * 1024):
         raise ValueError("invalid_metrics")
     return {"filename": "metrics.json", "size_bytes": len(raw),
             "sha256": hashlib.sha256(raw).hexdigest(), "values": value}
+
+
+def artifacts_manifest(output_dir, paths, *, max_file_bytes=256 * 1024 * 1024,
+                       max_total_bytes=512 * 1024 * 1024):
+    """Hash explicitly declared regular files below the per-run artifacts directory."""
+    if not isinstance(paths, list) or len(paths) > 14:
+        raise ValueError("invalid_artifact_manifest")
+    root = Path(output_dir)
+    manifests, total = [], 0
+    for relative in paths:
+        parts = Path(relative).parts if isinstance(relative, str) else ()
+        if (not isinstance(relative, str) or not relative.startswith("artifacts/") or
+                Path(relative).is_absolute() or len(parts) < 2 or
+                any(part in {"", ".", ".."} or re.fullmatch(r"[A-Za-z0-9_.-]+", part) is None
+                    for part in parts)):
+            raise ValueError("invalid_artifact_path")
+        current = root
+        for part in parts[:-1]:
+            current = current / part
+            try:
+                mode = current.lstat().st_mode
+            except FileNotFoundError as exc:
+                raise ValueError("declared_artifact_missing") from exc
+            if not stat.S_ISDIR(mode):
+                raise ValueError("invalid_artifact_path")
+        path = root.joinpath(*parts)
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError as exc:
+            raise ValueError("declared_artifact_missing") from exc
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or not 1 <= info.st_size <= max_file_bytes:
+                raise ValueError("invalid_artifact")
+            digest, size = hashlib.sha256(), 0
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                size += len(chunk)
+                total += len(chunk)
+                if size > max_file_bytes or total > max_total_bytes:
+                    raise ValueError("artifact_limit_exceeded")
+                digest.update(chunk)
+            if size != info.st_size:
+                raise ValueError("artifact_changed")
+        manifests.append({"artifact_id": hashlib.sha256(relative.encode("utf-8")).hexdigest(),
+                          "path": relative, "size_bytes": size, "sha256": digest.hexdigest()})
+    return manifests
 
 
 def probe_gpu(gpu_profile, *, python=None, drop_privileges=True):
@@ -207,6 +254,13 @@ def run_custom_training(repository, commit, entrypoint, runtime_seconds, checkpo
         lock_digest = hashlib.sha256(lock_path.read_bytes()).hexdigest()
         if manifest_digest != expected_manifest_sha256 or lock_digest != expected_lock_sha256:
             raise ValueError("source_binding_mismatch")
+        try:
+            source_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("source_binding_mismatch") from exc
+        if not isinstance(source_manifest, dict):
+            raise ValueError("source_binding_mismatch")
+        artifact_paths = validate_output_paths(source_manifest.get("outputs"))
         if drop_privileges:
             for item in source.rglob("*"):
                 item.chmod(0o555 if item.is_dir() else 0o444)
@@ -239,12 +293,18 @@ def run_custom_training(repository, commit, entrypoint, runtime_seconds, checkpo
     except ValueError:
         metrics = None
         result = {**result, "state": "failed"}
-        failure_code = "TRAINING_METRICS_INVALID"
+        failure_code = "TRAINING_OUTPUT_INVALID"
     else:
         failure_code = None
         if result["state"] == "succeeded" and metrics is None:
             result = {**result, "state": "failed"}
             failure_code = "TRAINING_METRICS_MISSING"
+    try:
+        artifacts = artifacts_manifest(checkpoint_dir, artifact_paths)
+    except ValueError:
+        artifacts = []
+        result = {**result, "state": "failed"}
+        failure_code = "TRAINING_OUTPUT_INVALID"
     state = result["state"]
     if state == "succeeded" and not result["gpu_activity_seen"]:
         state, failure_code = "failed", "GPU_ACTIVITY_NOT_OBSERVED"
@@ -253,4 +313,4 @@ def run_custom_training(repository, commit, entrypoint, runtime_seconds, checkpo
             "manifest_sha256": expected_manifest_sha256,
             "lock_sha256": expected_lock_sha256, "gpu": gpu,
             "gpu_used": result["gpu_activity_seen"], "checkpoint": checkpoint,
-            "metrics": metrics}
+            "metrics": metrics, "artifacts": artifacts}

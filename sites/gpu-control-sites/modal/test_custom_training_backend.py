@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import hashlib
 import json
 
 import pytest
@@ -18,7 +19,7 @@ def test_stages_before_creation_and_observes_same_sandbox(tmp_path):
               "gpu_profile": "L4", "gpu_used": True, "gpu": {"name": "NVIDIA L4"},
               "checkpoint": {"filename": "checkpoint.pt", "size_bytes": 5, "sha256": "e" * 64},
               "metrics": {"filename": "metrics.json", "size_bytes": 12, "sha256": "f" * 64,
-                          "values": {"loss": 0.5}}}
+                          "values": {"loss": 0.5}}, "artifacts": []}
     stage_result = {"commit": "b" * 40, "manifest_sha256": "c" * 64,
                     "lock_sha256": "d" * 64, "dependencies_lock": "requirements.lock",
                     "entrypoint": "train.py", "wheelhouse_sha256": "9" * 64,
@@ -77,3 +78,24 @@ def test_stage_failure_does_not_allocate_gpu():
     assert backend.start(plan) == "custom-training-" + "a" * 32
     result = backend.inspect("custom-training-" + "a" * 32, plan)
     assert result["state"] == "failed" and result["gpu_used"] is False
+
+
+def test_declared_artifact_chunk_is_owner_run_scoped_and_reverified(tmp_path):
+    run_id = "a" * 32
+    payload = b"metrics-data"
+    artifact_path = "artifacts/eval.csv"
+    artifact = {"artifact_id": hashlib.sha256(artifact_path.encode()).hexdigest(),
+                "path": artifact_path, "size_bytes": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest()}
+    path = tmp_path / run_id / "checkpoint" / artifact_path
+    path.parent.mkdir(parents=True)
+    path.write_bytes(payload)
+    backend = CustomTrainingBackend(app=None, image=None, source_volume=Volume(), checkpoint_volume=Volume(),
+        create=lambda *_args, **_kwargs: None, lookup=lambda *_: None, stage=lambda: None,
+        checkpoint_root=str(tmp_path))
+    chunk = backend.artifact(run_id, artifact, 0, 5)
+    assert chunk["data"] == "bWV0cmk="
+    assert chunk["next_offset"] == 5 and chunk["eof"] is False
+    path.write_bytes(b"metric-error")
+    with pytest.raises(ValueError, match="artifact_checksum_mismatch"):
+        backend.artifact(run_id, artifact, 0, 5)

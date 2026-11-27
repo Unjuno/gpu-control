@@ -90,6 +90,31 @@ def test_cleanup_must_be_confirmed_before_success_or_checkpoint():
                         "state": "cleanup_pending", "execution_state": "succeeded"}
 
 
+def test_declared_artifact_reads_require_success_and_confirmed_cleanup():
+    run = "a" * 32
+    fingerprint = "b" * 64
+    plan = {"run_id": run}
+    args = {"run_id": run, "plan_fingerprint": fingerprint, "plan": plan,
+            "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
+    artifact_id = "c" * 64
+    artifact = {"artifact_id": artifact_id, "path": "artifacts/result.csv",
+                "size_bytes": 4, "sha256": "d" * 64}
+    backend = SimpleNamespace(start=lambda *_args, **_kwargs: f"custom-training-{run}",
+        cancel=lambda *_: None,
+        inspect=lambda *_: {"state": "succeeded", "cleanup": "confirmed", "artifacts": [artifact]},
+        artifact=lambda _run, _manifest, offset, maximum: {"offset": offset, "max_bytes": maximum})
+    store = Store()
+    dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None, admission_enabled=True)
+    result = dispatch(store, backend, "owner", "artifact", {
+        "run_id": run, "plan_fingerprint": fingerprint, "artifact_id": artifact_id,
+        "offset": 0, "max_bytes": 100}, validate=lambda *_: None, admission_enabled=True)
+    assert result == {"state": "succeeded", "artifact_chunk": {"offset": 0, "max_bytes": 100}}
+    with pytest.raises(ValueError, match="run_identity_mismatch"):
+        dispatch(store, backend, "other-owner", "artifact", {
+            "run_id": run, "plan_fingerprint": fingerprint, "artifact_id": artifact_id,
+            "offset": 0, "max_bytes": 100}, validate=lambda *_: None, admission_enabled=True)
+
+
 def test_cancel_during_cpu_staging_finishes_without_gpu_start():
     run = "a" * 32
     fingerprint = "b" * 64

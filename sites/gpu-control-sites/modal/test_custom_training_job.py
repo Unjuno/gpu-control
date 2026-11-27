@@ -24,7 +24,8 @@ def test_pinned_source_runs_and_returns_checkpoint_manifest(tmp_path, monkeypatc
     )
     git(repo, "add", "train.py")
     (repo / ".gpu-control").mkdir()
-    (repo / ".gpu-control" / "experiment.json").write_text(json.dumps({"entrypoint": "train.py"}))
+    (repo / ".gpu-control" / "experiment.json").write_text(json.dumps({"entrypoint": "train.py",
+        "outputs": ["checkpoints", "metrics.json"]}))
     (repo / "requirements.lock").write_text("torch==2.0.0\n")
     git(repo, "add", ".gpu-control/experiment.json", "requirements.lock")
     git(repo, "commit", "-m", "training")

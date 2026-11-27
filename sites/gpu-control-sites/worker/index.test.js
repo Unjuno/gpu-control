@@ -676,6 +676,7 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   const prepareTool = rpc.result.tools.find((item) => item.name === "experiment_prepare");
   const submitTool = rpc.result.tools.find((item) => item.name === "experiment_submit");
   const trainingSubmitTool = rpc.result.tools.find((item) => item.name === "training_submit");
+  const trainingArtifactTool = rpc.result.tools.find((item) => item.name === "training_artifact");
   assert.deepEqual(healthTool.inputSchema.required, ["run_id", "plan_fingerprint"]);
   assert.deepEqual(submitTool.inputSchema.required, ["plan_fingerprint", "run_id"]);
   assert.match(prepareTool.description, /without asking the user the same question again/);
@@ -684,6 +685,8 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   assert.equal(trainingSubmitTool.annotations.destructiveHint, true);
   assert.match(trainingSubmitTool.description, /ChatGPT MCP write confirms/);
   assert.match(trainingSubmitTool.description, /No separate GPU Control browser confirmation or Modal login is needed/);
+  assert.deepEqual(trainingArtifactTool.inputSchema.required, ["run_id", "artifact_id", "offset", "max_bytes"]);
+  assert.equal(trainingArtifactTool.annotations.readOnlyHint, true);
 
   for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list", "training_inspect"]) {
     assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);

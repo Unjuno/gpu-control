@@ -10,6 +10,14 @@ function validRelativePythonPath(value) {
       part && part !== "." && part !== ".." && /^[A-Za-z0-9_.-]+$/.test(part));
 }
 
+function validOutputPath(value) {
+  if (typeof value !== "string" || value.length > 240 || value.startsWith("/") || value.includes("*")) return false;
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === ".." || !/^[A-Za-z0-9_.-]+$/.test(part))) return false;
+  return value === "metrics.json" || /(^|\/)(checkpoint|checkpoints)(\/|$)/i.test(value) ||
+    value.startsWith("artifacts/") && parts.length >= 2;
+}
+
 function validManifest(value) {
   const keys = ["dependencies_lock", "entrypoint", "gpu_profiles", "outputs", "python_version", "schema_version", "task"];
   if (!value || typeof value !== "object" || Array.isArray(value) ||
@@ -26,8 +34,7 @@ function validManifest(value) {
       value.gpu_profiles.some((profile) => !["T4", "L4"].includes(profile)) ||
       new Set(value.gpu_profiles).size !== value.gpu_profiles.length ||
       !Array.isArray(value.outputs) || value.outputs.length > 16 ||
-      value.outputs.some((path) => typeof path !== "string" || path.length > 240 || path.startsWith("/") ||
-        !path.split("/").every((part) => part && part !== "." && part !== ".." && /^[A-Za-z0-9_.*-]+$/.test(part)))) {
+      new Set(value.outputs).size !== value.outputs.length || value.outputs.some((path) => !validOutputPath(path))) {
     return false;
   }
   return true;

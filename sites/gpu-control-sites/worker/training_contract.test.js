@@ -82,6 +82,7 @@ test("rejects untrusted manifest instructions and unsafe paths", async () => {
     { ...manifest, dependencies_lock: "../requirements.lock" },
     { ...manifest, gpu_profiles: ["T4", "T4"] },
     { ...manifest, outputs: ["../../secrets"] },
+    { ...manifest, outputs: ["checkpoints", "metrics.json", "artifacts/*.csv"] },
   ]) {
     await assert.rejects(readPublicTrainingContract(repository, commit,
       async () => responseFor(changed)), { message: "TRAINING_EXPERIMENT_MANIFEST_INVALID" });

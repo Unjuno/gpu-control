@@ -374,8 +374,13 @@ For custom training, write a JSON object of scalar metrics to
 `outputs`; after completion the bounded values and SHA-256 are returned with
 `training_status`. Keep the checkpoint at
 `$GPU_CONTROL_CHECKPOINT_DIR/checkpoint.pt`; retrieve it through
-`training_checkpoint` in verified chunks. Other declared files are not yet
-exposed to ChatGPT.
+`training_checkpoint` in verified chunks. Additional files are exposed only
+when listed as an exact relative path under
+`artifacts/` (for example, `artifacts/eval/predictions.json`). The completed
+status returns each artifact's ID, path, size, and SHA-256; call
+`training_artifact` with that ID to retrieve bounded chunks and verify the
+assembled file hash. Each declared artifact is limited to 256 MiB and all
+declared artifacts together to 512 MiB.
 
 At this stage, `training_inspect` validates the manifest and returns structured
 compatibility checks. The current branch contains a gated Modal prototype for

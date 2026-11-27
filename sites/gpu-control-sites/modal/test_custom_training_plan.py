@@ -1,6 +1,6 @@
 import pytest
 
-from custom_training_plan import validate_custom_plan
+from custom_training_plan import validate_custom_plan, validate_output_paths
 
 
 @pytest.fixture
@@ -62,3 +62,14 @@ def test_rejects_untrusted_source_and_malformed_commands(inputs):
                     ["python", "train.py", "--unreviewed"]):
         with pytest.raises(ValueError, match="invalid_command"):
             validate_custom_plan({**plan, "command": command}, **settings)
+
+
+def test_output_manifest_only_allows_bounded_declared_artifact_paths():
+    assert validate_output_paths(["checkpoints", "metrics.json", "artifacts/eval/results.csv"]) == [
+        "artifacts/eval/results.csv"]
+    for outputs in (["checkpoints", "metrics.json", "artifacts/../secret"],
+                    ["checkpoints", "metrics.json", "artifacts/*.csv"],
+                    ["checkpoints", "metrics.json", "private.txt"],
+                    ["checkpoints", "metrics.json", "artifacts/x", "artifacts/x"]):
+        with pytest.raises(ValueError, match="training_manifest_mismatch"):
+            validate_output_paths(outputs)

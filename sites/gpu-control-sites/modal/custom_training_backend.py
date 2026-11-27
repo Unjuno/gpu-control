@@ -1,6 +1,7 @@
 """Private Sandbox lifecycle transport; callers must validate and reserve first."""
 import json
 import base64
+import hashlib
 import math
 import os
 import re
@@ -64,6 +65,25 @@ class CustomTrainingBackend:
                          isinstance(item, str) and len(item.encode("utf-8")) <= 256) or
                     type(item) is float and not math.isfinite(item)):
                 return False
+        return True
+
+    @staticmethod
+    def _valid_artifacts(value):
+        if not isinstance(value, list) or len(value) > 14:
+            return False
+        seen = set()
+        for item in value:
+            if (not isinstance(item, dict) or set(item) != {"artifact_id", "path", "size_bytes", "sha256"} or
+                    not isinstance(item.get("path"), str) or not item["path"].startswith("artifacts/") or
+                    "*" in item["path"] or any(not part or part in {".", ".."} or
+                        re.fullmatch(r"[A-Za-z0-9_.-]+", part) is None for part in item["path"].split("/")) or
+                    not isinstance(item.get("artifact_id"), str) or
+                    item["artifact_id"] != hashlib.sha256(item["path"].encode()).hexdigest() or
+                    type(item.get("size_bytes")) is not int or not 1 <= item["size_bytes"] <= 256 * 1024 * 1024 or
+                    not isinstance(item.get("sha256"), str) or re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) is None or
+                    item["artifact_id"] in seen):
+                return False
+            seen.add(item["artifact_id"])
         return True
 
     def _start_gpu_from_stage(self, stage, plan, handle, cancel_requested=False):
@@ -206,7 +226,8 @@ class CustomTrainingBackend:
             result.get("manifest_sha256") == plan["manifest_sha256"] and
             result.get("lock_sha256") == plan["lock_sha256"] and
             result.get("gpu_profile") == plan["gpu"] and
-            result.get("gpu_used") is True and self._valid_metrics(result.get("metrics")))
+            result.get("gpu_used") is True and self._valid_metrics(result.get("metrics")) and
+            self._valid_artifacts(result.get("artifacts")))
         checkpoint = result.get("checkpoint") if expected else None
         if (not isinstance(checkpoint, dict) or checkpoint.get("filename") != "checkpoint.pt" or
                 not isinstance(checkpoint.get("sha256"), str) or
@@ -219,6 +240,7 @@ class CustomTrainingBackend:
         return {"state": state, "exit_code": code, "gpu_used": expected,
                 "gpu": result.get("gpu") if expected else None,
                 "checkpoint": checkpoint, "metrics": result.get("metrics") if expected else None,
+                "artifacts": result.get("artifacts") if expected else [],
                 "cleanup": cleanup,
                 "failure_code": (None if state == "succeeded" else
                                  result.get("failure_code") if isinstance(result, dict) else
@@ -264,5 +286,39 @@ class CustomTrainingBackend:
             stream.seek(offset)
             chunk = stream.read(min(max_bytes, manifest["size_bytes"] - offset))
         return {"offset": offset, "data": base64.b64encode(chunk).decode("ascii"),
+                "next_offset": offset + len(chunk), "eof": offset + len(chunk) == manifest["size_bytes"],
+                "size_bytes": manifest["size_bytes"], "sha256": manifest["sha256"]}
+
+    def artifact(self, run_id, manifest, offset, max_bytes):
+        path_value = manifest.get("path") if isinstance(manifest, dict) else None
+        parts = path_value.split("/") if isinstance(path_value, str) else []
+        artifact_id = hashlib.sha256(path_value.encode("utf-8")).hexdigest() if path_value else ""
+        if (self.checkpoint_root is None or not isinstance(run_id, str) or re.fullmatch(r"[a-f0-9]{32}", run_id) is None or
+                not self._valid_artifacts([manifest]) or manifest.get("artifact_id") != artifact_id or
+                any(part in {"", ".", ".."} for part in parts) or
+                type(offset) is not int or not 0 <= offset < manifest["size_bytes"] or
+                type(max_bytes) is not int or not 1 <= max_bytes <= 24576):
+            raise ValueError("invalid_artifact_range")
+        root = os.path.join(self.checkpoint_root, run_id, "checkpoint")
+        current = root
+        for part in parts[:-1]:
+            current = os.path.join(current, part)
+            if not stat.S_ISDIR(os.lstat(current).st_mode):
+                raise ValueError("invalid_artifact_path")
+        path = os.path.join(root, *parts)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size != manifest["size_bytes"]:
+                raise ValueError("artifact_manifest_mismatch")
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+            if digest.hexdigest() != manifest["sha256"]:
+                raise ValueError("artifact_checksum_mismatch")
+            stream.seek(offset)
+            chunk = stream.read(min(max_bytes, manifest["size_bytes"] - offset))
+        return {"artifact_id": manifest["artifact_id"], "path": manifest["path"],
+                "offset": offset, "data": base64.b64encode(chunk).decode("ascii"),
                 "next_offset": offset + len(chunk), "eof": offset + len(chunk) == manifest["size_bytes"],
                 "size_bytes": manifest["size_bytes"], "sha256": manifest["sha256"]}
