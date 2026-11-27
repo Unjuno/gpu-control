@@ -4662,5 +4662,7 @@ branch and refs remain unchanged.
   atomic claim gates; no actionable findings remain in this changed slice.
 - Validation: `npm test` passed 112/112 Worker tests; Sites build and artifact
   validation passed; forward migration tests passed; architecture DAG check
-  covers 17 runtime modules; `git diff --check` passed. Exact-head CI,
-  deployment and live ChatGPT acceptance are pending. Related backlog: A5.
+  covers 17 runtime modules; `git diff --check` passed. PR #70 head
+  `e225a66d9c30d974ab8a0b32707dcad87181c89e` passed all 7 exact-head CI checks.
+  PR #70 is still open, review-required and merge-blocked; no deployment or
+  live ChatGPT acceptance was performed. Related backlog: A5.
