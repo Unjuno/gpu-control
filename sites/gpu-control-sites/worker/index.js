@@ -1,5 +1,5 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
-import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
+import { confirmTrainingCleanup, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
 import { getOwnedTrainingSource, listTrainingSources, parseTrainingRepository, registerTrainingSource,
   resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
 import { readPublicTrainingContract } from "./training_contract.js";
@@ -2000,8 +2000,13 @@ async function callTool(name, args, request, env, context = null) {
     if (state === "succeeded" && Array.isArray(remote.artifacts) && remote.artifacts.length > 0) {
       nextActions.push("training_artifact");
     }
+    const cleanupConfirmed = ["succeeded", "failed", "cancelled"].includes(state) &&
+      (remote?.cleanup_state === "confirmed" || remote?.cleanup === "confirmed");
+    if (cleanupConfirmed) await confirmTrainingCleanup(env.DB, owner, args.run_id,
+      local.machine_state.plan_fingerprint, state, "confirmed", Math.floor(Date.now() / 1000));
     return { ...local, human_summary: "Modalの学習実行状態です。",
-      machine_state: { ...local.machine_state, ...remote, state },
+      machine_state: { ...local.machine_state, ...remote, state,
+        ...(cleanupConfirmed ? { cleanup_state: "confirmed" } : {}) },
       next_allowed_actions: nextActions };
   }
   if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool,

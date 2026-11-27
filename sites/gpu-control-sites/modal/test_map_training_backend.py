@@ -133,7 +133,8 @@ def test_provider_failure_becomes_terminal(poll_timeout, failure_code):
 
     assert status() == {"state": "running"}
     for _ in range(2):
-        assert status() == {"state": "failed", "failure_code": failure_code}
+        assert status() == {"state": "failed", "failure_code": failure_code,
+                            "cleanup_state": "confirmed"}
     assert calls == [0, 0]
 
 
@@ -161,7 +162,7 @@ def test_cancel_request_is_retained_until_provider_reports_terminal():
     assert call("training_cancel") == {"state": "cancel_requested"}
     assert call("training_cancel") == {"state": "cancel_requested"}
     assert call("training_status") == {"state": "cancel_requested"}
-    assert call("training_status") == {"state": "cancelled"}
+    assert call("training_status") == {"state": "cancelled", "cleanup_state": "confirmed"}
     assert cancellations == ["fc-abcdefgh"]
 
 

@@ -268,7 +268,8 @@ export async function trainingPlanState(env, owner, runId, cancel = false) {
       WHERE owner_id=? AND id=? AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?`)
       .bind(now, owner, runId, now).run();
   }
-  const row = await db.prepare(`SELECT fingerprint, plan_json, expires_at, cancelled_at, dispatch_claimed_at, dispatch_rejection
+  const row = await db.prepare(`SELECT fingerprint, plan_json, expires_at, cancelled_at, dispatch_claimed_at, dispatch_rejection,
+      cleanup_confirmed_at
     FROM training_plans WHERE owner_id=? AND id=?`).bind(owner, runId).first();
   if (!row) throw new Error("RUN_NOT_FOUND");
   const authorization = await getTrainingAuthorization(db, owner, runId, row.fingerprint);
@@ -287,6 +288,8 @@ export async function trainingPlanState(env, owner, runId, cancel = false) {
   return { schema_version: 2, status: "ok", human_summary: "保存済みの学習計画の状態です。",
     machine_state: { run_id: runId, state, plan_fingerprint: row.fingerprint,
       expires_at: row.expires_at, cancelled_at: row.cancelled_at,
+      cleanup_state: row.dispatch_claimed_at === null ? "not_required"
+        : row.cleanup_confirmed_at !== null ? "confirmed" : "unknown",
       authorization_state: state !== "prepared" ? "none" : !admission ? "unavailable" : authorized ? "authorized" : "required",
       ...(siteConfirmationRequired && admission && !authorized && state === "prepared"
         ? { authorization_url: trainingAuthorizationUrl(runId, row.fingerprint) } : {}),
@@ -317,6 +320,9 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
     db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
     WHERE owner_id=? AND id=? AND fingerprint=?
       AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?
+      AND NOT EXISTS (SELECT 1 FROM training_plans p WHERE p.owner_id=training_plans.owner_id
+        AND p.id<>training_plans.id AND p.dispatch_claimed_at IS NOT NULL
+        AND p.dispatch_rejection IS NULL AND p.cleanup_confirmed_at IS NULL)
       AND EXISTS (SELECT 1 FROM training_authorizations a WHERE a.plan_id=training_plans.id
         AND a.owner_id=training_plans.owner_id AND a.fingerprint=training_plans.fingerprint
         AND a.authorization_id=? AND a.authorization_reference=? AND a.control_plane_sha=?
@@ -342,6 +348,14 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
         authorization.decision_record_id, now, now),
   ]);
   return results?.[0]?.results?.[0] || null;
+}
+
+export async function confirmTrainingCleanup(db, owner, runId, fingerprint, state, cleanup, now) {
+  if (!["succeeded", "failed", "cancelled"].includes(state) || cleanup !== "confirmed") return false;
+  const result = await db.prepare(`UPDATE training_plans SET cleanup_confirmed_at=COALESCE(cleanup_confirmed_at, ?)
+    WHERE owner_id=? AND id=? AND fingerprint=? AND dispatch_claimed_at IS NOT NULL`)
+    .bind(now, owner, runId, fingerprint).run();
+  return (result?.meta?.changes ?? result?.changes ?? 0) > 0;
 }
 
 export async function submitTrainingPlan(env, owner, args, delegate, isConfigured, getSourceToken = async () => null) {
@@ -426,8 +440,17 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     : Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
     monthlyLimit, authorization, ownerSelected ? OWNER_TRAINING_MAX_MONTHLY_MICROUSD : MAP_TRAINING_MAX_MONTHLY_MICROUSD);
-  if (!claimed) return { schema_version: 2, status: "blocked", human_summary: "計画または予算枠を確保できませんでした。",
-    machine_state: { run_id: runId }, next_allowed_actions: ["training_status"], blocking_reason: "TRAINING_DISPATCH_NOT_RESERVED" };
+  if (!claimed) {
+    const active = await env.DB.prepare(`SELECT id FROM training_plans WHERE owner_id=? AND id<>?
+      AND dispatch_claimed_at IS NOT NULL AND dispatch_rejection IS NULL AND cleanup_confirmed_at IS NULL
+      ORDER BY dispatch_claimed_at LIMIT 1`).bind(owner, runId).first();
+    return { schema_version: 2, status: "blocked",
+      human_summary: active ? "前の実験がcleanup確認待ちです。同じrunのstatusを確認します。"
+        : "計画または予算枠を確保できませんでした。",
+      machine_state: { run_id: runId, ...(active ? { active_run_id: active.id } : {}) },
+      next_allowed_actions: ["training_status"],
+      blocking_reason: active ? "TRAINING_PREVIOUS_RUN_CLEANUP_REQUIRED" : "TRAINING_DISPATCH_NOT_RESERVED" };
+  }
   const delegatedAuthorization = {
     authorization_id: authorization.authorization_id,
     authorization_source: authorization.authorization_source,

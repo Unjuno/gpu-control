@@ -11,7 +11,7 @@ conn = sqlite3.connect(":memory:")
 conn.execute("PRAGMA foreign_keys=ON")
 
 paths = sorted(MIGRATIONS.glob("*.sql"))
-assert paths[-1].name == "0030_github_app_connections.sql"
+assert paths[-1].name == "0031_training_cleanup_confirmation.sql"
 history = next(path for path in paths if path.name == "0021_reliable_run_history.sql")
 for path in paths[:paths.index(history)]:
     conn.executescript(path.read_text(encoding="utf-8"))
@@ -66,6 +66,7 @@ assert {row[1] for row in conn.execute("PRAGMA table_info(github_installation_st
 assert {row[1] for row in conn.execute("PRAGMA table_info(github_app_installations)")} == {
     "owner_id", "installation_id", "account_login", "repository_selection", "connected_at",
 }
+assert "cleanup_confirmed_at" in {row[1] for row in conn.execute("PRAGMA table_info(training_plans)")}
 assert conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='github_app_installations'").fetchone()[0].find("UNIQUE") >= 0
 assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 print("D1 forward migration passed: legacy rows preserved, cancellation and stable terminal history verified")

@@ -84,11 +84,13 @@ class MapTrainingBackend:
         try:
             result = call.get(timeout=0)
         except modal.exception.InputCancellation:
-            return {"state": "cancelled"}
+            return {"state": "cancelled", "cleanup_state": "confirmed"}
         except modal.exception.FunctionTimeoutError:
-            return {"state": "failed", "failure_code": "TRAINING_RUNTIME_LIMIT"}
+            return {"state": "failed", "failure_code": "TRAINING_RUNTIME_LIMIT",
+                    "cleanup_state": "confirmed"}
         except modal.exception.RemoteError:
-            return {"state": "failed", "failure_code": "TRAINING_PROVIDER_FAILURE"}
+            return {"state": "failed", "failure_code": "TRAINING_PROVIDER_FAILURE",
+                    "cleanup_state": "confirmed"}
         except (TimeoutError, modal.exception.TimeoutError) as exc:
             if type(exc) not in (TimeoutError, modal.exception.TimeoutError):
                 raise
@@ -111,7 +113,8 @@ class MapTrainingBackend:
                 or type(checkpoint.get("size_bytes")) is not int
                 or not 1 <= checkpoint["size_bytes"] <= 1024 ** 3):
             raise ValueError("training_checkpoint_manifest_invalid")
-        return {"state": "succeeded", "steps": result["steps"], "gpu_used": True,
+        return {"state": "succeeded", "cleanup_state": "confirmed",
+                "steps": result["steps"], "gpu_used": True,
                 "dataset": result["dataset"], "run_name": result["run_name"],
                 "checkpoint": {key: checkpoint[key] for key in ("filename", "sha256", "size_bytes")}}
 

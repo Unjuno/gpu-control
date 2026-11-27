@@ -396,7 +396,11 @@ fixed CPU source staging followed by a network-blocked GPU Sandbox. It is not
 released: admission remains disabled until the runtime image, separate staging
 and GPU quotes, budget reservations, checkpoint and metrics verification, cleanup,
 security review, and exact-head release gates pass. RunPod custom-repository
-execution is not implemented by the fixed RunPod canary.
+execution is not implemented by the fixed RunPod canary. For owner-selected
+training, the Worker keeps an owner-scoped dispatch lease until a terminal
+provider status explicitly confirms cleanup. A lost submit response,
+`uncertain` result, or pending cleanup keeps that lease; the agent must recover
+the same run with `training_status` before another run can start.
 
 When the route is released, a user who explicitly asks to run may use ordinary
 ChatGPT language such as “Run one small GPU experiment from my registered

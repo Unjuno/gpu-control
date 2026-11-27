@@ -1,4 +1,4 @@
-import { claimTrainingDispatch, submitTrainingPlan } from "./training_plan.js";
+import { claimTrainingDispatch, confirmTrainingCleanup, submitTrainingPlan } from "./training_plan.js";
 import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_authorization.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -157,6 +157,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0028_training_execution_specs.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0029_training_authorization_evidence.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0031_training_cleanup_confirmation.sql", import.meta.url), "utf8"));
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner",
       MAP_TRAINING_CONTROL_PLANE_SHA: "e".repeat(40), DB: {
       prepare(sql) {
@@ -471,12 +472,22 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const concurrentClaims = await Promise.all([claim(), claim()]);
     assert.equal(concurrentClaims.filter(Boolean).length, 1);
     assert.equal(await claim(), null);
+    assert.equal(await confirmTrainingCleanup(env.DB, "test-owner", fresh.run_id,
+      fresh.plan_fingerprint, "running", "confirmed", now), false);
+    assert.equal(await confirmTrainingCleanup(env.DB, "test-owner", fresh.run_id,
+      fresh.plan_fingerprint, "succeeded", "pending", now), false);
+    assert.equal(await confirmTrainingCleanup(env.DB, "test-owner", fresh.run_id,
+      fresh.plan_fingerprint, "succeeded", "confirmed", now), true);
     const second = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-monthly-limit" })).machine_state;
     await authorizePlan(second);
     const secondAuthorization = db.prepare(`SELECT * FROM training_authorizations WHERE plan_id=?`).get(second.run_id);
     assert.equal(await claimTrainingDispatch(env.DB, "test-owner", second.run_id,
       second.plan_fingerprint, now, 100000, secondAuthorization), null);
+    db.prepare("UPDATE training_plans SET cleanup_confirmed_at=? WHERE id=?").run(now, fresh.run_id);
+    assert.ok(await claimTrainingDispatch(env.DB, "test-owner", second.run_id,
+      second.plan_fingerprint, now, 200000, secondAuthorization));
+    db.prepare("UPDATE training_plans SET cleanup_confirmed_at=? WHERE id=?").run(now, second.run_id);
     assert.equal((await call("test-owner", "training_cancel",
       { run_id: fresh.run_id })).error, "GATEWAY_DELEGATION_FAILED");
     assert.equal(db.prepare("SELECT cancelled_at FROM training_plans WHERE id=?")
@@ -508,7 +519,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true)).blocking_reason,
       "TRAINING_ADMISSION_DISABLED");
     env.MAP_TRAINING_ADMISSION_ENABLED = "true";
-    env.MAP_TRAINING_MONTHLY_MICROUSD = "200000";
+    env.MAP_TRAINING_MONTHLY_MICROUSD = "300000";
     await assert.rejects(submitTrainingPlan(env, "other-owner", submission, transport, () => true),
       { message: "RUN_NOT_FOUND" });
     await assert.rejects(submitTrainingPlan(env, "test-owner",
@@ -552,6 +563,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.ok(history.machine_state.runs.every(run => Number.isInteger(run.dispatch_claimed_at)));
     assert.deepEqual(history.next_allowed_actions, ["training_inspect", "training_preview", "training_status"]);
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.runs, []);
+    // Model the exact status observation that the cleanup lease requires before a later run.
+    db.prepare("UPDATE training_plans SET cleanup_confirmed_at=? WHERE id=?").run(now, submission.run_id);
     const rejectedPlan = await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-definite-rejection" });
     await authorizePlan(rejectedPlan.machine_state);
