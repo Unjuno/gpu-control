@@ -68,7 +68,9 @@ def test_stage_sandbox_is_cpu_bounded_and_keeps_token_out_of_gpu_plan():
     assert options["name"] == "custom-training-stage-" + "a" * 32
     assert options["runtime"] == "gvisor" and "gpu" not in options
     assert options["cpu"] == 1 and options["memory"] == 1024 and options["timeout"] == 300
-    assert options["block_network"] is False
+    assert options["outbound_domain_allowlist"] == [
+        "github.com", "pypi.org", "files.pythonhosted.org"]
+    assert "block_network" not in options
     assert options["env"]["GPU_CONTROL_SOURCE_TOKEN"] == "x" * 32
     gpu_plan = {"run_id": "a" * 32, "commit": "b" * 40, "command": ["python", "train.py"],
                 "runtime_seconds": 120, "gpu": "L4", "python_version": "3.12", "manifest_sha256": "c" * 64,

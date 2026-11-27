@@ -74,6 +74,11 @@ def create_training_stage_sandbox(plan, *, app, image, source_volume, checkpoint
     return create("python", "/root/site-modal/custom_training_stage_entrypoint.py",
                   app=app, image=image, name=f"custom-training-stage-{plan['run_id']}",
                   runtime="gvisor", cpu=1, memory=1024, timeout=300,
-                  block_network=False,
+                  # This fixed, trusted process is the only stage that can
+                  # receive a repository-scoped GitHub token. Keep its egress
+                  # to the exact GitHub and PyPI hosts needed for source and
+                  # hash-pinned wheel retrieval. Modal added domain allowlists
+                  # in SDK 1.5.0; requirements-worker pins 1.5.5.
+                  outbound_domain_allowlist=["github.com", "pypi.org", "files.pythonhosted.org"],
                   volumes={"/source-store": source_volume,
                            "/checkpoint-store": checkpoint_volume}, env=env)

@@ -79,6 +79,19 @@ owner_selected_gpu_training_lane:
     bounded_runtime_and_memory_required: true
     bounded_output_and_artifact_sizes_required: true
     terminal_state_requires_verified_cleanup: true
+  source_staging:
+    fixed_control_plane_code_only: true
+    repository_code_execution: false
+    github_installation_token_scope: selected_repository_read_only
+    outbound_tls_domains:
+      - github.com
+      - pypi.org
+      - files.pythonhosted.org
+    other_outbound_domains: blocked
+    non_tls_outbound: blocked
+    modal_domain_allowlist_beta_limitations_acknowledged: true
+    domain_allowlist_does_not_prevent_domain_fronting: true
+    repository_content_may_not_modify_egress_policy: true
   accounting:
     provider_specific_quotes_required: true
     provider_specific_per_run_ceiling_required: true

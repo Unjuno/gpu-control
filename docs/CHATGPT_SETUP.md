@@ -382,6 +382,14 @@ status returns each artifact's ID, path, size, and SHA-256; call
 assembled file hash. Each declared artifact is limited to 256 MiB and all
 declared artifacts together to 512 MiB.
 
+The separate trusted CPU source stager is the only component that receives a
+short-lived, selected-repository read token. Its outbound TLS destinations are
+limited to `github.com`, `pypi.org`, and `files.pythonhosted.org` for commit and
+hash-pinned wheel retrieval. It does not execute repository code. The Modal
+domain allowlist is a beta control: DNS itself is unrestricted, and SNI-based
+domain filtering does not prevent domain fronting. The training GPU Sandbox
+has all network egress blocked and never receives the GitHub token.
+
 At this stage, `training_inspect` validates the manifest and returns structured
 compatibility checks. The current branch contains a gated Modal prototype for
 fixed CPU source staging followed by a network-blocked GPU Sandbox. It is not
