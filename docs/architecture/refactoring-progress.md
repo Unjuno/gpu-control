@@ -123,3 +123,32 @@ contract authority.
 **Evidence:** PR #70 source head `ae9b96347864cdfa93574c43738dad0213bbb58b` had all
 seven required CI checks pass. This documentation-only follow-up changes no
 runtime files and does not claim deployment or live provider readiness.
+
+## 2026-11-28 — Product alignment: chat-first external compute
+
+**Goal:** keep repository-wide architecture work anchored to the actual user
+outcome: ask ChatGPT to try an experiment in normal conversation and have the
+agent use a real compatible external GPU without exposing internal IDs or
+provider API details.
+
+**Decision:** recorded in ADR 0006. “GPU configured” and “this owner-selected
+repository can execute on that GPU” are distinct capabilities. Modal is the
+first source lane in PR #70; RunPod arbitrary-source execution is the next
+required route. Kaggle and Hugging Face fixed workloads remain limited to their
+declared workload contracts, and Colab must join the same Sites lifecycle
+before it is described as an integrated GPU Control provider. The user-facing
+workflow stays provider-neutral and selects only currently compatible routes
+within the owner's separate provider authorization and budget.
+
+**Current gap:** no single owner-selected repository can yet be routed across
+the external GPU providers. RunPod, Kaggle and Hugging Face fixed-workload
+support does not satisfy that gap. PR #70 remains an unmerged, undeployed
+candidate and repository activation remains parked.
+
+**Independent review:** the Codex Security diff-review setup validated the
+worktree and exact `main...a2f5bae` range, but the scan launcher then rejected
+the non-bare-worktree request despite the target being a valid linked Git
+worktree. No security result was produced; the plugin review is not complete.
+The review must be retried through a supported target before this batch is
+reported as independently reviewed. No provider, Site, D1, admission or secret
+state was changed.

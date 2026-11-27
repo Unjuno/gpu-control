@@ -1,7 +1,7 @@
 # Architecture and product-fitness backlog
 
 **Owner:** repository maintainers  
-**Last refreshed:** 2026-11-28  
+**Last refreshed:** 2026-11-28
 **Scope:** make an ordinary ChatGPT request reliably run an authorized
 owner-selected experiment on a compatible external compute provider, then
 return verified results, while reducing architectural ambiguity.
@@ -54,10 +54,25 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   choice such as repository when the request is ambiguous. Keep missing
   capability explicit; never silently fall back to a different or paid
   provider.
+- **Product requirement:** the main user action is an ordinary ChatGPT/Work
+  request such as “try this experiment.” The agent discovers the owner-selected
+  repository and current executable routes, carries all internal IDs, and
+  chooses a compatible external GPU without requiring a separate CLI or a
+  pre-registered workload. A local/container-only result does not satisfy this
+  requirement.
+- **Provider sequence:** the first owner-selected implementation is Modal GPU.
+  The same owner-bound plan and lifecycle must then support RunPod GPU for the
+  same repository contract. Kaggle and Hugging Face remain eligible only for
+  workloads their current platform adapters can execute; their fixed-workload
+  routes do not count as arbitrary-repository support. Colab is tracked under
+  A6 and must join the same lifecycle before it is advertised as integrated.
 - **Done when:** ordinary ChatGPT and Work tool schemas both expose the same
-  supported lane; a current authorized test demonstrates the complete lifecycle
-  on the intended external GPU and owner-scoped result retrieval. No release
-  claim based solely on unit tests, a plan, a staging sandbox, or old run.
+  owner-selected path; the agent resolves repository and commit without asking
+  for internal IDs; compatible, authorized external GPU routes are selected
+  from current capability evidence; and current acceptance proves plan through
+  result retrieval and cleanup for each advertised owner-selected provider.
+  No release claim based solely on unit tests, a plan, a staging sandbox, or an
+  old run.
 
 ### A2. Resolve release gates without confusing them with user approval loops
 
@@ -264,9 +279,10 @@ append-only migrations remain open.
    from this checkout.
 2. Is Colab integrated through the shared Sites lifecycle, and what Google
    session/quota/cancel mechanism is acceptable?
-3. Which external providers are allowed to run arbitrary owner-selected
-   repository code under the strict manifest contract? PR #70 only proposes
-   Modal; fixed Kaggle/HF/RunPod workloads do not imply this capability.
+3. What strict execution profile, cancellation guarantee and cost evidence are
+   required before RunPod can execute arbitrary owner-selected repository
+   code? PR #70 only proposes Modal; fixed Kaggle/HF/RunPod workloads do not
+   imply this capability.
 
 **Resolved:** Modal CPU, fixed GPU, and training reservations share the Sites
 compute budget in ADR 0005 and PR #70. Its source is not deployed. While the

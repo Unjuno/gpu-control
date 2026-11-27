@@ -18,6 +18,9 @@ front end for external compute.
   capability budget authority decision, superseded by ADR 0005.
 - [ADR 0005](decisions/0005-shared-modal-compute-budget.md): one Sites-side
   Modal CPU/GPU compute reservation ceiling across routes.
+- [ADR 0006](decisions/0006-chat-first-external-compute.md): normal chat is
+  the primary interface and external GPU routes must share one owner-bound
+  lifecycle.
 - [Refactoring backlog](refactoring-backlog.md): ordered, evidence-linked
   architecture work with dependencies and acceptance conditions.
 - [Refactoring progress](refactoring-progress.md): completed batches and

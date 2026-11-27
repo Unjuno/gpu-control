@@ -105,6 +105,11 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
   custom GitHub source flow separately from fixed workload inventory; its
   per-owner connection state is read-only, and preview remains authoritative
   for each source's current runtime, manifest, quote and budget.
+- **External-compute acceptance:** a configured GPU provider is not necessarily
+  able to run an owner-selected repository. PR #70 proposes the first such lane
+  on Modal only; existing RunPod, Kaggle and Hugging Face fixed workloads do
+  not imply arbitrary-source support. See
+  [ADR 0006](decisions/0006-chat-first-external-compute.md).
 - **Sites web surface:** public status/connection pages and the legacy MAP
   exact-plan confirmation page. Public visibility is separate from owner-bound
   tool authorization. The owner-selected path uses the native destructive MCP
