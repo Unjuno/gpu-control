@@ -2,10 +2,10 @@ import { claimTrainingDispatch, submitTrainingPlan } from "./training_plan.js";
 import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_authorization.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { getOwnedTrainingSource, resolvePublicDefaultBranchCommit } from "./training_source.js";
+import { getOwnedTrainingSource, resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import worker, { maybeDelegateRunTool, modalGpuProviderEvidence, reserveModalGpuLease } from "./index.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
@@ -156,6 +156,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0027_training_dispatch_rejection.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0028_training_execution_specs.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0029_training_authorization_evidence.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner",
       MAP_TRAINING_CONTROL_PLANE_SHA: "e".repeat(40), DB: {
       prepare(sql) {
@@ -219,43 +220,77 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const retry = await call("test-owner", "training_register", { ...args, repository: "https://github.com/unjuno/model-as-a-paper" });
     assert.equal(retry.machine_state.registration_id, first.machine_state.registration_id);
     env.GPU_CONTROL_ALLOWED_USER_IDS += ",selected-owner";
-    env.resolveTrainingCommit = async (repository) => {
-      assert.equal(repository, "sample-owner/sample-model");
-      return { repository, commit: "d".repeat(40), default_branch: "main", visibility: "public" };
-    };
-    const selectedRepo = await call("selected-owner", "training_register", { repository: "Sample-Owner/Sample-Model" });
-    assert.equal(selectedRepo.machine_state.repository, "sample-owner/sample-model");
-    assert.equal(selectedRepo.machine_state.commit, "d".repeat(40));
-    assert.equal(selectedRepo.machine_state.visibility, "public");
-    assert.equal(selectedRepo.machine_state.default_branch, "main");
-    assert.equal(selectedRepo.machine_state.state, "registered");
-    assert.match(selectedRepo.human_summary, /登録だけでは実行できません/);
-    const previousFetch = globalThis.fetch;
-    const manifestBytes = Buffer.from(JSON.stringify({ schema_version: 1, task: "train",
-      entrypoint: "src/train.py", python_version: "3.12", dependencies_lock: "requirements.lock",
-      gpu_profiles: ["T4"], outputs: ["metrics.json"] }));
+    const appKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    env.GITHUB_APP_ID = "12345";
+    env.GITHUB_APP_SLUG = "gpu-control-source";
+    env.GITHUB_APP_PRIVATE_KEY = appKeys.privateKey.export({ type: "pkcs8", format: "pem" });
+    db.prepare(`INSERT INTO github_app_installations
+      (owner_id, installation_id, account_login, repository_selection, connected_at)
+      VALUES (?, ?, ?, 'selected', ?)`).run("selected-owner", "98765", "sample-owner", 1);
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    let installedRepo = "sample-owner/sample-model";
     globalThis.fetch = async (url, options) => {
-      assert.equal(new URL(url).searchParams.get("ref"), selectedRepo.machine_state.commit);
-      assert.equal(options.redirect, "error");
-      return new Response(JSON.stringify({ type: "file", path: ".gpu-control/experiment.json",
-        encoding: "base64", size: manifestBytes.length, content: manifestBytes.toString("base64") }),
-      { status: 200 });
+      const parsed = new URL(String(url));
+      requests.push({ url: parsed, options });
+      if (parsed.pathname === "/app/installations/98765/access_tokens") {
+        const body = options.body ? JSON.parse(options.body) : {};
+        if (body.repositories) return new Response(JSON.stringify({ token: "single-repo-token",
+          expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          permissions: { contents: "read", metadata: "read" },
+          repositories: [{ full_name: "sample-owner/sample-model" }] }), { status: 201 });
+        return new Response(JSON.stringify({ token: "listing-token",
+          expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          permissions: { contents: "read", metadata: "read" } }), { status: 201 });
+      }
+      if (parsed.pathname === "/installation/repositories") return new Response(JSON.stringify({
+        total_count: 1, repositories: [{ full_name: installedRepo, private: true, default_branch: "main" }],
+      }), { status: 200 });
+      if (parsed.pathname === "/repos/sample-owner/sample-model") return new Response(JSON.stringify({
+        private: true, archived: false, default_branch: "main",
+      }), { status: 200 });
+      if (parsed.pathname === "/repos/sample-owner/sample-model/commits") return new Response(JSON.stringify([
+        { sha: "d".repeat(40) },
+      ]), { status: 200 });
+      if (parsed.pathname === "/repos/sample-owner/sample-model/contents/.gpu-control/experiment.json") {
+        const manifest = Buffer.from(JSON.stringify({ schema_version: 1, task: "train",
+          entrypoint: "src/train.py", python_version: "3.12", dependencies_lock: "requirements.lock",
+          gpu_profiles: ["T4"], outputs: ["checkpoints", "metrics.json"] }));
+        return new Response(JSON.stringify({ type: "file", path: ".gpu-control/experiment.json",
+          encoding: "base64", size: manifest.length, content: manifest.toString("base64") }), { status: 200 });
+      }
+      if (parsed.pathname === "/repos/sample-owner/sample-model/contents/requirements.lock") {
+        const lock = Buffer.from("torch==2.11.0\n");
+        return new Response(JSON.stringify({ type: "file", path: "requirements.lock",
+          encoding: "base64", size: lock.length, content: lock.toString("base64") }), { status: 200 });
+      }
+      throw new Error(`unexpected mocked GitHub request ${parsed.pathname}`);
     };
     try {
-      assert.equal((await call("other-owner", "training_inspect",
-        { registration_id: selectedRepo.machine_state.registration_id })).error,
-      "TRAINING_REGISTRATION_NOT_FOUND");
+      const selectedRepo = await call("selected-owner", "training_register",
+        { repository: "Sample-Owner/Sample-Model" });
+      assert.equal(selectedRepo.machine_state.repository, "sample-owner/sample-model");
+      assert.equal(selectedRepo.machine_state.commit, "d".repeat(40));
+      assert.equal(selectedRepo.machine_state.state, "registered");
+      assert.equal(JSON.stringify(selectedRepo).includes("single-repo-token"), false);
+      assert.equal(requests.filter((entry) => entry.url.pathname.endsWith("/access_tokens")).length, 2);
+      assert.ok(requests.some((entry) => entry.url.pathname === "/repos/sample-owner/sample-model" &&
+        entry.options.headers.authorization === "Bearer single-repo-token"));
+      assert.ok(requests.some((entry) => entry.url.pathname === "/installation/repositories" &&
+        entry.options.headers.authorization === "Bearer listing-token"));
       const inspection = await call("selected-owner", "training_inspect",
         { registration_id: selectedRepo.machine_state.registration_id });
-      assert.equal(inspection.status, "blocked");
       assert.equal(inspection.blocking_reason, "CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED");
-      assert.equal(inspection.machine_state.execution_available, false);
       assert.equal(inspection.machine_state.manifest.entrypoint, "src/train.py");
-      assert.equal(inspection.machine_state.readiness.ready, false);
-      assert.ok(inspection.machine_state.readiness.missing.includes("reviewed_runtime_image"));
-    } finally { globalThis.fetch = previousFetch; }
-    assert.equal((await call("selected-owner", "training_register", { repository: "sample-owner/sample-model", command: ["python", "train.py"] })).error, "INVALID_ARGUMENTS");
-    delete env.resolveTrainingCommit;
+      assert.equal(JSON.stringify(inspection).includes("single-repo-token"), false);
+      assert.ok(requests.some((entry) => entry.url.pathname.endsWith("/contents/.gpu-control/experiment.json") &&
+        entry.options.headers.authorization === "Bearer single-repo-token"));
+      installedRepo = "sample-owner/another-repository";
+      assert.equal((await call("selected-owner", "training_register",
+        { repository: "sample-owner/not-selected" })).error, "GITHUB_REPOSITORY_NOT_SELECTED");
+    } finally { globalThis.fetch = originalFetch; }
+    assert.equal((await call("selected-owner", "training_register",
+      { repository: "sample-owner/sample-model", command: ["python", "train.py"] })).error, "INVALID_ARGUMENTS");
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.registrations, []);
     const own = (await call("test-owner", "training_list", {})).machine_state.registrations;
     assert.equal(own.length, 1);
@@ -545,6 +580,55 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
   } finally {
     db.close();
   }
+});
+
+test("GitHub App connection tools are owner-scoped and fail closed until configured", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
+    const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner", DB: {
+      prepare(sql) {
+        return { bind(...values) {
+          const statement = db.prepare(sql);
+          return { run: async () => statement.run(...values), first: async () => statement.get(...values),
+            all: async () => ({ results: statement.all(...values) }) };
+        } };
+      },
+      async batch(statements) {
+        db.exec("BEGIN");
+        try {
+          const result = statements.map(({ sql, values }) => {
+            const statement = db.prepare(sql);
+            if (sql.includes("RETURNING")) return { results: statement.all(...values) };
+            return { meta: { changes: Number(statement.run(...values).changes) } };
+          });
+          db.exec("COMMIT");
+          return result;
+        } catch (error) { db.exec("ROLLBACK"); throw error; }
+      },
+    } };
+    const call = async (user, name) => {
+      const response = await toolCall(env, user, name, {});
+      return JSON.parse((await response.json()).result.content[0].text);
+    };
+    assert.equal((await call("unauthorized", "github_connection_status")).error, "SITE_USER_NOT_AUTHORIZED");
+    assert.equal((await call("test-owner", "github_connection_start")).blocking_reason, "GITHUB_APP_NOT_CONFIGURED");
+    assert.deepEqual((await call("test-owner", "github_connection_status")).machine_state,
+      { configured: false, connected: false });
+    const repos = await call("test-owner", "github_repositories");
+    assert.equal(repos.blocking_reason, "GITHUB_APP_NOT_CONFIGURED");
+    assert.deepEqual(repos.machine_state.repositories, []);
+    assert.equal((await call("test-owner", "github_connection_disconnect")).machine_state.disconnected, true);
+
+    const listed = await worker.fetch(new Request("https://site.invalid/mcp", { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) }), env);
+    const body = await listed.json();
+    const byName = new Map(body.result.tools.map((tool) => [tool.name, tool]));
+    assert.ok(byName.has("github_connection_start"));
+    assert.equal(byName.get("github_repositories").annotations.readOnlyHint, true);
+    assert.equal(byName.get("github_connection_disconnect").annotations.destructiveHint, true);
+  } finally { db.close(); }
 });
 
 test("public MCP data tools reject anonymous callers before touching D1", async () => {
@@ -1874,8 +1958,9 @@ test("advertises the bounded registered inference contract", async () => {
   assert.match(prepare.inputSchema.properties.idempotency_key.description, /reuse the same key if retrying that request/);
   const trainingRegister = tools.find((tool) => tool.name === "training_register");
   assert.deepEqual(trainingRegister.inputSchema.required, ["repository"]);
-  assert.match(trainingRegister.description, /resolves and pins the current commit on the default branch of a public repository/);
-  assert.match(trainingRegister.description, /private repositories require a future GitHub App connection/);
+  assert.match(trainingRegister.description, /selected in that owner's read-only GitHub App installation/);
+  assert.match(trainingRegister.description, /resolves and pins the current default-branch commit/);
+  assert.match(trainingRegister.description, /supplied commit is verified against GitHub/);
   const trainingInspect = tools.find((tool) => tool.name === "training_inspect");
   assert.deepEqual(trainingInspect.inputSchema.required, ["registration_id"]);
   assert.match(trainingInspect.description, /never starts a job/);
@@ -1938,6 +2023,23 @@ test("resolves only a public repository default branch to a pinned immutable com
     assert.equal(options.redirect, "error");
     assert.equal(options.headers["x-github-api-version"], "2022-11-28");
   }
+});
+
+test("verifies an explicitly selected custom commit with the exact-repository GitHub token", async () => {
+  const token = "installation-token-never-return-this";
+  let requested;
+  const result = await verifyGithubCommit("Owner/Project", "a".repeat(40), async (url, options) => {
+    requested = { url: String(url), options };
+    return new Response(JSON.stringify({ sha: "a".repeat(40) }), { status: 200 });
+  }, token);
+  assert.equal(result.repository, "owner/project");
+  assert.equal(result.commit, "a".repeat(40));
+  assert.equal(requested.url, `https://api.github.com/repos/owner/project/git/commits/${"a".repeat(40)}`);
+  assert.equal(requested.options.headers.authorization, `Bearer ${token}`);
+  assert.equal(JSON.stringify(result).includes(token), false);
+  await assert.rejects(verifyGithubCommit("owner/project", "b".repeat(40), async () =>
+    new Response(JSON.stringify({ sha: "c".repeat(40) }), { status: 200 })),
+  { message: "TRAINING_GITHUB_COMMIT_UNAVAILABLE" });
 });
 
 test("fails closed for private, archived, and malformed GitHub source metadata", async () => {

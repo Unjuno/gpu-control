@@ -1,7 +1,11 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
-import { getOwnedTrainingSource, listTrainingSources, registerTrainingSource } from "./training_source.js";
+import { getOwnedTrainingSource, listTrainingSources, parseTrainingRepository, registerTrainingSource,
+  resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
 import { readPublicTrainingContract } from "./training_contract.js";
+import { bindGithubInstallation, createGithubInstallationUrl, disconnectGithubApp, githubAppConfigured,
+  createGithubInstallationToken, githubConnectionStatus, getOwnedGithubInstallation, listGithubInstallationRepositories,
+  verifyGithubInstallation } from "./github_app_connection.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
 import { submitRunpodExperiment, synchronizeRunpodExperiment, validRunpodApprovedPlan } from "./runpod_lifecycle.js";
@@ -61,6 +65,10 @@ const MODAL_HEALTH_CHECK_COOLDOWN_SECONDS = 60;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 const schemas = {
+  github_connection_start: { type: "object", properties: {}, additionalProperties: false },
+  github_connection_status: { type: "object", properties: {}, additionalProperties: false },
+  github_connection_disconnect: { type: "object", properties: {}, additionalProperties: false },
+  github_repositories: { type: "object", properties: {}, additionalProperties: false },
   training_preview: {
     type: "object", properties: {
       registration_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
@@ -221,6 +229,10 @@ schemas.training_status = schemas.experiment_status;
 schemas.training_cancel = schemas.experiment_cancel;
 
 const toolDescriptions = {
+  github_connection_start: "Start the one-time GitHub App connection for this authenticated GPU Control owner. GitHub can grant access only to repositories explicitly selected during installation; the app requires Contents read and Metadata read only. This returns a short-lived installation link and does not start compute.",
+  github_connection_status: "Read the GitHub App connection state for the authenticated GPU Control owner. No token or installation identifier is returned.",
+  github_connection_disconnect: "Remove this owner's GitHub repository connection from GPU Control. This does not uninstall the GitHub App from the GitHub account; revoke it there separately if desired.",
+  github_repositories: "List repositories explicitly selected for this owner's read-only GitHub App installation. Returns repository name, visibility, and default branch only; no access token is returned.",
   training_checkpoint: "Read an owned completed training checkpoint in bounded base64 chunks. Verify the assembled file against the returned SHA-256.",
   training_submit: "Start one exact saved MAP-44M plan after the owner has confirmed that exact plan on the authenticated GPU Control Site. If authorization is missing, training_prepare or training_status returns the owner confirmation link. ChatGPT MCP owner login is separate from this one-time exact-plan execution authorization; Modal login is not needed. Supply the exact saved approved_plan.",
   training_status: "Read the state of your saved training plan.",
@@ -229,8 +241,8 @@ const toolDescriptions = {
   training_preview: "Preview MAP-44M by passing only registration_id. The server fills the fixed 120-second runtime and $0.25 ceiling, and supplies the pinned image, dataset, run settings, GPU count, price and cost calculation. A saved training configuration can be selected with execution_spec_id. This action cannot start training.",
 
   training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
-  training_inspect: "Read and strictly validate .gpu-control/experiment.json and its declared lockfile at the authenticated owner's registered immutable public GitHub commit. Read-only: never starts a job. Returns manifest and lockfile SHA-256 plus compatibility blockers for the reviewed runtime image, dependency environment build, artifact transport, and provider cleanup receipt. A valid manifest is not proof that the repository is executable.",
-  training_register: "Register a GitHub repository for the authenticated Sites owner. If commit is omitted, the server resolves and pins the current commit on the default branch of a public repository; the configured MAP-44M source keeps its reviewed pinned commit. The Sites Worker does not receive the ChatGPT GitHub OAuth token, so private repositories require a future GitHub App connection. Registration only records source identity and does not prove private access or make a repository executable. Current training dispatch remains limited to the configured MAP-44M commit and image. This action does not start training.",
+  training_inspect: "Read and strictly validate .gpu-control/experiment.json and its declared lockfile at the authenticated owner's registered immutable GitHub commit. Custom repositories must be selected in that owner's read-only GitHub App installation; a short-lived token is scoped to that exact repository and never returned. Read-only: never starts a job. A valid manifest is not proof that the repository is executable.",
+  training_register: "Register a GitHub repository for the authenticated Sites owner. Custom repositories must first be selected in that owner's read-only GitHub App installation. If commit is omitted, the server resolves and pins the current default-branch commit; a supplied commit is verified against GitHub. The configured MAP-44M source retains its reviewed legacy lane. Registration does not start training or make a repo executable.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
   experiment_provider_health: "Optional standalone Modal readiness diagnostic. It requires an unconsumed exact-plan authorization; normal ChatGPT runs check health inside the confirmed experiment_submit action. This creates no Sandbox, but the Modal control-function call can be billed separately from the Sandbox cost ceiling. A shared workspace cooldown and one-use plan reservation bound calls.",
@@ -522,6 +534,27 @@ async function handleAuthorizationRequest(request, env) {
   return htmlPage("このplanを承認しました", "<p>承認はこのplanに1回だけ有効です。チャットに戻り、実験を送信してください。</p>");
 }
 
+async function handleGithubSetup(request, env) {
+  if (request.method !== "GET") return htmlPage("GitHub接続", "<p>このcallbackはGETのみ受け付けます。</p>", 405);
+  if (!env.DB || !githubAppConfigured(env)) return htmlPage("GitHub接続を確認できません",
+    "<p>GPU Control側のGitHub App設定がまだ完了していません。</p>", 503);
+  const url = new URL(request.url);
+  const state = url.searchParams.get("state") || "";
+  const installationId = url.searchParams.get("installation_id") || "";
+  if (url.searchParams.get("setup_action") !== "install") return htmlPage("GitHub接続を完了できません",
+    "<p>GitHub Appの新規installから接続を開始してください。設定変更後はチャットで新しい接続linkを作成してください。</p>", 400);
+  try {
+    const connected = await bindGithubInstallation(env.DB, state, installationId,
+      (id) => verifyGithubInstallation(env, id));
+    return htmlPage("GitHub接続完了", `<p>${escapeHtml(connected.account_login)}の選択済みrepositoryをGPU Controlへ接続しました。</p>
+      <p>許可されたのは選択repositoryのContents readとMetadata readです。GitHub tokenはGPU Controlの実験コンテナへ渡しません。</p>
+      <p>チャットへ戻り、github_repositoriesで接続結果を確認できます。</p>`);
+  } catch {
+    return htmlPage("GitHub接続を完了できません",
+      "<p>接続linkが期限切れ、使用済み、またはAppのrepository権限が条件を満たしません。チャットで新しい接続linkを作成してください。</p>", 400);
+  }
+}
+
 function base64(bytes) {
   let binary = "";
   for (let start = 0; start < bytes.length; start += 0x8000) {
@@ -761,6 +794,8 @@ function normalizeTrainingArguments(name, input, env) {
 }
 
 function validToolArguments(name, args, env) {
+  if (["github_connection_start", "github_connection_status", "github_connection_disconnect",
+    "github_repositories"].includes(name)) return Object.keys(args).length === 0;
   if (name === "training_checkpoint") return Object.keys(args).sort().join(",") === "max_bytes,offset,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     Number.isSafeInteger(args.offset) && args.offset >= 0 &&
@@ -1858,10 +1893,56 @@ async function maybeDelegateRunTool(env, owner, name, args) {
   return publicProviderAdapterResponse(response);
 }
 
+async function ownerGithubRepositoryToken(env, owner, repository) {
+  if (!githubAppConfigured(env)) throw new Error("GITHUB_APP_NOT_CONFIGURED");
+  const connection = await getOwnedGithubInstallation(env.DB, owner);
+  if (!connection) throw new Error("GITHUB_CONNECTION_REQUIRED");
+  const repositories = await listGithubInstallationRepositories(env, connection.installation_id);
+  if (!repositories.some((item) => item.repository === repository)) throw new Error("GITHUB_REPOSITORY_NOT_SELECTED");
+  return (await createGithubInstallationToken(env, connection.installation_id, repository)).token;
+}
+
 async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
+  if (name === "github_connection_start") {
+    if (!githubAppConfigured(env)) return { schema_version: 2, status: "blocked",
+      human_summary: "GitHub App接続の初期設定が完了していません。GPU実験は開始していません。",
+      machine_state: { configured: false }, next_allowed_actions: [], blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
+    const link = await createGithubInstallationUrl(env.DB, owner, env.GITHUB_APP_SLUG);
+    return { schema_version: 2, status: "ok", human_summary: "GitHub Appの接続リンクを作成しました。リンク先でGPU Control用Appを選択リポジトリ限定でinstallしてください。",
+      machine_state: { connected: false, authorization_url: link.authorization_url,
+        expires_at: link.expires_at, requested_repository_permissions: { contents: "read", metadata: "read" },
+        repository_selection: "selected" }, next_allowed_actions: ["github_connection_status"], blocking_reason: null };
+  }
+  if (name === "github_connection_status") {
+    if (!githubAppConfigured(env)) return { schema_version: 2, status: "blocked",
+      human_summary: "GPU Control側のGitHub App設定がまだ完了していません。管理者設定後に接続できます。",
+      machine_state: { configured: false, connected: false }, next_allowed_actions: [],
+      blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
+    return { schema_version: 2, status: "ok", human_summary: "GitHub repository connection state.",
+      machine_state: { configured: true, ...await githubConnectionStatus(env.DB, owner) },
+      next_allowed_actions: ["github_connection_start", "github_repositories"], blocking_reason: null };
+  }
+  if (name === "github_connection_disconnect") return { schema_version: 2, status: "ok",
+    human_summary: "GPU ControlからGitHub repository connectionを削除しました。GitHub App自体のuninstallはGitHub側で行ってください。",
+    machine_state: await disconnectGithubApp(env.DB, owner), next_allowed_actions: ["github_connection_start"], blocking_reason: null };
+  if (name === "github_repositories") {
+    if (!githubAppConfigured(env)) return { schema_version: 2, status: "blocked",
+      human_summary: "GitHub App接続の初期設定が完了していません。",
+      machine_state: { repositories: [] }, next_allowed_actions: ["github_connection_start"],
+      blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
+    const connection = await getOwnedGithubInstallation(env.DB, owner);
+    if (!connection) return { schema_version: 2, status: "blocked",
+      human_summary: "GitHub accountがまだGPU Controlへ接続されていません。",
+      machine_state: { repositories: [] }, next_allowed_actions: ["github_connection_start"],
+      blocking_reason: "GITHUB_CONNECTION_REQUIRED" };
+    const repositories = await listGithubInstallationRepositories(env, connection.installation_id);
+    return { schema_version: 2, status: "ok", human_summary: `接続済みGitHub accountから${repositories.length}件の選択済みrepositoryを取得しました。`,
+      machine_state: { account_login: connection.account_login, repositories },
+      next_allowed_actions: ["training_register"], blocking_reason: null };
+  }
   if (name === "training_checkpoint") {
     const local = await trainingPlanState(env, owner, args.run_id);
     if (local.machine_state.state !== "dispatching") throw new Error("RESULT_NOT_READY");
@@ -1897,14 +1978,25 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "training_inspect") {
     const source = await getOwnedTrainingSource(env.DB, owner, args.registration_id);
     let inspected;
-    try { inspected = await readPublicTrainingContract(source.repository, source.commit); }
+    try {
+      const installationToken = source.repository === "unjuno/model-as-a-paper"
+        ? null : await ownerGithubRepositoryToken(env, owner, source.repository);
+      inspected = await readPublicTrainingContract(source.repository, source.commit, fetch, installationToken);
+    }
     catch (error) {
-      const reason = typeof error?.message === "string" && /^TRAINING_(?:EXPERIMENT_MANIFEST|GITHUB)_/.test(error.message)
+      const reason = error?.message === "GITHUB_REPOSITORY_NOT_SELECTED" ? error.message
+        : typeof error?.message === "string" && /^(?:GITHUB_|TRAINING_(?:EXPERIMENT_MANIFEST|GITHUB)_)/.test(error.message)
         ? error.message : "TRAINING_EXPERIMENT_MANIFEST_UNAVAILABLE";
       return { schema_version: 2, status: "blocked",
         human_summary: reason === "TRAINING_EXPERIMENT_MANIFEST_NOT_FOUND"
           ? "固定commitに .gpu-control/experiment.json がありません。実験は開始していません。"
-          : "固定commitの実験manifestを安全に確認できませんでした。実験は開始していません。",
+          : reason === "GITHUB_APP_NOT_CONFIGURED"
+            ? "独自repositoryを確認するGitHub AppがGPU Controlに設定されていません。実験は開始していません。"
+            : reason === "GITHUB_CONNECTION_REQUIRED"
+              ? "GitHub accountを接続し、対象repositoryを選択してください。実験は開始していません。"
+              : reason === "GITHUB_REPOSITORY_NOT_SELECTED"
+                ? "対象repositoryがこのGitHub App installで選択されていません。GitHub側で対象repositoryを追加してください。実験は開始していません。"
+                : "固定commitの実験manifestを安全に確認できませんでした。実験は開始していません。",
         machine_state: { ...source, manifest_path: ".gpu-control/experiment.json", manifest_state: "unavailable" },
         next_allowed_actions: ["training_list"], blocking_reason: reason };
     }
@@ -1913,8 +2005,20 @@ async function callTool(name, args, request, env, context = null) {
       machine_state: { ...source, ...inspected }, next_allowed_actions: ["training_list"],
       blocking_reason: inspected.execution_blocking_reason };
   }
-  if (name === "training_register") return registerTrainingSource(env.DB, owner, args,
-    typeof env.resolveTrainingCommit === "function" ? { resolveCommit: env.resolveTrainingCommit } : undefined);
+  if (name === "training_register") {
+    const repository = parseTrainingRepository(args.repository);
+    const isMap = repository === "unjuno/model-as-a-paper";
+    let installationToken = null;
+    if (!isMap && (args.dataset !== undefined || args.run_name !== undefined || args.steps !== undefined)) {
+      return registerTrainingSource(env.DB, owner, args);
+    }
+    if (!isMap) installationToken = await ownerGithubRepositoryToken(env, owner, repository);
+    if (!isMap && args.commit !== undefined) {
+      await verifyGithubCommit(repository, args.commit, fetch, installationToken);
+    }
+    const resolver = (slug) => resolvePublicDefaultBranchCommit(slug, fetch, installationToken);
+    return registerTrainingSource(env.DB, owner, args, { resolveCommit: resolver });
+  }
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return capabilities(env, owner);
   if (name === "experiment_prepare") {
@@ -2491,8 +2595,8 @@ async function handleMcp(request, env, context = null) {
   }
   if (message.method === "tools/list") {
     return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: {
-      readOnlyHint: ["training_checkpoint", "training_status", "training_preview", "training_list", "training_inspect", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
-      destructiveHint: ["training_submit", "training_cancel", "experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
+      readOnlyHint: ["github_connection_status", "github_repositories", "training_checkpoint", "training_status", "training_preview", "training_list", "training_inspect", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
+      destructiveHint: ["github_connection_disconnect", "training_submit", "training_cancel", "experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
       idempotentHint: !["experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health"].includes(name),
       openWorldHint: false,
     } })) } });
@@ -2507,7 +2611,18 @@ async function handleMcp(request, env, context = null) {
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
-      const known = new Set(["TRAINING_BUDGET_NOT_CONFIGURED", "TRAINING_PLAN_EXPIRED", "TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "TRAINING_GITHUB_PRIVATE_REQUIRES_APP", "TRAINING_GITHUB_REPOSITORY_NOT_PUBLIC", "TRAINING_GITHUB_REPOSITORY_ARCHIVED", "TRAINING_GITHUB_RATE_LIMITED", "TRAINING_GITHUB_LOOKUP_FAILED", "TRAINING_GITHUB_RESPONSE_TOO_LARGE", "TRAINING_GITHUB_RESPONSE_INVALID", "TRAINING_GITHUB_DEFAULT_COMMIT_UNAVAILABLE", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+      const known = new Set(["GITHUB_APP_NOT_CONFIGURED", "GITHUB_APP_API_FAILED", "GITHUB_APP_API_RESPONSE_INVALID",
+        "GITHUB_CONNECTION_INVALID", "GITHUB_CONNECTION_REQUIRED", "GITHUB_INSTALLATION_STATE_EXPIRED",
+        "GITHUB_INSTALLATION_STATE_REPLAYED", "GITHUB_INSTALLATION_ALREADY_LINKED", "GITHUB_INSTALLATION_SCOPE_INVALID",
+        "GITHUB_INSTALLATION_TOKEN_SCOPE_INVALID", "GITHUB_REPOSITORY_NOT_SELECTED",
+        "TRAINING_BUDGET_NOT_CONFIGURED", "TRAINING_PLAN_EXPIRED",
+        "TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "TRAINING_GITHUB_PRIVATE_REQUIRES_APP",
+        "TRAINING_GITHUB_REPOSITORY_NOT_PUBLIC", "TRAINING_GITHUB_REPOSITORY_ARCHIVED", "TRAINING_GITHUB_RATE_LIMITED",
+        "TRAINING_GITHUB_LOOKUP_FAILED", "TRAINING_GITHUB_RESPONSE_TOO_LARGE", "TRAINING_GITHUB_RESPONSE_INVALID",
+        "TRAINING_GITHUB_DEFAULT_COMMIT_UNAVAILABLE", "TRAINING_GITHUB_COMMIT_UNAVAILABLE",
+        "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED",
+        "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS",
+        "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
       const runpodProviderCodes = new Set([
         "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
         "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",
@@ -2535,6 +2650,7 @@ export default {
         <p><a href="/health">Service health</a></p>`);
     }
     if (url.pathname === "/health" && request.method === "GET") return json({ ok: true, service: "gpu-control-sites", storage: !!env.DB });
+    if (url.pathname === "/github/setup") return handleGithubSetup(request, env);
     if (url.pathname.startsWith("/runner/")) return json({ error: "NOT_FOUND" }, 404);
     if (url.pathname === "/authorize" || url.pathname === "/authorize-training") {
       try { return await handleAuthorizationRequest(request, env); }

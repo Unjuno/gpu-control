@@ -214,6 +214,24 @@ the checkpoint size and SHA-256. `training_checkpoint` reads bounded
 base64 ranges for an authenticated client to reconstruct and verify; a typical
 model checkpoint is too large to copy through a chat transcript.
 
+## Owner-selected GitHub source (inspection only)
+
+For a custom repository, the owner connects the GitHub App once with
+`github_connection_start`, selecting only repositories GPU Control may read.
+The App's only repository permissions are Contents read and Metadata read.
+`github_repositories` lists the selected repositories; `training_register`
+accepts the repository name and pins its current default-branch commit. The
+server creates the registration ID. `training_inspect` reads the manifest and
+lockfile at that immutable commit with a short-lived token scoped to that one
+repository. Tokens are never returned to MCP or passed to training code.
+
+This path currently stops at source inspection and returns
+`CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED`. It does not create or submit a custom
+GPU plan. Modal, RunPod, Kaggle, and Hugging Face custom-code staging,
+provider-specific budget reservation, result verification, and cleanup
+evidence still need implementation and release review. The existing registered
+workloads and fixed MAP-44M path remain separate.
+
 For deployment, build the reviewed MAP source with
 `workloads/map-training/build.sh` and provision the private corpus and
 checkpoint Volumes referenced by `modal/map_training_app.py`. The selected

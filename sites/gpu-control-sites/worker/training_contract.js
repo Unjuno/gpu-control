@@ -52,14 +52,15 @@ function manifestReadiness(manifest, lockfile) {
   return { checks, missing, ready: false };
 }
 
-async function readPublicFile(repository, path, commit, maxBytes, fetchImpl) {
+async function readPublicFile(repository, path, commit, maxBytes, fetchImpl, installationToken = null) {
   const encodedPath = path.split("/").map(encodeURIComponent).join("/");
   const url = new URL(`https://api.github.com/repos/${repository}/contents/${encodedPath}`);
   url.searchParams.set("ref", commit);
   let response;
   try {
     response = await fetchImpl(url.toString(), { method: "GET", redirect: "error",
-      headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" },
+      headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28",
+        ...(installationToken ? { authorization: `Bearer ${installationToken}` } : {}) },
       signal: AbortSignal.timeout(5_000) });
   } catch {
     throw new Error("TRAINING_GITHUB_LOOKUP_FAILED");
@@ -114,14 +115,15 @@ export function validateTrainingManifest(value) {
   return validManifest(value);
 }
 
-export async function readPublicTrainingContract(repository, commit, fetchImpl = fetch) {
+export async function readPublicTrainingContract(repository, commit, fetchImpl = fetch, installationToken = null) {
   const source = parseTrainingSource(repository, commit);
   const url = new URL(`https://api.github.com/repos/${source.repository}/contents/${MANIFEST_PATH}`);
   url.searchParams.set("ref", source.commit);
   let response;
   try {
     response = await fetchImpl(url.toString(), { method: "GET", redirect: "error",
-      headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" },
+      headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28",
+        ...(installationToken ? { authorization: `Bearer ${installationToken}` } : {}) },
       signal: AbortSignal.timeout(5_000) });
   } catch {
     throw new Error("TRAINING_GITHUB_LOOKUP_FAILED");
@@ -149,7 +151,8 @@ export async function readPublicTrainingContract(repository, commit, fetchImpl =
   if (!validManifest(manifest)) throw new Error("TRAINING_EXPERIMENT_MANIFEST_INVALID");
   let lockBytes;
   try {
-    lockBytes = await readPublicFile(source.repository, manifest.dependencies_lock, source.commit, 64 * 1024, fetchImpl);
+    lockBytes = await readPublicFile(source.repository, manifest.dependencies_lock, source.commit,
+      64 * 1024, fetchImpl, installationToken);
   } catch (error) {
     if (error?.message === "TRAINING_GITHUB_LOOKUP_FAILED") throw error;
     lockBytes = null;

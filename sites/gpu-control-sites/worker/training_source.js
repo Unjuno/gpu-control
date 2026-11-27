@@ -67,12 +67,13 @@ function validGithubBranch(branch) {
     branch.split("/").every((part) => part && part !== "." && part !== ".." && !part.endsWith(".lock"));
 }
 
-// Resolve only public GitHub repositories. The ChatGPT GitHub connector's
-// OAuth token is not available to this Worker; private source requires a
-// separately installed least-privilege GitHub App.
-export async function resolvePublicDefaultBranchCommit(repository, fetchImpl = fetch) {
+// Resolve a public repository anonymously or a private repository only with
+// the exact-repository installation token minted by the owner's GitHub App.
+// The ChatGPT GitHub connector's OAuth token is not available to this Worker.
+export async function resolvePublicDefaultBranchCommit(repository, fetchImpl = fetch, installationToken = null) {
   const slug = parseTrainingRepository(repository);
-  const headers = { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
+  const headers = { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28",
+    ...(installationToken ? { authorization: `Bearer ${installationToken}` } : {}) };
   const request = async (url) => {
     let response;
     try {
@@ -84,7 +85,7 @@ export async function resolvePublicDefaultBranchCommit(repository, fetchImpl = f
     return readGithubJson(response);
   };
   const metadata = await request(`https://api.github.com/repos/${slug}`);
-  if (!metadata || metadata.private !== false || metadata.archived === true ||
+  if (!metadata || typeof metadata.private !== "boolean" || (metadata.private && !installationToken) || metadata.archived === true ||
       !validGithubBranch(metadata.default_branch)) {
     throw new Error(metadata?.archived === true ? "TRAINING_GITHUB_REPOSITORY_ARCHIVED"
       : metadata?.private === true ? "TRAINING_GITHUB_PRIVATE_REQUIRES_APP"
@@ -98,7 +99,24 @@ export async function resolvePublicDefaultBranchCommit(repository, fetchImpl = f
   if (typeof commit !== "string" || !/^[0-9a-f]{40}$/.test(commit)) {
     throw new Error("TRAINING_GITHUB_DEFAULT_COMMIT_UNAVAILABLE");
   }
-  return { repository: slug, commit, default_branch: metadata.default_branch, visibility: "public" };
+  return { repository: slug, commit, default_branch: metadata.default_branch,
+    visibility: metadata.private ? "private" : "public" };
+}
+
+export async function verifyGithubCommit(repository, commit, fetchImpl = fetch, installationToken = null) {
+  const source = parseTrainingSource(repository, commit);
+  let response;
+  try {
+    response = await fetchImpl(`https://api.github.com/repos/${source.repository}/git/commits/${source.commit}`, {
+      method: "GET", redirect: "error", headers: { accept: "application/vnd.github+json",
+        "x-github-api-version": "2022-11-28",
+        ...(installationToken ? { authorization: `Bearer ${installationToken}` } : {}) },
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch { throw new Error("TRAINING_GITHUB_LOOKUP_FAILED"); }
+  const value = await readGithubJson(response);
+  if (value?.sha !== source.commit) throw new Error("TRAINING_GITHUB_COMMIT_UNAVAILABLE");
+  return { ...source, visibility: value.repository?.private === true ? "private" : "public" };
 }
 
 export async function registerTrainingSource(db, owner, input, { resolveCommit = resolvePublicDefaultBranchCommit } = {}) {
