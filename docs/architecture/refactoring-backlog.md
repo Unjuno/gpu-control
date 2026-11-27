@@ -54,6 +54,13 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   migration 0033 invalidates older, unverified bindings. Modal CPU/memory hard
   limits, workload-readable staged wheels, manifest-Python wheel resolution,
   and the delegated artifact route are also enforced in source.
+- **Account-budget correction in progress:** MAP L4 plans now require a
+  short-lived operator-observed Modal Workspace usage/price record for the
+  `$1.00` account limit. The record is bound into the approved plan, displayed
+  on its confirmation page, checked before dispatch, and constrained by a
+  hard `$1.00` Sites monthly maximum. It is not a signed live billing API
+  attestation; release remains blocked until account-side limit and evidence
+  are verified.
 - **Remaining:** exact-head CI, independent security review, migration/deploy,
   production settings, admission, and a real ChatGPT end-to-end GPU lifecycle
   remain unverified. Source/tests do not close the product acceptance.
@@ -171,6 +178,12 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   locally; live migration, deployment, and provider acceptance are not done.
   See ADR 0005. Broader provider capability generation, quote freshness and
   workload compatibility remain open.
+- **MAP account gate:** ADR 0007 adds a separate L4 Workspace evidence contract
+  to prevent the Sites reservation from being mistaken for the actual Modal
+  account cap. The candidate rejects a MAP monthly configuration above $1 and
+  binds/rechecks the exact account evidence at submit. This evidence remains
+  operator-supplied and does not replace verification of the provider-side
+  usage limit.
 - **Work:** define a versioned provider/workload capability contract with
   provider identity, compute-vs-host role, task compatibility, quote/quota
   freshness, ceilings, paid/free semantics, cancellation and cleanup evidence.

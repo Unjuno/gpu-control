@@ -320,3 +320,31 @@ admission flag, credential or deployment was changed.
 not alter product capabilities: arbitrary owner-source execution remains
 Modal-GPU-only on this branch, and end-to-end ChatGPT external-GPU acceptance
 is still outstanding.
+
+## 2026-11-28 — A1/A5: bind MAP L4 account evidence to the confirmed plan
+
+**Finding:** the PR's fixed Modal T4 canary required short-lived account
+evidence, but MAP L4 training relied only on configured price and the Sites D1
+reservation. Those do not establish the Modal Workspace's actual usage limit
+or current utilization.
+
+**Changes:** introduced one shared Sites validator for Modal GPU account
+observations and reused it for the fixed T4 route. MAP L4 preview now requires
+an operator-observed `unjuno/main` Workspace record with an exact `$1.00`
+limit, matching L4 quote, current credits/charges, short expiry and enough
+remaining headroom for the confirmed plan ceiling plus one cent. The complete
+record is included in the immutable plan/fingerprint and shown on the owner
+confirmation page. Submit validates the evidence again before budget
+reservation, authorization consumption, or adapter dispatch. MAP's configured
+monthly ceiling is hard-bounded at `$1.00`. ADR 0007 records that this is
+operator-supplied evidence, not a signed live billing API attestation.
+
+**Validation:** 120 Sites Worker tests pass, including fresh/stale/over-budget
+L4 evidence, exact quote and cap binding, and submit-time evidence change
+rejection. The Worker graph is acyclic across 21 modules. Registry drift,
+migration replay, artifact build/validation, and the custom-training Python
+test suite pass locally. No provider or production setting was touched.
+
+**Status:** local changes are validated and uncommitted. The branch still
+provides arbitrary owner-selected execution only on Modal GPU; RunPod custom
+repository execution and ordinary ChatGPT end-to-end acceptance remain open.

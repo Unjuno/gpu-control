@@ -155,6 +155,15 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+function modalAccountEvidence({ gpu, usageLimitUsd, hourlyPriceUsd, creditsUsedUsd = "0.15",
+  chargesUsd = "0.00", verifiedAt = Math.floor(Date.now() / 1000), expiresAt = verifiedAt + 1800 }) {
+  const body = { schema_version: 1, workspace: "unjuno", environment: "main",
+    usage_limit_usd: usageLimitUsd, credits_used_usd: creditsUsedUsd, charges_usd: chargesUsd,
+    gpu, hourly_price_usd: hourlyPriceUsd, price_source: "https://modal.com/pricing",
+    verified_at: verifiedAt, expires_at: expiresAt };
+  return { ...body, evidence_id: createHash("sha256").update(canonicalJson(body)).digest("hex") };
+}
+
 async function capabilities(env) {
   const request = new Request("https://site.invalid/mcp", {
     method: "POST",
@@ -210,7 +219,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         scope TEXT PRIMARY KEY, admission_enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       INSERT INTO modal_gpu_admission_policy VALUES ('workspace', 1, 0);`);
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner",
-      MAP_TRAINING_CONTROL_PLANE_SHA: "e".repeat(40), MAP_TRAINING_MONTHLY_MICROUSD: "30000000", DB: {
+      MAP_TRAINING_CONTROL_PLANE_SHA: "e".repeat(40), MAP_TRAINING_MONTHLY_MICROUSD: "1000000", DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
         return { sql, first: async () => statement.get(), all: async () => ({ results: statement.all() }),
@@ -507,6 +516,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     env.MAP_TRAINING_IMAGE_DIGEST = imageDigest;
     env.MAP_TRAINING_HOURLY_MICROUSD = "400000";
     env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
+    env.MAP_TRAINING_MONTHLY_MICROUSD = "1000000";
+    env.MAP_TRAINING_ACCOUNT_EVIDENCE_JSON = JSON.stringify(modalAccountEvidence({
+      gpu: "L4", usageLimitUsd: "1.00", hourlyPriceUsd: "0.400000",
+    }));
     env.GPU_CONTROL_ALLOWED_USER_IDS += ",minimal-owner";
     const repoOnly = await call("minimal-owner", "training_register", { repository: "https://github.com/Unjuno/model-as-a-paper" });
     assert.equal(repoOnly.machine_state.commit, sourceSha);
@@ -584,9 +597,18 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     env.MAP_TRAINING_QUOTE_EXPIRES_AT = String(quoteNow + 7 * 86400);
     assert.equal((await call("test-owner", "training_preview", { ...preview, max_cost_microusd: 1 })).blocking_reason,
       "TRAINING_BUDGET_TOO_LOW");
+    const l4Evidence = modalAccountEvidence({ gpu: "L4", usageLimitUsd: "1.00",
+      hourlyPriceUsd: "0.400000", verifiedAt: quoteNow, expiresAt: quoteNow + 1800 });
+    env.MAP_TRAINING_ACCOUNT_EVIDENCE_JSON = JSON.stringify(l4Evidence);
     const plan = await call("test-owner", "training_preview", preview);
     assert.equal(plan.status, "ok");
     assert.equal(plan.machine_state.image_digest, imageDigest);
+    assert.equal(plan.machine_state.provider_evidence.evidence_id, l4Evidence.evidence_id);
+    assert.equal(plan.machine_state.workspace_usage_limit_usd, "1.00");
+    env.MAP_TRAINING_MONTHLY_MICROUSD = "1000001";
+    assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
+      "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY");
+    env.MAP_TRAINING_MONTHLY_MICROUSD = "1000000";
     env.MAP_TRAINING_MODAL_IMAGE_ID = "invalid";
     assert.equal((await call("test-owner", "training_preview", preview)).blocking_reason,
       "TRAINING_PROFILE_UNAVAILABLE");
@@ -723,6 +745,14 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(unconfirmed.machine_state.authorization_state, "required");
     assert.match(unconfirmed.machine_state.authorization_url, /authorize-training/);
     assert.equal(sends, 0);
+    env.MAP_TRAINING_ACCOUNT_EVIDENCE_JSON = JSON.stringify(modalAccountEvidence({
+      gpu: "L4", usageLimitUsd: "1.00", hourlyPriceUsd: "0.400000",
+      creditsUsedUsd: "0.80", verifiedAt: quoteNow, expiresAt: quoteNow + 1800,
+    }));
+    assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
+      .blocking_reason, "MAP_TRAINING_ACCOUNT_EVIDENCE_STALE_OR_MISMATCHED");
+    assert.equal(sends, 0);
+    env.MAP_TRAINING_ACCOUNT_EVIDENCE_JSON = JSON.stringify(l4Evidence);
     await authorizePlan(candidate.machine_state);
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "uncertain");

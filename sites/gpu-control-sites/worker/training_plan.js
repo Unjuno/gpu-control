@@ -2,12 +2,14 @@ import { findOwnedTrainingSource, getOwnedTrainingSource, MAP_TRAINING_REPOSITOR
 import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./training_authorization.js";
 import { readPublicTrainingContract, trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, utcMonthKey } from "./provider_budget_policy.js";
+import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
 
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
 export const MAP_TRAINING_MAX_COST_MICROUSD = 250_000;
 export const MAP_TRAINING_MAX_RUNTIME_SECONDS = 120;
 export const MAP_TRAINING_MAX_MONTHLY_MICROUSD = 1_000_000;
+const MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD = "1.00";
 export const OWNER_TRAINING_MAX_MONTHLY_MICROUSD = 30_000_000;
 export const OWNER_TRAINING_MAX_COST_MICROUSD = 1_000_000;
 const DEFAULT_MAP_EXECUTION = Object.freeze({ dataset: "papers", run_name: "map44m", steps: 100000 });
@@ -140,11 +142,13 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
   const laneMonthlyLimit = source.repository === MAP_TRAINING_REPOSITORY
     ? Number(env.MAP_TRAINING_MONTHLY_MICROUSD)
     : Number(env.OWNER_TRAINING_MONTHLY_MICROUSD);
+  const laneMonthlyMaximum = source.repository === MAP_TRAINING_REPOSITORY
+    ? MAP_TRAINING_MAX_MONTHLY_MICROUSD : OWNER_TRAINING_MAX_MONTHLY_MICROUSD;
   if (!Number.isSafeInteger(args.max_cost_microusd) || args.max_cost_microusd < 1 ||
       args.max_cost_microusd > modalBudget.per_run_limit_microusd ||
       args.max_cost_microusd > modalBudget.monthly_remaining_microusd ||
       !Number.isSafeInteger(laneMonthlyLimit) || laneMonthlyLimit < 1 ||
-      laneMonthlyLimit > modalBudget.monthly_limit_microusd) return { schema_version: 2, status: "blocked",
+      laneMonthlyLimit > laneMonthlyMaximum || laneMonthlyLimit > modalBudget.monthly_limit_microusd) return { schema_version: 2, status: "blocked",
     human_summary: "指定された実験上限がModal計算ルート共通の1回または月次上限を超えています。",
     machine_state: { provider: "modal", per_run_limit_usd: modalBudget.per_run_limit_usd,
       monthly_limit_usd: modalBudget.monthly_limit_usd },
@@ -224,6 +228,17 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
         estimated_cost_microusd: estimatedCost },
       next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_TOO_LOW" };
   }
+  const accountEvidence = await readModalGpuAccountEvidence(env, {
+    key: "MAP_TRAINING_ACCOUNT_EVIDENCE_JSON", gpu: "L4",
+    usageLimitUsd: MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD,
+    expectedHourlyMicrousd: hourlyRate,
+    requiredHeadroomMicrousd: args.max_cost_microusd + 10_000,
+    now,
+  });
+  if (!accountEvidence) return { schema_version: 2, status: "blocked",
+    human_summary: "MAPのL4価格またはModal Workspaceの利用額・$1上限の短期証拠が未設定、期限切れ、または不一致です。GPUは起動していません。",
+    machine_state: { ...machine, ...execution, account_evidence_valid: false, gpu_started: false },
+    next_allowed_actions: [], blocking_reason: "MAP_TRAINING_ACCOUNT_EVIDENCE_REQUIRED" };
   return { schema_version: 2, status: "ok",
     human_summary: "MAP-44Mの学習条件を確認しました。実行計画を準備できます。",
     machine_state: { ...machine, ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
@@ -231,7 +246,9 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
       provider_resource_id: "gpu-control-map-training/train_map",
       gpu: "L4", gpu_count: 1, runtime_seconds: args.runtime_seconds,
       estimated_cost_microusd: estimatedCost, hourly_microusd: hourlyRate, quote_expires_at: quoteExpires,
-      max_cost_microusd: args.max_cost_microusd, checkpoint_visibility: "owner_private" },
+      max_cost_microusd: args.max_cost_microusd, provider_evidence: accountEvidence,
+      workspace_usage_limit_usd: MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD,
+      checkpoint_visibility: "owner_private" },
     next_allowed_actions: [], blocking_reason: null };
 }
 
@@ -509,6 +526,22 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_RUNTIME_MISMATCH" };
   }
   const sourceToken = ownerSelected ? await getSourceToken(plan.repository) : null;
+  if (!ownerSelected) {
+    const accountEvidence = await readModalGpuAccountEvidence(env, {
+      key: "MAP_TRAINING_ACCOUNT_EVIDENCE_JSON", gpu: "L4",
+      usageLimitUsd: MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD,
+      expectedHourlyMicrousd: plan.hourly_microusd,
+      requiredHeadroomMicrousd: plan.max_cost_microusd + 10_000,
+      now: Math.floor(Date.now() / 1000),
+    });
+    if (!accountEvidence || accountEvidence.evidence_id !== plan.provider_evidence?.evidence_id) {
+      return { schema_version: 2, status: "blocked",
+        human_summary: "Modal Workspace利用証拠がplan作成後に期限切れ、変更、または上限不一致になりました。実験は開始していません。",
+        machine_state: { run_id: runId, account_evidence_valid: false, gpu_started: false },
+        next_allowed_actions: ["training_prepare"],
+        blocking_reason: "MAP_TRAINING_ACCOUNT_EVIDENCE_STALE_OR_MISMATCHED" };
+    }
+  }
   const current = await previewTrainingPlan(env, owner, plan, async () => sourceToken);
   const { executable, ...currentPlan } = current.machine_state;
   const canonicalForPreview = (value) => Array.isArray(value) ? `[${value.map(canonicalForPreview).join(",")}]`

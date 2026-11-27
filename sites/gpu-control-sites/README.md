@@ -303,3 +303,15 @@ Each prepared plan still expires within 10 minutes. Keep admission disabled unti
 billing limit, and exact execution authorization have been verified.
 Sites requires `MAP_TRAINING_MONTHLY_MICROUSD`; its ledger reserves the full
 per-run ceiling and is independent of Modal billing.
+
+The owner-confirmed MAP route also requires the operator-observed
+`MAP_TRAINING_ACCOUNT_EVIDENCE_JSON` binding. It must describe the `unjuno`
+`main` Workspace, the exact `$1.00` usage limit, L4 hourly price matching
+`MAP_TRAINING_HOURLY_MICROUSD`, current credit use and charges, and a
+verification time no more than one hour old. Its `evidence_id` is SHA-256 of
+the canonical JSON object with that field omitted. Evidence must leave room for
+the full plan ceiling plus one cent. The exact evidence is included in the
+owner-confirmed plan and checked again before dispatch; stale, changed, or
+over-budget evidence blocks execution. This is an operator-supplied account
+observation, not a live billing API attestation. Keep MAP admission disabled
+until this evidence and the independent account-side limit are verified.

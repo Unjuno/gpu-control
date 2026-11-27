@@ -16,6 +16,7 @@ import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
 import { submitRunpodExperiment, synchronizeRunpodExperiment } from "./runpod_lifecycle.js";
 import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
+import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
 import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, usdFromMicrousd, utcMonthKey } from "./provider_budget_policy.js";
 
@@ -30,7 +31,6 @@ const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
 const ZERO_GPU_WORKLOAD = WORKLOADS.huggingface_evaluation.id;
 const MODAL_GPU_WORKLOAD = WORKLOADS.modal_gpu_canary.id;
 const MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00";
-const MODAL_GPU_PROVIDER_USAGE_LIMIT_CENTS = 3000;
 const ORBITUNE_REPOSITORY = WORKLOADS.kaggle_training.repository;
 const ORBITUNE_SOURCE_SHA = WORKLOADS.kaggle_training.source_sha;
 const GPU_CONTROL_REPOSITORY = WORKLOADS.modal_gpu_canary.repository;
@@ -254,6 +254,8 @@ async function renderTrainingAuthorizationPage(request, env, owner) {
   const challenge = await issueTrainingChallenge(env.DB, owner, runId, fingerprint,
     env.MAP_TRAINING_CONTROL_PLANE_SHA, now);
   if (!challenge) return htmlPage("承認状態", "<p>チャットに戻り、学習計画の状態を確認してください。</p>");
+  const evidence = plan.provider_evidence;
+  const accountEvidenceDetails = evidence ? `<dt>Modal Workspace利用証拠</dt><dd>上限 USD ${escapeHtml(evidence.usage_limit_usd)} / L4料金 USD ${escapeHtml(evidence.hourly_price_usd)}/h / クレジット利用 USD ${escapeHtml(evidence.credits_used_usd)} / 請求 USD ${escapeHtml(evidence.charges_usd)} / 確認 ${escapeHtml(new Date(evidence.verified_at * 1000).toISOString())}</dd>` : "";
   return htmlPage("GPU学習の実行を確認", `<dl>
     <dt>リポジトリとコミット</dt><dd>${escapeHtml(plan.repository)}<br><code>${escapeHtml(plan.commit)}</code></dd>
     <dt>実行イメージ</dt><dd><code>${escapeHtml(plan.image_digest)}</code></dd>
@@ -263,6 +265,7 @@ async function renderTrainingAuthorizationPage(request, env, owner) {
     <dt>学習step上限</dt><dd>${escapeHtml(plan.steps.toLocaleString("en-US"))}</dd>
     <dt>実行時間上限</dt><dd>${escapeHtml(plan.runtime_seconds)}秒</dd>
     <dt>計画の費用上限</dt><dd>USD ${escapeHtml((plan.max_cost_microusd / 1000000).toFixed(6))}</dd>
+    ${accountEvidenceDetails}
     </dl>
     <form method="post" action="/authorize-training">
       <input type="hidden" name="run_id" value="${runId}">
@@ -516,28 +519,7 @@ function registeredPrepareArguments(input, env) {
 }
 
 async function modalGpuProviderEvidence(env, now) {
-  if (typeof env.MODAL_GPU_ACCOUNT_EVIDENCE_JSON !== "string" ||
-      env.MODAL_GPU_ACCOUNT_EVIDENCE_JSON.length < 2 || env.MODAL_GPU_ACCOUNT_EVIDENCE_JSON.length > 4096) return null;
-  let evidence;
-  try { evidence = JSON.parse(env.MODAL_GPU_ACCOUNT_EVIDENCE_JSON); } catch { return null; }
-  const keys = ["charges_usd", "credits_used_usd", "environment", "evidence_id", "expires_at", "gpu",
-    "hourly_price_usd", "price_source", "schema_version", "usage_limit_usd", "verified_at", "workspace"];
-  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence) ||
-      Object.keys(evidence).sort().join(",") !== keys.join(",") || evidence.schema_version !== 1 ||
-      evidence.workspace !== "unjuno" || evidence.environment !== "main" ||
-      evidence.usage_limit_usd !== MODAL_GPU_PROVIDER_USAGE_LIMIT_USD ||
-      evidence.gpu !== "T4" || evidence.price_source !== MODAL_PRICING_SOURCE ||
-      typeof evidence.credits_used_usd !== "string" || !/^(?:0|[1-9][0-9]*)\.[0-9]{2}$/.test(evidence.credits_used_usd) ||
-      typeof evidence.charges_usd !== "string" || !/^(?:0|[1-9][0-9]*)\.[0-9]{2}$/.test(evidence.charges_usd) ||
-      typeof evidence.hourly_price_usd !== "string" || !/^0\.[0-9]{6}$/.test(evidence.hourly_price_usd) ||
-      Number(evidence.hourly_price_usd) <= 0 || !Number.isSafeInteger(evidence.verified_at) ||
-      !Number.isSafeInteger(evidence.expires_at) || evidence.verified_at > now || evidence.expires_at < now ||
-      evidence.expires_at <= evidence.verified_at || evidence.expires_at - evidence.verified_at > 3600 ||
-      typeof evidence.evidence_id !== "string" || !/^[0-9a-f]{64}$/.test(evidence.evidence_id) ||
-      Math.round((Number(evidence.credits_used_usd) + Number(evidence.charges_usd) + 0.01) * 100) >
-        MODAL_GPU_PROVIDER_USAGE_LIMIT_CENTS) return null;
-  const { evidence_id: _evidenceId, ...body } = evidence;
-  return await sha256(canonical(body)) === evidence.evidence_id ? evidence : null;
+  return readModalGpuAccountEvidence(env, { gpu: "T4", usageLimitUsd: MODAL_GPU_PROVIDER_USAGE_LIMIT_USD, now });
 }
 
 function userId(request, env) {
