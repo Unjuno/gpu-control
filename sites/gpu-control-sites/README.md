@@ -143,11 +143,16 @@ the GPU to one T4, blocks networking, attaches no secrets, uses single-use
 containers, pins the amd64 Debian base manifest, binds a deterministic build
 digest into the plan/result, and has a 30-second timeout. Sites prepares an
 owner-bound exact plan, requires ChatGPT write confirmation, binds a maximum
-one-hour Workspace usage/charge/limit/T4-price evidence record, reserves
-`$0.01` in a separate Modal-GPU ledger with a `$1` monthly project ceiling, and
-holds one workspace lease through provider-confirmed terminal cleanup. Admission
-stays closed unless `MODAL_GPU_WORKLOAD_ADMISSION_ENABLED=true`. The Modal
-Workspace hard limit remains the independent outer stop.
+one-hour Workspace usage/charge/limit/T4-price evidence record, and reserves
+`$0.01` from the shared Sites D1 Modal-compute ceiling of `$30` per UTC month
+and `$1` per run. Migration `0032_modal_compute_budget.sql` carries forward
+the prior CPU, fixed-GPU and training reservations into one ledger. The submit
+claim and reservation are atomic, and a workspace lease is held through
+provider-confirmed terminal cleanup. Admission stays closed unless
+`MODAL_GPU_WORKLOAD_ADMISSION_ENABLED=true` and the D1 admission bit is enabled.
+The Sites D1 ceiling is separate from Modal's Workspace billing controls; it
+does not include Modal control-function charges, Kaggle/Hugging Face provider
+adapter hosting, external-provider costs, or unrelated Modal usage.
 
 Offline Worker, adapter, GPU-backend, canary, packaging, migration, and artifact
 tests pass for this candidate. This is not live acceptance: Modal currently

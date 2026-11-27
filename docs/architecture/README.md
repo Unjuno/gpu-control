@@ -14,8 +14,14 @@ front end for external compute.
   durable experiment fact across Sites, adapters and providers.
 - [ADR 0003](decisions/0003-owner-training-profile-readiness.md): the
   Sites/adapter readiness parity check before preparing and reserving a run.
+- [ADR 0004](decisions/0004-provider-budget-policy-authority.md): historical
+  capability budget authority decision, superseded by ADR 0005.
+- [ADR 0005](decisions/0005-shared-modal-compute-budget.md): one Sites-side
+  Modal CPU/GPU compute reservation ceiling across routes.
 - [Refactoring backlog](refactoring-backlog.md): ordered, evidence-linked
   architecture work with dependencies and acceptance conditions.
+- [Refactoring progress](refactoring-progress.md): completed batches and
+  remaining product/release acceptance, kept separate from the task pool.
 - [Chat operations](chat-operations.md): registered workload lifecycle and
   provider contract.
 - [Selected-repository experiments](chatgpt-selected-repository-experiments.md):

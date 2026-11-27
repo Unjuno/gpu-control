@@ -121,16 +121,21 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 - **Evidence:** provider policy and capability semantics appear in Sites
   JavaScript, Python control library, Gateway, registry JSON and prose. Modal
   can be both compute provider and adapter host; these roles differ.
-- **Progress (2026-11-28):** added a versioned Sites budget projection that
-  reads the same D1 provider-policy rows used by registered-route reservation. It reports the
-  seeded Modal CPU $30/month and $0.01/run, Modal GPU $1/month and $0.01/run,
-  RunPod $1/run with no product monthly cap, and zero-cost/no-fallback Kaggle
-  and Hugging Face policies. Missing or contradictory policy hides dollar
-  amounts and disables runnable capability claims. Owner-selected training
-  uses a separate dispatch ledger; its monthly/per-run limits are labeled
-  separately, and submit checks the D1 Modal GPU admission policy before
-  consuming authorization or dispatching. These ledgers are not yet a shared
-  provider-wide spend ceiling. Adapter normalization, quote freshness and
+- **Progress (2026-11-28):** the Sites projection now groups Modal CPU and GPU
+  compute under one D1 reservation ceiling of $30 per UTC month and $1 per run.
+  Migration `0032_modal_compute_budget.sql` carries forward prior CPU, fixed
+  GPU and claimed training reservations, then removes the superseded Modal
+  route-specific ledgers. Owner-selected and MAP training reserve their exact
+  plan ceilings in the same D1 batch as dispatch claim and authorization
+  consumption; a failed claim removes the reservation. Existing lane-specific
+  limits remain additional ceilings. RunPod remains separate at $1 per run
+  with no product monthly cap; Kaggle and Hugging Face remain zero-cost with
+  paid fallback disabled. The total is a conservative Sites reservation sum,
+  not Modal billing usage or a provider-side charge stop. Modal control-function
+  fees, adapter hosting for Kaggle/Hugging Face, external provider costs, and
+  usage outside this Sites D1 are excluded. Unit and migration tests pass
+  locally; live migration, deployment, and provider acceptance are not done.
+  See ADR 0005. Broader provider capability generation, quote freshness and
   workload compatibility remain open.
 - **Work:** define a versioned provider/workload capability contract with
   provider identity, compute-vs-host role, task compatibility, quote/quota

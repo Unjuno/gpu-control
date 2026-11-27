@@ -55,7 +55,7 @@ Cancellation has two contracts: a prepared plan is cancelled by a guarded D1 mar
 
 ## Provider and cost policy
 
-RunPod, Modal CPU, Modal GPU, Kaggle, and Hugging Face each keep separate availability and budget policy. Free-first workloads never silently fall back to paid providers. A per-run estimate is not a provider account cap; the system checks both the configured provider limit and its own reservation before submit. Chat never receives provider secrets. Read-only listing avoids provider calls; explicit status/reconcile may make bounded provider calls under the corresponding policy.
+Modal CPU and Modal GPU remain separate execution routes but share one Sites D1 compute reservation ceiling: $30 per UTC month and $1 per run. MAP and owner-selected lanes may apply lower additional limits. RunPod has an independent $1 per-run reservation and no Sites monthly cap. Kaggle and Hugging Face remain free-first with paid fallback disabled. Modal control-function fees used to host adapters, external-provider charges, and compute outside this Sites D1 are excluded from its Modal reservation sum; it is not a provider billing stop. Chat never receives provider secrets. Read-only listing avoids provider calls; explicit status/reconcile may make bounded provider calls under the corresponding policy. See [ADR 0005](decisions/0005-shared-modal-compute-budget.md).
 
 ## Change and retirement path
 

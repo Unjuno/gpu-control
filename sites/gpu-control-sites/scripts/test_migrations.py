@@ -11,8 +11,9 @@ conn = sqlite3.connect(":memory:")
 conn.execute("PRAGMA foreign_keys=ON")
 
 paths = sorted(MIGRATIONS.glob("*.sql"))
-assert paths[-1].name == "0031_training_cleanup_confirmation.sql"
+assert paths[-1].name == "0032_modal_compute_budget.sql"
 history = next(path for path in paths if path.name == "0021_reliable_run_history.sql")
+shared_budget = next(path for path in paths if path.name == "0032_modal_compute_budget.sql")
 for path in paths[:paths.index(history)]:
     conn.executescript(path.read_text(encoding="utf-8"))
 
@@ -22,13 +23,13 @@ conn.execute(
     """INSERT INTO plans (id,owner_id,idempotency_key,fingerprint,workload,repository,
        source_sha,image_digest,parameters_json,runtime_seconds,max_cost_usd,state,created_at,expires_at,provider)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-    ("p" * 32, "owner", "plan-key-123", "b" * 64, "tiny-stories-inference-v1",
+    ("1" * 32, "owner", "plan-key-123", "b" * 64, "tiny-stories-inference-v1",
      "Unjuno/gpu-control", "c" * 40, "sha256:" + "a" * 64, "{}", 30, "0.01",
      "prepared", 100, 200, "modal_cpu"),
 )
 conn.execute(
     "INSERT INTO runs (id,owner_id,plan_id,state,created_at,updated_at,cleanup_state) VALUES (?,?,?,?,?,?,?)",
-    ("c" * 32, "owner", "p" * 32, "succeeded", 100, 112, "confirmed"),
+    ("c" * 32, "owner", "1" * 32, "succeeded", 100, 112, "confirmed"),
 )
 conn.execute(
     """INSERT INTO gateway_delegated_plans
@@ -44,8 +45,34 @@ conn.execute(
      "orbitune-zero-gpu-eval-v1", "{}", 100, 200),
 )
 
-for path in paths[paths.index(history):]:
+for path in paths[paths.index(history):paths.index(shared_budget)]:
     conn.executescript(path.read_text(encoding="utf-8"))
+
+# Populate each pre-unification Modal ledger before applying 0032. The upgrade
+# must carry all three types of already reserved spend into one account ledger.
+shared_period = "2026-11"
+shared_created_at = 1_795_800_000
+conn.execute(
+    "INSERT INTO provider_budget_reservations (run_id,provider,period_key,reserved_microusd,created_at) VALUES (?,?,?,?,?)",
+    ("1" * 32, "modal_cpu", shared_period, 10_000, shared_created_at),
+)
+conn.execute(
+    "INSERT INTO modal_gpu_budget_reservations (run_id,plan_fingerprint,period_key,reserved_microusd,created_at) VALUES (?,?,?,?,?)",
+    ("a" * 32, "d" * 64, shared_period, 10_000, shared_created_at),
+)
+conn.execute(
+    "INSERT INTO training_registrations (id,owner_id,repository,source_sha,created_at) VALUES (?,?,?,?,?)",
+    ("8" * 32, "owner", "owner/repo", "e" * 40, shared_created_at),
+)
+conn.execute(
+    """INSERT INTO training_plans
+       (id,owner_id,registration_id,idempotency_key,fingerprint,plan_json,created_at,expires_at,dispatch_claimed_at)
+       VALUES (?,?,?,?,?,?,?,?,?)""",
+    ("2" * 32, "owner", "8" * 32, "owner-run", "f" * 64,
+     '{"execution_kind":"owner_selected_python","max_cost_microusd":500000}',
+     shared_created_at, shared_created_at + 300, shared_created_at),
+)
+conn.executescript(shared_budget.read_text(encoding="utf-8"))
 conn.execute(
     "UPDATE gateway_delegated_plans SET cancelled_at=101 WHERE owner_id=? AND id=? AND state='prepared'",
     ("owner", "e" * 32),
@@ -55,6 +82,22 @@ assert conn.execute("SELECT state,cancelled_at FROM gateway_delegated_plans WHER
 )
 assert conn.execute("SELECT terminal_at FROM gateway_delegated_plans WHERE id=?", ("a" * 32,)).fetchone() == (333,)
 assert conn.execute("SELECT completed_at FROM runs WHERE id=?", ("c" * 32,)).fetchone() == (112,)
+assert conn.execute("SELECT monthly_limit_microusd,per_run_limit_microusd FROM modal_compute_budget_policy WHERE scope='workspace'").fetchone() == (
+    30_000_000, 1_000_000,
+)
+assert conn.execute("SELECT admission_enabled FROM modal_gpu_admission_policy WHERE scope='workspace'").fetchone() == (1,)
+assert conn.execute("SELECT source,reserved_microusd FROM modal_compute_budget_reservations WHERE run_id=?", ("1" * 32,)).fetchone() == (
+    "modal_cpu", 10_000,
+)
+assert conn.execute("SELECT source,reserved_microusd FROM modal_compute_budget_reservations WHERE run_id=?", ("a" * 32,)).fetchone() == (
+    "modal_gpu_canary", 10_000,
+)
+assert conn.execute("SELECT source,reserved_microusd FROM modal_compute_budget_reservations WHERE run_id=?", ("2" * 32,)).fetchone() == (
+    "owner_selected_training", 500_000,
+)
+assert conn.execute("SELECT COUNT(*) FROM provider_budget_policies WHERE provider='modal_cpu'").fetchone() == (0,)
+assert conn.execute("SELECT COUNT(*) FROM provider_budget_reservations WHERE provider='modal_cpu'").fetchone() == (0,)
+assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='modal_gpu_budget_policy'").fetchone() == (0,)
 
 conn.execute("UPDATE runs SET updated_at=222 WHERE id=?", ("c" * 32,))
 conn.execute("UPDATE gateway_delegated_plans SET updated_at=444 WHERE id=?", ("a" * 32,))

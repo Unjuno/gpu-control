@@ -39,6 +39,7 @@ function storedPlan(runId, fingerprint, plan = approvedPlan(), overrides = {}) {
 
 function environment({ heartbeatAt, admission = "false", heartbeatDigest = imageDigest, heartbeatSha = sourceSha, cancellationProtocol = 1 } = {}) {
   const healthLimit = new Map();
+  const modalReservations = new Map();
   const heartbeat = heartbeatAt === undefined ? null : {
     last_seen_at: heartbeatAt,
     image_digest: heartbeatDigest,
@@ -54,23 +55,44 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
     DB: {
       prepare(sql) {
         const policyRows = sql.includes("FROM provider_budget_policies") ? [
-          { provider: "modal_cpu", monthly_limit_microusd: 30_000_000, per_run_limit_microusd: 10_000 },
           { provider: "runpod_gpu", monthly_limit_microusd: null, per_run_limit_microusd: 1_000_000 },
         ] : sql.includes("FROM provider_free_policies") ? [
           { provider: "kaggle", max_cost_microusd: 0, paid_fallback_allowed: 0 },
           { provider: "huggingface_space", max_cost_microusd: 0, paid_fallback_allowed: 0 },
         ] : null;
         const row = sql.includes("sqlite_master") ? { name: "human_authorizations" }
-          : sql.includes("FROM modal_gpu_budget_policy") ? {
-            monthly_limit_microusd: 1_000_000, per_run_limit_microusd: 10_000, admission_enabled: 0,
-          } : heartbeat;
+          : sql.includes("FROM provider_budget_policies") ? policyRows[0]
+          : sql.includes("FROM modal_compute_budget_policy") ? {
+            monthly_limit_microusd: 30_000_000, per_run_limit_microusd: 1_000_000,
+          } : sql.includes("FROM modal_gpu_admission_policy") ? { admission_enabled: 0 }
+          : sql.includes("FROM modal_compute_budget_reservations") ? {
+            monthly_reserved_microusd: [...modalReservations.values()]
+              .filter((item) => item.period_key === new Date().toISOString().slice(0, 7))
+              .reduce((sum, item) => sum + item.reserved_microusd, 0),
+          }
+          : heartbeat;
         return {
-          first: async () => row,
+          first: async (...values) => sql.includes("FROM modal_compute_budget_reservations WHERE run_id=?")
+            ? modalReservations.get(values[0]) || null : row,
           all: async () => ({ results: policyRows || [] }),
           bind(...values) {
             return {
-              first: async () => row,
+              first: async () => sql.includes("FROM modal_compute_budget_reservations WHERE run_id=?")
+                ? modalReservations.get(values[0]) || null : row,
               run: async () => {
+                if (sql.includes("INSERT OR IGNORE INTO modal_compute_budget_reservations")) {
+                  const [runId, source, fingerprint, periodKey, reservedMicrousd, createdAt] = values;
+                  const existing = modalReservations.get(runId);
+                  if (existing) return { meta: { changes: 0 } };
+                  const used = [...modalReservations.values()].filter((item) => item.period_key === periodKey)
+                    .reduce((sum, item) => sum + item.reserved_microusd, 0);
+                  if (reservedMicrousd > 1_000_000 || used + reservedMicrousd > 30_000_000) {
+                    return { meta: { changes: 0 } };
+                  }
+                  modalReservations.set(runId, { source, plan_fingerprint: fingerprint,
+                    period_key: periodKey, reserved_microusd: reservedMicrousd, created_at: createdAt });
+                  return { meta: { changes: 1 } };
+                }
                 if (!sql.includes("modal_health_check_limits")) return { meta: { changes: 1 } };
                 const [now, threshold] = values;
                 const prior = healthLimit.get("workspace");
@@ -173,17 +195,22 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0031_training_cleanup_confirmation.sql", import.meta.url), "utf8"));
     db.exec(`CREATE TABLE provider_budget_policies (
       provider TEXT PRIMARY KEY, monthly_limit_microusd INTEGER, per_run_limit_microusd INTEGER NOT NULL);
-      INSERT INTO provider_budget_policies VALUES ('modal_cpu', 30000000, 10000), ('runpod_gpu', NULL, 1000000);
+      INSERT INTO provider_budget_policies VALUES ('runpod_gpu', NULL, 1000000);
       CREATE TABLE provider_free_policies (
         provider TEXT PRIMARY KEY, max_cost_microusd INTEGER NOT NULL, paid_fallback_allowed INTEGER NOT NULL);
       INSERT INTO provider_free_policies VALUES ('kaggle', 0, 0), ('huggingface_space', 0, 0);
-      CREATE TABLE modal_gpu_budget_policy (
-      scope TEXT PRIMARY KEY, monthly_limit_microusd INTEGER NOT NULL,
-      per_run_limit_microusd INTEGER NOT NULL, admission_enabled INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL);
-      INSERT INTO modal_gpu_budget_policy VALUES ('workspace', 1000000, 10000, 1, 0);`);
+      CREATE TABLE modal_compute_budget_policy (
+        scope TEXT PRIMARY KEY, monthly_limit_microusd INTEGER NOT NULL,
+        per_run_limit_microusd INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO modal_compute_budget_policy VALUES ('workspace', 30000000, 1000000, 0);
+      CREATE TABLE modal_compute_budget_reservations (
+        run_id TEXT PRIMARY KEY, source TEXT NOT NULL, plan_fingerprint TEXT NOT NULL,
+        period_key TEXT NOT NULL, reserved_microusd INTEGER NOT NULL, created_at INTEGER NOT NULL);
+      CREATE TABLE modal_gpu_admission_policy (
+        scope TEXT PRIMARY KEY, admission_enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO modal_gpu_admission_policy VALUES ('workspace', 1, 0);`);
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner",
-      MAP_TRAINING_CONTROL_PLANE_SHA: "e".repeat(40), DB: {
+      MAP_TRAINING_CONTROL_PLANE_SHA: "e".repeat(40), MAP_TRAINING_MONTHLY_MICROUSD: "30000000", DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
         return { sql, first: async () => statement.get(), all: async () => ({ results: statement.all() }),
@@ -364,7 +391,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         monthly_microusd: Number(env.OWNER_TRAINING_MONTHLY_MICROUSD),
         control_plane_sha: env.MAP_TRAINING_CONTROL_PLANE_SHA,
       });
-      db.prepare("UPDATE modal_gpu_budget_policy SET admission_enabled=0 WHERE scope='workspace'").run();
+      db.prepare("UPDATE modal_gpu_admission_policy SET admission_enabled=0 WHERE scope='workspace'").run();
       const budgetPolicyBlocked = await submitTrainingPlan(env, "selected-owner", {
         run_id: customPlan.machine_state.run_id,
         plan_fingerprint: customPlan.machine_state.plan_fingerprint,
@@ -376,8 +403,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
       assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=?")
         .get(customPlan.machine_state.run_id).count, 0);
-      db.prepare("UPDATE modal_gpu_budget_policy SET admission_enabled=1 WHERE scope='workspace'").run();
-      db.prepare("DELETE FROM modal_gpu_budget_policy WHERE scope='workspace'").run();
+      db.prepare("UPDATE modal_gpu_admission_policy SET admission_enabled=1 WHERE scope='workspace'").run();
+      db.prepare("DELETE FROM modal_gpu_admission_policy WHERE scope='workspace'").run();
       const missingBudgetPolicy = await submitTrainingPlan(env, "selected-owner", {
         run_id: customPlan.machine_state.run_id,
         plan_fingerprint: customPlan.machine_state.plan_fingerprint,
@@ -389,9 +416,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
       assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=?")
         .get(customPlan.machine_state.run_id).count, 0);
-      db.prepare(`INSERT INTO modal_gpu_budget_policy
-        (scope, monthly_limit_microusd, per_run_limit_microusd, admission_enabled, updated_at)
-        VALUES ('workspace', 1000000, 10000, 1, 0)`).run();
+      db.prepare(`INSERT INTO modal_gpu_admission_policy
+        (scope, admission_enabled, updated_at) VALUES ('workspace', 1, 0)`).run();
       const preflightBlocked = await submitTrainingPlan(env, "selected-owner", {
         run_id: customPlan.machine_state.run_id,
         plan_fingerprint: customPlan.machine_state.plan_fingerprint,
@@ -428,7 +454,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         plan_fingerprint: customPlan.machine_state.plan_fingerprint,
         approved_plan: customPlan.approved_plan,
       }, async () => {
-        db.prepare("UPDATE modal_gpu_budget_policy SET admission_enabled=0 WHERE scope='workspace'").run();
+        db.prepare("UPDATE modal_gpu_admission_policy SET admission_enabled=0 WHERE scope='workspace'").run();
         return { machine_state: { owner_selected_training: {
           profile_configured: true, control_plane_configured: true, admission_enabled: true,
           profile_fingerprint: adapterProfileFingerprint,
@@ -439,7 +465,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
       assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=? AND consumed_at IS NOT NULL")
         .get(customPlan.machine_state.run_id).count, 0);
-      db.prepare("UPDATE modal_gpu_budget_policy SET admission_enabled=1 WHERE scope='workspace'").run();
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM modal_compute_budget_reservations WHERE run_id=?")
+        .get(customPlan.machine_state.run_id).count, 0,
+      "a reservation is removed atomically when GPU admission closes before the claim");
+      db.prepare("UPDATE modal_gpu_admission_policy SET admission_enabled=1 WHERE scope='workspace'").run();
       const blockedStatus = await call("selected-owner", "training_status",
         { run_id: customPlan.machine_state.run_id });
       assert.equal(blockedStatus.blocking_reason, "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED");
@@ -696,6 +725,11 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     await authorizePlan(candidate.machine_state);
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "uncertain");
+    const modalReservation = db.prepare(`SELECT source, reserved_microusd FROM modal_compute_budget_reservations WHERE run_id=?`)
+      .get(submission.run_id);
+    assert.equal(modalReservation.source, "map_training");
+    assert.equal(modalReservation.reserved_microusd, 100000,
+      "the shared provider ceiling is reserved before dispatch");
     const authorization = db.prepare(`SELECT authorization_source, decision_record_id, authorized_by,
       control_plane_sha, target_repository, target_sha, image_digest, provider, provider_resource_id,
       gpu_count, runtime_seconds, max_cost_microusd, authorized_at, expires_at, consumed_at
@@ -1295,7 +1329,7 @@ test("read-only capabilities do not call Modal", async () => {
       admission_enabled: false,
       provider_budget_policy_ready: true,
       provider_budget_admission_enabled: false,
-      budget_policy: { state: "unavailable", provider: "modal_gpu", scope: "owner_training_dispatch_ledger" },
+      budget_policy: { state: "unavailable", provider: "modal", scope: "modal_compute_shared_across_routes" },
       adapter_readiness_available: false,
       adapter_profile_configured: false,
       adapter_control_plane_configured: false,
@@ -1310,10 +1344,14 @@ test("read-only capabilities do not call Modal", async () => {
       ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space"]);
     assert.equal(result.providers[1].enabled, false);
     assert.equal(result.providers[1].configured, false);
+    assert.equal(result.provider_budgets[0].provider, "modal");
+    assert.deepEqual(result.provider_budgets[0].routes, ["modal_cpu", "modal_gpu"]);
+    assert.equal(result.provider_budgets[0].monthly_limit_usd, "30.00");
+    assert.equal(result.provider_budgets[0].per_run_limit_usd, "1.00");
     assert.deepEqual(result.workloads.map((workload) => workload.id),
       ["tiny-stories-inference-v1", "runpod-gpu-canary-v1", "modal-gpu-vector-add-v1",
         "orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"]);
-    assert.deepEqual(result.provider_budgets.slice(3), [
+    assert.deepEqual(result.provider_budgets.slice(2), [
       { provider: "kaggle", policy_available: true, scope: "registered_free_workload_policy",
         monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
         paid_fallback_allowed: false },
@@ -1597,7 +1635,7 @@ test("capabilities reports configured Modal without a health probe while admissi
     assert.equal(result.providers[0].paid, true);
     assert.equal(result.providers[0].credit_eligible, true);
     assert.equal(result.provider_budgets[0].monthly_limit_usd, "30.00");
-    assert.equal(result.provider_budgets[0].per_run_limit_usd, "0.01");
+    assert.equal(result.provider_budgets[0].per_run_limit_usd, "1.00");
     assert.equal(result.blocking_reason, "CPU_WORKLOAD_ADMISSION_DISABLED");
   } finally {
     globalThis.fetch = originalFetch;

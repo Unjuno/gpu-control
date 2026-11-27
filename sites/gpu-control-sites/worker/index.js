@@ -14,7 +14,7 @@ import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUN
 import { submitRunpodExperiment, synchronizeRunpodExperiment, validRunpodApprovedPlan } from "./runpod_lifecycle.js";
 import { delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
-import { readProviderBudgetPolicy, usdFromMicrousd } from "./provider_budget_policy.js";
+import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, usdFromMicrousd, utcMonthKey } from "./provider_budget_policy.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -1246,7 +1246,7 @@ async function capabilities(env, owner) {
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
   const budgetPolicy = await readProviderBudgetPolicy(env.DB);
   const providerBudgets = budgetPolicy.provider_budgets;
-  const modalGpuBudget = providerBudgets.find((item) => item.provider === "modal_gpu");
+  const modalProviderBudget = providerBudgets.find((item) => item.provider === "modal");
   const providerBudgetPolicyReady = budgetPolicy.state === "ready";
   const authorizationStoreReady = await humanAuthorizationStoreReady(env);
   const providerConfigured = modalConfigured(env);
@@ -1256,8 +1256,10 @@ async function capabilities(env, owner) {
     runpodProviderConfigured && authorizationStoreReady && runpodCompletionTransportVerified && providerBudgetPolicyReady;
   // Capabilities is read-only. Defer the billable live health probe until submit,
   // after the exact plan's one-use human authorization has been verified.
+  const modalCpuBudgetAvailable = Number.isSafeInteger(modalProviderBudget?.monthly_remaining_microusd) &&
+    modalProviderBudget.monthly_remaining_microusd >= 10_000;
   const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady &&
-    providerBudgetPolicyReady;
+    providerBudgetPolicyReady && modalCpuBudgetAvailable;
   const result = {
     schema_version: 2,
     status: "ok",
@@ -1266,12 +1268,16 @@ async function capabilities(env, owner) {
       : "Capabilitiesを確認しました。Modal CPU routeは停止中です。他provider/workloadの可否は各enabledとblockerを参照してください。",
     machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_inflight: 1, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
     blocking_reason: available ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" :
+      !modalCpuBudgetAvailable ? "PROVIDER_BUDGET_EXHAUSTED" :
       !authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" :
       !providerConfigured ? "MODAL_PROVIDER_NOT_CONFIGURED" : "CPU_WORKLOAD_ADMISSION_DISABLED"),
     providers: [
       { id: "modal_cpu", enabled: available, configured: providerConfigured, free: false, paid: true, credit_eligible: true },
       { id: "modal_gpu", enabled: false, configured: false, free: false, paid: true,
-        credit_eligible: true, gpu_count: 1, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" },
+        credit_eligible: true, gpu_count: 1, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED",
+        budget_scope: modalProviderBudget?.scope ?? null,
+        monthly_limit_usd: modalProviderBudget?.monthly_limit_usd ?? null,
+        per_run_limit_usd: modalProviderBudget?.per_run_limit_usd ?? null },
       { id: "runpod_gpu", enabled: runpodEnabled, configured: runpodProviderConfigured, free: false, paid: true,
         credit_eligible: false, gpu_count: 1, api_version: "v2", execution_interface: "registered_workload_only",
         completion_transport_verified: runpodCompletionTransportVerified,
@@ -1330,8 +1336,11 @@ async function capabilities(env, owner) {
   const ownerTrainingBudgetAvailable = Number.isSafeInteger(ownerTrainingConfig.monthly_microusd) &&
     ownerTrainingConfig.monthly_microusd > 0 &&
     ownerTrainingConfig.monthly_microusd <= OWNER_TRAINING_MAX_MONTHLY_MICROUSD &&
+    ownerTrainingConfig.monthly_microusd <= (modalProviderBudget?.monthly_limit_microusd ?? 0) &&
+    (modalProviderBudget?.monthly_remaining_microusd ?? 0) > 0 &&
     Number.isSafeInteger(ownerTrainingConfig.max_cost_microusd) &&
-    ownerTrainingConfig.max_cost_microusd > 0 && ownerTrainingConfig.max_cost_microusd <= OWNER_TRAINING_MAX_COST_MICROUSD;
+    ownerTrainingConfig.max_cost_microusd > 0 && ownerTrainingConfig.max_cost_microusd <= OWNER_TRAINING_MAX_COST_MICROUSD &&
+    ownerTrainingConfig.max_cost_microusd <= (modalProviderBudget?.per_run_limit_microusd ?? 0);
   const ownerTrainingCapability = {
     execution_kind: "owner_selected_python",
     compute_provider: "modal_gpu",
@@ -1347,12 +1356,12 @@ async function capabilities(env, owner) {
     site_control_plane_configured: ownerTrainingSiteControlPlaneConfigured,
     admission_enabled: ownerTrainingAdmission,
     provider_budget_policy_ready: providerBudgetPolicyReady,
-    provider_budget_admission_enabled: modalGpuBudget?.admission_enabled === true,
+    provider_budget_admission_enabled: modalProviderBudget?.modal_gpu_admission_enabled === true,
     budget_policy: ownerTrainingBudgetAvailable ? {
-      state: "ready", provider: "modal_gpu", scope: "owner_training_dispatch_ledger",
-      monthly_limit_usd: usdFromMicrousd(ownerTrainingConfig.monthly_microusd),
-      per_run_limit_usd: usdFromMicrousd(ownerTrainingConfig.max_cost_microusd),
-    } : { state: "unavailable", provider: "modal_gpu", scope: "owner_training_dispatch_ledger" },
+      state: "ready", provider: "modal", scope: "modal_compute_shared_across_routes",
+      monthly_limit_usd: modalProviderBudget.monthly_limit_usd,
+      per_run_limit_usd: modalProviderBudget.per_run_limit_usd,
+    } : { state: "unavailable", provider: "modal", scope: "modal_compute_shared_across_routes" },
     adapter_readiness_available: false,
     adapter_profile_configured: false,
     adapter_control_plane_configured: false,
@@ -1390,7 +1399,7 @@ async function capabilities(env, owner) {
       ownerTrainingAdmission && ownerTrainingCapability.adapter_profile_configured &&
       ownerTrainingCapability.adapter_control_plane_configured && ownerTrainingCapability.adapter_admission_enabled &&
       ownerTrainingCapability.adapter_profile_matches && providerBudgetPolicyReady &&
-      modalGpuBudget?.admission_enabled === true && ownerTrainingBudgetAvailable;
+      modalProviderBudget?.modal_gpu_admission_enabled === true && ownerTrainingBudgetAvailable;
     ownerTrainingCapability.blocker = !githubConfigured ? "GITHUB_APP_NOT_CONFIGURED"
       : !githubConnected ? "GITHUB_CONNECTION_REQUIRED"
       : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED"
@@ -1402,7 +1411,7 @@ async function capabilities(env, owner) {
       : !ownerTrainingAdmission || !ownerTrainingCapability.adapter_admission_enabled
         ? "OWNER_TRAINING_ADMISSION_DISABLED"
       : !providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
-      : modalGpuBudget?.admission_enabled !== true ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
+      : modalProviderBudget?.modal_gpu_admission_enabled !== true ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
       : !ownerTrainingBudgetAvailable ? "OWNER_TRAINING_BUDGET_POLICY_UNAVAILABLE"
       : !ownerTrainingCapability.adapter_profile_matches ? "OWNER_TRAINING_ADAPTER_PROFILE_MISMATCH" : null;
     const { profile_fingerprint: _profileFingerprint, ...safeAdapterOwnerTraining } = adapterOwnerTraining || {};
@@ -1421,12 +1430,22 @@ async function capabilities(env, owner) {
     for (const providerId of ["kaggle", "huggingface_space", "modal_gpu"]) {
       const adapterProvider = adapterProviders.find((item) => item?.id === providerId);
       const provider = result.providers.find((item) => item.id === providerId);
+      const budgetProvider = providerId === "modal_gpu" ? modalProviderBudget
+        : providerBudgets.find((item) => item.provider === providerId);
       provider.configured = adapterProvider?.configured === true;
       provider.enabled = providerBudgetPolicyReady && provider.configured && adapterProvider?.paid_fallback === false &&
-        (providerId !== "modal_gpu" || env.MODAL_GPU_WORKLOAD_ADMISSION_ENABLED === "true" &&
-          modalGpuBudget?.admission_enabled === true);
+        (providerId !== "modal_gpu" || Number.isSafeInteger(budgetProvider?.monthly_remaining_microusd) &&
+          budgetProvider.monthly_remaining_microusd >= 10_000 && env.MODAL_GPU_WORKLOAD_ADMISSION_ENABLED === "true" &&
+          budgetProvider?.modal_gpu_admission_enabled === true);
+      if (providerId === "modal_gpu" && budgetProvider) {
+        provider.budget_scope = budgetProvider.scope;
+        provider.monthly_limit_usd = budgetProvider.monthly_limit_usd;
+        provider.per_run_limit_usd = budgetProvider.per_run_limit_usd;
+      }
       provider.blocker = provider.enabled ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" : providerId === "modal_gpu"
-        ? (provider.configured ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED" : "MODAL_GPU_PROVIDER_NOT_CONFIGURED")
+        ? (!provider.configured ? "MODAL_GPU_PROVIDER_NOT_CONFIGURED"
+          : (budgetProvider?.monthly_remaining_microusd ?? 0) < 10_000 ? "PROVIDER_BUDGET_EXHAUSTED"
+            : "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED")
         : "FREE_PROVIDER_NOT_CONFIGURED");
       const workload = result.workloads.find((item) => item.providers.includes(providerId));
       workload.enabled = provider.enabled;
@@ -1451,22 +1470,6 @@ async function authorizeFreeProviderPolicy(env, { runId, provider, fingerprint, 
       authorization?.authorized_microusd === 0);
 }
 
-async function reserveModalGpuBudget(env, { runId, fingerprint, now }) {
-  const periodKey = utcMonthKey(now);
-  const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO modal_gpu_budget_reservations
-      (run_id, plan_fingerprint, period_key, reserved_microusd, created_at)
-    SELECT ?, ?, ?, p.per_run_limit_microusd, ? FROM modal_gpu_budget_policy p
-    WHERE p.scope='workspace' AND p.admission_enabled=1
-      AND COALESCE((SELECT SUM(r.reserved_microusd) FROM modal_gpu_budget_reservations r
-        WHERE r.period_key=?), 0) + p.per_run_limit_microusd <= p.monthly_limit_microusd`)
-    .bind(runId, fingerprint, periodKey, now, periodKey).run();
-  const reservation = await env.DB.prepare(`SELECT plan_fingerprint, period_key, reserved_microusd
-    FROM modal_gpu_budget_reservations WHERE run_id=?`).bind(runId).first();
-  return inserted?.meta?.changes === 1 ||
-    (reservation?.plan_fingerprint === fingerprint && reservation?.period_key === periodKey &&
-      reservation?.reserved_microusd === 10000);
-}
-
 async function reserveModalGpuLease(env, { runId, fingerprint, now }) {
   const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO modal_gpu_active_lease
       (scope, run_id, plan_fingerprint, state, acquired_at, updated_at)
@@ -1477,11 +1480,6 @@ async function reserveModalGpuLease(env, { runId, fingerprint, now }) {
   return inserted?.meta?.changes === 1 ||
     (lease?.run_id === runId && lease?.plan_fingerprint === fingerprint &&
       ["submitting", "active", "cancel_pending"].includes(lease?.state));
-}
-
-function utcMonthKey(epochSeconds) {
-  const date = new Date(epochSeconds * 1000);
-  return `${date.getUTCFullYear().toString().padStart(4, "0")}-${(date.getUTCMonth() + 1).toString().padStart(2, "0")}`;
 }
 
 async function reserveProviderBudget(env, { runId, provider, requestedMicrousd, now }) {
@@ -1802,15 +1800,6 @@ async function submitDelegatedExperiment(env, owner, args) {
         machine_state: { run_id: args.run_id, provider_policy_authorized: false, gpu_started: false },
         next_allowed_actions: [], blocking_reason: "MODAL_GPU_PLAN_POLICY_MISMATCH" };
     }
-    try {
-      policyAuthorized = await reserveModalGpuBudget(env, {
-        runId: args.run_id, fingerprint: args.plan_fingerprint, now,
-      });
-    } catch {}
-    if (!policyAuthorized) return { schema_version: 2, status: "blocked",
-      human_summary: "Modal GPUの月次1ドルまたは1回0.01ドル上限を確保できないため、GPU Functionは起動していません。",
-      machine_state: { run_id: args.run_id, provider_policy_authorized: false, gpu_started: false },
-      next_allowed_actions: [], blocking_reason: "MODAL_GPU_BUDGET_UNAVAILABLE" };
   } else {
     if (!["kaggle", "huggingface_space"].includes(provider) || approvedPlan.max_cost_usd !== "0" ||
         approvedPlan.known_cost_usd !== "0" || approvedPlan.paid_fallback_allowed !== false) {
@@ -1855,23 +1844,87 @@ async function submitDelegatedExperiment(env, owner, args) {
       machine_state: { run_id: args.run_id, gpu_started: false, active_lease_acquired: false },
       next_allowed_actions: [], blocking_reason: "MODAL_GPU_ACTIVE_LEASE_BUSY" };
   }
-  // Persist the submit claim before the network call. The provider adapter has
-  // a durable one-run claim keyed by run_id, so a lost response can be read
-  // back through experiment_status without presenting a false "not submitted"
-  // state or starting a second provider job.
+  // Persist the shared Modal reservation and submit claim atomically before
+  // the network call. A lost response keeps the same reservation and run.
   const attemptAt = Math.floor(Date.now() / 1000);
   if (plan.state === "prepared") {
-    const claimed = await env.DB.prepare(`UPDATE gateway_delegated_plans
-      SET state='submitted', submit_attempted_at=COALESCE(submit_attempted_at, ?), updated_at=?
-      WHERE owner_id=? AND id=? AND fingerprint=? AND state='prepared' AND cancelled_at IS NULL
-      RETURNING id`).bind(attemptAt, attemptAt, owner, args.run_id, args.plan_fingerprint).first();
+    let claimed;
+    if (provider === "modal_gpu") {
+      const periodKey = utcMonthKey(attemptAt);
+      let batch;
+      try {
+        const reservation = prepareModalComputeBudgetReservation(env.DB, {
+          runId: args.run_id, source: "modal_gpu_canary", fingerprint: args.plan_fingerprint,
+          periodKey, requestedMicrousd: 10000, now: attemptAt, requireGpuAdmission: true,
+        });
+        batch = await env.DB.batch([
+          reservation,
+          env.DB.prepare(`UPDATE gateway_delegated_plans
+            SET state='submitted', submit_attempted_at=COALESCE(submit_attempted_at, ?), updated_at=?
+            WHERE owner_id=? AND id=? AND fingerprint=? AND state='prepared' AND cancelled_at IS NULL
+              AND EXISTS (SELECT 1 FROM modal_gpu_admission_policy a
+                WHERE a.scope='workspace' AND a.admission_enabled=1)
+              AND EXISTS (SELECT 1 FROM modal_compute_budget_reservations r
+                WHERE r.run_id=? AND r.source='modal_gpu_canary' AND r.plan_fingerprint=?
+                  AND r.period_key=? AND r.reserved_microusd=10000)
+            RETURNING id`).bind(attemptAt, attemptAt, owner, args.run_id, args.plan_fingerprint,
+              args.run_id, args.plan_fingerprint, periodKey),
+          env.DB.prepare(`DELETE FROM modal_compute_budget_reservations
+            WHERE run_id=? AND source='modal_gpu_canary' AND plan_fingerprint=? AND period_key=?
+              AND reserved_microusd=10000 AND NOT EXISTS (SELECT 1 FROM gateway_delegated_plans p
+                WHERE p.id=? AND p.owner_id=? AND p.fingerprint=? AND p.state='submitted')`)
+            .bind(args.run_id, args.plan_fingerprint, periodKey, args.run_id, owner,
+              args.plan_fingerprint),
+        ]);
+      } catch (error) {
+        try {
+          await env.DB.prepare(`DELETE FROM modal_gpu_active_lease WHERE scope='workspace'
+            AND run_id=? AND plan_fingerprint=? AND state='submitting'`)
+            .bind(args.run_id, args.plan_fingerprint).run();
+        } catch {}
+        throw error;
+      }
+      if (batch?.[0]?.meta?.changes === 0) {
+        const existingReservation = await env.DB.prepare(`SELECT source, plan_fingerprint, period_key, reserved_microusd
+          FROM modal_compute_budget_reservations WHERE run_id=?`).bind(args.run_id).first();
+        if (existingReservation?.source !== "modal_gpu_canary" ||
+            existingReservation.plan_fingerprint !== args.plan_fingerprint ||
+            existingReservation.period_key !== periodKey || existingReservation.reserved_microusd !== 10000) {
+          await env.DB.prepare(`DELETE FROM modal_gpu_active_lease WHERE scope='workspace'
+            AND run_id=? AND plan_fingerprint=? AND state='submitting'`)
+            .bind(args.run_id, args.plan_fingerprint).run();
+          return { schema_version: 2, status: "blocked",
+            human_summary: "Modal計算の共通予算上限に達したか、受付が閉じました。GPU Functionは起動していません。",
+            machine_state: { run_id: args.run_id, provider_policy_authorized: false, gpu_started: false },
+            next_allowed_actions: ["experiment_status"], blocking_reason: "MODAL_GPU_BUDGET_UNAVAILABLE" };
+        }
+      }
+      claimed = batch?.[1]?.results?.[0] || null;
+    } else {
+      claimed = await env.DB.prepare(`UPDATE gateway_delegated_plans
+        SET state='submitted', submit_attempted_at=COALESCE(submit_attempted_at, ?), updated_at=?
+        WHERE owner_id=? AND id=? AND fingerprint=? AND state='prepared' AND cancelled_at IS NULL
+        RETURNING id`).bind(attemptAt, attemptAt, owner, args.run_id, args.plan_fingerprint).first();
+    }
     if (!claimed) {
       const latest = await delegatedPlan(env, owner, args.run_id);
-      if (!latest || latest.cancelled_at || latest.state !== "submitted") return {
-        schema_version: 2, status: "blocked", human_summary: "このplanは取消済みか、送信権を取得できませんでした。",
-        machine_state: { run_id: args.run_id, plan_valid: false }, next_allowed_actions: [],
-        blocking_reason: "PLAN_CANCELLED_OR_ALREADY_CLAIMED" };
+      if (!latest || latest.cancelled_at || latest.state !== "submitted") {
+        if (provider === "modal_gpu") await env.DB.prepare(`DELETE FROM modal_gpu_active_lease WHERE scope='workspace'
+          AND run_id=? AND plan_fingerprint=? AND state='submitting'`)
+          .bind(args.run_id, args.plan_fingerprint).run();
+        return { schema_version: 2, status: "blocked", human_summary: "このplanは取消済みか、送信権を取得できませんでした。",
+          machine_state: { run_id: args.run_id, plan_valid: false }, next_allowed_actions: [],
+          blocking_reason: "PLAN_CANCELLED_OR_ALREADY_CLAIMED" };
+      }
     }
+  } else if (provider === "modal_gpu") {
+    const reservation = await env.DB.prepare(`SELECT source, plan_fingerprint, reserved_microusd
+      FROM modal_compute_budget_reservations WHERE run_id=?`).bind(args.run_id).first();
+    if (reservation?.source !== "modal_gpu_canary" || reservation.plan_fingerprint !== args.plan_fingerprint ||
+        reservation.reserved_microusd !== 10000) return { schema_version: 2, status: "blocked",
+      human_summary: "既存Modal GPU runの予算予約を照合できません。新しいrunは作成せず、状態を確認してください。",
+      machine_state: { run_id: args.run_id, provider_policy_authorized: false, gpu_started: false },
+      next_allowed_actions: ["experiment_status"], blocking_reason: "MODAL_GPU_BUDGET_RESERVATION_MISSING" };
   }
   const response = await delegateGatewayTool(env, owner, "experiment_submit", {
     run_id: args.run_id, plan_fingerprint: args.plan_fingerprint, approved_plan: args.provider_approved_plan,
@@ -2193,22 +2246,6 @@ async function callTool(name, args, request, env, context = null) {
       human_summary: "CPU実行Admissionは停止中です。Modalには接続していません。",
       machine_state: { run_id: args.run_id, admission_enabled: false, sandbox_started: false },
       next_allowed_actions: [], blocking_reason: "CPU_WORKLOAD_ADMISSION_DISABLED" };
-    let budgetReserved = false;
-    try {
-      budgetReserved = await reserveProviderBudget(env, {
-        runId: args.run_id, provider: "modal_cpu", requestedMicrousd: 10000, now,
-      });
-    } catch {
-      return { schema_version: 2, status: "blocked",
-        human_summary: "Modalのprovider別予算台帳を安全に更新できないため、Modalには接続していません。",
-        machine_state: { run_id: args.run_id, sandbox_started: false },
-        next_allowed_actions: [], blocking_reason: "PROVIDER_BUDGET_LEDGER_UNAVAILABLE" };
-    }
-    if (!budgetReserved) return { schema_version: 2, status: "blocked",
-      human_summary: "Modalのprovider別予算上限に達したため、Modalには接続していません。",
-      machine_state: { run_id: args.run_id, provider: "modal_cpu",
-        sandbox_started: false },
-      next_allowed_actions: [], blocking_reason: "PROVIDER_BUDGET_EXHAUSTED" };
     // A successful explicit health check is reusable by submit. Otherwise
     // reserve the separately billed call in the same bounded workspace and
     // one-use plan ledgers before contacting Modal.
@@ -2288,11 +2325,20 @@ async function callTool(name, args, request, env, context = null) {
       machine_state: { run_id: args.run_id, authorization_required: true, authorization_valid: false },
       authorization_url: authorizationUrl(request, args.run_id, args.plan_fingerprint), next_allowed_actions: [], blocking_reason: "HUMAN_AUTHORIZATION_EXPIRED" };
     try {
-      await env.DB.batch([
+      const providerReservation = prepareModalComputeBudgetReservation(env.DB, {
+        runId: args.run_id, source: "modal_cpu", fingerprint: args.plan_fingerprint,
+        periodKey: utcMonthKey(reservationAt), requestedMicrousd: 10000, now: reservationAt,
+      });
+      const submissionBatch = await env.DB.batch([
+        providerReservation,
         env.DB.prepare(`UPDATE human_authorizations SET consumed_at=?
           WHERE id=? AND owner_id=? AND plan_id=? AND fingerprint=? AND expires_at>=? AND consumed_at IS NULL
-            AND EXISTS (SELECT 1 FROM plans p WHERE p.id=? AND p.owner_id=? AND p.fingerprint=? AND p.state='prepared' AND p.expires_at>=?)`)
-          .bind(reservationAt, authorization.id, owner, args.run_id, args.plan_fingerprint, reservationAt, args.run_id, owner, args.plan_fingerprint, reservationAt),
+            AND EXISTS (SELECT 1 FROM plans p WHERE p.id=? AND p.owner_id=? AND p.fingerprint=? AND p.state='prepared' AND p.expires_at>=?)
+            AND EXISTS (SELECT 1 FROM modal_compute_budget_reservations r WHERE r.run_id=? AND r.source='modal_cpu'
+              AND r.plan_fingerprint=? AND r.period_key=? AND r.reserved_microusd=10000)`)
+          .bind(reservationAt, authorization.id, owner, args.run_id, args.plan_fingerprint, reservationAt,
+            args.run_id, owner, args.plan_fingerprint, reservationAt, args.run_id, args.plan_fingerprint,
+            utcMonthKey(reservationAt)),
         env.DB.prepare(`UPDATE plans SET state = 'queued' WHERE id = ? AND owner_id = ? AND fingerprint = ? AND image_digest = ? AND state = 'prepared' AND expires_at >= ?
           AND EXISTS (SELECT 1 FROM human_authorizations a WHERE a.id=? AND a.owner_id=? AND a.plan_id=? AND a.fingerprint=? AND a.consumed_at=?)`)
           .bind(args.run_id, owner, args.plan_fingerprint, env.CPU_WORKLOAD_IMAGE_DIGEST, reservationAt, authorization.id, owner, args.run_id, args.plan_fingerprint, reservationAt),
@@ -2301,7 +2347,22 @@ async function callTool(name, args, request, env, context = null) {
           WHERE p.id = ? AND p.owner_id = ? AND p.fingerprint = ? AND p.image_digest = ? AND p.state = 'queued' AND p.expires_at >= ?
             AND EXISTS (SELECT 1 FROM human_authorizations a WHERE a.id=? AND a.owner_id=? AND a.plan_id=? AND a.fingerprint=? AND a.consumed_at=?)`)
           .bind(reservationAt, reservationAt, args.run_id, owner, args.plan_fingerprint, env.CPU_WORKLOAD_IMAGE_DIGEST, reservationAt, authorization.id, owner, args.run_id, args.plan_fingerprint, reservationAt),
+        env.DB.prepare(`DELETE FROM modal_compute_budget_reservations WHERE run_id=? AND source='modal_cpu'
+          AND plan_fingerprint=? AND period_key=? AND reserved_microusd=10000
+          AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.plan_id=?)`)
+          .bind(args.run_id, args.plan_fingerprint, utcMonthKey(reservationAt), args.run_id),
       ]);
+      if (submissionBatch?.[0]?.meta?.changes === 0) {
+        const existingRun = await env.DB.prepare(`SELECT id, state, created_at FROM runs WHERE owner_id=? AND plan_id=?`)
+          .bind(owner, args.run_id).first();
+        if (existingRun) return { schema_version: 2, status: "ok", human_summary: submitSummary(existingRun.state),
+          run_id: existingRun.id, machine_state: { state: existingRun.state, created_at: existingRun.created_at },
+          next_allowed_actions: ["experiment_status"], blocking_reason: null };
+        return { schema_version: 2, status: "blocked",
+          human_summary: "Modal計算ルート共通の予算上限を確保できないか、予約状態が一致しません。Modalには接続していません。",
+          machine_state: { run_id: args.run_id, provider: "modal_cpu", sandbox_started: false },
+          next_allowed_actions: ["experiment_status"], blocking_reason: "PROVIDER_BUDGET_EXHAUSTED" };
+      }
     } catch {
       const active = await env.DB.prepare("SELECT id, state FROM runs WHERE state IN ('queued', 'running') LIMIT 1").first();
       if (active) return { schema_version: 2, status: "blocked", human_summary: "実行枠は使用中です。", blocking_reason: "PROVIDER_SLOT_BUSY", run_id: null };

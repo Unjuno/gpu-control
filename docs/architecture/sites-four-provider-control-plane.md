@@ -74,11 +74,16 @@ Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
 
 | Provider | Control path | Credential location | Cost policy |
 | --- | --- | --- | --- |
-| Modal | Sites -> authenticated Modal control API | Modal proxy token in Sites | provider-specific monthly and per-run cap |
-| RunPod | Sites -> RunPod REST v2 | Sites secret | per-run cap; exact Pod termination required |
+| Modal | Sites -> authenticated Modal control API | Modal proxy token in Sites | shared Sites reservation ceiling of $30/month and $1/run for Modal CPU/GPU compute; not a Modal billing stop |
+| RunPod | Sites -> RunPod REST v2 | Sites secret | independent $1/run reservation; no Sites monthly cap; exact Pod termination required |
 | Kaggle | Sites -> Modal adapter -> Kaggle | Modal secret | free-first; no paid fallback |
 | Hugging Face | Sites -> Modal adapter -> private ZeroGPU Space | Modal secrets and Space secret | free ZeroGPU only; no paid fallback |
 | Google Colab (planned fifth provider; unavailable) | ChatGPT -> Sites D1 plan/lease -> owner-scoped Google OAuth -> hosted Colab API MCP | GPU Control Google connection, server-side only | runtime/resource ceiling; exact dollar/CU cap unavailable until a trusted quota/quote is exposed |
+
+The Modal reservation sum covers only Modal CPU/GPU workload compute. It does
+not count Modal control-function hosting charges for the Kaggle/Hugging Face
+adapters, external-provider costs, unrelated Modal workloads, or actual account
+usage outside Sites D1. See [ADR 0005](decisions/0005-shared-modal-compute-budget.md).
 
 ## Compatibility rule
 

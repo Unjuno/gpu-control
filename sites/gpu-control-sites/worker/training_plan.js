@@ -1,7 +1,7 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource, MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./training_authorization.js";
 import { readPublicTrainingContract, trainingRuntimeProfileFingerprint } from "./training_contract.js";
-import { readProviderBudgetPolicy } from "./provider_budget_policy.js";
+import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, utcMonthKey } from "./provider_budget_policy.js";
 
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -130,6 +130,25 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
       max_cost_microusd: args.max_cost_microusd ?? Math.min(Number.isSafeInteger(configuredCost)
         ? configuredCost : OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_COST_MICROUSD) };
   }
+  const budgetPolicy = await readProviderBudgetPolicy(env.DB);
+  const modalBudget = budgetPolicy.provider_budgets.find((item) => item.provider === "modal");
+  if (budgetPolicy.state !== "ready" || !modalBudget) return { schema_version: 2, status: "blocked",
+    human_summary: "Modal計算ルート共通の予算ポリシーを確認できないため、計画を作成できません。",
+    machine_state: { repository: source.repository, commit: source.commit,
+      provider_budget_policy_state: "unavailable" },
+    next_allowed_actions: ["experiment_capabilities"], blocking_reason: "PROVIDER_BUDGET_POLICY_UNAVAILABLE" };
+  const laneMonthlyLimit = source.repository === MAP_TRAINING_REPOSITORY
+    ? Number(env.MAP_TRAINING_MONTHLY_MICROUSD)
+    : Number(env.OWNER_TRAINING_MONTHLY_MICROUSD);
+  if (!Number.isSafeInteger(args.max_cost_microusd) || args.max_cost_microusd < 1 ||
+      args.max_cost_microusd > modalBudget.per_run_limit_microusd ||
+      args.max_cost_microusd > modalBudget.monthly_remaining_microusd ||
+      !Number.isSafeInteger(laneMonthlyLimit) || laneMonthlyLimit < 1 ||
+      laneMonthlyLimit > modalBudget.monthly_limit_microusd) return { schema_version: 2, status: "blocked",
+    human_summary: "指定された実験上限がModal計算ルート共通の1回または月次上限を超えています。",
+    machine_state: { provider: "modal", per_run_limit_usd: modalBudget.per_run_limit_usd,
+      monthly_limit_usd: modalBudget.monthly_limit_usd },
+    next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY" };
   if (source.repository !== MAP_TRAINING_REPOSITORY) return previewOwnerTrainingPlan(env, owner, args, source, getSourceToken);
   if (args.runtime_seconds !== MAP_TRAINING_MAX_RUNTIME_SECONDS) return { schema_version: 2, status: "blocked",
     human_summary: "MAP-44Mの1回あたりの実行時間上限は120秒です。",
@@ -252,11 +271,21 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
   // Owner-selected plans are authorized by the exact destructive ChatGPT MCP
   // submit call. The host presents its native confirmation once for that run.
   const providerConfigured = isConfigured(env);
-  const executableNow = state === "prepared" && admission && providerConfigured && (authorized || ownerSelected);
+  const currentBudgetPolicy = await readProviderBudgetPolicy(env.DB);
+  const modalBudget = currentBudgetPolicy.provider_budgets.find((item) => item.provider === "modal");
+  const planMonthlyBudget = plan.monthly_budget_microusd ?? Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
+  const gpuBudgetReady = currentBudgetPolicy.state === "ready" &&
+    modalBudget?.modal_gpu_admission_enabled === true &&
+    plan.max_cost_microusd <= modalBudget.per_run_limit_microusd &&
+    Number.isSafeInteger(planMonthlyBudget) && planMonthlyBudget <= modalBudget.monthly_limit_microusd;
+  const executableNow = state === "prepared" && admission && gpuBudgetReady && providerConfigured &&
+    (authorized || ownerSelected);
   if (executableNow) actions.unshift("training_submit");
   return { ...preview, approved_plan: plan, next_allowed_actions: actions,
     human_summary: !admission
       ? "学習計画は保存しましたが、現在この条件の実行受付は停止中です。"
+      : !gpuBudgetReady
+      ? "Modal GPUの共通受付またはアカウント予算ポリシーを確認できないため、送信できません。"
       : !providerConfigured
       ? "学習計画は保存しましたが、実行アダプターが設定されていません。"
       : authorized
@@ -266,8 +295,8 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
       : "学習計画を保存しました。送信前にauthorization_urlを開き、このplanの有料実行を確認してください。Modalへのログインは不要です。",
     machine_state: { ...plan, executable: executableNow, run_id: existing.id,
       plan_fingerprint: fingerprint, idempotency_key: key, expires_at: existing.expires_at, state,
-      authorization_state: !admission ? "unavailable" : authorized ? "authorized" : "required",
-      ...(admission && providerConfigured && !authorized && state === "prepared" && !ownerSelected
+      authorization_state: !admission || !gpuBudgetReady ? "unavailable" : authorized ? "authorized" : "required",
+      ...(admission && gpuBudgetReady && providerConfigured && !authorized && state === "prepared" && !ownerSelected
         ? { authorization_url: trainingAuthorizationUrl(existing.id, fingerprint) } : {}) } };
 }
 
@@ -297,12 +326,29 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
     : env.MAP_TRAINING_ADMISSION_ENABLED === "true";
   const providerConfigured = isConfigured(env);
   const siteConfirmationRequired = !ownerSelected;
+  const budgetPolicy = state === "prepared" ? await readProviderBudgetPolicy(db) : null;
+  const modalBudget = budgetPolicy?.provider_budgets.find((item) => item.provider === "modal");
+  const monthlyLimit = ownerSelected ? plan.monthly_budget_microusd : Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
+  const modalPolicyReady = budgetPolicy?.state === "ready" && modalBudget;
+  const gpuAdmissionReady = modalBudget?.modal_gpu_admission_enabled === true;
+  const budgetWithinPolicy = modalPolicyReady && Number.isSafeInteger(plan.max_cost_microusd) &&
+    plan.max_cost_microusd <= modalBudget.per_run_limit_microusd && Number.isSafeInteger(monthlyLimit) &&
+    monthlyLimit <= modalBudget.monthly_limit_microusd &&
+    plan.max_cost_microusd <= modalBudget.monthly_remaining_microusd;
+  const submitAdmissionReady = admission && gpuAdmissionReady && budgetWithinPolicy;
   const readinessBlocker = state !== "prepared" ? null
+    : !modalPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
+    : !gpuAdmissionReady ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
+    : !budgetWithinPolicy ? "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY"
     : !admission ? (ownerSelected ? "OWNER_TRAINING_ADMISSION_DISABLED" : "MAP_TRAINING_ADMISSION_DISABLED")
     : !providerConfigured ? "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED" : null;
   return { schema_version: 2, status: "ok",
     human_summary: readinessBlocker === "OWNER_TRAINING_ADMISSION_DISABLED"
       ? "保存済み計画は確認できましたが、owner-selected GPUの受付は停止中です。"
+      : readinessBlocker === "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
+      ? "Modal GPUの共通受付ポリシーが停止中です。"
+      : readinessBlocker === "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
+      ? "Modal計算ルート共通の予算ポリシーを確認できません。"
       : readinessBlocker === "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED"
       ? "保存済み計画は確認できましたが、実行アダプターが設定されていません。"
       : "保存済みの学習計画の状態です。",
@@ -310,19 +356,19 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
       expires_at: row.expires_at, cancelled_at: row.cancelled_at,
       cleanup_state: row.dispatch_claimed_at === null ? "not_required"
         : row.cleanup_confirmed_at !== null ? "confirmed" : "unknown",
-      authorization_state: state !== "prepared" ? "none" : !admission ? "unavailable" : authorized ? "authorized" : "required",
-      ...(siteConfirmationRequired && admission && providerConfigured && !authorized && state === "prepared"
+      authorization_state: state !== "prepared" ? "none" : !submitAdmissionReady ? "unavailable" : authorized ? "authorized" : "required",
+      ...(siteConfirmationRequired && submitAdmissionReady && providerConfigured && !authorized && state === "prepared"
         ? { authorization_url: trainingAuthorizationUrl(runId, row.fingerprint) } : {}),
       ...(row.dispatch_rejection ? { reason: row.dispatch_rejection } : {}) },
     next_allowed_actions: state === "prepared"
-      ? [...(admission && providerConfigured && (authorized || ownerSelected) ? ["training_submit"] : []), "training_cancel"] : [],
+      ? [...(submitAdmissionReady && providerConfigured && (authorized || ownerSelected) ? ["training_submit"] : []), "training_cancel"] : [],
     blocking_reason: readinessBlocker };
 }
 
 // Authorization must already be established. This single write reserves the
 // whole plan ceiling and prevents concurrent or duplicate dispatch claims.
 export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, authorization,
-  maxMonthlyLimit = MAP_TRAINING_MAX_MONTHLY_MICROUSD, requireModalGpuAdmission = false) {
+  maxMonthlyLimit = MAP_TRAINING_MAX_MONTHLY_MICROUSD, modalReservation = null) {
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1 ||
       !Number.isSafeInteger(maxMonthlyLimit) || maxMonthlyLimit < 1 || monthlyLimit > maxMonthlyLimit) {
     throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
@@ -337,11 +383,18 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
   }
   const date = new Date(now * 1000);
   const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
-  const modalGpuAdmissionGate = requireModalGpuAdmission
-    ? `AND EXISTS (SELECT 1 FROM modal_gpu_budget_policy b
-        WHERE b.scope='workspace' AND b.admission_enabled=1)` : "";
-  const results = await db.batch([
-    db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
+  const periodKey = utcMonthKey(now);
+  const budgetReservation = modalReservation ? {
+    runId, source: modalReservation.source, fingerprint, periodKey,
+    requestedMicrousd: modalReservation.requestedMicrousd, now, requireGpuAdmission: true,
+  } : null;
+  const budgetInsert = budgetReservation ? prepareModalComputeBudgetReservation(db, budgetReservation) : null;
+  const modalBudgetClaimGate = budgetReservation ? `
+      AND EXISTS (SELECT 1 FROM modal_gpu_admission_policy b
+        WHERE b.scope='workspace' AND b.admission_enabled=1)
+      AND EXISTS (SELECT 1 FROM modal_compute_budget_reservations r
+        WHERE r.run_id=? AND r.source=? AND r.plan_fingerprint=? AND r.period_key=? AND r.reserved_microusd=?)` : "";
+  const claimStatement = db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
     WHERE owner_id=? AND id=? AND fingerprint=?
       AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?
       AND NOT EXISTS (SELECT 1 FROM training_plans p WHERE p.owner_id=training_plans.owner_id
@@ -353,14 +406,16 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
         AND a.authorization_source IN ('site_owner_plan_confirmation','chatgpt_mcp_write_confirmation') AND a.authorized_by=?
         AND a.decision_record_id=? AND a.authorized_at IS NOT NULL
         AND a.consumed_at IS NULL AND a.expires_at>?)
-      ${modalGpuAdmissionGate}
+      ${modalBudgetClaimGate}
       AND json_extract(plan_json, '$.max_cost_microusd') +
         COALESCE((SELECT SUM(json_extract(p.plan_json, '$.max_cost_microusd'))
           FROM training_plans p WHERE p.dispatch_claimed_at>=?), 0) <= ?
     RETURNING plan_json`).bind(now, owner, runId, fingerprint, now, authorization.authorization_id,
       authorization.authorization_reference, authorization.control_plane_sha, owner,
-      authorization.decision_record_id, now, monthStart, monthlyLimit),
-    db.prepare(`UPDATE training_authorizations SET consumed_at=?
+      authorization.decision_record_id, now,
+      ...(budgetReservation ? [runId, budgetReservation.source, fingerprint, periodKey,
+        budgetReservation.requestedMicrousd] : []), monthStart, monthlyLimit);
+  const authorizationStatement = db.prepare(`UPDATE training_authorizations SET consumed_at=?
       WHERE plan_id=? AND owner_id=? AND fingerprint=? AND control_plane_sha=?
         AND authorization_id=? AND authorization_reference=?
         AND authorization_source IN ('site_owner_plan_confirmation','chatgpt_mcp_write_confirmation') AND authorized_by=?
@@ -370,9 +425,19 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
             AND p.fingerprint=training_authorizations.fingerprint AND p.dispatch_claimed_at=?)`)
       .bind(now, runId, owner, fingerprint, authorization.control_plane_sha,
         authorization.authorization_id, authorization.authorization_reference, owner,
-        authorization.decision_record_id, now, now),
-  ]);
-  return results?.[0]?.results?.[0] || null;
+        authorization.decision_record_id, now, now);
+  const cleanupReservation = budgetReservation ? db.prepare(`DELETE FROM modal_compute_budget_reservations
+    WHERE run_id=? AND source=? AND plan_fingerprint=? AND period_key=? AND reserved_microusd=?
+      AND NOT EXISTS (SELECT 1 FROM training_plans p WHERE p.id=? AND p.owner_id=?
+        AND p.fingerprint=? AND p.dispatch_claimed_at=?)`)
+    .bind(runId, budgetReservation.source, fingerprint, periodKey,
+      budgetReservation.requestedMicrousd, runId, owner, fingerprint, now) : null;
+  const statements = budgetInsert
+    ? [budgetInsert, claimStatement, authorizationStatement, cleanupReservation]
+    : [claimStatement, authorizationStatement];
+  const claimIndex = budgetInsert ? 1 : 0;
+  const results = await db.batch(statements);
+  return results?.[claimIndex]?.results?.[0] || null;
 }
 
 export async function confirmTrainingCleanup(db, owner, runId, fingerprint, state, cleanup, now) {
@@ -405,19 +470,27 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       blocking_reason: "TRAINING_AUTHORIZATION_NOT_CONFIGURED" };
   }
   const ownerSelected = plan.execution_kind === "owner_selected_python";
-  if (ownerSelected) {
+  {
     const budgetPolicy = await readProviderBudgetPolicy(env.DB);
-    const modalGpuPolicy = budgetPolicy.provider_budgets.find((item) => item.provider === "modal_gpu");
-    if (budgetPolicy.state !== "ready" || !modalGpuPolicy) return { schema_version: 2, status: "blocked",
+    const modalProviderPolicy = budgetPolicy.provider_budgets.find((item) => item.provider === "modal");
+    if (budgetPolicy.state !== "ready" || !modalProviderPolicy) return { schema_version: 2, status: "blocked",
       human_summary: "Modal GPUの予算ポリシーを確認できないため、実験は開始していません。",
       machine_state: { run_id: runId, provider_budget_policy_state: "unavailable" },
       next_allowed_actions: ["experiment_capabilities", "training_status"],
       blocking_reason: "PROVIDER_BUDGET_POLICY_UNAVAILABLE" };
-    if (modalGpuPolicy.admission_enabled !== true) return { schema_version: 2, status: "blocked",
+    if (modalProviderPolicy.modal_gpu_admission_enabled !== true) return { schema_version: 2, status: "blocked",
       human_summary: "Modal GPUのD1受付ポリシーが停止中です。予算予約と実験開始は行っていません。",
       machine_state: { run_id: runId, provider: "modal_gpu", budget_admission_enabled: false },
       next_allowed_actions: ["experiment_capabilities", "training_status"],
       blocking_reason: "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED" };
+    if (!Number.isSafeInteger(plan.max_cost_microusd) ||
+        plan.max_cost_microusd > modalProviderPolicy.per_run_limit_microusd ||
+        !Number.isSafeInteger(ownerSelected ? plan.monthly_budget_microusd : Number(env.MAP_TRAINING_MONTHLY_MICROUSD)) ||
+        (ownerSelected ? plan.monthly_budget_microusd : Number(env.MAP_TRAINING_MONTHLY_MICROUSD)) > modalProviderPolicy.monthly_limit_microusd) return { schema_version: 2, status: "blocked",
+      human_summary: "実験上限がModal計算ルート共通の予算上限を超えています。",
+      machine_state: { run_id: runId, provider: "modal", budget_policy_available: true },
+      next_allowed_actions: ["experiment_capabilities", "training_status"],
+      blocking_reason: "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY" };
   }
   const admissionEnabled = ownerSelected
     ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true"
@@ -507,7 +580,8 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     : Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
     monthlyLimit, authorization, ownerSelected ? OWNER_TRAINING_MAX_MONTHLY_MICROUSD : MAP_TRAINING_MAX_MONTHLY_MICROUSD,
-    ownerSelected);
+    { source: ownerSelected ? "owner_selected_training" : "map_training",
+      requestedMicrousd: plan.max_cost_microusd });
   if (!claimed) {
     const active = await env.DB.prepare(`SELECT id FROM training_plans WHERE owner_id=? AND id<>?
       AND dispatch_claimed_at IS NOT NULL AND dispatch_rejection IS NULL AND cleanup_confirmed_at IS NULL
