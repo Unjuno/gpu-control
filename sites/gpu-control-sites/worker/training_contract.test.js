@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { readPublicTrainingContract } from "./training_contract.js";
 
@@ -20,20 +21,41 @@ function responseFor(value, status = 200) {
     encoding: "base64", size: content.byteLength, content: content.toString("base64") }), { status });
 }
 
+function fileResponse(path, bytes, status = 200) {
+  return new Response(JSON.stringify({ type: "file", path, encoding: "base64",
+    size: bytes.byteLength, content: Buffer.from(bytes).toString("base64") }), { status });
+}
+
 test("reads a strict experiment manifest at the registered immutable commit", async () => {
   let requested;
+  const lockBytes = Buffer.from("torch==2.0.0\n");
   const result = await readPublicTrainingContract(repository, commit, async (url, options) => {
-    requested = { url: new URL(url), options };
-    return responseFor(manifest);
+    const parsed = new URL(url);
+    requested ??= [];
+    requested.push({ url: parsed, options });
+    return parsed.pathname.endsWith("requirements.lock")
+      ? fileResponse("requirements.lock", lockBytes)
+      : responseFor(manifest);
   });
-  assert.equal(requested.url.origin, "https://api.github.com");
-  assert.equal(requested.url.pathname, "/repos/owner/project/contents/.gpu-control/experiment.json");
-  assert.equal(requested.url.searchParams.get("ref"), commit);
-  assert.equal(requested.options.redirect, "error");
+  assert.equal(requested.length, 2);
+  assert.equal(requested[0].url.origin, "https://api.github.com");
+  assert.equal(requested[0].url.pathname, "/repos/owner/project/contents/.gpu-control/experiment.json");
+  assert.equal(requested[1].url.pathname, "/repos/owner/project/contents/requirements.lock");
+  assert.equal(requested[1].url.searchParams.get("ref"), commit);
+  assert.equal(requested[1].options.redirect, "error");
   assert.equal(result.repository, repository);
   assert.equal(result.commit, commit);
   assert.equal(result.execution_available, false);
   assert.equal(result.execution_blocking_reason, "CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED");
+  assert.equal(result.readiness.ready, false);
+  assert.deepEqual(result.readiness.checks, {
+    immutable_source: true, entrypoint: true, supported_python: true,
+    dependency_lock_path: true, dependency_lock_present_at_commit: true, supported_gpu_profile: true,
+    checkpoint_output: true, metrics_output: true,
+  });
+  assert.equal(result.dependency_lock.sha256, createHash("sha256").update(lockBytes).digest("hex"));
+  assert.ok(result.readiness.missing.includes("reviewed_runtime_image"));
+  assert.ok(result.readiness.missing.includes("artifact_transport"));
   assert.deepEqual(result.manifest, manifest);
 });
 

@@ -251,6 +251,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       assert.equal(inspection.blocking_reason, "CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED");
       assert.equal(inspection.machine_state.execution_available, false);
       assert.equal(inspection.machine_state.manifest.entrypoint, "src/train.py");
+      assert.equal(inspection.machine_state.readiness.ready, false);
+      assert.ok(inspection.machine_state.readiness.missing.includes("reviewed_runtime_image"));
     } finally { globalThis.fetch = previousFetch; }
     assert.equal((await call("selected-owner", "training_register", { repository: "sample-owner/sample-model", command: ["python", "train.py"] })).error, "INVALID_ARGUMENTS");
     delete env.resolveTrainingCommit;

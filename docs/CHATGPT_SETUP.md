@@ -358,8 +358,12 @@ Example manifest:
 }
 ```
 
-At this stage, `training_inspect` only validates and reports the manifest.
-It reports `CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED`; it does not create a plan,
-start compute, or imply that the repository is executable. The generic
-provider runtime, dependency build, budget reservation, results, and cleanup
-path are still under implementation.
+At this stage, `training_inspect` validates the manifest and returns structured
+compatibility checks, but reports `CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED`. It
+does not create a plan or start compute. The Sites Worker binds records to the
+authenticated ChatGPT Sites owner; it does not receive the ChatGPT GitHub
+connector OAuth token. Public visibility does not establish that the owner
+authorized the repository for execution. Private repositories require an
+explicit least-privilege GitHub App installation. A reviewed runtime image,
+dependency environment build, budget-reserved plan, artifact retrieval, and
+provider cleanup receipt remain required before custom execution.

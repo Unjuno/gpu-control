@@ -229,7 +229,7 @@ const toolDescriptions = {
   training_preview: "Preview MAP-44M by passing only registration_id. The server fills the fixed 120-second runtime and $0.25 ceiling, and supplies the pinned image, dataset, run settings, GPU count, price and cost calculation. A saved training configuration can be selected with execution_spec_id. This action cannot start training.",
 
   training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
-  training_inspect: "Read and strictly validate the .gpu-control/experiment.json manifest at an owner's registered, immutable public GitHub commit. This is read-only and never starts a job. A valid manifest is not proof that the repository is executable; this tool reports the current runtime gap explicitly.",
+  training_inspect: "Read and strictly validate .gpu-control/experiment.json and its declared lockfile at the authenticated owner's registered immutable public GitHub commit. Read-only: never starts a job. Returns manifest and lockfile SHA-256 plus compatibility blockers for the reviewed runtime image, dependency environment build, artifact transport, and provider cleanup receipt. A valid manifest is not proof that the repository is executable.",
   training_register: "Register a GitHub repository for the authenticated Sites owner. If commit is omitted, the server resolves and pins the current commit on the default branch of a public repository; the configured MAP-44M source keeps its reviewed pinned commit. The Sites Worker does not receive the ChatGPT GitHub OAuth token, so private repositories require a future GitHub App connection. Registration only records source identity and does not prove private access or make a repository executable. Current training dispatch remains limited to the configured MAP-44M commit and image. This action does not start training.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
@@ -1909,7 +1909,7 @@ async function callTool(name, args, request, env, context = null) {
         next_allowed_actions: ["training_list"], blocking_reason: reason };
     }
     return { schema_version: 2, status: "blocked",
-      human_summary: "実験manifestは読み取れましたが、汎用リポジトリを実行するadapterはまだ接続されていません。実験は開始していません。",
+      human_summary: "固定commitの実験manifestを確認しました。実行基盤・依存環境の検証・成果物回収・cleanup証明が未接続のため、まだ実験は開始できません。",
       machine_state: { ...source, ...inspected }, next_allowed_actions: ["training_list"],
       blocking_reason: inspected.execution_blocking_reason };
   }
