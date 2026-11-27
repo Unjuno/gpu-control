@@ -271,11 +271,8 @@ def _dispatch_custom_training(owner, tool, arguments):
             monthly_microusd=monthly,
             control_plane_sha=os.environ.get("MAP_TRAINING_CONTROL_PLANE_SHA", ""))
 
-    custom_args = {key: arguments[key] for key in
-        ("run_id", "plan_fingerprint", "authorization_expires_at", "source_token")
-        if key in arguments}
-    if tool == "training_submit":
-        custom_args.update(plan=plan, approved_plan=plan)
+    from custom_training_tool_args import lifecycle_arguments
+    custom_args = lifecycle_arguments(tool, arguments, plan=plan)
     admission = os.environ.get("OWNER_TRAINING_ADMISSION_ENABLED") == "true"
     return dispatch(submission_store, _custom_training_backend(), owner, tool.removeprefix("training_"),
                     custom_args, validate=validate, admission_enabled=admission)

@@ -31,9 +31,12 @@ def test_stages_before_creation_and_observes_same_sandbox(tmp_path):
                               stdout=[json.dumps(gpu_result).encode()],
                               terminate=lambda *, wait: events.append(("terminate_gpu", wait)))
     sandboxes = {}
+    sandbox_options = []
     def create(*args, **kwargs):
         events.append(("create", kwargs["name"]))
         value = stage if "-stage-" in kwargs["name"] else sandbox
+        if value is sandbox:
+            sandbox_options.append(kwargs)
         sandboxes[kwargs["name"]] = value
         return value
     backend = CustomTrainingBackend(app=None, image=None, source_volume=Volume(), checkpoint_volume=Volume(),
@@ -42,7 +45,8 @@ def test_stages_before_creation_and_observes_same_sandbox(tmp_path):
                                     commit_output=lambda: events.append(("commit_output",)),
                                     cleanup_source=lambda _run_id: True)
     plan = {"run_id": "a" * 32, "commit": "b" * 40, "repository": "owner/project",
-                "command": ["python", "train.py"], "runtime_seconds": 120, "gpu": "L4", "python_version": "3.12",
+            "command": ["python", "train.py"], "runtime_seconds": 120, "gpu": "L4",
+            "manifest": {"python_version": "3.12"},
             "manifest_sha256": "c" * 64, "lock_sha256": "d" * 64,
             "dependencies_lock": "requirements.lock"}
     handle = "custom-training-" + "a" * 32
@@ -56,6 +60,7 @@ def test_stages_before_creation_and_observes_same_sandbox(tmp_path):
     assert observed["state"] == "succeeded" and observed["gpu_used"] is True
     assert observed["cleanup"] == "confirmed" and observed["checkpoint"] == gpu_result["checkpoint"]
     assert observed["metrics"] == gpu_result["metrics"]
+    assert sandbox_options[0]["env"]["GPU_CONTROL_PYTHON_VERSION"] == "3.12"
     assert [event[0] for event in events] == ["create", "terminate_stage", "commit_source",
                                                "commit_output", "create", "terminate_gpu", "commit_output"]
 
@@ -74,7 +79,8 @@ def test_stage_failure_does_not_allocate_gpu():
                                     commit_source=lambda: None)
     plan = {"repository": "owner/project", "commit": "b" * 40, "run_id": "a" * 32,
             "manifest_sha256": "c" * 64, "lock_sha256": "d" * 64, "dependencies_lock": "requirements.lock",
-            "command": ["python", "train.py"], "runtime_seconds": 120, "gpu": "L4", "python_version": "3.12"}
+            "command": ["python", "train.py"], "runtime_seconds": 120, "gpu": "L4",
+            "manifest": {"python_version": "3.12"}}
     assert backend.start(plan) == "custom-training-" + "a" * 32
     result = backend.inspect("custom-training-" + "a" * 32, plan)
     assert result["state"] == "failed" and result["gpu_used"] is False

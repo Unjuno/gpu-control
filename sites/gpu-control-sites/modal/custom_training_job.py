@@ -284,7 +284,9 @@ def run_custom_training(repository, commit, entrypoint, runtime_seconds, checkpo
                 return False
             last_gpu_sample = now
             return gpu_activity_probe()
-        result = run_command([os.path.realpath(training_python), entrypoint], source, runtime_seconds, cancelled=cancelled,
+        # Preserve the venv path. Resolving its symlink points at the base
+        # interpreter and bypasses the locked dependencies installed above.
+        result = run_command([os.fspath(training_python), entrypoint], source, runtime_seconds, cancelled=cancelled,
                              checkpoint_dir=checkpoint_dir, drop_privileges=drop_privileges,
                              output_limit=8192, on_poll=sample_gpu_activity)
     checkpoint = checkpoint_manifest(checkpoint_dir)

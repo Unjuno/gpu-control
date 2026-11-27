@@ -45,6 +45,47 @@ def test_pinned_source_runs_and_returns_checkpoint_manifest(tmp_path, monkeypatc
     assert result["gpu"]["name"]
 
 
+def test_training_command_preserves_venv_interpreter_path(tmp_path, monkeypatch):
+    repo, _ = make_repo(tmp_path)
+    (repo / "train.py").write_text("print('unused by the intercepted runner')\n")
+    (repo / ".gpu-control").mkdir()
+    (repo / ".gpu-control" / "experiment.json").write_text(json.dumps({"entrypoint": "train.py",
+        "outputs": ["checkpoints", "metrics.json"]}))
+    (repo / "requirements.lock").write_text("torch==2.0.0\n")
+    git(repo, "add", "train.py", ".gpu-control/experiment.json", "requirements.lock")
+    git(repo, "commit", "-m", "venv interpreter regression")
+    sha = git(repo, "rev-parse", "HEAD")
+    manifest_digest = hashlib.sha256((repo / ".gpu-control/experiment.json").read_bytes()).hexdigest()
+    lock_digest = hashlib.sha256((repo / "requirements.lock").read_bytes()).hexdigest()
+    venv_python = tmp_path / "runtime" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to(sys.executable)
+    seen = {}
+
+    monkeypatch.setattr(custom_training_job, "probe_gpu", lambda *_args, **_kwargs: {
+        "name": "NVIDIA L4", "capability": [8, 9], "cuda": "12.8"})
+    monkeypatch.setattr(custom_training_job, "install_locked_dependencies",
+                        lambda *_args, **_kwargs: venv_python)
+    monkeypatch.setattr(custom_training_job, "gpu_activity_probe", lambda: True)
+
+    def run(command, _source, _runtime, **kwargs):
+        seen["command"] = command
+        output = kwargs["checkpoint_dir"]
+        (output / "checkpoint.pt").write_bytes(b"weights")
+        (output / "metrics.json").write_text('{"loss":1.0}')
+        return {"state": "succeeded", "exit_code": 0, "output": "", "output_truncated": False,
+                "gpu_activity_seen": True}
+
+    monkeypatch.setattr(custom_training_job, "run_command", run)
+    result = run_custom_training(repo, sha, "train.py", 5, tmp_path / "outputs",
+        expected_manifest_sha256=manifest_digest, dependencies_lock="requirements.lock",
+        expected_lock_sha256=lock_digest, run_id="b" * 32, gpu_profile="L4", drop_privileges=False)
+
+    assert result["state"] == "succeeded"
+    assert seen["command"][0] == str(venv_python)
+    assert seen["command"][0] != os.path.realpath(venv_python)
+
+
 def test_checkpoint_symlink_is_not_followed(tmp_path):
     os.symlink("/etc/passwd", tmp_path / "checkpoint.pt")
     with pytest.raises(OSError):

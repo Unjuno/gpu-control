@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from custom_training_lifecycle import dispatch
+from custom_training_tool_args import lifecycle_arguments
 
 
 class Store(dict):
@@ -135,3 +136,14 @@ def test_cancel_during_cpu_staging_finishes_without_gpu_start():
                     admission_enabled=True) == {
                         "state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
     assert starts == ["stage"] and inspections == []
+
+
+def test_adapter_argument_projection_preserves_checkpoint_and_artifact_chunks():
+    common = {"run_id": "a" * 32, "plan_fingerprint": "b" * 64,
+              "offset": 128, "max_bytes": 4096}
+    checkpoint = lifecycle_arguments("training_checkpoint", common)
+    assert checkpoint == common
+    artifact_args = {**common, "artifact_id": "c" * 64}
+    assert lifecycle_arguments("training_artifact", artifact_args) == artifact_args
+    assert lifecycle_arguments("training_status", common) == {
+        "run_id": common["run_id"], "plan_fingerprint": common["plan_fingerprint"]}

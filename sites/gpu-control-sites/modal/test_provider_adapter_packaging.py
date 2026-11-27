@@ -94,3 +94,9 @@ def test_runpod_relay_uses_signed_tool_path_and_one_use_claim() -> None:
     assert 'record.get("job_id") != job_id' in source
     assert '"owner_binding_sha256": _submission_binding(owner)' in source
     assert 'operation == "receipt"' in source
+
+
+def test_custom_training_adapter_forwards_bounded_artifact_chunk_arguments() -> None:
+    source = ADAPTER.read_text(encoding="utf-8")
+    assert "from custom_training_tool_args import lifecycle_arguments" in source
+    assert "custom_args = lifecycle_arguments(tool, arguments, plan=plan)" in source

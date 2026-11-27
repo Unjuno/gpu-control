@@ -120,8 +120,16 @@ class CustomTrainingBackend:
                     "cleanup": "confirmed" if self.cleanup_source(plan["run_id"]) and
                     self.cleanup_checkpoint(plan["run_id"]) else "pending",
                     "failure_code": "TRAINING_SOURCE_BINDING_MISMATCH"}
-        sandbox_plan = {key: plan[key] for key in ("run_id", "commit", "command", "runtime_seconds", "gpu", "python_version",
+        manifest = plan.get("manifest")
+        python_version = manifest.get("python_version") if isinstance(manifest, dict) else None
+        if python_version not in {"3.11", "3.12"}:
+            cleanup = self._finish_stage(stage, plan["run_id"], cleanup=True)
+            return {"state": "failed", "exit_code": code, "gpu_used": False,
+                    "checkpoint": None, "cleanup": "confirmed" if cleanup else "pending",
+                    "failure_code": "TRAINING_MANIFEST_INVALID"}
+        sandbox_plan = {key: plan[key] for key in ("run_id", "commit", "command", "runtime_seconds", "gpu",
                                                    "manifest_sha256", "lock_sha256", "dependencies_lock")}
+        sandbox_plan["python_version"] = python_version
         try:
             sandbox = create_training_sandbox(sandbox_plan, app=self.app, image=self.image,
                                               source_volume=self.source_volume,
