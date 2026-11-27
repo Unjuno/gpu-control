@@ -25,14 +25,14 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 ### A0. Reconcile branch, review, deployment and provider acceptance
 
 - **Evidence (2026-11-28):** PR #70 is open and unmerged at
-  `44f21867dbd7f7066ca16bb6441cf9ea3b07edee`; all seven exact-head checks
-  pass. The PR diff is 112 files (+11,189/−575), and 10 of 19 inline review
-  threads are reported unresolved (some are outdated and require code-level
-  verification before resolution). Its description is stale: it reports the
-  previous head, earlier test/module counts, and earlier thread state. GitHub's
-  mergeable flag does not establish security review, deployment, or provider
-  acceptance. Repository mode remains `parked`; owner-training admission and
-  live D1 remain unchanged.
+  `b2c6755afdb4fbed7c0f330c38d80acbb3c59318`. All seven checks pass on the
+  preceding code SHA `44f21867dbd7f7066ca16bb6441cf9ea3b07edee`; the latest
+  documentation-only head's seven checks are running. The PR diff is 112
+  files (+11,241/−575). Ten of 19 inline review threads were unresolved before
+  review; each was checked against current code/tests and resolved. Its
+  description is now synchronized. GitHub's mergeable flag does not establish
+  independent security review, deployment, or provider acceptance. Repository
+  mode remains `parked`; owner-training admission and live D1 remain unchanged.
   Source head, CI, review, migration and deployment evidence are tracked
   separately in `refactoring-progress.md`.
 - **Work:** maintain a compact release record that separately names source

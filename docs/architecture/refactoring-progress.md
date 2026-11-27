@@ -360,15 +360,17 @@ product outcome. This invariant is recorded in ADR 0006 and governs the
 provider roadmap.
 
 **Current evidence:** PR #70 is open and unmerged at
-`44f21867dbd7f7066ca16bb6441cf9ea3b07edee`. All seven GitHub checks for that
-exact SHA pass. The candidate adds owner-selected source execution on Modal
-GPU only. RunPod remains fixed-workload; Kaggle and Hugging Face remain fixed
-registered workloads; Colab is not integrated. The repository remains parked,
-so no live arbitrary-source admission or deployment is implied. The PR diff is
-112 files (+11,189/−575), and 10 of 19 inline review threads are currently
-unresolved (some are outdated; verify each against current code before
-resolution). The PR description still reports the prior head and test/module
-counts and needs refresh.
+`b2c6755afdb4fbed7c0f330c38d80acbb3c59318`. All seven GitHub checks for the
+preceding code SHA `44f21867dbd7f7066ca16bb6441cf9ea3b07edee` pass; exact-head
+checks for this documentation-only update are running. The candidate adds
+owner-selected source execution on Modal GPU only. RunPod remains
+fixed-workload; Kaggle and Hugging Face remain fixed registered workloads;
+Colab is not integrated. The repository remains parked, so no live
+arbitrary-source admission or deployment is implied. The PR diff is 112 files
+(+11,241/−575). Ten of 19 inline review threads were unresolved at the initial
+read; after matching each finding to current code and tests, all inline threads
+have been resolved. The PR description is synchronized with the current
+capability boundary and check state.
 
 **Next implementation order:** keep the Modal candidate isolated and reviewable;
 close remaining current-head correctness/security findings; then implement the
@@ -380,11 +382,13 @@ exact capability from current policy and acceptance evidence. Colab follows
 only if it can honor the same owner, quota/budget, cancellation and artifact
 contract; a direct independent MCP would bypass the product lifecycle.
 
-**Validation:** exact-head check diagnostics report seven successes. Read-only
-PR metadata and review-thread state were refreshed. No provider call, live D1
-operation, secret, admission change, deployment or experiment was performed.
+**Validation:** exact-head check diagnostics report seven successes for the
+preceding code SHA; the latest documentation-only head's seven checks are
+running. Read-only PR metadata and review-thread state were refreshed. No
+provider call, live D1 operation, secret, admission change, deployment or
+experiment was performed.
 
-**Status:** code and current CI are pushed; PR description and stale review
-thread bookkeeping remain to be synchronized. This is not product completion:
+**Status:** code and architecture records are pushed, the PR description is
+synchronized, and addressed review threads are reconciled. This is not product completion:
 there is no deployed ChatGPT end-to-end owner-selected GPU acceptance for the
 current candidate, and RunPod arbitrary-source execution is not implemented.

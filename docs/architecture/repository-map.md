@@ -2,12 +2,14 @@
 
 **Snapshot:** 2026-11-28 (Asia/Tokyo)  
 **Source under inspection:** PR #70, `codex/owner-training-workloads`, head
-`44f21867dbd7f7066ca16bb6441cf9ea3b07edee`.
-**Release status:** PR #70 is open and unmerged; its seven exact-head CI checks
-pass. GitHub reports the head mergeable, while 10 of 19 inline review threads
-are listed unresolved (some outdated). The PR description needs synchronization
-with the current head. None of these facts proves deployment. Repository mode
-remains `parked`.
+`b2c6755afdb4fbed7c0f330c38d80acbb3c59318`.
+**Release status:** PR #70 is open and unmerged. Seven checks passed on the
+preceding code SHA `44f21867dbd7f7066ca16bb6441cf9ea3b07edee`; the latest
+documentation-only head's seven checks are running. GitHub reports the head
+mergeable. All inline review threads have been checked against code/tests and
+resolved; independent security review is still incomplete. The PR description
+matches the current capability boundary. None of these facts proves
+deployment. Repository mode remains `parked`.
 
 This is an evidence-backed map of the current repository, not a claim that all
 listed source paths are active in the hosted product.
