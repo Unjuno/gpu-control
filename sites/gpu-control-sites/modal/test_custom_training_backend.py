@@ -16,7 +16,9 @@ def test_stages_before_creation_and_observes_same_sandbox(tmp_path):
     gpu_result = {"run_id": "a" * 32, "source_sha": "b" * 40,
               "manifest_sha256": "c" * 64, "lock_sha256": "d" * 64,
               "gpu_profile": "L4", "gpu_used": True, "gpu": {"name": "NVIDIA L4"},
-              "checkpoint": {"filename": "checkpoint.pt", "size_bytes": 5, "sha256": "e" * 64}}
+              "checkpoint": {"filename": "checkpoint.pt", "size_bytes": 5, "sha256": "e" * 64},
+              "metrics": {"filename": "metrics.json", "size_bytes": 12, "sha256": "f" * 64,
+                          "values": {"loss": 0.5}}}
     stage_result = {"commit": "b" * 40, "manifest_sha256": "c" * 64,
                     "lock_sha256": "d" * 64, "dependencies_lock": "requirements.lock",
                     "entrypoint": "train.py", "wheelhouse_sha256": "9" * 64,
@@ -52,6 +54,7 @@ def test_stages_before_creation_and_observes_same_sandbox(tmp_path):
     observed = backend.inspect(handle, plan)
     assert observed["state"] == "succeeded" and observed["gpu_used"] is True
     assert observed["cleanup"] == "confirmed" and observed["checkpoint"] == gpu_result["checkpoint"]
+    assert observed["metrics"] == gpu_result["metrics"]
     assert [event[0] for event in events] == ["create", "terminate_stage", "commit_source",
                                                "commit_output", "create", "terminate_gpu", "commit_output"]
 

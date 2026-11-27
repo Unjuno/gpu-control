@@ -1,6 +1,7 @@
 """Private Sandbox lifecycle transport; callers must validate and reserve first."""
 import json
 import base64
+import math
 import os
 import re
 import stat
@@ -48,6 +49,22 @@ class CustomTrainingBackend:
                 1 <= staged["wheelhouse_packages"] <= 128 and
                 type(staged.get("wheelhouse_bytes")) is int and
                 1 <= staged["wheelhouse_bytes"] <= 1024 ** 3)
+
+    @staticmethod
+    def _valid_metrics(value):
+        if (not isinstance(value, dict) or value.get("filename") != "metrics.json" or
+                type(value.get("size_bytes")) is not int or not 1 <= value["size_bytes"] <= 8192 or
+                not isinstance(value.get("sha256"), str) or
+                re.fullmatch(r"[0-9a-f]{64}", value["sha256"]) is None or
+                not isinstance(value.get("values"), dict) or not 1 <= len(value["values"]) <= 64):
+            return False
+        for key, item in value["values"].items():
+            if (not isinstance(key, str) or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", key) is None or
+                    not (type(item) in {int, float, bool} or
+                         isinstance(item, str) and len(item.encode("utf-8")) <= 256) or
+                    type(item) is float and not math.isfinite(item)):
+                return False
+        return True
 
     def _start_gpu_from_stage(self, stage, plan, handle, cancel_requested=False):
         code = stage.poll()
@@ -189,7 +206,7 @@ class CustomTrainingBackend:
             result.get("manifest_sha256") == plan["manifest_sha256"] and
             result.get("lock_sha256") == plan["lock_sha256"] and
             result.get("gpu_profile") == plan["gpu"] and
-            result.get("gpu_used") is True)
+            result.get("gpu_used") is True and self._valid_metrics(result.get("metrics")))
         checkpoint = result.get("checkpoint") if expected else None
         if (not isinstance(checkpoint, dict) or checkpoint.get("filename") != "checkpoint.pt" or
                 not isinstance(checkpoint.get("sha256"), str) or
@@ -201,7 +218,8 @@ class CustomTrainingBackend:
         state = "succeeded" if code == 0 and expected else "cancelled" if cancel_requested else "failed"
         return {"state": state, "exit_code": code, "gpu_used": expected,
                 "gpu": result.get("gpu") if expected else None,
-                "checkpoint": checkpoint, "cleanup": cleanup,
+                "checkpoint": checkpoint, "metrics": result.get("metrics") if expected else None,
+                "cleanup": cleanup,
                 "failure_code": (None if state == "succeeded" else
                                  result.get("failure_code") if isinstance(result, dict) else
                                  "CUSTOM_TRAINING_RESULT_INVALID"),

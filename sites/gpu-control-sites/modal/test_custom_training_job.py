@@ -6,7 +6,7 @@ import sys
 import pytest
 
 import custom_training_job
-from custom_training_job import checkpoint_manifest, run_custom_training
+from custom_training_job import checkpoint_manifest, metrics_manifest, run_custom_training
 from test_custom_training_source import git, make_repo
 
 
@@ -20,6 +20,7 @@ def test_pinned_source_runs_and_returns_checkpoint_manifest(tmp_path, monkeypatc
     (repo / "train.py").write_text(
         "import os, pathlib\n"
         "(pathlib.Path(os.environ['GPU_CONTROL_CHECKPOINT_DIR']) / 'checkpoint.pt').write_bytes(b'weights')\n"
+        "(pathlib.Path(os.environ['GPU_CONTROL_CHECKPOINT_DIR']) / 'metrics.json').write_text('{\\\"loss\\\":1.25,\\\"step\\\":10}')\n"
     )
     git(repo, "add", "train.py")
     (repo / ".gpu-control").mkdir()
@@ -38,6 +39,8 @@ def test_pinned_source_runs_and_returns_checkpoint_manifest(tmp_path, monkeypatc
     assert result["run_id"] == "a" * 32 and result["gpu_used"] is True
     assert result["checkpoint"] == {"filename": "checkpoint.pt", "size_bytes": 7,
                                     "sha256": hashlib.sha256(b"weights").hexdigest()}
+    assert result["metrics"]["values"] == {"loss": 1.25, "step": 10}
+    assert result["metrics"]["sha256"] == hashlib.sha256(b'{"loss":1.25,"step":10}').hexdigest()
     assert result["gpu"]["name"]
 
 
@@ -45,6 +48,23 @@ def test_checkpoint_symlink_is_not_followed(tmp_path):
     os.symlink("/etc/passwd", tmp_path / "checkpoint.pt")
     with pytest.raises(OSError):
         checkpoint_manifest(tmp_path)
+
+
+def test_metrics_symlink_and_non_json_are_not_accepted(tmp_path):
+    os.symlink("/etc/passwd", tmp_path / "metrics.json")
+    with pytest.raises(OSError):
+        metrics_manifest(tmp_path)
+    (tmp_path / "metrics.json").unlink()
+    (tmp_path / "metrics.json").write_text("[]")
+    with pytest.raises(ValueError, match="invalid_metrics"):
+        metrics_manifest(tmp_path)
+
+
+@pytest.mark.parametrize("payload", ['{"loss":NaN}', '{"loss":1,"loss":2}', '{"../secret":1}'])
+def test_metrics_reject_nonfinite_duplicate_or_unsafe_values(tmp_path, payload):
+    (tmp_path / "metrics.json").write_text(payload)
+    with pytest.raises(ValueError, match="invalid_metrics"):
+        metrics_manifest(tmp_path)
 
 
 def test_existing_checkpoint_directory_is_rejected(tmp_path):

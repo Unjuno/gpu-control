@@ -75,7 +75,7 @@ function manifestReadiness(manifest, lockfile, executionConfig) {
     dependency_lock_has_exact_versions_and_hashes: validateDependencyLock(lockfile),
     supported_gpu_profile: manifest.gpu_profiles.some((profile) => ["T4", "L4"].includes(profile)),
     checkpoint_output: manifest.outputs.some((output) => /(^|\/)(checkpoint|checkpoints)(\/|$)/i.test(output)),
-    metrics_output: manifest.outputs.some((output) => /(^|\/)(metrics|metrics\.json)(\/|$)/i.test(output)),
+    metrics_output: manifest.outputs.includes("metrics.json"),
   };
   const missing = Object.entries(checks).filter(([, ok]) => !ok).map(([key]) => key);
   if (!runtimeConfigured) missing.push("reviewed_runtime_image_and_provider_quote");

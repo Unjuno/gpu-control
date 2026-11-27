@@ -369,11 +369,19 @@ Example manifest:
 }
 ```
 
+For custom training, write a JSON object of scalar metrics to
+`$GPU_CONTROL_CHECKPOINT_DIR/metrics.json`. Declare `metrics.json` in
+`outputs`; after completion the bounded values and SHA-256 are returned with
+`training_status`. Keep the checkpoint at
+`$GPU_CONTROL_CHECKPOINT_DIR/checkpoint.pt`; retrieve it through
+`training_checkpoint` in verified chunks. Other declared files are not yet
+exposed to ChatGPT.
+
 At this stage, `training_inspect` validates the manifest and returns structured
 compatibility checks. The current branch contains a gated Modal prototype for
 fixed CPU source staging followed by a network-blocked GPU Sandbox. It is not
 released: admission remains disabled until the runtime image, separate staging
-and GPU quotes, budget reservations, complete artifact verification, cleanup,
+and GPU quotes, budget reservations, checkpoint and metrics verification, cleanup,
 security review, and exact-head release gates pass. RunPod custom-repository
 execution is not implemented by the fixed RunPod canary.
 

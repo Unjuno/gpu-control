@@ -5,6 +5,7 @@ runtime and credential boundaries. This module is not itself a sandbox.
 """
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -40,6 +41,42 @@ def checkpoint_manifest(checkpoint_dir, *, max_bytes=1024 * 1024 * 1024):
         if total != info.st_size:
             raise ValueError("checkpoint_changed")
     return {"filename": "checkpoint.pt", "size_bytes": total, "sha256": digest.hexdigest()}
+
+
+def metrics_manifest(output_dir, *, max_bytes=8 * 1024):
+    """Read a small JSON metrics object as data; never execute or trust it."""
+    path = Path(output_dir) / "metrics.json"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or not 1 <= info.st_size <= max_bytes:
+            raise ValueError("invalid_metrics")
+        raw = stream.read(max_bytes + 1)
+        if len(raw) != info.st_size or len(raw) > max_bytes:
+            raise ValueError("metrics_changed")
+    try:
+        def unique_object(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError("duplicate_metrics_key")
+                value[key] = item
+            return value
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError("invalid_metrics") from exc
+    if (not isinstance(value, dict) or not 1 <= len(value) <= 64 or
+            any(not isinstance(key, str) or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", key) is None
+                or not (type(item) in {int, float, bool} or
+                        isinstance(item, str) and len(item.encode("utf-8")) <= 256)
+                or type(item) is float and not math.isfinite(item)
+                for key, item in value.items())):
+        raise ValueError("invalid_metrics")
+    return {"filename": "metrics.json", "size_bytes": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(), "values": value}
 
 
 def probe_gpu(gpu_profile, *, python=None, drop_privileges=True):
@@ -195,14 +232,25 @@ def run_custom_training(repository, commit, entrypoint, runtime_seconds, checkpo
             return gpu_activity_probe()
         result = run_command([os.path.realpath(training_python), entrypoint], source, runtime_seconds, cancelled=cancelled,
                              checkpoint_dir=checkpoint_dir, drop_privileges=drop_privileges,
-                             on_poll=sample_gpu_activity)
+                             output_limit=8192, on_poll=sample_gpu_activity)
     checkpoint = checkpoint_manifest(checkpoint_dir)
+    try:
+        metrics = metrics_manifest(checkpoint_dir)
+    except ValueError:
+        metrics = None
+        result = {**result, "state": "failed"}
+        failure_code = "TRAINING_METRICS_INVALID"
+    else:
+        failure_code = None
+        if result["state"] == "succeeded" and metrics is None:
+            result = {**result, "state": "failed"}
+            failure_code = "TRAINING_METRICS_MISSING"
     state = result["state"]
-    failure_code = None
     if state == "succeeded" and not result["gpu_activity_seen"]:
         state, failure_code = "failed", "GPU_ACTIVITY_NOT_OBSERVED"
     return {**result, "state": state, **({"failure_code": failure_code} if failure_code else {}),
             "run_id": run_id, "source_sha": staged["commit"], "gpu_profile": gpu_profile,
             "manifest_sha256": expected_manifest_sha256,
             "lock_sha256": expected_lock_sha256, "gpu": gpu,
-            "gpu_used": result["gpu_activity_seen"], "checkpoint": checkpoint}
+            "gpu_used": result["gpu_activity_seen"], "checkpoint": checkpoint,
+            "metrics": metrics}

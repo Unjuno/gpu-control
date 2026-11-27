@@ -56,6 +56,9 @@ def validate_custom_plan(plan, *, image_id, hourly_microusd, quote_expires_at, g
             not isinstance(manifest.get("gpu_profiles"), list) or
             any(profile not in {"T4", "L4"} for profile in manifest["gpu_profiles"]) or
             not isinstance(manifest.get("outputs"), list) or len(manifest["outputs"]) > 16 or
+            not any(re.search(r"(^|/)(checkpoint|checkpoints)(/|$)", output, re.IGNORECASE)
+                    for output in manifest.get("outputs", []) if isinstance(output, str)) or
+            "metrics.json" not in manifest.get("outputs", []) or
             not isinstance(plan["manifest_sha256"], str) or
             re.fullmatch(r"[0-9a-f]{64}", plan["manifest_sha256"]) is None or
             not isinstance(lock_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", lock_sha256) is None or

@@ -12,7 +12,8 @@ def inputs():
                 "max_cost_ceiling_microusd": 250000, "monthly_microusd": 30000000,
                 "control_plane_sha": "1" * 40, "now": now}
     manifest = {"schema_version": 1, "task": "train", "entrypoint": "train.py",
-                "dependencies_lock": "requirements.lock", "gpu_profiles": ["L4"], "outputs": [],
+                "dependencies_lock": "requirements.lock", "gpu_profiles": ["L4"],
+                "outputs": ["checkpoints", "metrics.json"],
                 "python_version": "3.12"}
     plan = {"execution_kind": "owner_selected_python", "run_id": "a" * 32,
             "registration_id": "b" * 32, "execution_spec_id": "c" * 32,
