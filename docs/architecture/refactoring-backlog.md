@@ -95,6 +95,16 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   workloads their current platform adapters can execute; their fixed-workload
   routes do not count as arbitrary-repository support. Colab is tracked under
   A6 and must join the same lifecycle before it is advertised as integrated.
+- **RunPod implementation constraint (2026-11-28):** its fixed Serverless
+  endpoint executes a deployed custom worker image; queue endpoints document
+  retry-on-failure behavior. The per-job policy exposes execution timeout and
+  TTL, but available documentation does not establish that arbitrary source
+  can run with Modal's separate staging/GPU-Sandbox boundary, no-egress rule,
+  or one-attempt billing bound. Do not retrofit the fixed canary. First prove
+  per-job isolation, worker-reuse cleanup, retry accounting, durable artifact
+  capture, and current endpoint semantics under [ADR 0008](decisions/0008-runpod-owner-selected-execution.md).
+  If those guarantees cannot be shown, RunPod must not advertise the
+  owner-selected route.
 - **Done when:** ordinary ChatGPT and Work tool schemas both expose the same
   owner-selected path; the agent resolves repository and commit without asking
   for internal IDs; compatible, authorized external GPU routes are selected

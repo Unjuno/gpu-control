@@ -392,3 +392,33 @@ experiment was performed.
 synchronized, and addressed review threads are reconciled. This is not product completion:
 there is no deployed ChatGPT end-to-end owner-selected GPU acceptance for the
 current candidate, and RunPod arbitrary-source execution is not implemented.
+
+## 2026-11-28 — A1: define RunPod owner-selected execution gates
+
+**Finding:** the checked-in RunPod integration is a fixed Serverless canary.
+Official RunPod documentation describes queue endpoints as retrying failed
+jobs, with per-job execution timeout and TTL controls. Its workers are deployed
+custom Docker images and can process requests successively. The current
+RunPod contract does not establish source-code isolation, clean per-job state,
+bounded retry billing, or durable result capture for user-selected code.
+
+**Change:** added proposed ADR 0008 and linked it from the architecture index,
+backlog, and provider map. The ADR requires a GPU Control-owned immutable
+worker, strict owner/plan-bound envelopes, per-job isolation, worker-reuse
+cleanup, retry-aware cost bounds, durable result/artifact capture, and exact
+provider acceptance. It explicitly does not authorize endpoint mutation,
+secrets, deployment, or GPU execution.
+
+**Evidence:** current source inspection of the Sites RunPod provider, plan and
+lifecycle modules; official RunPod [endpoint overview](https://docs.runpod.io/serverless/endpoints/overview),
+[endpoint settings](https://docs.runpod.io/serverless/endpoints/endpoint-configurations),
+and [request lifecycle](https://docs.runpod.io/serverless/endpoints/send-requests).
+This confirms documented API behavior only; it does not prove account endpoint
+settings or worker runtime isolation. No RunPod API was called.
+
+**Status:** the implementation gate is now explicit. The route remains
+unimplemented and unadvertised. Next, inspect the worker image/handler and
+document a concrete isolated execution boundary plus retry/cost proof before
+writing provider code. Current PR head CI remains pending from the last read;
+no source test or provider execution was performed for this documentation-only
+batch.

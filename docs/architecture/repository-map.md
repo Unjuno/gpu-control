@@ -154,7 +154,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Provider | Checked-in/currently described path | Product status distinction |
 | --- | --- | --- |
 | Modal fixed CPU/GPU | Sites -> authenticated Modal control/adapter | Historical live acceptances exist for exact old revisions. Current admission depends on live flags and policy. |
-| RunPod fixed workload | Sites -> RunPod REST v2 or adapter relay, depending on lifecycle | Fixed canary has historical acceptance. Owner-selected arbitrary repository execution is not a supported RunPod path in this candidate. |
+| RunPod fixed workload | Sites -> RunPod REST v2 or adapter relay, depending on lifecycle | Fixed canary has historical acceptance. Queue endpoints document automatic retry-on-failure; no owner-selected route is supported. See [ADR 0008](decisions/0008-runpod-owner-selected-execution.md) for the isolation, retry-accounting and artifact durability gates. |
 | Kaggle GPU | Sites -> authenticated Modal adapter -> fixed registered Kaggle workload | Fixed workload route has historical live acceptance; free quota and exact current account state must be refreshed. |
 | Hugging Face ZeroGPU/artifacts | Sites -> Modal adapter -> fixed Space/private artifact path | Fixed workload and immutable artifact round trip have historical evidence; not general arbitrary-code execution. |
 | Owner-selected repository | Sites GitHub App selection -> immutable SHA -> strict manifest/lock -> trusted Modal stager -> isolated Modal GPU Sandbox | PR #70 source advertises this as a separate capability; owner admission is separate and repository policy remains parked. Not released/accepted by this map. |

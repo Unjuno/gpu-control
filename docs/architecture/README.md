@@ -24,6 +24,9 @@ front end for external compute.
 - [ADR 0007](decisions/0007-github-installation-owner-proof.md): GitHub
   installation callbacks require one-time user authorization before an
   owner-bound source connection is trusted.
+- [ADR 0008](decisions/0008-runpod-owner-selected-execution.md): the RunPod
+  fixed canary is not an owner-selected execution route; retry, isolation,
+  billing, and durable results must be proven before adding one.
 - [Refactoring backlog](refactoring-backlog.md): ordered, evidence-linked
   architecture work with dependencies and acceptance conditions.
 - [Refactoring progress](refactoring-progress.md): completed batches and
