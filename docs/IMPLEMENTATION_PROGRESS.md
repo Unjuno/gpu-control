@@ -4480,6 +4480,24 @@ branch and refs remain unchanged.
   relative links and `git diff --check` passed. No service, deployment,
   database, provider, or GitHub Actions configuration was changed.
 
+### Legacy Gateway retirement call-graph audit — 2026-11-28
+
+- Enumerated the current `gateway/` tree, package entrypoints, Docker/Compose
+  and systemd commands, provider compatibility imports, CI workflows, and
+  direct callers. Current provider CI only runs Sites-owned provider runtime
+  tests and compatibility imports. The separate Project Checks workflow uses
+  `project_control/runner.py`; it does not call the legacy Gateway service.
+- Found the `gateway/scripts/comment_bridge.py` CLI importing
+  `gpu_gateway.ci_bridge`, while the workflow path declared by that module's
+  policy is absent from this checkout. This is a local source dependency, not
+  evidence of a currently deployed user-facing Gateway.
+- Did not delete the FastAPI/PostgreSQL package or deployment files: an external
+  operator contract cannot be disproved by repository-local import search.
+  Recorded that exact retirement decision in A4 and kept Sites as the only
+  intended product control plane.
+- Read-only source inventory only; no external service, database, secret, or
+  deployment was contacted or changed.
+
 ### Sites source-inspection module extraction — 2026-11-28
 
 - Moved owner-selected `training_inspect` behavior from the Sites transport

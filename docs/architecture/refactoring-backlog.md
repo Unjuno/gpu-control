@@ -92,11 +92,16 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 
 - **Evidence:** the user-facing product boundary is Sites; `gateway/app.py`
-  labels its FastAPI app a local compatibility entrypoint. The Gateway CI
-  workflow tests the Sites-owned provider runtime and its wrappers, not the
-  FastAPI/PostgreSQL service. `gateway/scripts/comment_bridge.py` still imports
-  `gpu_gateway.ci_bridge`; historical service tests also cover the retained
-  API/store/worker implementation.
+  labels its FastAPI app a local compatibility entrypoint. The repository still
+  contains the FastAPI/OAuth/SQLAlchemy/PostgreSQL API, worker, Compose and
+  systemd deployment templates, plus their historical service tests. Current
+  `gateway-ci.yml` runs only the Sites-owned provider-runtime contract tests and
+  compatibility imports; it does not build or test the Gateway service.
+  `project-checks.yml` uses the separate `project_control/runner.py`. The CLI
+  `gateway/scripts/comment_bridge.py` imports `gpu_gateway.ci_bridge`, but the
+  workflow path declared in `ci_policy.json` is absent from this checkout.
+  These source facts do not prove that nobody outside this repository uses the
+  legacy package or deployment files.
 - **Decision:** do not treat Gateway as a production deployment. Keep its three
   concerns separate: GitHub Issue bridge, provider-runtime compatibility
   imports, and legacy Gateway service code.
@@ -206,7 +211,10 @@ The rest of the worker/router decomposition remains open.
 
 ## Decision queue
 
-1. Is Gateway a supported product/runtime or is it a retirement candidate?
+1. Can the legacy Gateway package and Compose/systemd deployment contract be
+   retired without breaking an external operator? Repository CI and current
+   Sites flow do not use that service, but external consumers are not observable
+   from this checkout.
 2. Is Colab integrated through the shared Sites lifecycle, and what Google
    session/quota/cancel mechanism is acceptable?
 3. Which external providers are allowed to run arbitrary owner-selected
