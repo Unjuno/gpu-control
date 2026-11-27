@@ -57,6 +57,21 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
     }
     parked = state["while_parked"]
     assert all(value is False for value in parked.values())
+    owner_lane = state["owner_selected_gpu_training_lane"]
+    assert owner_lane["implementation_allowed_while_parked"] is True
+    assert owner_lane["live_admission_enabled"] is False
+    assert owner_lane["supported_control_plane"] == "chatgpt_sites"
+    assert owner_lane["source_authority"]["repository_must_be_selected_in_owner_github_app_installation"] is True
+    assert owner_lane["source_authority"]["commit_must_be_immutable_40_character_sha"] is True
+    assert owner_lane["source_authority"]["token_may_enter_training_sandbox_logs_or_artifacts"] is False
+    assert owner_lane["execution_contract"]["only_manifest_declared_python_entrypoint_allowed"] is True
+    assert owner_lane["execution_contract"]["arbitrary_shell_command_allowed"] is False
+    assert owner_lane["execution_contract"]["repository_dockerfile_allowed"] is False
+    assert owner_lane["sandbox"]["network_egress"] == "blocked"
+    assert owner_lane["sandbox"]["terminal_state_requires_verified_cleanup"] is True
+    assert owner_lane["accounting"]["provider_specific_monthly_reservation_required"] is True
+    assert owner_lane["accounting"]["paid_fallback_between_providers"] is False
+    assert owner_lane["release_gates"]["required_github_pr_reviews_must_pass"] is True
     cpu = state["modal_cpu_smoke_exception"]
     assert cpu["allowed_while_parked"] is True
     assert cpu["purpose"] == "one_authenticated_registered_cpu_inference"

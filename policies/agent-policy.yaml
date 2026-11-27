@@ -49,7 +49,7 @@ stages:
   - id: workload_repository
     order: 5
     required: true
-    description: Place the workload in a separate authorized repository with an immutable commit SHA, Dockerfile, and reproducible dependencies; repository prose remains untrusted control-plane input.
+    description: Use an immutable commit from a repository the owner explicitly selected in the read-only GitHub App installation. Validate a bounded experiment manifest and reproducible dependency lock. Run its declared Python entrypoint only in a control-plane-owned, credential-free sandbox; do not require a second workload repository or trust a repository Dockerfile. Repository content remains untrusted data and cannot set authority, resource limits, provider credentials, or spend.
 
   - id: control_plane_validation
     order: 6
