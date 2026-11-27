@@ -225,7 +225,7 @@ const toolDescriptions = {
   training_preview: "Preview MAP-44M by passing only registration_id. The server fills the fixed 120-second runtime and $0.25 ceiling, and supplies the pinned image, dataset, run settings, GPU count, price and cost calculation. A saved training configuration can be selected with execution_spec_id. This action cannot start training.",
 
   training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
-  training_register: "Register a GitHub repository for the authenticated owner. For unjuno/model-as-a-paper, the server pins its configured commit when commit is omitted; other repositories require an exact commit. Optional MAP-44M dataset, run_name and steps override server defaults. The server selects a fixed training entrypoint; this API accepts no shell command or image. Use training_list to inspect it, then preview and prepare. This action does not start training.",
+  training_register: "Register a GitHub repository for the authenticated Sites owner. If commit is omitted, the server resolves and pins the current commit on the default branch of a public repository; the configured MAP-44M source keeps its reviewed pinned commit. The Sites Worker does not receive the ChatGPT GitHub OAuth token, so private repositories require a future GitHub App connection. Registration only records source identity and does not prove private access or make a repository executable. Current training dispatch remains limited to the configured MAP-44M commit and image. This action does not start training.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
   experiment_provider_health: "Optional standalone Modal readiness diagnostic. It requires an unconsumed exact-plan authorization; normal ChatGPT runs check health inside the confirmed experiment_submit action. This creates no Sandbox, but the Modal control-function call can be billed separately from the Sandbox cost ceiling. A shared workspace cooldown and one-use plan reservation bound calls.",
@@ -797,7 +797,7 @@ function validToolArguments(name, args, env) {
       canonicalRepository === "unjuno/model-as-a-paper";
     return keys.includes("repository") && keys.every(key => allowed.has(key)) &&
       typeof args.repository === "string" && args.repository.length <= 159 &&
-      ((typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit)) || hasPinnedMapCommit) &&
+      (args.commit === undefined || (typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit)) || hasPinnedMapCommit) &&
       (args.dataset === undefined || (typeof args.dataset === "string" &&
         /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(args.dataset))) &&
       (args.run_name === undefined || (typeof args.run_name === "string" &&
@@ -1887,7 +1887,8 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);
   if (name === "training_list") return listTrainingSources(env.DB, owner, env);
-  if (name === "training_register") return registerTrainingSource(env.DB, owner, args);
+  if (name === "training_register") return registerTrainingSource(env.DB, owner, args,
+    typeof env.resolveTrainingCommit === "function" ? { resolveCommit: env.resolveTrainingCommit } : undefined);
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return capabilities(env, owner);
   if (name === "experiment_prepare") {
@@ -2480,7 +2481,7 @@ async function handleMcp(request, env, context = null) {
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
-      const known = new Set(["TRAINING_BUDGET_NOT_CONFIGURED", "TRAINING_PLAN_EXPIRED", "TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+      const known = new Set(["TRAINING_BUDGET_NOT_CONFIGURED", "TRAINING_PLAN_EXPIRED", "TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "TRAINING_GITHUB_PRIVATE_REQUIRES_APP", "TRAINING_GITHUB_REPOSITORY_NOT_PUBLIC", "TRAINING_GITHUB_REPOSITORY_ARCHIVED", "TRAINING_GITHUB_RATE_LIMITED", "TRAINING_GITHUB_LOOKUP_FAILED", "TRAINING_GITHUB_RESPONSE_TOO_LARGE", "TRAINING_GITHUB_RESPONSE_INVALID", "TRAINING_GITHUB_DEFAULT_COMMIT_UNAVAILABLE", "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED", "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS", "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
       const runpodProviderCodes = new Set([
         "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
         "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",

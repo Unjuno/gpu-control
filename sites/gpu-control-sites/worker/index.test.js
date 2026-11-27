@@ -2,7 +2,7 @@ import { claimTrainingDispatch, submitTrainingPlan } from "./training_plan.js";
 import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_authorization.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { getOwnedTrainingSource } from "./training_source.js";
+import { getOwnedTrainingSource, resolvePublicDefaultBranchCommit } from "./training_source.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
@@ -218,6 +218,20 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(unsupportedConfig.blocking_reason, "TRAINING_PROFILE_UNAVAILABLE");
     const retry = await call("test-owner", "training_register", { ...args, repository: "https://github.com/unjuno/model-as-a-paper" });
     assert.equal(retry.machine_state.registration_id, first.machine_state.registration_id);
+    env.GPU_CONTROL_ALLOWED_USER_IDS += ",selected-owner";
+    env.resolveTrainingCommit = async (repository) => {
+      assert.equal(repository, "sample-owner/sample-model");
+      return { repository, commit: "d".repeat(40), default_branch: "main", visibility: "public" };
+    };
+    const selectedRepo = await call("selected-owner", "training_register", { repository: "Sample-Owner/Sample-Model" });
+    assert.equal(selectedRepo.machine_state.repository, "sample-owner/sample-model");
+    assert.equal(selectedRepo.machine_state.commit, "d".repeat(40));
+    assert.equal(selectedRepo.machine_state.visibility, "public");
+    assert.equal(selectedRepo.machine_state.default_branch, "main");
+    assert.equal(selectedRepo.machine_state.state, "registered");
+    assert.match(selectedRepo.human_summary, /登録だけでは実行できません/);
+    assert.equal((await call("selected-owner", "training_register", { repository: "sample-owner/sample-model", command: ["python", "train.py"] })).error, "INVALID_ARGUMENTS");
+    delete env.resolveTrainingCommit;
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.registrations, []);
     const own = (await call("test-owner", "training_list", {})).machine_state.registrations;
     assert.equal(own.length, 1);
@@ -1836,7 +1850,8 @@ test("advertises the bounded registered inference contract", async () => {
   assert.match(prepare.inputSchema.properties.idempotency_key.description, /reuse the same key if retrying that request/);
   const trainingRegister = tools.find((tool) => tool.name === "training_register");
   assert.deepEqual(trainingRegister.inputSchema.required, ["repository"]);
-  assert.match(trainingRegister.description, /server pins its configured commit when commit is omitted/);
+  assert.match(trainingRegister.description, /resolves and pins the current commit on the default branch of a public repository/);
+  assert.match(trainingRegister.description, /private repositories require a future GitHub App connection/);
   const trainingPreview = tools.find((tool) => tool.name === "training_preview");
   const trainingPrepare = tools.find((tool) => tool.name === "training_prepare");
   assert.deepEqual(trainingPreview.inputSchema.required, []);
@@ -1867,6 +1882,49 @@ test("rejects legacy checksum parameters from the inference tool", async () => {
   const rpc = await response.json();
   assert.equal(rpc.result.isError, true);
   assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "INVALID_ARGUMENTS" });
+});
+
+test("resolves only a public repository default branch to a pinned immutable commit", async () => {
+  const urls = [];
+  const fetchImpl = async (url, options) => {
+    urls.push({ url: String(url), options });
+    if (urls.length === 1) return new Response(JSON.stringify({
+      private: false, archived: false, default_branch: "experiment/main",
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify([{ sha: "f".repeat(40) }]), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  };
+  const source = await resolvePublicDefaultBranchCommit("Owner/Project", fetchImpl);
+  assert.deepEqual(source, { repository: "owner/project", commit: "f".repeat(40),
+    default_branch: "experiment/main", visibility: "public" });
+  assert.equal(urls.length, 2);
+  assert.equal(urls[0].url, "https://api.github.com/repos/owner/project");
+  const commitUrl = new URL(urls[1].url);
+  assert.equal(commitUrl.origin, "https://api.github.com");
+  assert.equal(commitUrl.pathname, "/repos/owner/project/commits");
+  assert.equal(commitUrl.searchParams.get("sha"), "experiment/main");
+  assert.equal(commitUrl.searchParams.get("per_page"), "1");
+  for (const { options } of urls) {
+    assert.equal(options.method, "GET");
+    assert.equal(options.redirect, "error");
+    assert.equal(options.headers["x-github-api-version"], "2022-11-28");
+  }
+});
+
+test("fails closed for private, archived, and malformed GitHub source metadata", async () => {
+  await assert.rejects(resolvePublicDefaultBranchCommit("owner/project", async () =>
+    new Response(JSON.stringify({ private: true }), { status: 200 })),
+  { message: "TRAINING_GITHUB_PRIVATE_REQUIRES_APP" });
+  await assert.rejects(resolvePublicDefaultBranchCommit("owner/project", async () =>
+    new Response(JSON.stringify({ private: false, archived: true, default_branch: "main" }), { status: 200 })),
+  { message: "TRAINING_GITHUB_REPOSITORY_ARCHIVED" });
+  await assert.rejects(resolvePublicDefaultBranchCommit("owner/project", async () =>
+    new Response(JSON.stringify({ private: false, archived: false, default_branch: "../../evil" }), { status: 200 })),
+  { message: "TRAINING_GITHUB_RESPONSE_INVALID" });
+  await assert.rejects(resolvePublicDefaultBranchCommit("owner/project", async () =>
+    new Response("not found", { status: 404 })),
+  { message: "TRAINING_GITHUB_REPOSITORY_NOT_PUBLIC" });
 });
 
 test("rejects a zero-dollar cost ceiling for usage-billed Modal Sandbox compute", async () => {

@@ -1,9 +1,6 @@
 // Parse a source reference without accepting arbitrary network destinations.
-export function parseTrainingSource(repository, commit) {
-  if (typeof repository !== "string" || typeof commit !== "string" ||
-      commit.length !== 40 || !/^[0-9a-f]{40}$/.test(commit)) {
-    throw new Error("TRAINING_SOURCE_INVALID");
-  }
+export function parseTrainingRepository(repository) {
+  if (typeof repository !== "string") throw new Error("TRAINING_SOURCE_INVALID");
   const slug = repository.startsWith("https://github.com/")
     ? repository.slice("https://github.com/".length)
     : repository;
@@ -14,18 +11,109 @@ export function parseTrainingSource(repository, commit) {
       [".", ".."].includes(parts[1]) || repository.trim() !== repository) {
     throw new Error("TRAINING_SOURCE_INVALID");
   }
+  return slug.toLowerCase();
+}
+
+export function parseTrainingSource(repository, commit) {
+  const slug = parseTrainingRepository(repository);
+  if (typeof commit !== "string" || commit.length !== 40 || !/^[0-9a-f]{40}$/.test(commit)) {
+    throw new Error("TRAINING_SOURCE_INVALID");
+  }
   return { repository: slug.toLowerCase(), commit };
 }
 
-export async function registerTrainingSource(db, owner, input) {
-  const { repository, commit } = parseTrainingSource(input.repository, input.commit);
+async function readGithubJson(response) {
+  if (response.status === 404) throw new Error("TRAINING_GITHUB_REPOSITORY_NOT_PUBLIC");
+  if (response.status === 403 || response.status === 429) throw new Error("TRAINING_GITHUB_RATE_LIMITED");
+  if (!response.ok) throw new Error("TRAINING_GITHUB_LOOKUP_FAILED");
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > 16_384) throw new Error("TRAINING_GITHUB_RESPONSE_TOO_LARGE");
+  if (!response.body) throw new Error("TRAINING_GITHUB_RESPONSE_INVALID");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 16_384) {
+        await reader.cancel();
+        throw new Error("TRAINING_GITHUB_RESPONSE_TOO_LARGE");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new Error("TRAINING_GITHUB_RESPONSE_INVALID");
+  }
+}
+
+function validGithubBranch(branch) {
+  return typeof branch === "string" && branch.length <= 255 &&
+    /^[A-Za-z0-9._/-]+$/.test(branch) && !branch.startsWith("/") &&
+    !branch.endsWith("/") && !branch.endsWith(".") && !branch.includes("..") &&
+    !branch.includes("//") && !branch.includes("@{") &&
+    branch.split("/").every((part) => part && part !== "." && part !== ".." && !part.endsWith(".lock"));
+}
+
+// Resolve only public GitHub repositories. The ChatGPT GitHub connector's
+// OAuth token is not available to this Worker; private source requires a
+// separately installed least-privilege GitHub App.
+export async function resolvePublicDefaultBranchCommit(repository, fetchImpl = fetch) {
+  const slug = parseTrainingRepository(repository);
+  const headers = { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
+  const request = async (url) => {
+    let response;
+    try {
+      response = await fetchImpl(url, { method: "GET", headers, redirect: "error",
+        signal: AbortSignal.timeout(5_000) });
+    } catch {
+      throw new Error("TRAINING_GITHUB_LOOKUP_FAILED");
+    }
+    return readGithubJson(response);
+  };
+  const metadata = await request(`https://api.github.com/repos/${slug}`);
+  if (!metadata || metadata.private !== false || metadata.archived === true ||
+      !validGithubBranch(metadata.default_branch)) {
+    throw new Error(metadata?.archived === true ? "TRAINING_GITHUB_REPOSITORY_ARCHIVED"
+      : metadata?.private === true ? "TRAINING_GITHUB_PRIVATE_REQUIRES_APP"
+        : "TRAINING_GITHUB_RESPONSE_INVALID");
+  }
+  const commitsUrl = new URL(`https://api.github.com/repos/${slug}/commits`);
+  commitsUrl.searchParams.set("sha", metadata.default_branch);
+  commitsUrl.searchParams.set("per_page", "1");
+  const commits = await request(commitsUrl.toString());
+  const commit = Array.isArray(commits) ? commits[0]?.sha : null;
+  if (typeof commit !== "string" || !/^[0-9a-f]{40}$/.test(commit)) {
+    throw new Error("TRAINING_GITHUB_DEFAULT_COMMIT_UNAVAILABLE");
+  }
+  return { repository: slug, commit, default_branch: metadata.default_branch, visibility: "public" };
+}
+
+export async function registerTrainingSource(db, owner, input, { resolveCommit = resolvePublicDefaultBranchCommit } = {}) {
+  const repository = parseTrainingRepository(input.repository);
   const hasMapOverrides = input.dataset !== undefined || input.run_name !== undefined || input.steps !== undefined;
   if (hasMapOverrides && repository !== "unjuno/model-as-a-paper") return {
     schema_version: 2, status: "blocked",
     human_summary: "dataset、run_name、stepsの登録設定は現在MAP-44Mでのみ利用できます。",
-    machine_state: { repository, commit }, next_allowed_actions: [],
+    machine_state: { repository, ...(input.commit ? { commit: input.commit } : {}) }, next_allowed_actions: [],
     blocking_reason: "TRAINING_PROFILE_UNAVAILABLE",
   };
+  const resolved = input.commit === undefined
+    ? await resolveCommit(repository)
+    : { repository, commit: input.commit, visibility: "unspecified" };
+  const { commit } = parseTrainingSource(repository, resolved.commit);
   const id = crypto.randomUUID().replaceAll("-", "");
   await db.prepare(`INSERT INTO training_registrations (id, owner_id, repository, source_sha, created_at)
     VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id, repository, source_sha) DO NOTHING`)
@@ -48,8 +136,11 @@ export async function registerTrainingSource(db, owner, input) {
   return { schema_version: 2, status: "ok",
     human_summary: executionSpecId
       ? "MAP-44Mの学習ソースと固定学習設定を登録しました。training_listで実行プロファイルを確認できます。"
-      : "学習ソースを登録しました。training_listで利用可能な実行プロファイルを確認できます。",
+      : resolved.visibility === "public"
+        ? "公開GitHubリポジトリの既定ブランチから現在のcommitを固定しました。登録だけでは実行できません。training_listで実行可能状態を確認してください。"
+        : "学習ソースを登録しました。登録だけでは実行できません。training_listで実行可能状態を確認してください。",
     machine_state: { registration_id: row.id, repository: row.repository, commit: row.source_sha,
+      ...(resolved.visibility === "public" ? { visibility: resolved.visibility, default_branch: resolved.default_branch } : {}),
       ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
       state: "registered" },
     next_allowed_actions: ["training_list"], blocking_reason: null };

@@ -33,6 +33,18 @@ Therefore a connected GitHub login alone cannot authorize the Sites Worker to
 clone a private repository, and repository registration must not be described
 as general execution support.
 
+## Implementation evidence on this branch
+
+- `training_register` now resolves the default-branch commit for a public
+  repository when the agent omits `commit`, then stores the immutable SHA.
+- The lookup rejects private/not-found sources, archived repositories,
+  malformed branch metadata, oversized responses, redirects, and rate limits.
+- This removes manual SHA entry for public repositories; it does not grant
+  private-repository access, prove that a public repository is in the
+  connected GitHub account, or make a non-MAP repository executable.
+- Focused Sites Worker tests cover branch-to-SHA resolution and the fail-closed
+  metadata cases. End-to-end chat execution remains unimplemented.
+
 ## Target architecture
 
 ### 1. Repository discovery and source identity
