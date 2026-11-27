@@ -1,13 +1,20 @@
-# Sites four-provider control plane
+# Sites provider control plane
 
 ## Decision
 
-The production ChatGPT path has exactly four compute providers:
+The current production ChatGPT path has four compute providers:
 
 1. Modal
 2. RunPod
 3. Kaggle
 4. Hugging Face
+
+Google Colab is an approved product direction, but is not yet an executable
+provider. It must be added through the same owner-bound plan, provider budget,
+idempotency, status, cancellation, result, and artifact contracts below. Until
+the Colab OAuth connection and execution lifecycle are implemented and
+verified, capabilities must report it as unavailable rather than imply that
+the official local Colab MCP is connected to ChatGPT Sites.
 
 Railway, Vercel, Neon, and a separately hosted PostgreSQL Gateway are not part
 of the production execution path.
@@ -56,6 +63,7 @@ Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
 | RunPod | Sites -> RunPod REST v2 | Sites secret | per-run cap; exact Pod termination required |
 | Kaggle | Sites -> Modal adapter -> Kaggle | Modal secret | free-first; no paid fallback |
 | Hugging Face | Sites -> Modal adapter -> private ZeroGPU Space | Modal secrets and Space secret | free ZeroGPU only; no paid fallback |
+| Google Colab (planned) | Sites -> authenticated Colab adapter -> one-shot managed runtime | owner-scoped Google OAuth connection, refreshed server-side | owner compute-unit ceiling; no paid fallback; runtime always stopped |
 
 ## Compatibility rule
 
@@ -68,6 +76,9 @@ configuration uses only `PROVIDER_ADAPTER_URL`, `PROVIDER_ADAPTER_KEY_ID`, and
 ## Activation acceptance
 
 - No Railway resource or PostgreSQL service is required.
+- Google Colab remains unavailable until an owner-scoped OAuth connection,
+  current account quota check, bounded one-shot execution, cancellation, and
+  artifact cleanup are verified end to end.
 - Sites reports all four registered providers and the real blocker for each.
 - Kaggle and Hugging Face calls work through the authenticated Modal adapter.
 - RunPod cannot start without an exact price-bound plan and one-use confirmation.
