@@ -192,7 +192,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,403 lines and remains a large transport
+- **Evidence:** `worker/index.js` is 2,392 lines and remains a large transport
   and composition root for authentication, owner identity, routing and provider
   workflows. MCP schemas/descriptions, experiment input contracts, GitHub
   ownership, training lifecycle, budgets and RunPod lifecycle now have separate
@@ -223,6 +223,8 @@ bounds before owner-selected runs consume authorization or monthly budget. See
   environment-bound experiment validators and registered-input normalization
   moved to `worker/experiment_input_contract.js`, reducing the entrypoint by
   211 lines while keeping the existing MCP schemas and runtime behavior.
+  Owner-scoped repository token issuance also moved behind the GitHub
+  connection module.
 
 **Progress (2026-11-28):** the ordinary custom-repository route is now
 `training_register` → `training_preview` → `training_prepare` →

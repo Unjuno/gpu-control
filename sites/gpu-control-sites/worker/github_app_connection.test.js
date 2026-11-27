@@ -8,6 +8,7 @@ import {
   completeGithubInstallationOAuth,
   createGithubAppJwt,
   createGithubInstallationToken,
+  createOwnedRepositoryReadToken,
   createGithubInstallationUrl,
   disconnectGithubApp,
   exchangeGithubOAuthCode,
@@ -167,6 +168,42 @@ test("installation token is scoped to one repository and only Contents read", as
   assert.deepEqual(JSON.parse(request.init.body), { repositories: ["model-as-a-paper"],
     permissions: { contents: "read", metadata: "read" } });
   assert.match(request.init.headers.authorization, /^Bearer [A-Za-z0-9_.-]+$/);
+});
+
+test("owner repository token minting proves the exact repository is selected first", async () => {
+  const db = database();
+  await db.prepare(`INSERT INTO github_app_installations
+    (owner_id, installation_id, account_login, repository_selection, connected_at)
+    VALUES (?, ?, ?, 'selected', ?)`)
+    .bind("site-owner", "98765", "Unjuno", 1_800_000_000).run();
+  let scopedTokenRequests = 0;
+  const fetchImpl = async (url, init) => {
+    const path = new URL(url).pathname;
+    if (path === "/installation/repositories") {
+      return mockResponse({ total_count: 1,
+        repositories: [{ full_name: "Unjuno/model-as-a-paper", private: true, default_branch: "main" }] });
+    }
+    const body = JSON.parse(init.body);
+    if (body.repositories) {
+      scopedTokenRequests += 1;
+      assert.deepEqual(body, { repositories: ["model-as-a-paper"],
+        permissions: { contents: "read", metadata: "read" } });
+      return mockResponse({ token: "ghs-owner-scoped", expires_at: new Date(Date.now() + 60_000).toISOString(),
+        permissions: { contents: "read", metadata: "read" },
+        repositories: [{ full_name: "Unjuno/model-as-a-paper" }] });
+    }
+    return mockResponse({ token: "ghs-list-only", expires_at: new Date(Date.now() + 60_000).toISOString(),
+      permissions: { contents: "read", metadata: "read" } });
+  };
+  try {
+    const token = await createOwnedRepositoryReadToken(env, db, "site-owner", "Unjuno/model-as-a-paper", { fetchImpl });
+    assert.equal(token.token, "ghs-owner-scoped");
+    await assert.rejects(createOwnedRepositoryReadToken(env, db, "site-owner", "other/private-repo", { fetchImpl }),
+      { message: "GITHUB_REPOSITORY_NOT_SELECTED" });
+    assert.equal(scopedTokenRequests, 1);
+    await assert.rejects(createOwnedRepositoryReadToken(env, db, "another-owner", "Unjuno/model-as-a-paper", { fetchImpl }),
+      { message: "GITHUB_CONNECTION_REQUIRED" });
+  } finally { db.close(); }
 });
 
 test("GitHub OAuth code exchange keeps the client secret server-side and returns only a short-lived user token", async () => {

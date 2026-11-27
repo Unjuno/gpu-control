@@ -380,4 +380,16 @@ export async function getOwnedGithubInstallation(db, owner) {
     FROM github_app_installations WHERE owner_id=?`).bind(owner).first();
 }
 
+/** Mint a short-lived read token only for a repository selected by this Sites owner. */
+export async function createOwnedRepositoryReadToken(env, db, owner, repository, options = {}) {
+  if (!githubAppConfigured(env)) throw new Error("GITHUB_APP_NOT_CONFIGURED");
+  const connection = await getOwnedGithubInstallation(db, owner);
+  if (!connection) throw new Error("GITHUB_CONNECTION_REQUIRED");
+  const repositories = await listGithubInstallationRepositories(env, connection.installation_id, options);
+  if (!repositories.some((item) => item.repository.toLowerCase() === repository.toLowerCase())) {
+    throw new Error("GITHUB_REPOSITORY_NOT_SELECTED");
+  }
+  return createGithubInstallationToken(env, connection.installation_id, repository, options);
+}
+
 export const GITHUB_INSTALL_STATE_TTL_SECONDS = INSTALL_STATE_TTL_SECONDS;

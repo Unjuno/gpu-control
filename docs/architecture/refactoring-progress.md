@@ -234,11 +234,16 @@ the exact environment-bound validation seam and imports provider plan
 validators; RunPod's approved-plan validator now lives beside its plan contract
 in `worker/runpod_plan.js` and is re-exported by the lifecycle module for its
 existing module callers. `mcp_tool_contract.js` continues to own the
-client-visible JSON Schemas, descriptions and annotations. Existing external tool names and
-payloads are unchanged. The Worker entrypoint shrank by 211 lines, from 2,612
-to 2,401; the acyclic runtime graph increased from 18 to 19 modules.
+client-visible JSON Schemas, descriptions and annotations. Existing external
+tool names and payloads are unchanged. Also moved selected-repository
+verification and short-lived read-token minting behind
+`github_app_connection.js`; the Site entrypoint now supplies only the
+owner-bound source-token port. The Worker entrypoint is 2,392 lines, 220 fewer
+than the 2,612-line baseline; the input-contract extraction accounts for 211
+lines of that reduction. The acyclic runtime graph increased from 18 to 19
+modules.
 
-**Validation:** all 117 Worker tests pass; the acyclic 19-module architecture
+**Validation:** all 118 Worker tests pass; the acyclic 19-module architecture
 and generated registry checks pass; forward migration replay passes; the Site
 build copies the complete reachable module graph; and artifact validation
 passes. No provider or production operation was performed.

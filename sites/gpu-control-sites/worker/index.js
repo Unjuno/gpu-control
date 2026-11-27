@@ -9,8 +9,8 @@ import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
 import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
   trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { beginGithubInstallationOAuth, completeGithubInstallationOAuth, createGithubInstallationUrl,
-  disconnectGithubApp, exchangeGithubOAuthCode, githubAppConfigured, githubAppOAuthConfigured,
-  createGithubInstallationToken, githubConnectionStatus, getOwnedGithubInstallation, listGithubInstallationRepositories,
+  createOwnedRepositoryReadToken, disconnectGithubApp, exchangeGithubOAuthCode, githubAppConfigured, githubAppOAuthConfigured,
+  githubConnectionStatus, getOwnedGithubInstallation, listGithubInstallationRepositories,
   verifyGithubInstallation } from "./github_app_connection.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
@@ -1693,15 +1693,6 @@ async function maybeDelegateRunTool(env, owner, name, args) {
   return publicProviderAdapterResponse(response);
 }
 
-async function ownerGithubRepositoryToken(env, owner, repository) {
-  if (!githubAppConfigured(env)) throw new Error("GITHUB_APP_NOT_CONFIGURED");
-  const connection = await getOwnedGithubInstallation(env.DB, owner);
-  if (!connection) throw new Error("GITHUB_CONNECTION_REQUIRED");
-  const repositories = await listGithubInstallationRepositories(env, connection.installation_id);
-  if (!repositories.some((item) => item.repository === repository)) throw new Error("GITHUB_REPOSITORY_NOT_SELECTED");
-  return (await createGithubInstallationToken(env, connection.installation_id, repository)).token;
-}
-
 async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
@@ -1750,7 +1741,7 @@ async function callTool(name, args, request, env, context = null) {
   }
   if (isTrainingTool(name)) return handleTrainingTool(name, args, { env, owner,
     delegate: delegateGatewayTool, isConfigured: gatewayDelegationConfigured,
-    getSourceToken: (repository) => ownerGithubRepositoryToken(env, owner, repository) });
+    getSourceToken: async (repository) => (await createOwnedRepositoryReadToken(env, env.DB, owner, repository)).token });
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return capabilities(env, owner);
   if (name === "experiment_prepare") {
