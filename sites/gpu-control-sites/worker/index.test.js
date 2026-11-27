@@ -275,6 +275,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       assert.equal(selectedRepo.machine_state.repository, "sample-owner/sample-model");
       assert.equal(selectedRepo.machine_state.commit, "d".repeat(40));
       assert.equal(selectedRepo.machine_state.state, "registered");
+      assert.deepEqual(selectedRepo.next_allowed_actions, ["training_inspect"]);
       assert.equal(JSON.stringify(selectedRepo).includes("single-repo-token"), false);
       assert.equal(requests.filter((entry) => entry.url.pathname.endsWith("/access_tokens")).length, 2);
       assert.ok(requests.some((entry) => entry.url.pathname === "/repos/sample-owner/sample-model" &&

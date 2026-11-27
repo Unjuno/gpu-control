@@ -157,13 +157,13 @@ export async function registerTrainingSource(db, owner, input, { resolveCommit =
     human_summary: executionSpecId
       ? "MAP-44Mの学習ソースと固定学習設定を登録しました。training_listで実行プロファイルを確認できます。"
       : resolved.visibility === "public"
-        ? "公開GitHubリポジトリの既定ブランチから現在のcommitを固定しました。登録だけでは実行できません。training_listで実行可能状態を確認してください。"
-        : "学習ソースを登録しました。登録だけでは実行できません。training_listで実行可能状態を確認してください。",
+        ? "GitHub repositoryの既定ブランチからimmutable commitを固定しました。登録だけでは実行できません。次はtraining_inspectで実験契約を確認します。"
+        : "学習ソースを登録しました。登録だけでは実行できません。次はtraining_inspectで実験契約を確認します。",
     machine_state: { registration_id: row.id, repository: row.repository, commit: row.source_sha,
       ...(resolved.visibility === "public" ? { visibility: resolved.visibility, default_branch: resolved.default_branch } : {}),
       ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
       state: "registered" },
-    next_allowed_actions: ["training_list"], blocking_reason: null };
+    next_allowed_actions: executionSpecId ? ["training_list"] : ["training_inspect"], blocking_reason: null };
 }
 
 function hasConfiguredExecutionProfile(row, env) {
