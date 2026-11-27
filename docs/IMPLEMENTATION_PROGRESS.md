@@ -4517,3 +4517,18 @@ branch and refs remain unchanged.
   `modal/test_custom_training_lifecycle.py` passed 7/7. Exact-head CI is
   running for the newest router extraction. No provider execution, admission,
   credential, deployment or live state was changed.
+
+### Agent entry-point guidance — 2026-11-28
+
+- Expanded the operator Skill trigger to cover user-selected GitHub repository
+  experiments, not only already-registered workloads. Clarified that provider
+  capability discovery does not make arbitrary source executable; the agent
+  must verify the source contract and route through `training_inspect` and
+  `training_preview`.
+- The Skill now directs the agent to pass the registration ID straight from
+  `training_register` to inspection and use `training_list` only for recovery.
+  This follows the MCP tool contract and avoids asking the user for internal
+  IDs or making an unnecessary list call.
+- No runtime contract changed. `git diff --check` passed; the preceding code
+  batch had 108/108 Worker tests, artifact validation, and 7/7 custom lifecycle
+  tests pass. No provider execution or account setting changed.
