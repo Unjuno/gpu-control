@@ -1,11 +1,13 @@
 # Repository architecture map
 
 **Snapshot:** 2026-11-28 (Asia/Tokyo)  
-**Source under inspection:** PR #70, `codex/owner-training-workloads`  
-**Release status:** PR #70 is open and unmerged; GitHub reports the current
-head mergeable. Exact-head CI is queued and no unresolved inline review threads
-were returned in the latest read. This is not proof of deployment.
-`policies/repository-state.yaml` remains `mode: parked`.
+**Source under inspection:** PR #70, `codex/owner-training-workloads`, head
+`44f21867dbd7f7066ca16bb6441cf9ea3b07edee`.
+**Release status:** PR #70 is open and unmerged; its seven exact-head CI checks
+pass. GitHub reports the head mergeable, while 10 of 19 inline review threads
+are listed unresolved (some outdated). The PR description needs synchronization
+with the current head. None of these facts proves deployment. Repository mode
+remains `parked`.
 
 This is an evidence-backed map of the current repository, not a claim that all
 listed source paths are active in the hosted product.
@@ -43,9 +45,12 @@ flowchart LR
 
 This diagram combines two distinct contracts: the released/previously accepted
 fixed-workload routes and the current PR #70 owner-selected Modal candidate.
-Do not infer the latter is deployed. Google Colab remains a proposed provider
-integration, and a direct external Colab MCP call would bypass the Sites owner,
-budget, run-history, and cleanup ledger.
+Do not infer the latter is deployed. The intended ChatGPT journey must discover
+the authorized source and currently compatible external GPU route from current
+capabilities, keep provider IDs internal, and return verified result and
+cleanup. Google Colab remains a proposed provider integration, and a direct
+external Colab MCP call would bypass the Sites owner, budget, run-history, and
+cleanup ledger.
 
 ## Module dependency graph
 

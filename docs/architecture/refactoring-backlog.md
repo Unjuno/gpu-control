@@ -24,19 +24,26 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A0. Reconcile branch, review, deployment and provider acceptance
 
-- **Evidence (2026-11-28):** PR #70 head is
-  `aa9f1003a8c19994eef803dbd8d7b4fb431a7f1a`; its seven exact-head GitHub
-  checks are queued. The PR is open, unmerged, and GitHub currently reports it
-  mergeable; that status does not establish security review, deployment, or
-  provider acceptance. The PR diff is 104 files (+10,460/−349), so focused
-  reviewability remains an architecture concern. Repository mode is `parked`;
-  owner-training admission and live D1 remain unchanged. No unresolved inline
-  review threads were returned in the latest read.
+- **Evidence (2026-11-28):** PR #70 is open and unmerged at
+  `44f21867dbd7f7066ca16bb6441cf9ea3b07edee`; all seven exact-head checks
+  pass. The PR diff is 112 files (+11,189/−575), and 10 of 19 inline review
+  threads are reported unresolved (some are outdated and require code-level
+  verification before resolution). Its description is stale: it reports the
+  previous head, earlier test/module counts, and earlier thread state. GitHub's
+  mergeable flag does not establish security review, deployment, or provider
+  acceptance. Repository mode remains `parked`; owner-training admission and
+  live D1 remain unchanged.
   Source head, CI, review, migration and deployment evidence are tracked
   separately in `refactoring-progress.md`.
 - **Work:** maintain a compact release record that separately names source
   head, merge SHA, Sites deployment/version, applied D1 migration, live tool
   schema, provider configuration, and exact end-to-end acceptance run.
+- **Current chat-first invariant:** the user describes the experiment in
+  ordinary ChatGPT/Work conversation; the agent resolves authorized source and
+  compatible external GPU, carries IDs/provider details internally, and
+  returns verified result and cleanup. Modal is currently the only
+  owner-selected route in PR #70; RunPod arbitrary-source is next, while
+  Kaggle/Hugging Face remain fixed-workload routes and Colab is not integrated.
 - **Done when:** no current-state document promotes PR source or old canaries
   into present-day deployed capability; the first-run ChatGPT prompt names
   actual available actions and blockers.

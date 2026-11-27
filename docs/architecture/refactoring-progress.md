@@ -348,3 +348,43 @@ test suite pass locally. No provider or production setting was touched.
 **Status:** local changes are validated and uncommitted. The branch still
 provides arbitrary owner-selected execution only on Modal GPU; RunPod custom
 repository execution and ordinary ChatGPT end-to-end acceptance remain open.
+
+## 2026-11-28 — A0/A1: align the candidate with the chat-first product goal
+
+**Product invariant:** in an ordinary ChatGPT or Work conversation, the user
+describes an experiment in natural language; the agent resolves the user's
+authorized source and compatible external GPU route, carries internal IDs and
+provider details itself, then returns verified progress, results and cleanup.
+Local containers are for development and checks; they do not satisfy the
+product outcome. This invariant is recorded in ADR 0006 and governs the
+provider roadmap.
+
+**Current evidence:** PR #70 is open and unmerged at
+`44f21867dbd7f7066ca16bb6441cf9ea3b07edee`. All seven GitHub checks for that
+exact SHA pass. The candidate adds owner-selected source execution on Modal
+GPU only. RunPod remains fixed-workload; Kaggle and Hugging Face remain fixed
+registered workloads; Colab is not integrated. The repository remains parked,
+so no live arbitrary-source admission or deployment is implied. The PR diff is
+112 files (+11,189/−575), and 10 of 19 inline review threads are currently
+unresolved (some are outdated; verify each against current code before
+resolution). The PR description still reports the prior head and test/module
+counts and needs refresh.
+
+**Next implementation order:** keep the Modal candidate isolated and reviewable;
+close remaining current-head correctness/security findings; then implement the
+same owner-selected lifecycle for RunPod behind a provider adapter that shares
+source identity, plan, authorization, provider-specific budget, idempotency,
+status/cancel, artifacts and cleanup contracts. Do not infer this from the
+fixed RunPod canary. Before advertising or activating any route, prove its
+exact capability from current policy and acceptance evidence. Colab follows
+only if it can honor the same owner, quota/budget, cancellation and artifact
+contract; a direct independent MCP would bypass the product lifecycle.
+
+**Validation:** exact-head check diagnostics report seven successes. Read-only
+PR metadata and review-thread state were refreshed. No provider call, live D1
+operation, secret, admission change, deployment or experiment was performed.
+
+**Status:** code and current CI are pushed; PR description and stale review
+thread bookkeeping remain to be synchronized. This is not product completion:
+there is no deployed ChatGPT end-to-end owner-selected GPU acceptance for the
+current candidate, and RunPod arbitrary-source execution is not implemented.
