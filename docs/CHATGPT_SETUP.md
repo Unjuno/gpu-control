@@ -345,17 +345,25 @@ authenticated client that can assemble the ranges and compare SHA-256.
 
 The authenticated Sites owner can connect a GitHub App once and select only
 the repositories GPU Control may read. The App must be configured with
-`Contents: read`, `Metadata: read`, and selected-repository installation. The
-Sites Worker needs `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, and the private key in
-server-side secret storage. Configure the App callback URL as
-`https://gpu-control-sites.unjuno.chatgpt.site/github/setup`. Never put the
-private key or installation token in ChatGPT, a training container, repository
-files, or logs.
+Contents: read, Metadata: read, selected-repository installation, Setup URL
+https://gpu-control-sites.unjuno.chatgpt.site/github/setup, and OAuth Callback
+URL https://gpu-control-sites.unjuno.chatgpt.site/github/oauth/callback.
+The Sites Worker needs GITHUB_APP_ID, GITHUB_APP_SLUG,
+GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET,
+GITHUB_APP_OAUTH_CALLBACK_URL, and the private key in server-side secret
+storage. The install callback alone does not prove who initiated the install:
+the owner completes a GitHub user authorization step, and the Worker verifies
+that token can read the exact installation before binding it. The temporary
+user token is discarded and is never saved. Applying migration 0033 clears
+pre-existing GitHub installation bindings because their owner identity was not
+verified; reconnect once after that migration. Never put the private key or
+installation token in ChatGPT, a training container, repository files, or logs.
 
 In ChatGPT, call `github_connection_status`. If it is disconnected, call
-`github_connection_start` and open its one-time link; install the App with the
-specific repository selected. Then call `github_repositories` to verify the
-selection and `training_register` with the repository name. The server pins
+github_connection_start and open its one-time link; install the App with the
+specific repository selected, then authorize GPU Control on GitHub to prove
+your account can access that installation. Then call github_repositories to
+verify the selection and training_register with the repository name. The server pins
 the current default-branch commit and creates the registration ID; the user
 does not need to find a commit or create an ID. Call `training_inspect` to
 validate `.gpu-control/experiment.json` and its lockfile at that immutable

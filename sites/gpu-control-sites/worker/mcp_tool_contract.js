@@ -181,7 +181,7 @@ schemas.training_status = schemas.experiment_status;
 schemas.training_cancel = schemas.experiment_cancel;
 
 export const toolDescriptions = {
-  github_connection_start: "Start the one-time GitHub App connection for this authenticated GPU Control owner. GitHub can grant access only to repositories explicitly selected during installation; the app requires Contents read and Metadata read only. This returns a short-lived installation link and does not start compute.",
+  github_connection_start: "Start the one-time GitHub App connection for this authenticated GPU Control owner. GitHub can grant access only to repositories explicitly selected during installation; the app requires Contents read and Metadata read only. After installation, complete GitHub user authorization so GPU Control can verify that this account can access the exact installation. The short-lived user token is discarded. This does not start compute.",
   github_connection_status: "Read the GitHub App connection state for the authenticated GPU Control owner. No token or installation identifier is returned.",
   github_connection_disconnect: "Remove this owner's GitHub repository connection from GPU Control. This does not uninstall the GitHub App from the GitHub account; revoke it there separately if desired.",
   github_repositories: "List repositories explicitly selected for this owner's read-only GitHub App installation. Returns repository name, visibility, and default branch only; no access token is returned.",

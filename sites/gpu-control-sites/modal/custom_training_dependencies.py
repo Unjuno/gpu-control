@@ -53,14 +53,18 @@ def validate_hashed_lock(path):
     return packages
 
 
-def download_locked_wheels(lock_path, destination, *, timeout=90, run=subprocess.run):
+def download_locked_wheels(lock_path, destination, *, python_version, timeout=90, run=subprocess.run):
     """Download binary wheels from PyPI without executing package build hooks."""
+    if python_version not in {"3.11", "3.12"}:
+        raise ValueError("training_python_version_invalid")
     lock_path = Path(lock_path)
     expected = validate_hashed_lock(lock_path)
     destination = Path(destination)
     destination.mkdir(mode=0o700, parents=False, exist_ok=False)
     pip = [sys.executable, "-m", "pip", "download", "--disable-pip-version-check",
            "--no-deps", "--only-binary=:all:", "--require-hashes", "--no-cache-dir",
+           "--python-version", python_version, "--implementation", "cp",
+           "--abi", f"cp{python_version.replace('.', '')}", "--abi", "abi3", "--abi", "none",
            "--dest", str(destination), "--index-url", "https://pypi.org/simple",
            "-r", str(lock_path)]
     env = {"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),

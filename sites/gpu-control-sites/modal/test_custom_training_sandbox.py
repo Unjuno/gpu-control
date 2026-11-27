@@ -22,6 +22,7 @@ def test_sandbox_is_network_blocked_and_mounts_only_its_run():
         lock_path="requirements.lock")
     assert args == ("python", "/opt/gpu-control/custom_sandbox_entrypoint.py")
     assert options["runtime"] == "gvisor"
+    assert options["cpu"] == (2, 2) and options["memory"] == (8192, 8192)
     assert options["block_network"] is True and options["timeout"] == 120
     assert options["volumes"]["/source-store"] == {"sub_path": "/" + "a" * 32, "read_only": True}
     assert options["volumes"]["/output"] == {"sub_path": "/" + "a" * 32}
@@ -67,7 +68,7 @@ def test_stage_sandbox_is_cpu_bounded_and_keeps_token_out_of_gpu_plan():
     assert args == ("python", "/root/site-modal/custom_training_stage_entrypoint.py")
     assert options["name"] == "custom-training-stage-" + "a" * 32
     assert options["runtime"] == "gvisor" and "gpu" not in options
-    assert options["cpu"] == 1 and options["memory"] == 1024 and options["timeout"] == 300
+    assert options["cpu"] == (1, 1) and options["memory"] == (1024, 1024) and options["timeout"] == 300
     assert options["outbound_domain_allowlist"] == [
         "github.com", "pypi.org", "files.pythonhosted.org"]
     assert "block_network" not in options

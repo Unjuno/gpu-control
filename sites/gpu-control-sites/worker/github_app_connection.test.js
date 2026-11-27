@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { generateKeyPairSync, createVerify } from "node:crypto";
+import { generateKeyPairSync, createVerify, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  bindGithubInstallation,
+  beginGithubInstallationOAuth,
+  completeGithubInstallationOAuth,
   createGithubAppJwt,
   createGithubInstallationToken,
   createGithubInstallationUrl,
   disconnectGithubApp,
+  exchangeGithubOAuthCode,
+  githubAppOAuthConfigured,
   githubConnectionStatus,
   listGithubInstallationRepositories,
   verifyGithubInstallation,
@@ -17,11 +20,14 @@ import {
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const privatePem = privateKey.export({ type: "pkcs8", format: "pem" });
 const env = { GITHUB_APP_ID: "12345", GITHUB_APP_SLUG: "gpu-control-source",
-  GITHUB_APP_PRIVATE_KEY: privatePem };
+  GITHUB_APP_PRIVATE_KEY: privatePem, GITHUB_APP_CLIENT_ID: "Iv1.client-id",
+  GITHUB_APP_CLIENT_SECRET: "github-app-client-secret-for-tests",
+  GITHUB_APP_OAUTH_CALLBACK_URL: "https://gpu-control.example/github/oauth/callback" };
 
 function database() {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../drizzle/0033_github_installation_user_authorization.sql", import.meta.url), "utf8"));
   const db = {
     prepare(sql) {
       return { bind(...values) {
@@ -67,28 +73,45 @@ test("GitHub App JWT uses RS256 and a short bounded lifetime", async () => {
   assert.equal(verifier.verify(publicKey, Buffer.from(signaturePart.replaceAll("-", "+").replaceAll("_", "/"), "base64")), true);
 });
 
-test("install callback binds one owner only after checking selected-repository read-only scope", async () => {
+test("install callback requires user access to the exact installation before binding", async () => {
   const db = database();
   try {
     const intent = await createGithubInstallationUrl(db, "site-owner", env.GITHUB_APP_SLUG, 1_800_000_000);
     const state = new URL(intent.authorization_url).searchParams.get("state");
-    const linked = await bindGithubInstallation(db, state, "98765", async (id) => ({ id: Number(id),
+    const installation = { id: "98765",
       account: { login: "Unjuno" }, repository_selection: "selected", suspended_at: null,
-      permissions: { contents: "read", metadata: "read" } }), 1_800_000_030);
+      permissions: { contents: "read", metadata: "read" } };
+    const authorization = await beginGithubInstallationOAuth(db, state, "98765", installation, env, 1_800_000_030);
+    const authorizationUrl = new URL(authorization.authorization_url);
+    const oauthState = authorizationUrl.searchParams.get("state");
+    const verifier = authorization.pkce_cookie.match(/__Host-gpu-control-oauth=[a-f0-9]{64}\.([A-Za-z0-9_-]{43})/)[1];
+    assert.equal(authorizationUrl.searchParams.get("client_id"), env.GITHUB_APP_CLIENT_ID);
+    assert.equal(authorizationUrl.searchParams.get("redirect_uri"), env.GITHUB_APP_OAUTH_CALLBACK_URL);
+    assert.equal(authorizationUrl.searchParams.get("code_challenge_method"), "S256");
+    assert.equal(authorizationUrl.searchParams.get("code_challenge"),
+      createHash("sha256").update(verifier).digest("base64url"));
+    assert.match(authorization.pkce_cookie, /Secure; HttpOnly; SameSite=Lax/);
+    assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: false });
+    const linked = await completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa", async (url, init) => {
+      assert.equal(String(url), "https://api.github.com/user/installations/98765/repositories?per_page=1&page=1");
+      assert.equal(init.headers.authorization, "Bearer ghu_aaaaaaaaaaaaaaaaaaaa");
+      return mockResponse({ total_count: 1, repositories: [{ id: 7, full_name: "Unjuno/model-as-a-paper" }] });
+    }, 1_800_000_031);
     assert.deepEqual(linked, { connected: true, account_login: "Unjuno", repository_selection: "selected" });
     assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: true,
-      account_login: "Unjuno", repository_selection: "selected", connected_at: 1_800_000_030 });
-    await assert.rejects(bindGithubInstallation(db, state, "98765", async () => ({}), 1_800_000_031),
-      { message: "GITHUB_INSTALLATION_STATE_REPLAYED" });
-    await assert.rejects(disconnectGithubApp(db, "site-owner").then(async () =>
-      bindGithubInstallation(db, state, "98765", async () => ({}), 1_800_000_032)),
+      account_login: "Unjuno", repository_selection: "selected", connected_at: 1_800_000_031 });
+    await assert.rejects(completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa",
+      async () => mockResponse({ total_count: 1, repositories: [{}] }), 1_800_000_031),
     { message: "GITHUB_INSTALLATION_STATE_REPLAYED" });
+    await assert.rejects(disconnectGithubApp(db, "site-owner").then(async () =>
+      completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa", async () => mockResponse({}),
+        1_800_000_032)), { message: "GITHUB_INSTALLATION_STATE_REPLAYED" });
     await disconnectGithubApp(db, "site-owner");
     assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: false });
   } finally { db.close(); }
 });
 
-test("installation must be selected, unsuspended and contents-read only", async () => {
+test("installation must be selected, unsuspended and contents-read only before OAuth begins", async () => {
   const db = database();
   try {
     for (const installation of [
@@ -99,10 +122,32 @@ test("installation must be selected, unsuspended and contents-read only", async 
     ]) {
       const intent = await createGithubInstallationUrl(db, "site-owner", env.GITHUB_APP_SLUG, 1_800_000_000);
       const state = new URL(intent.authorization_url).searchParams.get("state");
-      await assert.rejects(bindGithubInstallation(db, state, "4", async () => installation, 1_800_000_001),
+      await assert.rejects(beginGithubInstallationOAuth(db, state, "4", installation, env, 1_800_000_001),
         { message: "GITHUB_INSTALLATION_SCOPE_INVALID" });
       assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: false });
     }
+  } finally { db.close(); }
+});
+
+test("an unlinked GitHub user cannot bind the setup callback's installation ID", async () => {
+  const db = database();
+  try {
+    const intent = await createGithubInstallationUrl(db, "site-owner", env.GITHUB_APP_SLUG, 1_800_000_000);
+    const state = new URL(intent.authorization_url).searchParams.get("state");
+    const authorization = await beginGithubInstallationOAuth(db, state, "98765", {
+      id: "98765", account: { login: "Unjuno" }, repository_selection: "selected", suspended_at: null,
+      permissions: { contents: "read", metadata: "read" },
+    }, env, 1_800_000_010);
+    const oauthState = new URL(authorization.authorization_url).searchParams.get("state");
+    await assert.rejects(completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa",
+      async () => mockResponse({ message: "Not Found" }, 404), 1_800_000_020),
+    { message: "GITHUB_APP_API_FAILED" });
+    assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: false });
+    const rows = db.prepare("SELECT consumed_at, completion_nonce FROM github_installation_states WHERE owner_id=?")
+      .bind("site-owner");
+    const row = await rows.first();
+    assert.equal(row.consumed_at, null);
+    assert.equal(row.completion_nonce, null);
   } finally { db.close(); }
 });
 
@@ -119,9 +164,25 @@ test("installation token is scoped to one repository and only Contents read", as
   });
   assert.equal(token.token, "ghs-temporary-token");
   assert.equal(request.url, "https://api.github.com/app/installations/98765/access_tokens");
-  assert.deepEqual(JSON.parse(request.init.body), { repositories: ["Unjuno/model-as-a-paper"],
+  assert.deepEqual(JSON.parse(request.init.body), { repositories: ["model-as-a-paper"],
     permissions: { contents: "read", metadata: "read" } });
   assert.match(request.init.headers.authorization, /^Bearer [A-Za-z0-9_.-]+$/);
+});
+
+test("GitHub OAuth code exchange keeps the client secret server-side and returns only a short-lived user token", async () => {
+  assert.equal(githubAppOAuthConfigured(env), true);
+  let request;
+  const verifier = "a".repeat(43);
+  const token = await exchangeGithubOAuthCode(env, "one-time-code", verifier, { fetchImpl: async (url, init) => {
+    request = { url: String(url), init };
+    return mockResponse({ access_token: "ghu_aaaaaaaaaaaaaaaaaaaa", token_type: "bearer", scope: "" });
+  } });
+  assert.equal(token, "ghu_aaaaaaaaaaaaaaaaaaaa");
+  assert.equal(request.url, "https://github.com/login/oauth/access_token");
+  const body = new URLSearchParams(request.init.body);
+  assert.equal(body.get("client_secret"), env.GITHUB_APP_CLIENT_SECRET);
+  assert.equal(body.get("redirect_uri"), env.GITHUB_APP_OAUTH_CALLBACK_URL);
+  assert.equal(body.get("code_verifier"), verifier);
 });
 
 test("installation verification and repository listing never return app credentials", async () => {

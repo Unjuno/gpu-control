@@ -34,6 +34,15 @@ test("delegation signs the exact owner, tool, arguments and bounded validity win
   assert.equal(observed.init.headers["x-gpu-control-sites-signature"], expected);
 });
 
+test("training artifact retrieval is an allowed delegated lifecycle tool", async () => {
+  const result = await delegateGatewayTool(env, "owner-123", "training_artifact",
+    { run_id: "a".repeat(32) }, async () => new Response(JSON.stringify({
+      schema_version: 2, status: "ok", human_summary: "artifact ready",
+      machine_state: {}, next_allowed_actions: [], blocking_reason: null,
+    }), { status: 200, headers: { "content-type": "application/json" } }), 1000);
+  assert.equal(result.status, "ok");
+});
+
 test("configuration pins the adapter to a standard-port Modal origin", () => {
   assert.equal(gatewayDelegationConfigured(env), true);
   assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "http://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run" }), false);

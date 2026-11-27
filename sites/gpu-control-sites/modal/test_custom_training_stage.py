@@ -19,6 +19,9 @@ class Batch:
     def put_directory(self, source, destination):
         source = Path(source)
         assert source.is_dir()
+        if list(source.glob("*.whl")):
+            assert source.stat().st_mode & 0o777 == 0o555
+            assert all(item.stat().st_mode & 0o777 == 0o444 for item in source.glob("*.whl"))
         self.events.append(("source" if (source / "objects").is_dir() else "wheelhouse", destination))
     def put_file(self, source, destination):
         assert source.read() == b""
@@ -37,7 +40,7 @@ class Volume:
 def test_verified_source_and_output_are_scoped_to_run(tmp_path):
     repo, sha = make_repo(tmp_path)
     (repo / ".gpu-control").mkdir()
-    manifest = {"entrypoint": "train.py", "dependencies_lock": "requirements.lock"}
+    manifest = {"entrypoint": "train.py", "dependencies_lock": "requirements.lock", "python_version": "3.11"}
     (repo / ".gpu-control/experiment.json").write_text(json.dumps(manifest))
     (repo / "train.py").write_text("pass\n")
     (repo / "requirements.lock").write_text("torch==2.0.0\n")
@@ -51,7 +54,8 @@ def test_verified_source_and_output_are_scoped_to_run(tmp_path):
     def fetch(repository, commit, target):
         assert repository == "owner/project" and commit == sha
         subprocess.run(["git", "clone", "--bare", str(repo), str(target)], check=True, capture_output=True)
-    def download(_lock, destination):
+    def download(_lock, destination, *, python_version):
+        assert python_version == "3.11"
         destination.mkdir()
         (destination / "torch-2.0.0-py3-none-any.whl").write_bytes(b"wheel")
         return {"packages": 1, "bytes": 5, "sha256": "9" * 64}

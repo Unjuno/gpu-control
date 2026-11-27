@@ -7,7 +7,8 @@ import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS,
 import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
 import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
   trainingRuntimeProfileFingerprint } from "./training_contract.js";
-import { bindGithubInstallation, createGithubInstallationUrl, disconnectGithubApp, githubAppConfigured,
+import { beginGithubInstallationOAuth, completeGithubInstallationOAuth, createGithubInstallationUrl,
+  disconnectGithubApp, exchangeGithubOAuthCode, githubAppConfigured, githubAppOAuthConfigured,
   createGithubInstallationToken, githubConnectionStatus, getOwnedGithubInstallation, listGithubInstallationRepositories,
   verifyGithubInstallation } from "./github_app_connection.js";
 import { runpodConfigured } from "./runpod_provider.js";
@@ -348,7 +349,7 @@ async function handleAuthorizationRequest(request, env) {
 
 async function handleGithubSetup(request, env) {
   if (request.method !== "GET") return htmlPage("GitHub接続", "<p>このcallbackはGETのみ受け付けます。</p>", 405);
-  if (!env.DB || !githubAppConfigured(env)) return htmlPage("GitHub接続を確認できません",
+  if (!env.DB || !githubAppOAuthConfigured(env)) return htmlPage("GitHub接続を確認できません",
     "<p>GPU Control側のGitHub App設定がまだ完了していません。</p>", 503);
   const url = new URL(request.url);
   const state = url.searchParams.get("state") || "";
@@ -356,14 +357,55 @@ async function handleGithubSetup(request, env) {
   if (url.searchParams.get("setup_action") !== "install") return htmlPage("GitHub接続を完了できません",
     "<p>GitHub Appの新規installから接続を開始してください。設定変更後はチャットで新しい接続linkを作成してください。</p>", 400);
   try {
-    const connected = await bindGithubInstallation(env.DB, state, installationId,
-      (id) => verifyGithubInstallation(env, id));
-    return htmlPage("GitHub接続完了", `<p>${escapeHtml(connected.account_login)}の選択済みrepositoryをGPU Controlへ接続しました。</p>
-      <p>許可されたのは選択repositoryのContents readとMetadata readです。GitHub tokenはGPU Controlの実験コンテナへ渡しません。</p>
-      <p>チャットへ戻り、github_repositoriesで接続結果を確認できます。</p>`);
+    const installation = await verifyGithubInstallation(env, installationId);
+    const authorization = await beginGithubInstallationOAuth(env.DB, state, installationId,
+      installation, env);
+    return new Response(null, { status: 302, headers: { location: authorization.authorization_url,
+      "set-cookie": authorization.pkce_cookie, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
   } catch {
     return htmlPage("GitHub接続を完了できません",
       "<p>接続linkが期限切れ、使用済み、またはAppのrepository権限が条件を満たしません。チャットで新しい接続linkを作成してください。</p>", 400);
+  }
+}
+
+async function handleGithubOAuthCallback(request, env) {
+  if (request.method !== "GET") return htmlPage("GitHub接続", "<p>このcallbackはGETのみ受け付けます。</p>", 405);
+  if (!env.DB || !githubAppOAuthConfigured(env)) return htmlPage("GitHub接続を確認できません",
+    "<p>GPU Control側のGitHub App設定がまだ完了していません。</p>", 503);
+  const url = new URL(request.url);
+  const finish = (response) => {
+    response.headers.set("set-cookie", "__Host-gpu-control-oauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax");
+    response.headers.set("cache-control", "no-store");
+    response.headers.set("referrer-policy", "no-referrer");
+    return response;
+  };
+  const callback = new URL(env.GITHUB_APP_OAUTH_CALLBACK_URL);
+  if (`${url.origin}${url.pathname}` !== `${callback.origin}${callback.pathname}`) {
+    return finish(htmlPage("GitHub接続を完了できません", "<p>接続先URLが設定と一致しません。</p>", 400));
+  }
+  if (url.searchParams.has("error")) return finish(htmlPage("GitHub接続をキャンセルしました",
+    "<p>チャットへ戻り、必要なら新しいGitHub接続linkを作成してください。</p>", 400));
+  const state = url.searchParams.get("state") || "";
+  const code = url.searchParams.get("code") || "";
+  const cookie = request.headers.get("cookie") || "";
+  const cookieValue = cookie.split(";").map((item) => item.trim())
+    .find((item) => item.startsWith("__Host-gpu-control-oauth="))?.slice("__Host-gpu-control-oauth=".length) || "";
+  const [cookieState, codeVerifier, ...extra] = cookieValue.split(".");
+  if (!/^[a-f0-9]{64}$/.test(state) || cookieState !== state || extra.length !== 0 ||
+      !/^[A-Za-z0-9._~-]{43,128}$/.test(codeVerifier || "")) {
+    return finish(htmlPage("GitHub接続を完了できません",
+      "<p>本人確認stateまたはPKCE verifierを確認できません。新しい接続linkを作成してください。</p>", 400));
+  }
+  try {
+    const userToken = await exchangeGithubOAuthCode(env, code, codeVerifier);
+    const connected = await completeGithubInstallationOAuth(env.DB, state, userToken);
+    return finish(htmlPage("GitHub接続完了", `<p>${escapeHtml(connected.account_login)}の選択済みrepositoryをGPU Controlへ接続しました。</p>
+      <p>GitHub利用者本人がinstallationへアクセスできることを確認しました。短時間のuser tokenは保存せず破棄しました。</p>
+      <p>許可されたのは選択repositoryのContents readとMetadata readです。installation tokenもGPU Controlの実験コンテナへ渡しません。</p>
+      <p>チャットへ戻り、github_repositoriesで接続結果を確認できます。</p>`));
+  } catch {
+    return finish(htmlPage("GitHub接続を完了できません",
+      "<p>GitHub本人確認が期限切れ、使用済み、またはinstallationへのアクセスを確認できません。チャットで新しい接続linkを作成してください。</p>", 400));
   }
 }
 
@@ -1876,11 +1918,11 @@ async function callTool(name, args, request, env, context = null) {
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
   if (name === "github_connection_start") {
-    if (!githubAppConfigured(env)) return { schema_version: 2, status: "blocked",
+    if (!githubAppOAuthConfigured(env)) return { schema_version: 2, status: "blocked",
       human_summary: "GitHub App接続の初期設定が完了していません。GPU実験は開始していません。",
       machine_state: { configured: false }, next_allowed_actions: [], blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
     const link = await createGithubInstallationUrl(env.DB, owner, env.GITHUB_APP_SLUG);
-    return { schema_version: 2, status: "ok", human_summary: "GitHub Appの接続リンクを作成しました。リンク先でGPU Control用Appを選択リポジトリ限定でinstallしてください。",
+    return { schema_version: 2, status: "ok", human_summary: "GitHub Appの接続リンクを作成しました。選択リポジトリ限定でinstall後、GitHub利用者本人の確認を完了してください。",
       machine_state: { connected: false, authorization_url: link.authorization_url,
         expires_at: link.expires_at, requested_repository_permissions: { contents: "read", metadata: "read" },
         repository_selection: "selected" }, next_allowed_actions: ["github_connection_status"], blocking_reason: null };
@@ -1890,9 +1932,14 @@ async function callTool(name, args, request, env, context = null) {
       human_summary: "GPU Control側のGitHub App設定がまだ完了していません。管理者設定後に接続できます。",
       machine_state: { configured: false, connected: false }, next_allowed_actions: [],
       blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
-    return { schema_version: 2, status: "ok", human_summary: "GitHub repository connection state.",
-      machine_state: { configured: true, ...await githubConnectionStatus(env.DB, owner) },
-      next_allowed_actions: ["github_connection_start", "github_repositories"], blocking_reason: null };
+    const connection = await githubConnectionStatus(env.DB, owner);
+    const setupConfigured = githubAppOAuthConfigured(env);
+    return { schema_version: 2, status: "ok", human_summary: !setupConfigured && !connection.connected
+      ? "GitHub接続を開始するためのOAuth設定が未完了です。"
+      : "GitHub repository connection state.",
+      machine_state: { configured: true, setup_configured: setupConfigured, ...connection },
+      next_allowed_actions: connection.connected ? ["github_repositories", "github_connection_disconnect"]
+        : setupConfigured ? ["github_connection_start"] : [], blocking_reason: null };
   }
   if (name === "github_connection_disconnect") return { schema_version: 2, status: "ok",
     human_summary: "GPU ControlからGitHub repository connectionを削除しました。GitHub App自体のuninstallはGitHub側で行ってください。",
@@ -2550,6 +2597,7 @@ export default {
     }
     if (url.pathname === "/health" && request.method === "GET") return json({ ok: true, service: "gpu-control-sites", storage: !!env.DB });
     if (url.pathname === "/github/setup") return handleGithubSetup(request, env);
+    if (url.pathname === "/github/oauth/callback") return handleGithubOAuthCallback(request, env);
     if (url.pathname.startsWith("/runner/")) return json({ error: "NOT_FOUND" }, 404);
     if (url.pathname === "/authorize" || url.pathname === "/authorize-training") {
       try { return await handleAuthorizationRequest(request, env); }

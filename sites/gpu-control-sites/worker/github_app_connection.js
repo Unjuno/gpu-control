@@ -70,6 +70,19 @@ export function githubAppConfigured(env) {
     env.GITHUB_APP_PRIVATE_KEY.length > 0;
 }
 
+export function githubAppOAuthConfigured(env) {
+  if (!githubAppConfigured(env) || typeof env?.GITHUB_APP_CLIENT_ID !== "string" ||
+      !/^[A-Za-z0-9_.-]{1,128}$/.test(env.GITHUB_APP_CLIENT_ID) ||
+      typeof env?.GITHUB_APP_CLIENT_SECRET !== "string" ||
+      env.GITHUB_APP_CLIENT_SECRET.length < 16 || env.GITHUB_APP_CLIENT_SECRET.length > 512 ||
+      typeof env?.GITHUB_APP_OAUTH_CALLBACK_URL !== "string") return false;
+  try {
+    const callback = new URL(env.GITHUB_APP_OAUTH_CALLBACK_URL);
+    return callback.protocol === "https:" && !callback.username && !callback.password &&
+      !callback.search && !callback.hash && callback.pathname === "/github/oauth/callback";
+  } catch { return false; }
+}
+
 export async function createGithubAppJwt(env, now = Math.floor(Date.now() / 1000)) {
   if (!githubAppConfigured(env) || !Number.isSafeInteger(now)) throw new Error("GITHUB_APP_NOT_CONFIGURED");
   const header = base64Url(utf8(JSON.stringify({ alg: "RS256", typ: "JWT" })));
@@ -94,6 +107,14 @@ async function sha256(value) {
 function randomHex(bytes = 32) {
   return [...crypto.getRandomValues(new Uint8Array(bytes))]
     .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function randomBase64Url(bytes = 32) {
+  return base64Url(crypto.getRandomValues(new Uint8Array(bytes)));
+}
+
+async function pkceChallenge(verifier) {
+  return base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(verifier))));
 }
 
 export async function createGithubInstallationUrl(db, owner, appSlug, now = Math.floor(Date.now() / 1000)) {
@@ -123,42 +144,108 @@ function validReadOnlyPermissions(value) {
     value.contents === "read" && value.metadata === "read";
 }
 
-export async function bindGithubInstallation(db, state, installationId, verifyInstallation,
-  now = Math.floor(Date.now() / 1000)) {
+export async function beginGithubInstallationOAuth(db, state, installationId, installation,
+  env, now = Math.floor(Date.now() / 1000)) {
   if (typeof state !== "string" || !/^[a-f0-9]{64}$/.test(state) || !validInstallationId(installationId) ||
-      typeof verifyInstallation !== "function" || !Number.isSafeInteger(now)) {
+      !githubAppOAuthConfigured(env) || !Number.isSafeInteger(now)) {
     throw new Error("GITHUB_CONNECTION_INVALID");
   }
-  const stateHash = await sha256(state);
-  const intent = await db.prepare(`SELECT owner_id, expires_at, consumed_at FROM github_installation_states
-    WHERE state_hash=?`).bind(stateHash).first();
-  if (!intent || intent.expires_at <= now) {
-    throw new Error("GITHUB_INSTALLATION_STATE_EXPIRED");
-  }
-  if (intent.consumed_at !== null) throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
-  const installation = await verifyInstallation(installationId);
   if (!validInstallation(installation, installationId)) throw new Error("GITHUB_INSTALLATION_SCOPE_INVALID");
-
-  // Consume the browser callback state before saving its installation binding.
-  // Competing callbacks can produce at most one successful claim.
-  const claimed = await db.prepare(`UPDATE github_installation_states SET consumed_at=?
-    WHERE state_hash=? AND owner_id=? AND consumed_at IS NULL AND expires_at>?
-    RETURNING owner_id`).bind(now, stateHash, intent.owner_id, now).first();
+  const stateHash = await sha256(state);
+  const oauthState = randomHex();
+  const verifier = randomBase64Url();
+  const claimed = await db.prepare(`UPDATE github_installation_states
+    SET oauth_state_hash=?, pending_installation_id=?, pending_account_login=?
+    WHERE state_hash=? AND consumed_at IS NULL AND expires_at>? AND oauth_state_hash IS NULL
+    RETURNING owner_id`).bind(await sha256(oauthState), installationId, installation.account.login,
+      stateHash, now).first();
   if (!claimed) throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
-  const existing = await db.prepare(`SELECT owner_id FROM github_app_installations WHERE installation_id=?`)
-    .bind(installationId).first();
-  if (existing && existing.owner_id !== intent.owner_id) throw new Error("GITHUB_INSTALLATION_ALREADY_LINKED");
-  await db.batch([
-    db.prepare(`DELETE FROM github_app_installations WHERE owner_id=?`).bind(intent.owner_id),
+  const url = new URL("https://github.com/login/oauth/authorize");
+  url.searchParams.set("client_id", env.GITHUB_APP_CLIENT_ID);
+  url.searchParams.set("redirect_uri", env.GITHUB_APP_OAUTH_CALLBACK_URL);
+  url.searchParams.set("state", oauthState);
+  url.searchParams.set("code_challenge", await pkceChallenge(verifier));
+  url.searchParams.set("code_challenge_method", "S256");
+  return { authorization_url: url.toString(),
+    pkce_cookie: `__Host-gpu-control-oauth=${oauthState}.${verifier}; Max-Age=${INSTALL_STATE_TTL_SECONDS}; Path=/; Secure; HttpOnly; SameSite=Lax` };
+}
+
+async function githubApiWithUserToken(path, token, fetchImpl) {
+  if (!path.startsWith("/user/") || path.includes("..") || typeof token !== "string" ||
+      token.length > 512 || !/^ghu_[A-Za-z0-9_]{16,508}$/.test(token)) {
+    throw new Error("GITHUB_USER_AUTHORIZATION_INVALID");
+  }
+  let response;
+  try {
+    response = await fetchImpl(`${API_ORIGIN}${path}`, { method: "GET", redirect: "error",
+      headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`,
+        "x-github-api-version": API_VERSION }, signal: AbortSignal.timeout(5_000) });
+  } catch { throw new Error("GITHUB_USER_AUTHORIZATION_FAILED"); }
+  return githubJson(response);
+}
+
+export async function exchangeGithubOAuthCode(env, code, codeVerifier, options = {}) {
+  if (!githubAppOAuthConfigured(env) || typeof code !== "string" ||
+      !/^[A-Za-z0-9._-]{1,512}$/.test(code) || typeof codeVerifier !== "string" ||
+      !/^[A-Za-z0-9._~-]{43,128}$/.test(codeVerifier)) throw new Error("GITHUB_USER_AUTHORIZATION_INVALID");
+  const fetchImpl = options.fetchImpl || fetch;
+  let response;
+  try {
+    response = await fetchImpl("https://github.com/login/oauth/access_token", { method: "POST", redirect: "error",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: env.GITHUB_APP_CLIENT_ID,
+        client_secret: env.GITHUB_APP_CLIENT_SECRET, code, redirect_uri: env.GITHUB_APP_OAUTH_CALLBACK_URL,
+        code_verifier: codeVerifier }),
+      signal: AbortSignal.timeout(5_000) });
+  } catch { throw new Error("GITHUB_USER_AUTHORIZATION_FAILED"); }
+  const result = await githubJson(response);
+  if (typeof result.access_token !== "string" || !/^ghu_[A-Za-z0-9_]{16,508}$/.test(result.access_token) ||
+      result.token_type !== "bearer" || result.scope !== "") {
+    throw new Error("GITHUB_USER_AUTHORIZATION_FAILED");
+  }
+  return result.access_token;
+}
+
+export async function completeGithubInstallationOAuth(db, oauthState, userToken, fetchImpl = fetch,
+  now = Math.floor(Date.now() / 1000)) {
+  if (typeof oauthState !== "string" || !/^[a-f0-9]{64}$/.test(oauthState) ||
+      typeof userToken !== "string" || !Number.isSafeInteger(now)) throw new Error("GITHUB_CONNECTION_INVALID");
+  const stateHash = await sha256(oauthState);
+  const intent = await db.prepare(`SELECT owner_id, pending_installation_id, pending_account_login,
+      expires_at, consumed_at FROM github_installation_states WHERE oauth_state_hash=?`)
+    .bind(stateHash).first();
+  if (!intent || intent.expires_at <= now) throw new Error("GITHUB_INSTALLATION_STATE_EXPIRED");
+  if (intent.consumed_at !== null) throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
+  if (!validInstallationId(intent.pending_installation_id)) throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
+  const access = await githubApiWithUserToken(
+    `/user/installations/${intent.pending_installation_id}/repositories?per_page=1&page=1`, userToken, fetchImpl);
+  if (!Number.isSafeInteger(access.total_count) || access.total_count < 0 || access.total_count > 500 ||
+      !Array.isArray(access.repositories) || access.repositories.length > 1) {
+    throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
+  }
+  const consumedAt = now;
+  const completionNonce = randomHex();
+  const results = await db.batch([
+    db.prepare(`UPDATE github_installation_states SET consumed_at=?, completion_nonce=?
+      WHERE oauth_state_hash=? AND pending_installation_id=? AND owner_id=?
+        AND consumed_at IS NULL AND expires_at>? RETURNING owner_id`)
+      .bind(consumedAt, completionNonce, stateHash, intent.pending_installation_id, intent.owner_id, now),
+    db.prepare(`DELETE FROM github_app_installations WHERE owner_id=(
+      SELECT owner_id FROM github_installation_states WHERE oauth_state_hash=? AND completion_nonce=?)`)
+      .bind(stateHash, completionNonce),
     db.prepare(`INSERT INTO github_app_installations
       (owner_id, installation_id, account_login, repository_selection, connected_at)
-      VALUES (?, ?, ?, 'selected', ?)
+      SELECT owner_id, pending_installation_id, pending_account_login, 'selected', ?
+      FROM github_installation_states WHERE oauth_state_hash=? AND completion_nonce=?
       ON CONFLICT(owner_id) DO UPDATE SET installation_id=excluded.installation_id,
         account_login=excluded.account_login, repository_selection=excluded.repository_selection,
         connected_at=excluded.connected_at`)
-      .bind(intent.owner_id, installationId, installation.account.login, now),
+      .bind(now, stateHash, completionNonce),
   ]);
-  return { connected: true, account_login: installation.account.login, repository_selection: "selected" };
+  if (results?.[0]?.results?.length !== 1 || (results?.[2]?.meta?.changes ?? 0) !== 1) {
+    throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
+  }
+  return { connected: true, account_login: intent.pending_account_login, repository_selection: "selected" };
 }
 
 export async function githubConnectionStatus(db, owner) {
@@ -233,7 +320,7 @@ export async function createGithubInstallationToken(env, installationId, reposit
     throw new Error("GITHUB_CONNECTION_INVALID");
   }
   const result = await appRequest(env, `/app/installations/${installationId}/access_tokens`, {
-    ...options, method: "POST", body: { repositories: [repository],
+    ...options, method: "POST", body: { repositories: [repository.split("/")[1]],
       permissions: { contents: "read", metadata: "read" } },
   });
   const expires = Date.parse(result?.expires_at);

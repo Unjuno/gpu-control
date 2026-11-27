@@ -37,7 +37,7 @@ def create_training_sandbox(plan, *, app, image, source_volume, checkpoint_volum
                   # Modal only supports GPU Sandboxes on gVisor. Keep this
                   # explicit so a future SDK default cannot select a different
                   # runtime for user-controlled source code.
-                  runtime="gvisor", gpu=plan["gpu"], cpu=2, memory=8192, timeout=runtime,
+                  runtime="gvisor", gpu=plan["gpu"], cpu=(2, 2), memory=(8192, 8192), timeout=runtime,
                   block_network=True,
                   volumes={"/source-store": source_volume.with_mount_options(sub_path=f"/{run_id}", read_only=True),
                            "/output": checkpoint_volume.with_mount_options(sub_path=f"/{run_id}")},
@@ -73,7 +73,7 @@ def create_training_stage_sandbox(plan, *, app, image, source_volume, checkpoint
         env["GPU_CONTROL_SOURCE_TOKEN"] = source_token
     return create("python", "/root/site-modal/custom_training_stage_entrypoint.py",
                   app=app, image=image, name=f"custom-training-stage-{plan['run_id']}",
-                  runtime="gvisor", cpu=1, memory=1024, timeout=300,
+                  runtime="gvisor", cpu=(1, 1), memory=(1024, 1024), timeout=300,
                   # This fixed, trusted process is the only stage that can
                   # receive a repository-scoped GitHub token. Keep its egress
                   # to the exact GitHub and PyPI hosts needed for source and

@@ -110,7 +110,7 @@ and cleanup gates. D1/R2 lifecycle data is authoritative.
 The source includes a fail-closed Sites-to-Modal-adapter transport for the
 Kaggle/Hugging Face extension and selected-repository Modal training. It is not
 enabled merely by publishing this Site. PR #70 requires forward D1 migrations
-through `0032_modal_compute_budget.sql`. Configure
+through `0033_github_installation_user_authorization.sql`. Configure
 the Site only with `PROVIDER_ADAPTER_URL` (the authenticated Modal HTTPS
 origin), `PROVIDER_ADAPTER_KEY_ID`, and secret
 `PROVIDER_ADAPTER_HMAC_KEY_B64`, plus the adapter-specific Modal proxy token
@@ -253,6 +253,14 @@ model checkpoint is too large to copy through a chat transcript.
 For a custom repository, the owner connects the GitHub App once with
 `github_connection_start`, selecting only repositories GPU Control may read.
 The App's only repository permissions are Contents read and Metadata read.
+`/github/setup` is the App Setup URL and
+`/github/oauth/callback` is its OAuth Callback URL. The Worker also requires
+the App OAuth client ID and client secret plus the exact callback URL in
+server-side secret storage. Installation IDs from the Setup URL are not treated
+as proof of user identity: GitHub user authorization must confirm the user can
+access that installation. Its short-lived token is discarded after verification.
+Migration 0033 invalidates prior GitHub installation bindings and pending setup
+states; each owner must connect once again after migration.
 `github_repositories` lists the selected repositories; `training_register`
 accepts the repository name and pins its current default-branch commit. The
 server creates the registration ID. `training_inspect` reads the manifest and

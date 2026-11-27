@@ -39,6 +39,7 @@ def stage_to_volumes(repository, commit, run_id, *, source_volume, checkpoint_vo
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("training_manifest_invalid") from exc
         entrypoint = manifest.get("entrypoint") if isinstance(manifest, dict) else None
+        python_version = manifest.get("python_version") if isinstance(manifest, dict) else None
         lock_path = manifest.get("dependencies_lock") if isinstance(manifest, dict) else None
         if (not isinstance(entrypoint, str) or not entrypoint.endswith(".py") or entrypoint.startswith("/") or
                 any(not part or part in (".", "..") or re.fullmatch(r"[A-Za-z0-9_.-]+", part) is None
@@ -54,7 +55,10 @@ def stage_to_volumes(repository, commit, run_id, *, source_volume, checkpoint_vo
                 not script_file.resolve().is_relative_to(verification.resolve())):
             raise ValueError("training_source_file_missing")
         wheelhouse = root / "wheelhouse"
-        wheels = download(lock_file, wheelhouse)
+        if python_version not in {"3.11", "3.12"}:
+            raise ValueError("training_manifest_invalid")
+        wheels = download(lock_file, wheelhouse, python_version=python_version)
+        _make_wheelhouse_readable(wheelhouse)
         source_binding = {"commit": staged["commit"],
                           "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                           "lock_sha256": hashlib.sha256(lock_file.read_bytes()).hexdigest(),
@@ -106,6 +110,7 @@ def stage_to_mounts(repository, commit, run_id, *, source_root="/source-store",
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise ValueError("training_manifest_invalid") from exc
             entrypoint = manifest.get("entrypoint") if isinstance(manifest, dict) else None
+            python_version = manifest.get("python_version") if isinstance(manifest, dict) else None
             lock_path = manifest.get("dependencies_lock") if isinstance(manifest, dict) else None
             if (not isinstance(entrypoint, str) or not entrypoint.endswith(".py") or entrypoint.startswith("/") or
                     any(not part or part in (".", "..") or re.fullmatch(r"[A-Za-z0-9_.-]+", part) is None
@@ -119,7 +124,10 @@ def stage_to_mounts(repository, commit, run_id, *, source_root="/source-store",
                     not script_file.is_file() or not lock_file.resolve().is_relative_to(verification.resolve()) or
                     not script_file.resolve().is_relative_to(verification.resolve())):
                 raise ValueError("training_source_file_missing")
-            wheels = download(lock_file, wheelhouse)
+            if python_version not in {"3.11", "3.12"}:
+                raise ValueError("training_manifest_invalid")
+            wheels = download(lock_file, wheelhouse, python_version=python_version)
+            _make_wheelhouse_readable(wheelhouse)
             binding = {"commit": staged["commit"],
                        "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                        "lock_sha256": hashlib.sha256(lock_file.read_bytes()).hexdigest(),
@@ -138,3 +146,15 @@ def stage_to_mounts(repository, commit, run_id, *, source_root="/source-store",
         shutil.rmtree(source_target, ignore_errors=True)
         shutil.rmtree(checkpoint_target, ignore_errors=True)
         raise
+
+
+def _make_wheelhouse_readable(wheelhouse):
+    """Allow the unprivileged workload UID to read only the staged wheels."""
+    wheelhouse = Path(wheelhouse)
+    if wheelhouse.is_symlink() or not wheelhouse.is_dir():
+        raise ValueError("training_wheelhouse_invalid")
+    for item in wheelhouse.iterdir():
+        if item.is_symlink() or not item.is_file() or item.suffix != ".whl":
+            raise ValueError("training_wheelhouse_invalid")
+        item.chmod(0o444)
+    wheelhouse.chmod(0o555)
