@@ -2,6 +2,12 @@
 
 ## Decision
 
+This document describes the fixed-workload provider design as previously
+verified; its provider rows are not a fresh live check. The current PR #70
+source candidate additionally implements an owner-selected repository lane for
+Modal GPU only; it remains unmerged, undispatched under parked policy, and is
+not a fifth provider. See [the selected-repository architecture](chatgpt-selected-repository-experiments.md).
+
 The current production ChatGPT path has four compute providers:
 
 1. Modal
@@ -48,12 +54,17 @@ Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
 ## Trust and persistence boundaries
 
 - Sites authenticates the ChatGPT user and enforces the owner allowlist.
-- D1 is the durable source of truth for plans, one-use confirmations, budgets,
-  run state, and opaque provider handles.
+- D1 owns the Sites-facing plan, one-use confirmation, budget reservation,
+  owner-visible run state and cleanup evidence for the fixed provider routes.
 - Modal endpoints require Modal proxy authentication plus a separate
   Sites-to-adapter HMAC with a short expiry and nonce.
-- Modal storage may be used for bounded staging or reconciliation journals, but
-  never as the authoritative run database.
+- The PR #70 owner-selected Modal path additionally keeps an atomic dispatch
+  claim and execution journal in Modal Dict, with source/checkpoint data in
+  Volumes. That journal is required for adapter-side idempotency/recovery but
+  is a second durable state store. D1 remains the owner-facing plan, budget and
+  cleanup ledger; the exact transition/reconciliation authority when the two
+  disagree remains a release-critical contract to finish and test. Do not
+  flatten this distinction into “D1 is the only run-state store.”
 - Provider credentials are separated by route and are never returned to Sites,
   ChatGPT, logs, artifacts, or model-visible responses.
 - Paid execution remains closed unless the exact plan, provider-specific budget,

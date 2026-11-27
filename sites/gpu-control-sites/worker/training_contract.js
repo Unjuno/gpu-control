@@ -206,6 +206,6 @@ export async function readPublicTrainingContract(repository, commit, fetchImpl =
       sha256: lockSha256 } : { path: manifest.dependencies_lock, state: "unavailable" },
     readiness, execution_available: readiness.ready,
     execution_blocking_reason: readiness.ready ? null :
-      readiness.missing.includes("reviewed_runtime_image_and_provider_quote")
+      readiness.missing.length === 1 && readiness.missing[0] === "reviewed_runtime_image_and_provider_quote"
         ? "CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED" : "TRAINING_MANIFEST_OR_LOCK_INVALID" };
 }

@@ -2,6 +2,22 @@
 
 Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 
+## Source and release status — 2026-11-28
+
+This file's older hosted-state notes below are historical snapshots and must
+not be used as the current Site or provider status. The current source candidate
+is PR #70 branch `codex/owner-training-workloads`; it is open and
+blocked on required review. That candidate has an owner-selected GitHub source
+to Modal GPU implementation, while `policies/repository-state.yaml` keeps
+admission disabled and the repository parked. It has not been established here
+that the candidate is merged, deployed, migrated in hosted D1, or accepted by a
+fresh ChatGPT run.
+
+Read [the repository architecture map](../../docs/architecture/repository-map.md)
+for source ownership and state authority, and
+[the refactoring backlog](../../docs/architecture/refactoring-backlog.md) for
+the product and architecture acceptance sequence.
+
 ## Current hosted state
 
 - Live URL: <https://gpu-control-sites.unjuno.chatgpt.site>.
@@ -214,7 +230,7 @@ the checkpoint size and SHA-256. `training_checkpoint` reads bounded
 base64 ranges for an authenticated client to reconstruct and verify; a typical
 model checkpoint is too large to copy through a chat transcript.
 
-## Owner-selected GitHub source (inspection only)
+## Owner-selected GitHub source (PR #70 source candidate)
 
 For a custom repository, the owner connects the GitHub App once with
 `github_connection_start`, selecting only repositories GPU Control may read.
@@ -225,12 +241,22 @@ server creates the registration ID. `training_inspect` reads the manifest and
 lockfile at that immutable commit with a short-lived token scoped to that one
 repository. Tokens are never returned to MCP or passed to training code.
 
-This path currently stops at source inspection and returns
-`CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED`. It does not create or submit a custom
-GPU plan. Modal, RunPod, Kaggle, and Hugging Face custom-code staging,
-provider-specific budget reservation, result verification, and cleanup
-evidence still need implementation and release review. The existing registered
-workloads and fixed MAP-44M path remain separate.
+The source candidate continues through manifest inspection, preview, expiring
+plan preparation, exact ChatGPT MCP write confirmation, owner/monthly and
+per-run reservation, authenticated Modal adapter dispatch, trusted source
+staging, isolated GPU execution, bounded result retrieval and cleanup evidence.
+The source manifest contract is `.gpu-control/experiment.json`; the workload
+does not provide a Dockerfile or arbitrary shell command. The owner-selected
+custom-code route implemented by this candidate is Modal-only. Fixed RunPod,
+Kaggle and Hugging Face workloads remain distinct and do not imply support for
+arbitrary repositories on those providers.
+
+This is candidate source, not a live capability. The code may report
+`CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED` when runtime image/quote settings are
+absent; `OWNER_TRAINING_ADMISSION_ENABLED` is a separate gate. Keep admission
+off while repository mode is parked. Release requires exact-head review and
+CI, required D1 migrations, verified runtime/account limits and a fresh
+owner-authorized ChatGPT GPU lifecycle with result and cleanup evidence.
 
 For deployment, build the reviewed MAP source with
 `workloads/map-training/build.sh` and provision the private corpus and

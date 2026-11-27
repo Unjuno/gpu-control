@@ -1,5 +1,12 @@
 # ChatGPT Sites setup and operations
 
+> **Historical release note:** the hosted-state section below is a snapshot
+> from the Sites v72 release, not a current live check. For the current source
+> candidate and unverified release gates, see
+> [the release matrix](RELEASE_MATRIX.md) and
+> [architecture map](architecture/repository-map.md). Do not infer that the
+> latest Git branch is deployed.
+
 ## Supported production architecture
 
 The only ChatGPT-facing control plane is the authenticated MCP endpoint at:

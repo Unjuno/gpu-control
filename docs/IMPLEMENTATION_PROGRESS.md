@@ -4425,3 +4425,38 @@ branch and refs remain unchanged.
   external issuer. No production OAuth state is shared with the local test. No
   tunnel, OAuth grant, server, or provider action was used; keep the acceptance
   NOT RUN and `mode: parked`.
+### Architecture entropy reduction — 2026-11-28
+
+- Reconciled the product objective with current source: ordinary ChatGPT/Work
+  conversation should route an owner-authorized repository experiment to an
+  external GPU and return verified results. Fixed provider workloads and the
+  owner-selected Modal candidate are separate capabilities.
+- Added `docs/architecture/repository-map.md` with runtime/module ownership,
+  state authority, provider route matrix, technology inventory, measured large
+  files, duplicated implementation inventory, and explicit source-vs-release
+  evidence convention. Added `docs/architecture/refactoring-backlog.md` with
+  ordered completion and architecture work, decision queue, and batch record
+  template; indexed both from `docs/architecture/README.md`.
+- Corrected the selected-repository design doc and Sites README: PR #70 source
+  includes GitHub App selection, immutable pinning, strict manifest/lock
+  validation, isolated Modal staging/execution, bounded outputs and cleanup
+  tracking. It remains unmerged/unreleased, owner admission is off, and custom
+  execution is not available through RunPod/Kaggle/Hugging Face/Colab.
+- Marked prior hosted-state snapshots as historical and added the current PR #70
+  / parked-policy checkpoint to `docs/STATUS.md` and `docs/RELEASE_MATRIX.md`.
+- Fixed `training_inspect` guidance: inspection is read-only; a valid manifest
+  does not itself establish runtime availability. Its next action now points to
+  `training_preview`, which checks the current runtime/quote/admission path.
+- Security Review found one P2: an unavailable dependency lock was described
+  as verified. The response now claims lock verification only when both lock
+  presence and exact-version/hash checks pass; missing/invalid lock yields the
+  manifest/lock blocker. The integrated fixture now uses a valid SHA-256-pinned
+  lock, and the same flow separately exercises a 404 lock response.
+- Follow-up Security Review found no remaining actionable findings in the
+  owner-selected training path. This source review is separate from GitHub's
+  mandatory PR approval.
+- Validation: `npm test` passed 108/108 Worker tests and checked the generated
+  workload registry; modified Markdown local links and `git diff --check`
+  passed. These are local source checks only; the PR head must rerun exact-head
+  CI. No provider API, experiment submit, credential, admission flag,
+  deployment, or hosted migration was touched.

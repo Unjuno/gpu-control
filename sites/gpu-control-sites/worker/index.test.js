@@ -231,6 +231,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const originalFetch = globalThis.fetch;
     const requests = [];
     let installedRepo = "sample-owner/sample-model";
+    let lockUnavailable = false;
     globalThis.fetch = async (url, options) => {
       const parsed = new URL(String(url));
       requests.push({ url: parsed, options });
@@ -261,7 +262,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
           encoding: "base64", size: manifest.length, content: manifest.toString("base64") }), { status: 200 });
       }
       if (parsed.pathname === "/repos/sample-owner/sample-model/contents/requirements.lock") {
-        const lock = Buffer.from("torch==2.11.0\n");
+        if (lockUnavailable) return new Response("not found", { status: 404 });
+        const lock = Buffer.from(`torch==2.11.0 --hash=sha256:${"a".repeat(64)}\n`);
         return new Response(JSON.stringify({ type: "file", path: "requirements.lock",
           encoding: "base64", size: lock.length, content: lock.toString("base64") }), { status: 200 });
       }
@@ -283,9 +285,19 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         { registration_id: selectedRepo.machine_state.registration_id });
       assert.equal(inspection.blocking_reason, "CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED");
       assert.equal(inspection.machine_state.manifest.entrypoint, "src/train.py");
+      assert.match(inspection.human_summary, /training_preview/);
+      assert.match(inspection.human_summary, /hash-locked依存を検証/);
+      assert.deepEqual(inspection.next_allowed_actions, ["training_preview", "training_list"]);
       assert.equal(JSON.stringify(inspection).includes("single-repo-token"), false);
       assert.ok(requests.some((entry) => entry.url.pathname.endsWith("/contents/.gpu-control/experiment.json") &&
         entry.options.headers.authorization === "Bearer single-repo-token"));
+      lockUnavailable = true;
+      const missingLock = await call("selected-owner", "training_inspect",
+        { registration_id: selectedRepo.machine_state.registration_id });
+      assert.equal(missingLock.blocking_reason, "TRAINING_MANIFEST_OR_LOCK_INVALID");
+      assert.equal(missingLock.machine_state.dependency_lock.state, "unavailable");
+      assert.match(missingLock.human_summary, /依存lockは見つからないか取得・検証できませんでした/);
+      assert.doesNotMatch(missingLock.human_summary, /hash-locked依存を検証しました/);
       installedRepo = "sample-owner/another-repository";
       assert.equal((await call("selected-owner", "training_register",
         { repository: "sample-owner/not-selected" })).error, "GITHUB_REPOSITORY_NOT_SELECTED");

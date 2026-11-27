@@ -1,6 +1,9 @@
 # ChatGPT-Selected Repository Experiments
 
-Status: implementation target; current product does not yet satisfy this design.
+Status: target architecture with a partial source implementation in PR #70.
+That PR is open and blocked on required review; owner-selected admission remains
+disabled by repository policy. Do not describe this candidate as deployed or
+available in ordinary ChatGPT yet.
 
 ## Product outcome
 
@@ -12,47 +15,57 @@ results. The owner should not need to pre-register every repository as a
 control-plane workload or visit a separate browser authorization page for
 every run. A user-configured provider budget lease bounds repeated runs.
 
-## Verified current gap
+## Verified boundary in the current source candidate
 
-- The GitHub connector can access repositories as the connected GitHub login.
-  That OAuth credential is not passed to the GPU Control Sites Worker.
-- Sites separately authenticates an allowlisted Sites owner through
-  `oai-authenticated-user-id`.
-- `training_register` stores any syntactically valid GitHub owner/repository
-  and commit for that Sites owner. Registration does not prove GitHub access or
-  make the source runnable.
-- Training preview and dispatch currently require the configured
-  `unjuno/model-as-a-paper` commit and its dedicated Modal image/function.
-- `training_prepare` returns `/authorize-training`; the page records a
-  single-use confirmation for one exact plan. This is the current MAP-specific
-  paid-run flow, not the desired general repository workflow.
-- Existing workload tools and providers are separately constrained by the
-  checked-in parked policy and provider-specific admission gates.
+- GPU Control uses its own read-only GitHub App installation selection. The
+  ChatGPT GitHub connector's OAuth token is not passed to the Sites Worker.
+  A repository must be selected in the owner's GitHub App installation.
+- `training_register` resolves and pins the default-branch SHA when omitted;
+  custom private-source reads use a short-lived installation token scoped to
+  that selected repository. Registration alone does not authorize compute.
+- `training_inspect`/`training_preview` validate
+  `.gpu-control/experiment.json`, a hash-locked dependency file, supported GPU
+  profile, configured runtime image and quote. `training_prepare` stores an
+  exact expiring plan; `training_submit` rechecks it, binds the ChatGPT write
+  confirmation, reserves the owner/monthly and single-run limit, then delegates
+  to the Modal adapter.
+- The candidate includes a trusted source-staging sandbox and a separate
+  isolated Modal GPU Sandbox. The workload receives no GitHub/provider token,
+  uses the manifest-declared Python entrypoint, and returns bounded metrics,
+  checkpoints/artifacts and cleanup evidence.
+- This owner-selected implementation currently targets Modal only. The fixed
+  RunPod, Kaggle and Hugging Face paths do not mean those providers can execute
+  arbitrary owner-selected repositories. Colab is also not connected to the
+  shared lifecycle.
+- `policies/repository-state.yaml` keeps owner-selected admission disabled and
+  repository mode parked. PR #70 has not been merged or deployed as of this
+  snapshot; hosted tool schema, migrations, credentials, account limits and an
+  end-to-end ChatGPT GPU run still need separate release verification.
 
-Therefore a connected GitHub login alone cannot authorize the Sites Worker to
-clone a private repository, and repository registration must not be described
-as general execution support.
+## Implementation evidence in PR #70 source
 
-## Implementation evidence on this branch
-
-- `training_register` now resolves the default-branch commit for a public
-  repository when the agent omits `commit`, then stores the immutable SHA.
-- The lookup rejects private/not-found sources, archived repositories,
-  malformed branch metadata, oversized responses, redirects, and rate limits.
-- This removes manual SHA entry for public repositories; it does not grant
-  private-repository access, prove that a public repository is in the
-  connected GitHub account, or make a non-MAP repository executable.
-- Focused Sites Worker tests cover branch-to-SHA resolution and the fail-closed
-  metadata cases. End-to-end chat execution remains unimplemented.
+- The implementation surface is `worker/github_app_connection.js`,
+  `training_source.js`, `training_contract.js`, `training_plan.js`, the
+  `training_*` D1 migrations, and `modal/custom_training_*.py`.
+- The source contract is JSON at `.gpu-control/experiment.json`, not the YAML
+  alternative described in older target text below. It limits entrypoint,
+  Python version, GPU profile, output paths and hash-locked dependencies.
+- The API surface supplies owner-scoped connection, repository listing,
+  registration, inspection, preview, prepare, submit, status, cancel and
+  bounded artifact/checkpoint tools. Ordinary-chat usability still needs a
+  fresh published ChatGPT/Work end-to-end acceptance.
+- The implementation is more than source inspection but less than a released
+  capability. Its policy and admission gates remain closed.
 
 ## Target architecture
 
 ### 1. Repository discovery and source identity
 
-Use the user's connected GitHub integration to list/select repositories and
-resolve the chosen branch to a 40-character commit. Pass only the canonical
-`owner/repository` and immutable commit to GPU Control. Do not try to copy the
-GitHub connector's bearer token into chat, tool arguments, logs, or the runner.
+Use GPU Control's GitHub App tools to list/select repositories and resolve the
+chosen branch to a 40-character commit. The ordinary GitHub connector login is
+not a credential source for the Sites Worker. Pass only the selected canonical
+`owner/repository` and immutable commit to later plan steps. Never copy a
+GitHub bearer token into chat, tool arguments, logs or the runner.
 
 For private repositories, add a GitHub App installation flow scoped to
 explicitly selected repositories with read-only Contents and Metadata access.
@@ -63,15 +76,13 @@ can use unauthenticated, pinned GitHub archive fetches.
 
 ### 2. Repository-owned experiment contract
 
-At the selected commit, read a versioned `.gpu-control/experiment.yaml` (or
-equivalent declared project contract). It declares supported task types,
-entrypoint, parameter schema, data references, output paths, and resource
-requirements. The agent may inspect repository files and recommend parameters,
-but does not invent an unrestricted shell command, image, network policy, or
-provider credential. Unknown fields, executable hooks outside the declared
-contract, and unpinned dependencies fail closed. A future explicit advanced
-mode may support custom commands only inside the same isolated runtime and
-must still bind the command to the immutable selected commit and limits.
+At the selected commit, read the current versioned
+`.gpu-control/experiment.json` contract. It declares task, entrypoint, locked
+dependencies, Python version, GPU profiles and output paths. The agent does
+not invent an unrestricted shell command, image, network policy or provider
+credential. Unknown fields and unpinned dependencies fail closed. Keep this
+small declared Python protocol as the initial supported product; adding a
+general command language would widen both complexity and attack surface.
 
 ### 3. Isolated execution
 

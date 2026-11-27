@@ -1,5 +1,33 @@
 # Project status
 
+## Source/release checkpoint — 2026-11-28
+
+- The current source candidate is PR #70 branch
+  `codex/owner-training-workloads`.
+  GitHub reports the PR open, required review outstanding, merge blocked. CI
+  passed on parent head `479e185` before this architecture/tool-response
+  batch; exact-head CI must run again after these changes. Neither result makes
+  the branch deployed.
+- The candidate implements owner-selected GitHub source selection, immutable
+  commit registration, strict `.gpu-control/experiment.json` and lock checks,
+  a fixed Modal staging/runtime image, isolated custom training Sandbox,
+  bounded outputs, and cleanup-aware owner history. It is a Modal-only
+  owner-selected candidate; RunPod/Kaggle/Hugging Face custom-repository
+  execution is not implied by their fixed-workload routes.
+- `policies/repository-state.yaml` remains `mode: parked` and explicitly keeps
+  owner-selected GPU admission disabled. No current claim is made that PR #70
+  has been merged, deployed, migrated in hosted D1, or accepted in a new
+  ordinary ChatGPT run.
+- The D1 source tree includes migration `0031_training_cleanup_confirmation.sql`;
+  the deployed D1 migration level has not been re-verified for this checkpoint.
+- For module ownership, duplicated contracts, state authority and the next
+  refactoring batches, see [the repository architecture map](architecture/repository-map.md)
+  and [the prioritized backlog](architecture/refactoring-backlog.md).
+
+The dated entries below are historical snapshots. Their deployment versions,
+provider configuration, costs and readiness must not be treated as current
+without a fresh live check.
+
 ## Sites v46 four-provider control plane — 2026-11-21
 
 - Production Sites v46 deployed successfully at

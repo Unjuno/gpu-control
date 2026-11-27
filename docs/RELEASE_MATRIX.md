@@ -1,12 +1,28 @@
 # Current release matrix — ChatGPT Sites + D1
 
-Live state last refreshed 2026-11-22. The product path has exactly four compute
+Live state in the table below was last refreshed 2026-11-22. It is historical
+and does not describe current deployment state. The current source candidate
+and its release boundary are recorded separately below. The product path has exactly four compute
 providers: Modal, RunPod, Kaggle and Hugging Face. Railway, Vercel, Neon, an
 external PostgreSQL database and a separately hosted Gateway are not runtime
 dependencies.
 
 Passing tests or publishing a Site proves only that layer. Provider acceptance
 requires an owner-confirmed real run, terminal result validation and cleanup.
+
+## Current source candidate — 2026-11-28
+
+| Gate | Current evidence | Release meaning |
+| --- | --- | --- |
+| Source | PR #70 branch `codex/owner-training-workloads` | Open; candidate changes are not merged or deployed. |
+| GitHub review | Required review outstanding; merge state `BLOCKED` | Do not bypass; review exact head after any material source change. |
+| CI | Seven required checks passed on parent head `479e185` before this documentation/tool-guidance batch | Source-level checks only; rerun exact-head checks for the updated PR head. |
+| Security review | One P2 lock-verification wording issue fixed; follow-up review found no remaining actionable findings | Read-only source review; GitHub-required PR approval is still outstanding. |
+| Owner-selected repository code | Implemented in candidate for a Modal runtime | Admission remains disabled; not a live user capability. |
+| Policy | `policies/repository-state.yaml` says `parked` | No paid/external compute admission is implied. |
+| Hosted Site and D1 | Not refreshed in this checkpoint | Deployment version and applied migration must be checked live before release claims. |
+
+The architecture map lives in [docs/architecture/repository-map.md](architecture/repository-map.md).
 
 | Gate | Current state | Evidence and remaining work |
 | --- | --- | --- |

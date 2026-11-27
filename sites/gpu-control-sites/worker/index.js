@@ -2041,9 +2041,13 @@ async function callTool(name, args, request, env, context = null) {
         machine_state: { ...source, manifest_path: ".gpu-control/experiment.json", manifest_state: "unavailable" },
         next_allowed_actions: ["training_list"], blocking_reason: reason };
     }
+    const dependencyLockVerified = inspected.readiness?.checks?.dependency_lock_present_at_commit === true &&
+      inspected.readiness?.checks?.dependency_lock_has_exact_versions_and_hashes === true;
     return { schema_version: 2, status: "blocked",
-      human_summary: "固定commitの実験manifestを確認しました。実行基盤・依存環境の検証・成果物回収・cleanup証明が未接続のため、まだ実験は開始できません。",
-      machine_state: { ...source, ...inspected }, next_allowed_actions: ["training_list"],
+      human_summary: dependencyLockVerified
+        ? "固定commitの実験manifestとhash-locked依存を検証しました。training_inspectは実験を開始しません。実行イメージ、GPU料金、runtime上限を含む現在の実行可否はtraining_previewで確認してください。"
+        : "固定commitの実験manifestを検証しましたが、依存lockは見つからないか取得・検証できませんでした。実験は開始していません。ソースを修正した後にtraining_inspectを再実行してください。",
+      machine_state: { ...source, ...inspected }, next_allowed_actions: ["training_preview", "training_list"],
       blocking_reason: inspected.execution_blocking_reason };
   }
   if (name === "training_register") {

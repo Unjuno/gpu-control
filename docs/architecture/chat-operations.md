@@ -35,6 +35,14 @@ flowchart LR
 - **Provider adapters:** provider-specific authentication and API calls. They receive only an exact, owner-bound approved plan; they return bounded observations and evidence. They never become a second user-facing orchestrator.
 - **Artifact stores:** keep large bytes outside D1. Plans retain the immutable parent run, repo, revision, path, size, and digest needed to re-read and verify the exact artifact.
 
+The previous D1 ownership statement describes the fixed Sites provider routes.
+The PR #70 owner-selected Modal adapter also keeps a Modal Dict dispatch claim
+and run journal for exactly-once recovery. D1 owns the owner-facing plan,
+reservation and cleanup confirmation; Modal Dict owns the adapter's dispatch
+claim/provider handle/observed result. Their disagreement and reconciliation
+rules are still backlog item A3 and must be resolved before calling this lane
+operational.
+
 ## Lifecycle contract
 
 `experiment_list` is read-only and owner-scoped; it supports workload/provider/state filters and cursor pages. It reports preparation, submission uncertainty, running/terminal state, result availability, cleanup state, last observation, and immutable parent reference without returning raw logs or cleanup receipts.
@@ -64,3 +72,29 @@ Adding a provider requires an adapter contract, a registry entry, owner-scoped d
 7. Cross-owner reads return no metadata; tool logs/artifacts cannot trigger another action; CPU evidence is never presented as GPU evidence.
 
 The release check must distinguish code merged to the GitHub PR, the Sites version published, D1 migrations applied, and the tool contract visible in both a new ChatGPT chat and Codex. A successful build or preview alone does not prove the chat tool contract is current. This change does not publish the Site or start an experiment.
+
+## Owner-selected repository lifecycle
+
+The fixed workload lifecycle above is not the only user path. For a user-owned
+repository, the current candidate exposes a separate sequence:
+
+1. Connect once through the owner's read-only GitHub App installation and list
+   selected repositories.
+2. Register the repository. The server pins its current default-branch commit
+   if the user did not supply one; the user never has to invent a registration
+   ID because the tool response returns it.
+3. Inspect/preview the commit's `.gpu-control/experiment.json` and hash-locked
+   dependencies. `training_preview` checks the current runtime image, GPU,
+   quote, runtime and budget. Inspection alone does not establish that the
+   route is executable.
+4. Prepare the exact bounded plan, then invoke the destructive `training_submit`
+   with the returned plan. The current user request supplies intent; the
+   ChatGPT client's write confirmation remains a distinct UI boundary.
+5. Recover or monitor the same run, retrieve bounded result/artifact data and
+   verify provider terminal state and cleanup before declaring completion.
+
+In PR #70 source, that custom-code route uses Modal only. It is not merged or
+deployed in the current checkpoint, and parked policy keeps admission off.
+Fixed RunPod/Kaggle/Hugging Face routes remain separate. Google Colab is not
+integrated with this lifecycle. See [the selected-repository design](chatgpt-selected-repository-experiments.md)
+and [current source map](repository-map.md).
