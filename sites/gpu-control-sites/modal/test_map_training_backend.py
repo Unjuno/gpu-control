@@ -146,7 +146,8 @@ def test_cancel_request_is_retained_until_provider_reports_terminal():
         "state": "running", "call_id": "fc-abcdefgh",
     }})
     cancellations = []
-    observations = iter([{"state": "running"}, {"state": "cancelled"}])
+    observations = iter([{"state": "running"},
+                         {"state": "cancelled", "cleanup_state": "confirmed"}])
 
     def cancel(call_id):
         cancellations.append(call_id)
