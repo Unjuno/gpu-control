@@ -4609,3 +4609,23 @@ branch and refs remain unchanged.
   profile conformance cases cover both JavaScript and Python bounds. Tests cover
   connected-owner discovery, ready custom source inspection, and a prepared
   plan that withholds submit when the adapter is missing.
+
+### Deployed ChatGPT capability observation — 2026-11-28
+
+- Read the connected GPU Control ChatGPT MCP `experiment_capabilities` tool.
+  It reports Modal CPU enabled, RunPod's fixed canary enabled, and Kaggle plus
+  Hugging Face ZeroGPU enabled. Modal GPU canary is configured but disabled;
+  RunPod explicitly reports `registered_workload_only`; `paid_execution` is
+  `parked`. The deployed response has no `machine_state.owner_selected_training`
+  readiness projection.
+- The connected plugin exposes `training_*` tool definitions, but that alone
+  does not establish the newer PR #70 owner-selected path. A fresh capability
+  call did not show custom repository routing, so ordinary ChatGPT cannot yet
+  be claimed to run arbitrary owner-selected code through GPU Control. Its
+  current `training_register` description still requests an exact commit;
+  PR #70 source permits repository-only registration and pins the default
+  branch commit server-side.
+- This was a read-only capabilities call. It did not request provider health,
+  prepare or submit a run, enable admission, or start GPU work. The control
+  function itself may be billed separately. PR #70 remains open and the latest
+  source head is not the deployed Site.

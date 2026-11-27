@@ -5,6 +5,16 @@ That PR is open and blocked on required review; owner-selected admission remains
 disabled by repository policy. Do not describe this candidate as deployed or
 available in ordinary ChatGPT yet.
 
+Live MCP capability observation on 2026-11-28 confirms the currently connected
+Site still advertises only fixed workloads. It reports RunPod as
+`registered_workload_only` and has no
+`machine_state.owner_selected_training` projection. The presence of
+`training_*` tools in the plugin does not prove that the PR #70 source path is
+published or usable; the deployed `training_register` tool description still
+asks for an exact commit, while PR #70 resolves it server-side when omitted.
+No provider health, prepare, submit or GPU work was requested during that
+read-only check.
+
 ## Product outcome
 
 From an ordinary ChatGPT chat or Work conversation, the owner can select a
