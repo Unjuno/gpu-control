@@ -4574,7 +4574,16 @@ branch and refs remain unchanged.
   fallback, and that registration IDs are carried internally by the agent.
 - Added current next actions based on GitHub App configuration and connection.
   `training_preview` remains authoritative for source-specific runtime, quote,
-  and budget readiness; capabilities do not probe providers or start compute.
+  and budget readiness; capabilities do not probe provider health or start a
+  GPU experiment. The authenticated Modal adapter control-function call may be
+  billed separately.
+- Extended the adapter capability response with owner-selected runtime profile
+  and admission readiness. Sites now requires both Sites and adapter profile,
+  admission, and authenticated repository connection before advertising the
+  lane as ready to prepare. Sites and the adapter compare a canonical runtime,
+  quote and control-plane fingerprint. The fingerprint is stripped from the
+  ChatGPT-facing response; profile IDs, rates, and credentials do not cross to
+  the agent.
 - Tightened prepare/status so `training_submit` is advertised only when both
   the applicable admission switch and provider adapter configuration are
   present. A parked or unconfigured path now returns a concrete blocker rather
@@ -4583,13 +4592,20 @@ branch and refs remain unchanged.
   to both inspection and preview. A valid manifest/lock with a configured
   runtime now reports inspection ready; missing runtime stays an explicit
   blocker instead of an unconditional stale message.
-- Security Review of this exact source diff found no actionable finding;
-  submit still independently rechecks admission and adapter readiness.
+- Independent Security Review found that adapter drift could consume an
+  authorization and reserve monthly budget before the adapter rejected submit.
+  Owner-selected submit now performs a read-only adapter capability preflight
+  and exact profile parity check before authorization consumption and
+  reservation; regression cases verify closed admission and mismatched profile
+  leave both untouched. This control call may incur its own function charge
+  but starts no GPU workload. Follow-up review found no remaining actionable
+  finding in the changed slice.
 - Updated the architecture map/backlog to record this as a chat-first product
   contract and keep release state separate. No provider, credential, admission,
   deployment, or hosted database state was changed.
-- Validation: Sites Worker architecture check passed (16 modules), all 108
-  Worker tests passed, artifact build and validation passed, and `git diff
-  --check` passed. Tests cover connected-owner discovery, ready custom source
-  inspection, and a prepared plan that correctly withholds submit when the
-  adapter is missing.
+- Validation: Sites Worker architecture check passed (16 modules), all 109
+  Worker tests passed, the targeted Modal custom-plan/adapter tests passed,
+  artifact build and validation passed, and `git diff --check` passed. Shared
+  profile conformance cases cover both JavaScript and Python bounds. Tests cover
+  connected-owner discovery, ready custom source inspection, and a prepared
+  plan that withholds submit when the adapter is missing.

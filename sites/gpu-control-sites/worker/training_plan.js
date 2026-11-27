@@ -1,6 +1,6 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource, MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./training_authorization.js";
-import { readPublicTrainingContract } from "./training_contract.js";
+import { readPublicTrainingContract, trainingRuntimeProfileFingerprint } from "./training_contract.js";
 
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -32,15 +32,17 @@ export function ownerTrainingExecutionConfig(env) {
     staging_hourly_microusd: Number(env.OWNER_TRAINING_STAGING_HOURLY_MICROUSD),
     quote_expires_at: Number(env.OWNER_TRAINING_QUOTE_EXPIRES_AT),
     max_runtime_seconds: Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS),
-    monthly_microusd: Number(env.OWNER_TRAINING_MONTHLY_MICROUSD) };
+    max_cost_microusd: Number(env.OWNER_TRAINING_MAX_COST_MICROUSD),
+    monthly_microusd: Number(env.OWNER_TRAINING_MONTHLY_MICROUSD),
+    control_plane_sha: env.MAP_TRAINING_CONTROL_PLANE_SHA };
 }
 
 async function previewOwnerTrainingPlan(env, owner, args, source, getSourceToken) {
   const config = ownerTrainingExecutionConfig(env);
   const { image_id: imageId, hourly_microusd: rate, staging_hourly_microusd: stagingRate,
-    quote_expires_at: quoteExpires, max_runtime_seconds: maxRuntime, monthly_microusd: monthly } = config;
-  const maxCost = Number(env.OWNER_TRAINING_MAX_COST_MICROUSD);
-  const controlPlaneSha = env.MAP_TRAINING_CONTROL_PLANE_SHA;
+    quote_expires_at: quoteExpires, max_runtime_seconds: maxRuntime, max_cost_microusd: maxCost,
+    monthly_microusd: monthly } = config;
+  const controlPlaneSha = config.control_plane_sha;
   let contract;
   try {
     const token = await getSourceToken(source.repository);
@@ -421,6 +423,34 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       : JSON.stringify(value);
   if (current.status !== "ok" || canonicalForPreview(currentPlan) !== canonicalForPreview(plan)) {
     throw new Error("TRAINING_PLAN_EXPIRED");
+  }
+  if (ownerSelected) {
+    // Recheck the adapter-owned execution gates immediately before reserving
+    // monthly budget or consuming the one-use authorization. Capabilities are
+    // read-only; they do not start a provider workload.
+    let adapterReadiness;
+    try {
+      const capabilities = await delegate(env, owner, "experiment_capabilities", {});
+      adapterReadiness = capabilities?.machine_state?.owner_selected_training;
+    } catch {
+      adapterReadiness = null;
+    }
+    const profileFingerprint = await trainingRuntimeProfileFingerprint(ownerTrainingExecutionConfig(env));
+    if (!adapterReadiness || adapterReadiness.profile_configured !== true ||
+        adapterReadiness.control_plane_configured !== true ||
+        adapterReadiness.admission_enabled !== true ||
+        adapterReadiness.profile_fingerprint !== profileFingerprint) {
+      const adapterGatesOpen = adapterReadiness?.profile_configured === true &&
+        adapterReadiness?.control_plane_configured === true && adapterReadiness?.admission_enabled === true;
+      const profileMismatch = Boolean(adapterGatesOpen && profileFingerprint &&
+        adapterReadiness.profile_fingerprint !== profileFingerprint);
+      return { schema_version: 2, status: "blocked",
+        human_summary: "Modalアダプターの実行設定を確認できないか、Sites側と一致しません。予算予約と実験開始は行っていません。",
+        machine_state: { run_id: runId, adapter_readiness_available: Boolean(adapterReadiness) },
+        next_allowed_actions: ["experiment_capabilities", "training_status"],
+        blocking_reason: profileMismatch ? "OWNER_TRAINING_ADAPTER_PROFILE_MISMATCH"
+          : adapterReadiness?.blocker || "OWNER_TRAINING_ADAPTER_READINESS_UNAVAILABLE" };
+    }
   }
   const now = Math.floor(Date.now() / 1000);
   let authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);

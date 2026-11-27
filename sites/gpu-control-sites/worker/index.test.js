@@ -3,6 +3,8 @@ import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_aut
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { getOwnedTrainingSource, resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
+import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
+  trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash, generateKeyPairSync } from "node:crypto";
@@ -229,10 +231,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       (owner_id, installation_id, account_login, repository_selection, connected_at)
       VALUES (?, ?, ?, 'selected', ?)`).run("selected-owner", "98765", "sample-owner", 1);
     const ownerCapabilities = await call("selected-owner", "experiment_capabilities", {});
-    assert.equal(ownerCapabilities.owner_selected_training.github_app_configured, true);
-    assert.equal(ownerCapabilities.owner_selected_training.github_connected, true);
-    assert.equal(ownerCapabilities.owner_selected_training.blocker, "PROVIDER_ADAPTER_NOT_CONFIGURED");
-    assert.deepEqual(ownerCapabilities.owner_selected_training.next_actions,
+    assert.equal(ownerCapabilities.machine_state.owner_selected_training.github_app_configured, true);
+    assert.equal(ownerCapabilities.machine_state.owner_selected_training.github_connected, true);
+    assert.equal(ownerCapabilities.machine_state.owner_selected_training.blocker, "PROVIDER_ADAPTER_NOT_CONFIGURED");
+    assert.deepEqual(ownerCapabilities.machine_state.owner_selected_training.next_actions,
       ["github_repositories", "training_register", "training_inspect", "training_preview", "training_list"]);
     const originalFetch = globalThis.fetch;
     const requests = [];
@@ -329,6 +331,47 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       assert.equal(customPlan.approved_plan.execution_kind, "owner_selected_python");
       assert.equal(customPlan.machine_state.executable, false);
       assert.ok(!customPlan.next_allowed_actions.includes("training_submit"));
+      const adapterProfileFingerprint = await trainingRuntimeProfileFingerprint({
+        image_id: env.OWNER_TRAINING_RUNTIME_IMAGE_ID,
+        hourly_microusd: Number(env.OWNER_TRAINING_HOURLY_MICROUSD),
+        staging_hourly_microusd: Number(env.OWNER_TRAINING_STAGING_HOURLY_MICROUSD),
+        quote_expires_at: Number(env.OWNER_TRAINING_QUOTE_EXPIRES_AT),
+        max_runtime_seconds: Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS),
+        max_cost_microusd: Number(env.OWNER_TRAINING_MAX_COST_MICROUSD),
+        monthly_microusd: Number(env.OWNER_TRAINING_MONTHLY_MICROUSD),
+        control_plane_sha: env.MAP_TRAINING_CONTROL_PLANE_SHA,
+      });
+      const preflightBlocked = await submitTrainingPlan(env, "selected-owner", {
+        run_id: customPlan.machine_state.run_id,
+        plan_fingerprint: customPlan.machine_state.plan_fingerprint,
+        approved_plan: customPlan.approved_plan,
+      }, async (_env, _owner, tool) => {
+        assert.equal(tool, "experiment_capabilities");
+        return { machine_state: { owner_selected_training: {
+          profile_configured: true, control_plane_configured: true,
+          admission_enabled: false, profile_fingerprint: adapterProfileFingerprint,
+          blocker: "OWNER_TRAINING_ADMISSION_DISABLED",
+        } } };
+      }, () => true, async () => "single-repo-token");
+      assert.equal(preflightBlocked.blocking_reason, "OWNER_TRAINING_ADMISSION_DISABLED");
+      assert.equal(preflightBlocked.machine_state.adapter_readiness_available, true);
+      assert.equal(db.prepare("SELECT dispatch_claimed_at FROM training_plans WHERE id=?")
+        .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=?")
+        .get(customPlan.machine_state.run_id).count, 0);
+      const profileMismatch = await submitTrainingPlan(env, "selected-owner", {
+        run_id: customPlan.machine_state.run_id,
+        plan_fingerprint: customPlan.machine_state.plan_fingerprint,
+        approved_plan: customPlan.approved_plan,
+      }, async () => ({ machine_state: { owner_selected_training: {
+        profile_configured: true, control_plane_configured: true, admission_enabled: true,
+        profile_fingerprint: "0".repeat(64),
+      } } }), () => true, async () => "single-repo-token");
+      assert.equal(profileMismatch.blocking_reason, "OWNER_TRAINING_ADAPTER_PROFILE_MISMATCH");
+      assert.equal(db.prepare("SELECT dispatch_claimed_at FROM training_plans WHERE id=?")
+        .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=?")
+        .get(customPlan.machine_state.run_id).count, 0);
       const blockedStatus = await call("selected-owner", "training_status",
         { run_id: customPlan.machine_state.run_id });
       assert.equal(blockedStatus.blocking_reason, "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED");
@@ -1168,7 +1211,7 @@ test("read-only capabilities do not call Modal", async () => {
     assert.equal(result.machine_state.provider_configured, true);
     assert.deepEqual(result.machine_state.provider_health_checks, { configured: true, deferred_until_authorized_submit: true });
     assert.equal(result.machine_state.available, true);
-    assert.deepEqual(result.owner_selected_training, {
+    assert.deepEqual(result.machine_state.owner_selected_training, {
       execution_kind: "owner_selected_python",
       compute_provider: "modal_gpu",
       repository_access: "authenticated_owner_selected_github_repositories",
@@ -1179,8 +1222,15 @@ test("read-only capabilities do not call Modal", async () => {
       github_app_configured: false,
       github_connected: false,
       adapter_configured: false,
+      site_profile_configured: false,
+      site_control_plane_configured: false,
       admission_enabled: false,
-      admission_path_enabled: false,
+      adapter_readiness_available: false,
+      adapter_profile_configured: false,
+      adapter_control_plane_configured: false,
+      adapter_admission_enabled: false,
+      adapter_profile_matches: false,
+      ready_to_prepare: false,
       paid_fallback_allowed: false,
       next_actions: ["github_connection_status"],
       blocker: "GITHUB_APP_NOT_CONFIGURED",
@@ -1204,6 +1254,18 @@ test("read-only capabilities do not call Modal", async () => {
   }
 });
 
+test("owner runtime profile validation and fingerprint match the shared cross-runtime contract", async () => {
+  const contract = JSON.parse(readFileSync(new URL("../contracts/owner-training-profile-cases.json", import.meta.url), "utf8"));
+  assert.equal(contract.schema_version, 1);
+  for (const item of contract.cases) {
+    assert.equal(trainingRuntimeProfileConfigured(item.config, contract.now), item.profile_configured, item.name);
+  }
+  assert.equal(await trainingRuntimeProfileFingerprint(contract.cases[0].config, contract.now),
+    contract.expected_fingerprint);
+  assert.equal(trainingControlPlaneConfigured("1".repeat(40)), true);
+  assert.equal(trainingControlPlaneConfigured("bad"), false);
+});
+
 test("capabilities exposes all provider routes and enables only configured routes", async () => {
   const env = environment();
   env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
@@ -1216,7 +1278,10 @@ test("capabilities exposes all provider routes and enables only configured route
     globalThis.fetch = async () => new Response(JSON.stringify({
       schema_version: 2, status: "ok", human_summary: "Configured.",
       next_allowed_actions: ["experiment_prepare"], blocking_reason: null,
-      machine_state: { providers: [
+      machine_state: { owner_selected_training: { profile_configured: true, control_plane_configured: true,
+        admission_enabled: false,
+        profile_fingerprint: "9".repeat(64),
+        ready: false, blocker: "OWNER_TRAINING_ADMISSION_DISABLED" }, providers: [
         { id: "kaggle", configured: true, paid_fallback: false },
         { id: "huggingface_space", configured: false, paid_fallback: false },
         { id: "modal_gpu", configured: true, paid_fallback: false },
@@ -1232,10 +1297,16 @@ test("capabilities exposes all provider routes and enables only configured route
     assert.equal(result.providers[3].blocker, null);
     assert.equal(result.providers[4].enabled, false);
     assert.equal(result.providers[4].blocker, "FREE_PROVIDER_NOT_CONFIGURED");
-    assert.equal(result.owner_selected_training.adapter_configured, true);
-    assert.equal(result.owner_selected_training.admission_enabled, false);
-    assert.equal(result.owner_selected_training.admission_path_enabled, false);
-    assert.equal(result.owner_selected_training.blocker, "GITHUB_APP_NOT_CONFIGURED");
+    assert.equal(result.machine_state.owner_selected_training.adapter_configured, true);
+    assert.equal(result.machine_state.owner_selected_training.site_profile_configured, false);
+    assert.equal(result.machine_state.owner_selected_training.site_control_plane_configured, false);
+    assert.equal(result.machine_state.owner_selected_training.adapter_profile_configured, true);
+    assert.equal(result.machine_state.owner_selected_training.adapter_control_plane_configured, true);
+    assert.equal(result.machine_state.owner_selected_training.adapter_readiness_available, true);
+    assert.equal(result.machine_state.owner_selected_training.admission_enabled, false);
+    assert.equal(result.machine_state.owner_selected_training.ready_to_prepare, false);
+    assert.equal(result.machine_state.owner_selected_training.blocker, "GITHUB_APP_NOT_CONFIGURED");
+    assert.equal(JSON.stringify(result).includes("9".repeat(64)), false);
     assert.equal(result.workloads.find((item) => item.id === "orbitune-kaggle-100-step-v1").enabled, true);
     assert.equal(result.workloads.find((item) => item.id === "orbitune-zero-gpu-eval-v1").enabled, false);
   } finally {

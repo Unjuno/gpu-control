@@ -60,19 +60,39 @@ function validateDependencyLock(bytes) {
   return packages.size > 0;
 }
 
-function manifestReadiness(manifest, lockfile, executionConfig) {
-  const now = Math.floor(Date.now() / 1000);
-  const runtimeConfigured = executionConfig &&
+export function trainingRuntimeProfileConfigured(executionConfig, now = Math.floor(Date.now() / 1000)) {
+  return Boolean(executionConfig &&
     /^im-[A-Za-z0-9]{8,128}$/.test(executionConfig.image_id || "") &&
     Number.isSafeInteger(executionConfig.hourly_microusd) && executionConfig.hourly_microusd > 0 &&
+    executionConfig.hourly_microusd <= 1_000_000_000 &&
     Number.isSafeInteger(executionConfig.staging_hourly_microusd) &&
     executionConfig.staging_hourly_microusd > 0 && executionConfig.staging_hourly_microusd <= 1_000_000_000 &&
     Number.isSafeInteger(executionConfig.quote_expires_at) && executionConfig.quote_expires_at > now &&
     executionConfig.quote_expires_at <= now + 30 * 86400 &&
     Number.isSafeInteger(executionConfig.max_runtime_seconds) && executionConfig.max_runtime_seconds >= 120 &&
     executionConfig.max_runtime_seconds <= 3000 &&
+    Number.isSafeInteger(executionConfig.max_cost_microusd) && executionConfig.max_cost_microusd >= 1 &&
+    executionConfig.max_cost_microusd <= 1_000_000 &&
     Number.isSafeInteger(executionConfig.monthly_microusd) && executionConfig.monthly_microusd > 0 &&
-    executionConfig.monthly_microusd <= 30_000_000;
+    executionConfig.monthly_microusd <= 30_000_000);
+}
+
+export async function trainingRuntimeProfileFingerprint(executionConfig, now = Math.floor(Date.now() / 1000)) {
+  if (!trainingRuntimeProfileConfigured(executionConfig, now) ||
+      !trainingControlPlaneConfigured(executionConfig.control_plane_sha)) return null;
+  const fields = ["image_id", "hourly_microusd", "staging_hourly_microusd", "quote_expires_at",
+    "max_runtime_seconds", "max_cost_microusd", "monthly_microusd", "control_plane_sha"];
+  const canonical = JSON.stringify(fields.map((field) => executionConfig[field]));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function trainingControlPlaneConfigured(controlPlaneSha) {
+  return typeof controlPlaneSha === "string" && /^[0-9a-f]{40}$/.test(controlPlaneSha);
+}
+
+function manifestReadiness(manifest, lockfile, executionConfig) {
+  const runtimeConfigured = trainingRuntimeProfileConfigured(executionConfig);
   const checks = {
     immutable_source: true,
     entrypoint: validRelativePythonPath(manifest.entrypoint),

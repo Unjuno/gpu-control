@@ -3,8 +3,75 @@
 Signature/owner binding and the atomic monthly reservation are separate caller
 responsibilities. A plan is not executable merely because it passes this check.
 """
+import hashlib
+import json
 import re
 import time
+
+
+def owner_training_profile_settings(environ):
+    """Parse adapter-owned settings once for readiness and exact-plan validation."""
+    def integer(name):
+        value = environ.get(name, "")
+        if not isinstance(value, str) or re.fullmatch(r"(?:0|[1-9][0-9]{0,11})", value) is None:
+            return None
+        return int(value)
+
+    return {"image_id": environ.get("OWNER_TRAINING_RUNTIME_IMAGE_ID", ""),
+            "hourly_microusd": integer("OWNER_TRAINING_HOURLY_MICROUSD"),
+            "staging_hourly_microusd": integer("OWNER_TRAINING_STAGING_HOURLY_MICROUSD"),
+            "quote_expires_at": integer("OWNER_TRAINING_QUOTE_EXPIRES_AT"),
+            "max_runtime_seconds": integer("OWNER_TRAINING_MAX_RUNTIME_SECONDS"),
+            "max_cost_microusd": integer("OWNER_TRAINING_MAX_COST_MICROUSD"),
+            "monthly_microusd": integer("OWNER_TRAINING_MONTHLY_MICROUSD"),
+            "control_plane_sha": environ.get("MAP_TRAINING_CONTROL_PLANE_SHA", "")}
+
+
+def owner_training_profile_status(config, *, admission_enabled, now=None):
+    """Return only coarse readiness for the runtime profile pinned by the adapter."""
+    now = int(time.time()) if now is None else now
+    def integer(value):
+        if type(value) is int:
+            return value
+        if isinstance(value, str) and re.fullmatch(r"(?:0|[1-9][0-9]{0,11})", value):
+            return int(value)
+        return None
+
+    config = config if isinstance(config, dict) else {}
+    hourly = integer(config.get("hourly_microusd"))
+    staging_hourly = integer(config.get("staging_hourly_microusd"))
+    quote_expires = integer(config.get("quote_expires_at"))
+    max_runtime = integer(config.get("max_runtime_seconds"))
+    max_cost = integer(config.get("max_cost_microusd"))
+    monthly = integer(config.get("monthly_microusd"))
+    profile_configured = (
+        isinstance(config.get("image_id"), str) and re.fullmatch(r"im-[A-Za-z0-9]{8,128}", config["image_id"]) is not None and
+        hourly is not None and 1 <= hourly <= 1_000_000_000 and
+        staging_hourly is not None and 1 <= staging_hourly <= 1_000_000_000 and
+        quote_expires is not None and now < quote_expires <= now + 30 * 86400 and
+        max_runtime is not None and 120 <= max_runtime <= 3000 and
+        max_cost is not None and 1 <= max_cost <= 1_000_000 and
+        monthly is not None and 1 <= monthly <= 30_000_000
+    )
+    admission_enabled = admission_enabled is True
+    control_plane_configured = isinstance(config.get("control_plane_sha"), str) and re.fullmatch(
+        r"[0-9a-f]{40}", config["control_plane_sha"]) is not None
+    blocker = None if profile_configured and control_plane_configured and admission_enabled else (
+        "OWNER_TRAINING_PROFILE_NOT_CONFIGURED" if not profile_configured else
+        "TRAINING_AUTHORIZATION_NOT_CONFIGURED" if not control_plane_configured else
+        "OWNER_TRAINING_ADMISSION_DISABLED")
+    profile_fingerprint = None
+    if profile_configured and control_plane_configured:
+        fields = ("image_id", "hourly_microusd", "staging_hourly_microusd", "quote_expires_at",
+                  "max_runtime_seconds", "max_cost_microusd", "monthly_microusd", "control_plane_sha")
+        canonical = json.dumps([config[field] for field in fields], separators=(",", ":"))
+        profile_fingerprint = hashlib.sha256(canonical.encode()).hexdigest()
+    return {"profile_configured": profile_configured,
+            "control_plane_configured": control_plane_configured,
+            "admission_enabled": admission_enabled,
+            "profile_fingerprint": profile_fingerprint,
+            "ready": profile_configured and control_plane_configured and admission_enabled,
+            "blocker": blocker}
 
 
 def validate_custom_command(command):

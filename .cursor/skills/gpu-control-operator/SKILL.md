@@ -28,6 +28,13 @@ Capabilities describes fixed workload routes; it does not by itself make an
 owner-selected repository executable. For a repository request, use the
 owner-selected GitHub flow below and let `training_inspect`/`training_preview`
 confirm the exact source contract and currently available provider route.
+For the owner-selected route, first require
+`machine_state.owner_selected_training.ready_to_prepare=true`. If it is false,
+follow `next_actions` to complete any one-time GitHub setup. Before preparing
+an experiment, require `ready_to_prepare=true`; if it remains false, report its
+`blocker` and stop before prepare/submit. A true value confirms the current
+Sites and adapter profile/admission gates only; inspect and preview still
+validate the chosen repository and exact plan.
 
 Use `experiment_list` to recover the owner's existing run when the user refers
 to an earlier run or when a previous response was lost. Do not create a

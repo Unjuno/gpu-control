@@ -150,6 +150,7 @@ def _service():
     from provider_runtime.kaggle_backend import KaggleBackend
     from provider_runtime.settings import ProviderSettings
     from workload_registry import WORKLOADS
+    from custom_training_plan import owner_training_profile_settings, owner_training_profile_status
 
     kaggle_token = os.environ.get("KAGGLE_API_TOKEN", "")
     hf_write = os.environ.get("HF_ARTIFACT_WRITE_TOKEN", "")
@@ -168,9 +169,12 @@ def _service():
     artifact_store = HuggingFaceArtifactStore(settings) if hf_write else None
     kaggle = KaggleBackend(settings, artifact_store=artifact_store) if kaggle_token else None
     huggingface = HuggingFaceSpaceBackend(settings) if hf_read else None
+    owner_training_config = owner_training_profile_settings(os.environ)
+    owner_training = owner_training_profile_status(owner_training_config,
+        admission_enabled=os.environ.get("OWNER_TRAINING_ADMISSION_ENABLED") == "true")
     return ProviderAdapter(kaggle, huggingface,
                            ModalGpuBackend(submission_store=submission_store),
-                           artifact_store=artifact_store)
+                           artifact_store=artifact_store, owner_training=owner_training)
 
 
 def _custom_training_backend():
@@ -245,31 +249,27 @@ def _custom_training_backend():
 
 def _dispatch_custom_training(owner, tool, arguments):
     from custom_training_lifecycle import dispatch
-    from custom_training_plan import validate_custom_plan
+    from custom_training_plan import owner_training_profile_settings, validate_custom_plan
 
     run_id = arguments.get("run_id")
     record = submission_store.get(f"custom-training:{run_id}") if isinstance(run_id, str) else None
     plan = arguments.get("plan") if tool == "training_submit" else record.get("plan") if isinstance(record, dict) else None
     if not isinstance(plan, dict):
         raise ValueError("custom_training_plan_missing")
-    image_id = os.environ.get("OWNER_TRAINING_RUNTIME_IMAGE_ID", "")
-    rate = int(os.environ.get("OWNER_TRAINING_HOURLY_MICROUSD", "0"))
-    staging_rate = int(os.environ.get("OWNER_TRAINING_STAGING_HOURLY_MICROUSD", "0"))
-    quote_expiry = int(os.environ.get("OWNER_TRAINING_QUOTE_EXPIRES_AT", "0"))
-    max_runtime = int(os.environ.get("OWNER_TRAINING_MAX_RUNTIME_SECONDS", "0"))
-    max_cost = int(os.environ.get("OWNER_TRAINING_MAX_COST_MICROUSD", "0"))
-    monthly = int(os.environ.get("OWNER_TRAINING_MONTHLY_MICROUSD", "0"))
+    profile = owner_training_profile_settings(os.environ)
 
     def validate(plan_owner, fingerprint, candidate):
         if candidate.get("execution_kind") != "owner_selected_python":
             raise ValueError("custom_training_execution_kind_invalid")
-        validate_custom_plan(candidate, image_id=image_id, hourly_microusd=rate,
-            quote_expires_at=quote_expiry, gpu=candidate.get("gpu"),
+        validate_custom_plan(candidate, image_id=profile["image_id"],
+            hourly_microusd=profile["hourly_microusd"],
+            quote_expires_at=profile["quote_expires_at"], gpu=candidate.get("gpu"),
             manifest=candidate.get("manifest"), lock_sha256=candidate.get("lock_sha256"),
-            staging_hourly_microusd=staging_rate,
-            max_runtime_seconds=max_runtime, max_cost_ceiling_microusd=max_cost,
-            monthly_microusd=monthly,
-            control_plane_sha=os.environ.get("MAP_TRAINING_CONTROL_PLANE_SHA", ""))
+            staging_hourly_microusd=profile["staging_hourly_microusd"],
+            max_runtime_seconds=profile["max_runtime_seconds"],
+            max_cost_ceiling_microusd=profile["max_cost_microusd"],
+            monthly_microusd=profile["monthly_microusd"],
+            control_plane_sha=profile["control_plane_sha"])
 
     from custom_training_tool_args import lifecycle_arguments
     custom_args = lifecycle_arguments(tool, arguments, plan=plan)

@@ -219,6 +219,14 @@ def test_external_artifact_is_read_only_through_exact_run_binding():
         })
 
 
+def test_capabilities_includes_owner_training_adapter_readiness_without_secrets():
+    readiness = {"profile_configured": True, "control_plane_configured": True, "admission_enabled": False,
+        "ready": False, "blocker": "OWNER_TRAINING_ADMISSION_DISABLED"}
+    result = ProviderAdapter(None, None, owner_training=readiness).capabilities()
+    assert result["machine_state"]["owner_selected_training"] == readiness
+    assert "image_id" not in result["machine_state"]["owner_selected_training"]
+
+
 def test_stalled_kaggle_is_blocked_without_cleanup_or_replacement():
     backend = FakeBackend("kaggle")
     backend.capture = lambda _handle: SimpleNamespace(state="running", result={

@@ -1,7 +1,10 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
-import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_plan.js";
+import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS,
+  ownerTrainingExecutionConfig } from "./training_plan.js";
 import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
+import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
+  trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { bindGithubInstallation, createGithubInstallationUrl, disconnectGithubApp, githubAppConfigured,
   createGithubInstallationToken, githubConnectionStatus, getOwnedGithubInstallation, listGithubInstallationRepositories,
   verifyGithubInstallation } from "./github_app_connection.js";
@@ -252,7 +255,7 @@ const toolDescriptions = {
   training_inspect: "Read and strictly validate .gpu-control/experiment.json and its declared hash-pinned requirements lock at the authenticated owner's registered immutable GitHub commit. Custom repositories must be selected in that owner's read-only GitHub App installation; a short-lived token is scoped to that exact repository and never returned. Read-only: never starts a job. A valid manifest is not proof that the repository is executable until the shared GPU runtime and quote are configured.",
   training_register: "Register a GitHub repository for the authenticated Sites owner. Custom repositories must first be selected in that owner's read-only GitHub App installation. If commit is omitted, the server resolves and pins the current default-branch commit; a supplied commit is verified against GitHub. For custom repositories, continue directly to training_inspect using the registration_id returned here; never ask the user to create or remember that internal ID. MAP-44M keeps its reviewed legacy lane. Registration does not start training or make a repo executable.",
 
-  experiment_capabilities: "Read registered workload and provider readiness, plus the owner-selected GitHub training path. For custom repository work, follow owner_selected_training.next_actions; the agent carries registration IDs internally and must not ask the user for one. training_preview remains authoritative for the selected commit's manifest, runtime, current quote, and budget. No health probe or compute starts here.",
+  experiment_capabilities: "Read registered workload and provider readiness, plus machine_state.owner_selected_training for the owner-selected GitHub training path. Follow its next_actions; the agent carries registration IDs internally and must not ask the user for one. training_preview remains authoritative for the selected commit's manifest, runtime, current quote, and budget. No GPU experiment or provider health probe starts here; the Modal adapter control call may incur a separate control-function charge.",
   experiment_provider_health: "Optional standalone Modal readiness diagnostic. It requires an unconsumed exact-plan authorization; normal ChatGPT runs check health inside the confirmed experiment_submit action. This creates no Sandbox, but the Modal control-function call can be billed separately from the Sandbox cost ceiling. A shared workspace cooldown and one-use plan reservation bound calls.",
   experiment_prepare: "Prepare an exact owner-bound plan for a registered workload without executing it. Preferred intent: registered workload_id, with an agent-generated idempotency_key retained and reused only when recovering that same prepare request. Never ask the user to create or remember the key. If omitted, the server accepts the call and generates a key, but a later independent retry cannot be correlated with it. The server supplies fixed repository, commit, parameters, runtime, and cost ceiling. For ZeroGPU it selects the newest owned Kaggle run with a succeeded result, confirmed cleanup, and immutable private artifact reference; optionally pass source_run_id to select a specific completed run. Existing explicit inputs using workload, repository, commit, parameters, runtime_seconds, max_cost_usd, and idempotency_key remain supported. Supported routes are bounded Modal TinyStories CPU inference, a fixed Modal T4 GPU canary, a fixed Runpod GPU canary, Kaggle Orbitune 100-step training, and private Hugging Face ZeroGPU evaluation. Kaggle and ZeroGPU remain FREE_FIRST and never fall back to a paid provider. Modal GPU preparation does not allocate a Function call, and Runpod preparation does not allocate a Pod. Returns the exact plan and cost/quota terms for review in ChatGPT; no provider token is accepted from chat. When the user's current message already instructs ChatGPT to execute this registered workload, treat that message as the conversational execution approval: continue to experiment_submit without asking the user the same question again.",
   experiment_submit: "Start one prepared registered workload after the authenticated owner has requested its execution and the exact plan matches that request. A current user instruction to execute the registered workload is sufficient conversational approval; do not ask a second conversational confirmation after prepare. The ChatGPT client may still display its native write-action approval UI. The approved plan must exactly match the stored owner-bound plan; Sites and the Modal provider adapter record a short-lived, one-use authorization that is safely reused only for transport recovery of that same run. After submit, continue status monitoring, terminal result retrieval, and required cleanup verification without asking the user to repeat the execution instruction. Kaggle and ZeroGPU never fall back to paid execution, and no provider credential is returned to chat. Modal CPU and Modal GPU have separate per-run and monthly control-plane limits in addition to the Workspace hard limit.",
@@ -1252,7 +1255,9 @@ async function capabilities(env, owner) {
   const result = {
     schema_version: 2,
     status: "ok",
-    human_summary: available ? "Modalの固定CPU・メモリ上限が有効です（1 physical core / 512 MiB、最大30秒）。実際の接続確認はplan確認後の送信時に行います。Sandbox使用料が発生し、利用可能なクレジットがあれば充当されます。" : "Modal実行経路は未設定または停止中です。登録済み実験の実行はできません。",
+    human_summary: available
+      ? "Capabilitiesを確認しました。Modal CPUは1 core / 512 MiB、最大30秒です。実際の接続確認はplan確認後に行います。Sandbox使用料は利用可能なクレジットがあれば充当されます。"
+      : "Capabilitiesを確認しました。Modal CPU routeは停止中です。他provider/workloadの可否は各enabledとblockerを参照してください。",
     machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_inflight: 1, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
     blocking_reason: available ? null : (!authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" : (!providerConfigured ? "MODAL_PROVIDER_NOT_CONFIGURED" : "CPU_WORKLOAD_ADMISSION_DISABLED")),
     providers: [
@@ -1318,8 +1323,10 @@ async function capabilities(env, owner) {
   }
   const ownerTrainingAdmission = env.OWNER_TRAINING_ADMISSION_ENABLED === "true";
   const ownerTrainingAdapterConfigured = gatewayDelegationConfigured(env);
-  const ownerTrainingPathEnabled = ownerTrainingAdmission && ownerTrainingAdapterConfigured;
-  result.owner_selected_training = {
+  const ownerTrainingSiteProfileConfigured = trainingRuntimeProfileConfigured(ownerTrainingExecutionConfig(env));
+  const ownerTrainingSiteControlPlaneConfigured = trainingControlPlaneConfigured(env.MAP_TRAINING_CONTROL_PLANE_SHA);
+  const ownerTrainingSiteProfileFingerprint = await trainingRuntimeProfileFingerprint(ownerTrainingExecutionConfig(env));
+  const ownerTrainingCapability = {
     execution_kind: "owner_selected_python",
     compute_provider: "modal_gpu",
     repository_access: "authenticated_owner_selected_github_repositories",
@@ -1330,27 +1337,66 @@ async function capabilities(env, owner) {
     github_app_configured: githubConfigured,
     github_connected: githubConnected,
     adapter_configured: ownerTrainingAdapterConfigured,
+    site_profile_configured: ownerTrainingSiteProfileConfigured,
+    site_control_plane_configured: ownerTrainingSiteControlPlaneConfigured,
     admission_enabled: ownerTrainingAdmission,
-    admission_path_enabled: ownerTrainingPathEnabled,
+    adapter_readiness_available: false,
+    adapter_profile_configured: false,
+    adapter_control_plane_configured: false,
+    adapter_admission_enabled: false,
+    adapter_profile_matches: false,
+    ready_to_prepare: false,
     paid_fallback_allowed: false,
     next_actions: !githubConfigured
       ? ["github_connection_status"]
       : !githubConnected
       ? ["github_connection_start"]
       : ["github_repositories", "training_register", "training_inspect", "training_preview",
-        ...(ownerTrainingPathEnabled ? ["training_prepare", "training_submit", "training_status", "training_artifact"] : ["training_list"])],
+        "training_list"],
     blocker: !githubConfigured ? "GITHUB_APP_NOT_CONFIGURED"
       : !githubConnected ? "GITHUB_CONNECTION_REQUIRED"
-      : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED"
-      : !ownerTrainingAdmission ? "OWNER_TRAINING_ADMISSION_DISABLED" : null,
+      : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED" : "OWNER_TRAINING_ADAPTER_READINESS_UNAVAILABLE",
   };
+  result.machine_state.owner_selected_training = ownerTrainingCapability;
   if (!gatewayDelegationConfigured(env)) {
     result.provider_adapter = { configured: false, available: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" };
     return result;
   }
   try {
     const delegated = await delegateGatewayTool(env, owner, "experiment_capabilities", {});
-    result.provider_adapter = { configured: true, available: true, capabilities: delegated };
+    const adapterOwnerTraining = delegated?.machine_state?.owner_selected_training;
+    ownerTrainingCapability.adapter_readiness_available = Boolean(adapterOwnerTraining &&
+      typeof adapterOwnerTraining === "object" && !Array.isArray(adapterOwnerTraining));
+    ownerTrainingCapability.adapter_profile_configured = adapterOwnerTraining?.profile_configured === true;
+    ownerTrainingCapability.adapter_control_plane_configured = adapterOwnerTraining?.control_plane_configured === true;
+    ownerTrainingCapability.adapter_admission_enabled = adapterOwnerTraining?.admission_enabled === true;
+    ownerTrainingCapability.adapter_profile_matches = Boolean(ownerTrainingSiteProfileFingerprint &&
+      adapterOwnerTraining?.profile_fingerprint === ownerTrainingSiteProfileFingerprint);
+    ownerTrainingCapability.ready_to_prepare = githubConfigured && githubConnected &&
+      ownerTrainingAdapterConfigured && ownerTrainingSiteProfileConfigured && ownerTrainingSiteControlPlaneConfigured &&
+      ownerTrainingAdmission && ownerTrainingCapability.adapter_profile_configured &&
+      ownerTrainingCapability.adapter_control_plane_configured && ownerTrainingCapability.adapter_admission_enabled &&
+      ownerTrainingCapability.adapter_profile_matches;
+    ownerTrainingCapability.blocker = !githubConfigured ? "GITHUB_APP_NOT_CONFIGURED"
+      : !githubConnected ? "GITHUB_CONNECTION_REQUIRED"
+      : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED"
+      : !ownerTrainingSiteProfileConfigured ? "OWNER_TRAINING_SITE_PROFILE_NOT_CONFIGURED"
+      : !ownerTrainingCapability.adapter_readiness_available ? "OWNER_TRAINING_ADAPTER_CAPABILITY_UNAVAILABLE"
+      : !ownerTrainingCapability.adapter_profile_configured ? "OWNER_TRAINING_ADAPTER_PROFILE_NOT_CONFIGURED"
+      : !ownerTrainingSiteControlPlaneConfigured || !ownerTrainingCapability.adapter_control_plane_configured
+        ? "TRAINING_AUTHORIZATION_NOT_CONFIGURED"
+      : !ownerTrainingAdmission || !ownerTrainingCapability.adapter_admission_enabled
+        ? "OWNER_TRAINING_ADMISSION_DISABLED"
+      : !ownerTrainingCapability.adapter_profile_matches ? "OWNER_TRAINING_ADAPTER_PROFILE_MISMATCH" : null;
+    const { profile_fingerprint: _profileFingerprint, ...safeAdapterOwnerTraining } = adapterOwnerTraining || {};
+    const safeDelegated = { ...delegated,
+      machine_state: { ...delegated.machine_state,
+        owner_selected_training: adapterOwnerTraining ? safeAdapterOwnerTraining : adapterOwnerTraining } };
+    result.provider_adapter = { configured: true, available: true, capabilities: safeDelegated };
+    if (ownerTrainingCapability.ready_to_prepare) {
+      ownerTrainingCapability.next_actions = ["github_repositories", "training_register", "training_inspect",
+        "training_preview", "training_prepare", "training_list"];
+    }
     const adapterProviders = Array.isArray(delegated?.machine_state?.providers)
       ? delegated.machine_state.providers : [];
     for (const providerId of ["kaggle", "huggingface_space", "modal_gpu"]) {
@@ -1367,6 +1413,7 @@ async function capabilities(env, owner) {
     }
   } catch {
     result.provider_adapter = { configured: true, available: false, blocker: "PROVIDER_ADAPTER_UNAVAILABLE" };
+    ownerTrainingCapability.blocker = "OWNER_TRAINING_ADAPTER_READINESS_UNAVAILABLE";
   }
   return result;
 }

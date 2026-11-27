@@ -166,8 +166,12 @@ GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
 status only advertise submit when both admission and the provider adapter are
 configured. Training inspection and preview share one owner-runtime config
-projection so an admitted profile is not mislabeled as disconnected. The rest
-of the worker/router decomposition remains open.
+projection so an admitted profile is not mislabeled as disconnected. Sites and
+Modal adapter readiness use the same versioned JSON conformance cases and canonical
+profile fingerprint to catch drift in independently validated runtime/quote
+bounds before owner-selected runs consume authorization or monthly budget. See
+[ADR 0003](decisions/0003-owner-training-profile-readiness.md). The rest of the
+worker/router decomposition remains open.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 

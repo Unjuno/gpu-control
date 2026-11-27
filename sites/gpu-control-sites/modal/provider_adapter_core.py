@@ -264,15 +264,21 @@ class ProviderAdapter:
     modal_gpu: Any = None
     clock: Any = time.time
     artifact_store: Any = None
+    owner_training: Mapping[str, Any] | None = None
 
     def capabilities(self) -> dict[str, Any]:
+        owner_training = dict(self.owner_training or {
+            "profile_configured": False, "admission_enabled": False,
+            "ready": False, "blocker": "OWNER_TRAINING_PROFILE_NOT_CONFIGURED",
+        })
         return _envelope(
             status="ok", summary="KaggleとHugging Faceの登録済み無料経路を確認しました。",
             state={"providers": [
                 {"id": "kaggle", "configured": self.kaggle is not None, "paid_fallback": False},
                 {"id": "huggingface_space", "configured": self.huggingface is not None, "paid_fallback": False},
                 {"id": "modal_gpu", "configured": self.modal_gpu is not None, "paid_fallback": False},
-            ], "workloads": [KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD]},
+            ], "workloads": [KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD],
+                "owner_selected_training": owner_training},
             next_actions=["experiment_prepare"],
         )
 

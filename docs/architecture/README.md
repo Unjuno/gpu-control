@@ -10,6 +10,10 @@ front end for external compute.
   state authority, duplicated concepts, and measured complexity hotspots.
 - [ADR 0001](decisions/0001-agent-centered-experiment-lifecycle.md): the
   proposed product and control-plane boundary for agent-operated experiments.
+- [ADR 0002](decisions/0002-run-state-authority.md): which system owns each
+  durable experiment fact across Sites, adapters and providers.
+- [ADR 0003](decisions/0003-owner-training-profile-readiness.md): the
+  Sites/adapter readiness parity check before preparing and reserving a run.
 - [Refactoring backlog](refactoring-backlog.md): ordered, evidence-linked
   architecture work with dependencies and acceptance conditions.
 - [Chat operations](chat-operations.md): registered workload lifecycle and

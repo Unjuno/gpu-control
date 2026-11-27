@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "now": 1800000000,
+  "expected_fingerprint": "f67f200e5e584da3827d36f470459d3317c68673964eebd9d5b870ec2991d960",
+  "cases": [
+    {
+      "name": "bounded current profile",
+      "config": {
+        "image_id": "im-Abcdefgh1234",
+        "hourly_microusd": 400000,
+        "staging_hourly_microusd": 200000,
+        "quote_expires_at": 1800000600,
+        "max_runtime_seconds": 600,
+        "max_cost_microusd": 250000,
+        "monthly_microusd": 30000000,
+        "control_plane_sha": "1111111111111111111111111111111111111111"
+      },
+      "profile_configured": true
+    },
+    {
+      "name": "expired quote",
+      "config": { "image_id": "im-Abcdefgh1234", "hourly_microusd": 400000, "staging_hourly_microusd": 200000, "quote_expires_at": 1800000000, "max_runtime_seconds": 600, "max_cost_microusd": 250000, "monthly_microusd": 30000000, "control_plane_sha": "1111111111111111111111111111111111111111" },
+      "profile_configured": false
+    },
+    {
+      "name": "runtime exceeds maximum",
+      "config": { "image_id": "im-Abcdefgh1234", "hourly_microusd": 400000, "staging_hourly_microusd": 200000, "quote_expires_at": 1800000600, "max_runtime_seconds": 3001, "max_cost_microusd": 250000, "monthly_microusd": 30000000, "control_plane_sha": "1111111111111111111111111111111111111111" },
+      "profile_configured": false
+    },
+    {
+      "name": "monthly limit exceeds product ceiling",
+      "config": { "image_id": "im-Abcdefgh1234", "hourly_microusd": 400000, "staging_hourly_microusd": 200000, "quote_expires_at": 1800000600, "max_runtime_seconds": 600, "max_cost_microusd": 250000, "monthly_microusd": 30000001, "control_plane_sha": "1111111111111111111111111111111111111111" },
+      "profile_configured": false
+    },
+    {
+      "name": "mutable image reference",
+      "config": { "image_id": "latest", "hourly_microusd": 400000, "staging_hourly_microusd": 200000, "quote_expires_at": 1800000600, "max_runtime_seconds": 600, "max_cost_microusd": 250000, "monthly_microusd": 30000000, "control_plane_sha": "1111111111111111111111111111111111111111" },
+      "profile_configured": false
+    },
+    {
+      "name": "fractional price",
+      "config": { "image_id": "im-Abcdefgh1234", "hourly_microusd": 400000.5, "staging_hourly_microusd": 200000, "quote_expires_at": 1800000600, "max_runtime_seconds": 600, "max_cost_microusd": 250000, "monthly_microusd": 30000000, "control_plane_sha": "1111111111111111111111111111111111111111" },
+      "profile_configured": false
+    },
+    {
+      "name": "hourly rate exceeds adapter ceiling",
+      "config": { "image_id": "im-Abcdefgh1234", "hourly_microusd": 1000000001, "staging_hourly_microusd": 200000, "quote_expires_at": 1800000600, "max_runtime_seconds": 600, "max_cost_microusd": 250000, "monthly_microusd": 30000000, "control_plane_sha": "1111111111111111111111111111111111111111" },
+      "profile_configured": false
+    },
+    {
+      "name": "staging rate exceeds adapter ceiling",
+      "config": { "image_id": "im-Abcdefgh1234", "hourly_microusd": 400000, "staging_hourly_microusd": 1000000001, "quote_expires_at": 1800000600, "max_runtime_seconds": 600, "max_cost_microusd": 250000, "monthly_microusd": 30000000, "control_plane_sha": "1111111111111111111111111111111111111111" },
+      "profile_configured": false
+    }
+  ]
+}
