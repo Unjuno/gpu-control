@@ -2,7 +2,7 @@
 
 **Snapshot:** 2026-11-28 (Asia/Tokyo)  
 **Source under inspection:** PR #70, `codex/owner-training-workloads`, head
-`b2c6755afdb4fbed7c0f330c38d80acbb3c59318`.
+`a9a85e2db90a54d521c649a68745e6320096f6b3`.
 **Release status:** PR #70 is open and unmerged. Seven checks passed on the
 preceding code SHA `44f21867dbd7f7066ca16bb6441cf9ea3b07edee`; the latest
 documentation-only head's seven checks are running. GitHub reports the head

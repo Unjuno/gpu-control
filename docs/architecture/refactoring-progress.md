@@ -360,14 +360,14 @@ product outcome. This invariant is recorded in ADR 0006 and governs the
 provider roadmap.
 
 **Current evidence:** PR #70 is open and unmerged at
-`b2c6755afdb4fbed7c0f330c38d80acbb3c59318`. All seven GitHub checks for the
+`a9a85e2db90a54d521c649a68745e6320096f6b3`. All seven GitHub checks for the
 preceding code SHA `44f21867dbd7f7066ca16bb6441cf9ea3b07edee` pass; exact-head
 checks for this documentation-only update are running. The candidate adds
 owner-selected source execution on Modal GPU only. RunPod remains
 fixed-workload; Kaggle and Hugging Face remain fixed registered workloads;
 Colab is not integrated. The repository remains parked, so no live
 arbitrary-source admission or deployment is implied. The PR diff is 112 files
-(+11,241/−575). Ten of 19 inline review threads were unresolved at the initial
+(+11,247/−575). Ten of 19 inline review threads were unresolved at the initial
 read; after matching each finding to current code and tests, all inline threads
 have been resolved. The PR description is synchronized with the current
 capability boundary and check state.
