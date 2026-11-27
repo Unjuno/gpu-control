@@ -18,6 +18,7 @@ assert.ok(statSync(join(root, "server/runpod_secret.js")).size > 0);
 assert.ok(statSync(join(root, "server/workload_registry.js")).size > 0);
 assert.ok(statSync(join(root, "server/training_contract.js")).size > 0);
 assert.ok(statSync(join(root, "server/training_inspection.js")).size > 0);
+assert.ok(statSync(join(root, "server/training_tools.js")).size > 0);
 const migrations = readdirSync(join(root, ".openai/drizzle"));
 assert.ok(migrations.some((name) => name.endsWith(".sql")));
 assert.ok(migrations.includes("0000_control_plane.sql"));

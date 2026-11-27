@@ -22,6 +22,7 @@ cp "$project_root/worker/training_contract.js" "$dist_root/server/training_contr
 cp "$project_root/worker/training_inspection.js" "$dist_root/server/training_inspection.js"
 cp "$project_root/worker/training_plan.js" "$dist_root/server/training_plan.js"
 cp "$project_root/worker/training_source.js" "$dist_root/server/training_source.js"
+cp "$project_root/worker/training_tools.js" "$dist_root/server/training_tools.js"
 cp "$project_root/.openai/hosting.json" "$dist_root/.openai/hosting.json"
 cp "$project_root"/drizzle/*.sql "$dist_root/.openai/drizzle/"
 

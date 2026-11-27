@@ -1,8 +1,7 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
-import { confirmTrainingCleanup, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
-import { listTrainingSources, MAP_TRAINING_REPOSITORY, parseTrainingRepository, registerTrainingSource,
-  resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
-import { inspectTrainingSource } from "./training_inspection.js";
+import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
+import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_plan.js";
+import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
 import { bindGithubInstallation, createGithubInstallationUrl, disconnectGithubApp, githubAppConfigured,
   createGithubInstallationToken, githubConnectionStatus, getOwnedGithubInstallation, listGithubInstallationRepositories,
   verifyGithubInstallation } from "./github_app_connection.js";
@@ -1959,79 +1958,9 @@ async function callTool(name, args, request, env, context = null) {
       machine_state: { account_login: connection.account_login, repositories },
       next_allowed_actions: ["training_register"], blocking_reason: null };
   }
-  if (name === "training_checkpoint") {
-    const local = await trainingPlanState(env, owner, args.run_id);
-    if (local.machine_state.state !== "dispatching") throw new Error("RESULT_NOT_READY");
-    const remote = await delegateGatewayTool(env, owner, name, {
-      ...args, plan_fingerprint: local.machine_state.plan_fingerprint,
-    });
-    if (["not_found", "uncertain", "checkpoint_not_ready"].includes(remote?.state)) throw new Error("RESULT_NOT_READY");
-    if (remote?.state !== "succeeded" || !remote.checkpoint_chunk) throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
-    return { schema_version: 2, status: "ok", human_summary: "チェックポイントの一部を取得しました。",
-      machine_state: { run_id: args.run_id, ...remote.checkpoint_chunk },
-      next_allowed_actions: remote.checkpoint_chunk.eof ? [] : ["training_checkpoint"], blocking_reason: null };
-  }
-  if (name === "training_artifact") {
-    const local = await trainingPlanState(env, owner, args.run_id);
-    if (local.machine_state.state !== "dispatching") throw new Error("RESULT_NOT_READY");
-    const remote = await delegateGatewayTool(env, owner, name, {
-      ...args, plan_fingerprint: local.machine_state.plan_fingerprint,
-    });
-    if (["not_found", "uncertain", "artifact_not_ready"].includes(remote?.state)) throw new Error("RESULT_NOT_READY");
-    if (remote?.state !== "succeeded" || !remote.artifact_chunk) throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
-    return { schema_version: 2, status: "ok", human_summary: "宣言済み成果物の一部を取得しました。",
-      machine_state: { run_id: args.run_id, ...remote.artifact_chunk },
-      next_allowed_actions: remote.artifact_chunk.eof ? [] : ["training_artifact"], blocking_reason: null };
-  }
-  if (name === "training_status" || name === "training_cancel") {
-    const local = await trainingPlanState(env, owner, args.run_id, name === "training_cancel");
-    if (local.machine_state.state !== "dispatching") return local;
-    const remote = await delegateGatewayTool(env, owner, name, {
-      run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
-    });
-    const state = remote?.state === "not_found" ? "uncertain" : remote?.state;
-    if (!["staging", "running", "cleanup_pending", "cancel_requested", "cancelled", "succeeded", "failed", "uncertain"].includes(state)) {
-      throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
-    }
-    const nextActions = ["staging", "running"].includes(state) ? ["training_status", "training_cancel"]
-      : state === "cleanup_pending" ? ["training_status"]
-      : ["cancel_requested", "uncertain"].includes(state) ? ["training_status"]
-      : state === "succeeded" || remote.failure_code === "TRAINING_RUNTIME_LIMIT" ? ["training_checkpoint"] : [];
-    if (state === "succeeded" && Array.isArray(remote.artifacts) && remote.artifacts.length > 0) {
-      nextActions.push("training_artifact");
-    }
-    const cleanupConfirmed = ["succeeded", "failed", "cancelled"].includes(state) &&
-      (remote?.cleanup_state === "confirmed" || remote?.cleanup === "confirmed");
-    if (cleanupConfirmed) await confirmTrainingCleanup(env.DB, owner, args.run_id,
-      local.machine_state.plan_fingerprint, state, "confirmed", Math.floor(Date.now() / 1000));
-    return { ...local, human_summary: "Modalの学習実行状態です。",
-      machine_state: { ...local.machine_state, ...remote, state,
-        ...(cleanupConfirmed ? { cleanup_state: "confirmed" } : {}) },
-      next_allowed_actions: nextActions };
-  }
-  if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool,
-    gatewayDelegationConfigured, (repository) => ownerGithubRepositoryToken(env, owner, repository));
-  if (name === "training_prepare") return prepareTrainingPlan(env, owner, args,
-    (repository) => ownerGithubRepositoryToken(env, owner, repository));
-  if (name === "training_preview") return previewTrainingPlan(env, owner, args,
-    (repository) => ownerGithubRepositoryToken(env, owner, repository));
-  if (name === "training_list") return listTrainingSources(env.DB, owner, env);
-  if (name === "training_inspect") return inspectTrainingSource(env, owner, args.registration_id,
-    (repository) => ownerGithubRepositoryToken(env, owner, repository));
-  if (name === "training_register") {
-    const repository = parseTrainingRepository(args.repository);
-    const isMap = repository === MAP_TRAINING_REPOSITORY;
-    let installationToken = null;
-    if (!isMap && (args.dataset !== undefined || args.run_name !== undefined || args.steps !== undefined)) {
-      return registerTrainingSource(env.DB, owner, args);
-    }
-    if (!isMap) installationToken = await ownerGithubRepositoryToken(env, owner, repository);
-    if (!isMap && args.commit !== undefined) {
-      await verifyGithubCommit(repository, args.commit, fetch, installationToken);
-    }
-    const resolver = (slug) => resolvePublicDefaultBranchCommit(slug, fetch, installationToken);
-    return registerTrainingSource(env.DB, owner, args, { resolveCommit: resolver });
-  }
+  if (isTrainingTool(name)) return handleTrainingTool(name, args, { env, owner,
+    delegate: delegateGatewayTool, isConfigured: gatewayDelegationConfigured,
+    getSourceToken: (repository) => ownerGithubRepositoryToken(env, owner, repository) });
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return capabilities(env, owner);
   if (name === "experiment_prepare") {
