@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / ".cursor" / "skills" / "gpu-control-operator" / "SKILL.md"
 REFERENCE = SKILL.with_name("reference.md")
 WORKER = ROOT / "sites" / "gpu-control-sites" / "worker" / "index.js"
+TOOL_CONTRACT = WORKER.with_name("mcp_tool_contract.js")
 RUNPOD_PLAN = WORKER.with_name("runpod_plan.js")
 WORKLOAD_REGISTRY = WORKER.parents[1] / "workloads" / "registry.json"
 
@@ -31,12 +32,12 @@ def test_gpu_control_operator_skill_is_discoverable_and_bounded() -> None:
 def test_skill_covers_the_live_mcp_lifecycle_and_registered_workloads() -> None:
     skill = SKILL.read_text(encoding="utf-8")
     reference = REFERENCE.read_text(encoding="utf-8")
-    worker = WORKER.read_text(encoding="utf-8")
+    tool_contract = TOOL_CONTRACT.read_text(encoding="utf-8")
     combined = skill + reference
     assert "agent-generated opaque `idempotency_key`" in reference
     assert "a separate later call cannot recover a key" in reference
 
-    tools = set(re.findall(r"^  (experiment_[a-z_]+): \{", worker, re.MULTILINE))
+    tools = set(re.findall(r"^  (experiment_[a-z_]+): \{", tool_contract, re.MULTILINE))
     assert tools == {
         "experiment_artifact", "experiment_cancel", "experiment_capabilities",
         "experiment_list", "experiment_prepare", "experiment_provider_health",

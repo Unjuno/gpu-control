@@ -98,6 +98,11 @@ acyclic across 18 runtime modules.
 forward migration replay, Worker build and artifact import validation passed.
 The built artifact imported successfully with all 18 runtime modules.
 
-**Status:** implementation is local; exact-head CI, push and review remain
-pending. No Site deployment, live D1 migration, provider change or experiment
-was performed.
+**Validation correction:** exact-head CI caught a Skill contract test that
+read tool names from the old `index.js` location. The test now reads the
+authoritative `mcp_tool_contract.js`; the focused test and complete Python suite
+(615 passed, 1 skipped, 5 subtests) pass locally.
+
+**Status:** implementation and test correction are local and awaiting commit/push;
+exact-head CI and review remain pending. No Site deployment, live D1 migration,
+provider change or experiment was performed.
