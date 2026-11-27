@@ -4514,8 +4514,8 @@ branch and refs remain unchanged.
   repository registration now recommends direct inspection with its returned
   internal ID, so the agent does not need a list round trip or user-supplied ID.
 - Validation: build and artifact validation passed; `npm test` passed 108/108;
-  `modal/test_custom_training_lifecycle.py` passed 7/7. Exact-head CI is
-  running for the newest router extraction. No provider execution, admission,
+  `modal/test_custom_training_lifecycle.py` passed 7/7. PR exact-head CI passed
+  7/7 on `e35f60d`. No provider execution, admission,
   credential, deployment or live state was changed.
 
 ### Agent entry-point guidance — 2026-11-28

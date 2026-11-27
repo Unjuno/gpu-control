@@ -5,9 +5,8 @@
 - The current source candidate is PR #70 branch
   `codex/owner-training-workloads`.
   GitHub reports the PR open, required review outstanding, merge blocked. CI
-  passed on parent head `479e185` before this architecture/tool-response
-  batch; exact-head CI must run again after these changes. Neither result makes
-  the branch deployed.
+  passed all seven required checks on exact head `e35f60d`. Neither result
+  makes the branch deployed. Run exact-head checks again after later commits.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit registration, strict `.gpu-control/experiment.json` and lock checks,
   a fixed Modal staging/runtime image, isolated custom training Sandbox,
@@ -23,6 +22,12 @@
 - For module ownership, duplicated contracts, state authority and the next
   refactoring batches, see [the repository architecture map](architecture/repository-map.md)
   and [the prioritized backlog](architecture/refactoring-backlog.md).
+- The current candidate includes a separate training-tool router, direct
+  register-to-inspect guidance, explicit D1/Modal/provider state authority, and
+  an operator Skill trigger for owner-selected GitHub experiments. Local Sites
+  validation passed 108/108 Worker tests, artifact build/validation passed,
+  and custom training lifecycle tests passed 7/7. The latest router extraction
+  is not covered by the earlier independent security review.
 
 The dated entries below are historical snapshots. Their deployment versions,
 provider configuration, costs and readiness must not be treated as current
