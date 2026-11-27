@@ -163,7 +163,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,769 lines and includes tool descriptions,
+- **Evidence:** `worker/index.js` is 2,564 lines and includes tool descriptions,
   authentication, owner identity, dispatch and several provider handlers;
   `training_plan.js` and RunPod modules already provide extraction seams.
 - **Work:** make `index.js` a small transport/composition root; move cohesive
@@ -177,7 +177,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 **Progress:** owner-selected source inspection/error projection now lives in
 `worker/training_inspection.js`; registration, plan, submit, status/cancel and
 bounded result routing live in `worker/training_tools.js`. The MAP repository
-slug is centralized in `training_source.js`. `index.js` is now about 2.8k lines.
+slug is centralized in `training_source.js`. `index.js` was about 2.8k lines before the A7 contract extraction; it is now 2,564 lines.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
@@ -248,12 +248,13 @@ build and artifact validation passed locally; exact-head CI is pending.
 - **Done when:** checks reject an actual known regression and give a local,
   actionable message; avoid broad lint rules with no established invariant.
 
-**Progress:** `npm test` now runs
-`scripts/check-worker-architecture.mjs`. It checks all Worker runtime modules
-for static, in-tree imports, rejects dynamic imports and entrypoint backedges,
-and fails on cycles. It currently validates 17 runtime modules. This establishes
-the Worker dependency rule only; provider/workload boundaries, Python imports,
-schema parity, and append-only migrations remain open.
+**Progress:** `npm test` runs `scripts/check-worker-architecture.mjs`, which
+uses the same static Worker import graph as packaging. It checks static in-tree
+imports, rejects dynamic imports and entrypoint backedges, and fails on cycles.
+The build copies exactly the 18 modules reachable from `index.js` and fails if
+a runtime module is orphaned. This establishes Worker dependency and packaging
+rules only; provider/workload boundaries, Python imports, schema parity, and
+append-only migrations remain open.
 
 ## Decision queue
 

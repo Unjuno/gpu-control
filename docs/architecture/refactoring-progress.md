@@ -79,3 +79,25 @@ repository-wide backlog remains open. In particular, A1's current ChatGPT
 end-to-end external-GPU acceptance, A3 lifecycle reconciliation, A4 legacy
 Gateway disposition, A6 Colab lifecycle integration, and A7–A12 architecture
 normalization and guardrails are not complete.
+
+## 2026-11-28 — A7: make the MCP contract and Worker package graph explicit
+
+**Goal:** reduce the Worker entrypoint's mixed responsibilities while ensuring
+MCP tool definitions and production packaging have one clear authority.
+
+**Changes:** moved input schemas, descriptions, output schema and MCP tool
+annotations/list generation from `worker/index.js` into
+`worker/mcp_tool_contract.js`. The entrypoint shrank from 2,769 to 2,564 lines.
+Added one static import-graph scanner shared by the architecture check and the
+build. Packaging now copies only the modules reachable from `index.js` and
+fails if any runtime module is orphaned; this prevents future domain extraction
+from silently producing an incomplete Site artifact. The dependency graph is
+acyclic across 18 runtime modules.
+
+**Local evidence:** all 114 Worker tests, generated workload registry check,
+forward migration replay, Worker build and artifact import validation passed.
+The built artifact imported successfully with all 18 runtime modules.
+
+**Status:** implementation is local; exact-head CI, push and review remain
+pending. No Site deployment, live D1 migration, provider change or experiment
+was performed.
