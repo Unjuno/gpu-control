@@ -73,6 +73,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0030_github_app_connections.sql",
         "0031_training_cleanup_confirmation.sql",
         "0032_modal_compute_budget.sql",
+        "0033_github_installation_user_authorization.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -113,10 +114,25 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     original_heartbeat = db.execute("SELECT * FROM runner_heartbeats").fetchone()
 
     for migration in migrations[1:]:
+        if migration.name == "0033_github_installation_user_authorization.sql":
+            db.execute(
+                """INSERT INTO github_installation_states
+                (state_hash, owner_id, created_at, expires_at)
+                VALUES (?, ?, ?, ?)""",
+                ("d" * 64, "owner-1", 4, 300),
+            )
+            db.execute(
+                """INSERT INTO github_app_installations
+                (owner_id, installation_id, account_login, repository_selection, connected_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                ("owner-1", "installation-1", "owner-login", "selected", 4),
+            )
         db.executescript(migration.read_text())
 
     assert {row[1] for row in db.execute("PRAGMA table_info(github_installation_states)")} == {
         "state_hash", "owner_id", "created_at", "expires_at", "consumed_at",
+        "oauth_state_hash", "pending_installation_id", "pending_account_login",
+        "completion_nonce",
     }
     assert {row[1] for row in db.execute("PRAGMA table_info(github_app_installations)")} == {
         "owner_id", "installation_id", "account_login", "repository_selection", "connected_at",
@@ -125,6 +141,8 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         row[1] for row in db.execute("PRAGMA table_info(training_plans)")
     }
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert db.execute("SELECT COUNT(*) FROM github_installation_states").fetchone() == (0,)
+    assert db.execute("SELECT COUNT(*) FROM github_app_installations").fetchone() == (0,)
 
     assert db.execute(
         "SELECT id, owner_id, idempotency_key, fingerprint, max_cost_usd FROM plans"

@@ -273,7 +273,47 @@ modules. Migration replay and artifact build/validation are to be rerun before
 this batch is committed. No provider call or production setting was changed.
 
 **Status:** source and documentation changes were committed and pushed as
-`bda7df1`. PR #70's current remote head is `bda7df1`; all seven exact-head CI
-checks remain queued. The candidate still exposes arbitrary owner-source
-execution only on Modal GPU and does not meet the multi-provider acceptance
-requirement.
+`bda7df1`; follow-up evidence was recorded in `8318cc8`. At that recorded
+snapshot, all seven exact-head CI checks were queued. The candidate still
+exposes arbitrary owner-source execution only on Modal GPU and does not meet
+the multi-provider acceptance requirement.
+
+## 2026-11-28 — A7: align migration test inventory with GitHub owner proof
+
+**Finding:** exact-head Python CI on `8318cc8` failed because the migration
+inventory test stopped at migration 0032, while the source contained migration
+0033. The failure was independent of the current Sites module rename.
+
+**Change:** added migration 0033 to the expected inventory and extended the
+forward migration test to assert its new OAuth state columns and its deliberate
+invalidation of legacy, unverified GitHub installation bindings and state.
+
+**Validation:** the focused migration test and the full Python suite pass
+locally (`615 passed, 1 skipped, 5 subtests`). No live D1 migration was run.
+
+**Status:** local changes are ready for a separate commit; a new exact-head CI
+run is pending push.
+
+## 2026-11-28 — A4: name the Sites transport after its actual provider boundary
+
+**Goal:** make the ChatGPT Sites execution path distinguishable from the
+separate legacy Gateway service, so future external-provider work has a clear
+transport boundary.
+
+**Changes:** renamed the internal Sites client module and functions from
+`gateway_delegation` / `delegateGatewayTool` to
+`provider_adapter_client` / `callProviderAdapterTool`. The client uses
+`PROVIDER_ADAPTER_*` configuration and authenticates to the Modal provider
+adapter. Existing D1 table names and `GATEWAY_DELEGATION_*` error codes remain
+because they are persisted/returned compatibility contracts. Repository and
+backlog maps now explain that distinction. The legacy Gateway itself and its
+separate callers are untouched.
+
+**Validation:** pending local Worker tests, migration replay, build, artifact
+validation and diff review. No provider, D1 production state, admission flag,
+credential or deployment was changed.
+
+**Status:** local changes are in progress and uncommitted. This cleanup does
+not alter product capabilities: arbitrary owner-source execution remains
+Modal-GPU-only on this branch, and end-to-end ChatGPT external-GPU acceptance
+is still outstanding.
