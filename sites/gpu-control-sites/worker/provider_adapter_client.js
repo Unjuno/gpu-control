@@ -10,6 +10,10 @@ const TOOL = /^(?:experiment_(?:capabilities|prepare|submit|status|result|artifa
 const PROVIDER_ADAPTER_HOSTNAME =
   "unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
 
+// GATEWAY_DELEGATION_* error codes are retained because clients and stored
+// diagnostics already consume them. This transport calls the Modal provider
+// adapter; it is separate from the legacy Gateway service.
+
 export function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
@@ -33,7 +37,7 @@ function decodeBase64(value) {
 function endpoint(env, tool) {
   if (!TOOL.test(tool)) throw new Error("GATEWAY_DELEGATION_INVALID_TOOL");
   let base;
-  try { base = new URL(env.GATEWAY_DELEGATION_URL); } catch { throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED"); }
+  try { base = new URL(env.PROVIDER_ADAPTER_URL); } catch { throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED"); }
   if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash ||
       (base.port && base.port !== "443") || base.hostname !== PROVIDER_ADAPTER_HOSTNAME ||
       (base.pathname !== "/" && base.pathname !== "")) {
@@ -84,20 +88,14 @@ async function boundedJson(response) {
   return result;
 }
 
-export function gatewayDelegationConfigured(env) {
+export function providerAdapterConfigured(env) {
   try {
-    // The provider adapter is an authenticated Modal endpoint.  Do not fall
-    // back to the old externally hosted Gateway/PostgreSQL deployment path.
-    const adapterEnv = {
-      ...env,
-      GATEWAY_DELEGATION_URL: env.PROVIDER_ADAPTER_URL,
-      GATEWAY_DELEGATION_KEY_ID: env.PROVIDER_ADAPTER_KEY_ID,
-      GATEWAY_DELEGATION_HMAC_KEY_B64: env.PROVIDER_ADAPTER_HMAC_KEY_B64,
-    };
-    endpoint(adapterEnv, "experiment_capabilities");
-    decodeBase64(adapterEnv.GATEWAY_DELEGATION_HMAC_KEY_B64);
-    return typeof adapterEnv.GATEWAY_DELEGATION_KEY_ID === "string" &&
-      /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(adapterEnv.GATEWAY_DELEGATION_KEY_ID) &&
+    // This is the authenticated Modal provider adapter, not the legacy
+    // Gateway/PostgreSQL service.
+    endpoint(env, "experiment_capabilities");
+    decodeBase64(env.PROVIDER_ADAPTER_HMAC_KEY_B64);
+    return typeof env.PROVIDER_ADAPTER_KEY_ID === "string" &&
+      /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(env.PROVIDER_ADAPTER_KEY_ID) &&
       typeof env.PROVIDER_ADAPTER_PROXY_TOKEN_ID === "string" &&
       /^wk-[A-Za-z0-9_-]{8,}$/.test(env.PROVIDER_ADAPTER_PROXY_TOKEN_ID) &&
       typeof env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET === "string" &&
@@ -105,14 +103,8 @@ export function gatewayDelegationConfigured(env) {
   } catch { return false; }
 }
 
-export async function delegateGatewayTool(env, owner, tool, argumentsValue, fetchImpl = fetch, now = null) {
-  if (!gatewayDelegationConfigured(env)) throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED");
-  const adapterEnv = {
-    ...env,
-    GATEWAY_DELEGATION_URL: env.PROVIDER_ADAPTER_URL,
-    GATEWAY_DELEGATION_KEY_ID: env.PROVIDER_ADAPTER_KEY_ID,
-    GATEWAY_DELEGATION_HMAC_KEY_B64: env.PROVIDER_ADAPTER_HMAC_KEY_B64,
-  };
+export async function callProviderAdapterTool(env, owner, tool, argumentsValue, fetchImpl = fetch, now = null) {
+  if (!providerAdapterConfigured(env)) throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED");
   if (typeof owner !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$/.test(owner) ||
       !argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) {
     throw new Error("GATEWAY_DELEGATION_INVALID_ARGUMENTS");
@@ -120,19 +112,19 @@ export async function delegateGatewayTool(env, owner, tool, argumentsValue, fetc
   const issuedAt = now === null ? Math.floor(Date.now() / 1000) : now;
   if (!Number.isSafeInteger(issuedAt) || issuedAt < 0) throw new Error("GATEWAY_DELEGATION_INVALID_ARGUMENTS");
   const payload = {
-    version: 1, key_id: adapterEnv.GATEWAY_DELEGATION_KEY_ID, owner, tool,
+    version: 1, key_id: env.PROVIDER_ADAPTER_KEY_ID, owner, tool,
     arguments: argumentsValue, nonce: randomHex(16), issued_at: issuedAt,
     expires_at: issuedAt + DELEGATION_TTL_SECONDS,
   };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetchImpl(endpoint(adapterEnv, tool), {
+    const response = await fetchImpl(endpoint(env, tool), {
       method: "POST", redirect: "manual", signal: controller.signal,
       headers: {
         "content-type": "application/json",
         "authorization": `Bearer ${env.PROVIDER_ADAPTER_PROXY_TOKEN_ID}.${env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET}`,
-        "x-gpu-control-sites-signature": await signature(payload, adapterEnv.GATEWAY_DELEGATION_HMAC_KEY_B64),
+        "x-gpu-control-sites-signature": await signature(payload, env.PROVIDER_ADAPTER_HMAC_KEY_B64),
       },
       body: canonical(payload),
     });

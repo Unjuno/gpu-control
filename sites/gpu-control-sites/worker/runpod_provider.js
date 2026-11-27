@@ -1,4 +1,4 @@
-import { delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
+import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
@@ -40,7 +40,7 @@ function jobTransport(env) {
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_ID ||
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET)
     throw new RunpodProviderError("RUNPOD_RELAY_NOT_CONFIGURED");
-  if (!gatewayDelegationConfigured(env)) throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
+  if (!providerAdapterConfigured(env)) throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
   return { origin: RUNPOD_JOB_ORIGIN, relay: true, headers: {} };
 }
 
@@ -105,7 +105,7 @@ export class RunpodV2Client {
   }
   async relayRequest(argumentsValue, expectedStatus = 200) {
     let envelope;
-    try { envelope = await delegateGatewayTool(this.env, this.owner, "runpod_queue_request", argumentsValue, this.fetchImpl); }
+    try { envelope = await callProviderAdapterTool(this.env, this.owner, "runpod_queue_request", argumentsValue, this.fetchImpl); }
     catch (error) {
       const message = typeof error?.message === "string" ? error.message : "";
       if (message === "GATEWAY_DELEGATION_TIMEOUT") throw new RunpodProviderError("RUNPOD_PROVIDER_TIMEOUT");

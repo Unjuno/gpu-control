@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
 
-import { canonical, delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
+import { canonical, callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 
 const key = Buffer.from("sites-delegation-test-key-material-32-bytes");
 const env = {
@@ -15,7 +15,7 @@ const env = {
 
 test("delegation signs the exact owner, tool, arguments and bounded validity window", async () => {
   let observed;
-  const result = await delegateGatewayTool(env, "owner-123", "experiment_capabilities", {}, async (url, init) => {
+  const result = await callProviderAdapterTool(env, "owner-123", "experiment_capabilities", {}, async (url, init) => {
     observed = { url, init, payload: JSON.parse(init.body) };
     return new Response(JSON.stringify({ schema_version: 2, status: "ok", human_summary: "ready",
       machine_state: {}, next_allowed_actions: [], blocking_reason: null }), {
@@ -35,7 +35,7 @@ test("delegation signs the exact owner, tool, arguments and bounded validity win
 });
 
 test("training artifact retrieval is an allowed delegated lifecycle tool", async () => {
-  const result = await delegateGatewayTool(env, "owner-123", "training_artifact",
+  const result = await callProviderAdapterTool(env, "owner-123", "training_artifact",
     { run_id: "a".repeat(32) }, async () => new Response(JSON.stringify({
       schema_version: 2, status: "ok", human_summary: "artifact ready",
       machine_state: {}, next_allowed_actions: [], blocking_reason: null,
@@ -44,21 +44,21 @@ test("training artifact retrieval is an allowed delegated lifecycle tool", async
 });
 
 test("configuration pins the adapter to a standard-port Modal origin", () => {
-  assert.equal(gatewayDelegationConfigured(env), true);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "http://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://u:p@unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://adapter.example" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://modal.run" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://another-tenant.modal.run" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run:444" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run/path" }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_HMAC_KEY_B64: Buffer.from("weak").toString("base64") }), false);
-  assert.equal(gatewayDelegationConfigured({ ...env, PROVIDER_ADAPTER_PROXY_TOKEN_SECRET: "bad" }), false);
+  assert.equal(providerAdapterConfigured(env), true);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_URL: "http://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run" }), false);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://u:p@unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run" }), false);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://adapter.example" }), false);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://modal.run" }), false);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://another-tenant.modal.run" }), false);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run:444" }), false);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_URL: "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run/path" }), false);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_HMAC_KEY_B64: Buffer.from("weak").toString("base64") }), false);
+  assert.equal(providerAdapterConfigured({ ...env, PROVIDER_ADAPTER_PROXY_TOKEN_SECRET: "bad" }), false);
 });
 
 test("delegation rejects an oversized response before JSON parsing", async () => {
   await assert.rejects(
-    delegateGatewayTool(env, "owner-123", "experiment_list", {}, async () => new Response("{}", {
+    callProviderAdapterTool(env, "owner-123", "experiment_list", {}, async () => new Response("{}", {
       status: 200, headers: { "content-length": "65537" },
     }), 1000),
     /GATEWAY_DELEGATION_RESPONSE_TOO_LARGE/,
@@ -67,7 +67,7 @@ test("delegation rejects an oversized response before JSON parsing", async () =>
 
 test("delegation returns only bounded stable remote error codes", async () => {
   await assert.rejects(
-    delegateGatewayTool(env, "owner-123", "experiment_list", {}, async () => new Response(
+    callProviderAdapterTool(env, "owner-123", "experiment_list", {}, async () => new Response(
       JSON.stringify({ code: "delegation_replayed", message: "provider-controlled text" }),
       { status: 409, headers: { "content-type": "application/json" } },
     ), 1000),

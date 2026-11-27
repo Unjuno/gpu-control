@@ -136,7 +136,11 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   legacy package or deployment files.
 - **Decision:** do not treat Gateway as a production deployment. Keep its three
   concerns separate: GitHub Issue bridge, provider-runtime compatibility
-  imports, and legacy Gateway service code.
+  imports, and legacy Gateway service code. The Sites transport is named
+  `provider_adapter_client.js` because it calls the authenticated Modal provider
+  adapter. Historical D1 table names and `GATEWAY_DELEGATION_*` error codes are
+  retained for compatibility; they do not imply a runtime dependency on the
+  legacy Gateway service.
 - **Work:** inventory exact app/service tests and imports; either move the
   Issue bridge to its own package or keep its narrow import with ownership
   documented. Remove or archive the legacy API/OAuth/store/queue/deploy stack

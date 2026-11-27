@@ -15,7 +15,7 @@ import { beginGithubInstallationOAuth, completeGithubInstallationOAuth, createOw
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
 import { submitRunpodExperiment, synchronizeRunpodExperiment } from "./runpod_lifecycle.js";
-import { delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
+import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
 import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, usdFromMicrousd, utcMonthKey } from "./provider_budget_policy.js";
 
@@ -959,7 +959,7 @@ async function capabilities(env, owner) {
     catch { githubConnected = false; }
   }
   const ownerTrainingAdmission = env.OWNER_TRAINING_ADMISSION_ENABLED === "true";
-  const ownerTrainingAdapterConfigured = gatewayDelegationConfigured(env);
+  const ownerTrainingAdapterConfigured = providerAdapterConfigured(env);
   const ownerTrainingConfig = ownerTrainingExecutionConfig(env);
   const ownerTrainingSiteProfileConfigured = trainingRuntimeProfileConfigured(ownerTrainingConfig);
   const ownerTrainingSiteControlPlaneConfigured = trainingControlPlaneConfigured(env.MAP_TRAINING_CONTROL_PLANE_SHA);
@@ -1011,12 +1011,12 @@ async function capabilities(env, owner) {
       : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED" : "OWNER_TRAINING_ADAPTER_READINESS_UNAVAILABLE",
   };
   result.machine_state.owner_selected_training = ownerTrainingCapability;
-  if (!gatewayDelegationConfigured(env)) {
+  if (!providerAdapterConfigured(env)) {
     result.provider_adapter = { configured: false, available: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" };
     return result;
   }
   try {
-    const delegated = await delegateGatewayTool(env, owner, "experiment_capabilities", {});
+    const delegated = await callProviderAdapterTool(env, owner, "experiment_capabilities", {});
     const adapterOwnerTraining = delegated?.machine_state?.owner_selected_training;
     ownerTrainingCapability.adapter_readiness_available = Boolean(adapterOwnerTraining &&
       typeof adapterOwnerTraining === "object" && !Array.isArray(adapterOwnerTraining));
@@ -1348,7 +1348,7 @@ async function prepareDelegatedExperiment(env, owner, args) {
     : null;
   const adapterArguments = { ...args };
   delete adapterArguments.source_run_id;
-  if (!gatewayDelegationConfigured(env)) throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED");
+  if (!providerAdapterConfigured(env)) throw new Error("GATEWAY_DELEGATION_NOT_CONFIGURED");
   // The public tool accepts equivalent zero-dollar spellings for usability,
   // but the adapter and persisted fingerprint use one canonical free value.
   // Normalize before the adapter prepares the plan so prepare and submit bind
@@ -1364,7 +1364,7 @@ async function prepareDelegatedExperiment(env, owner, args) {
       next_allowed_actions: [], blocking_reason: "MODAL_GPU_ACCOUNT_EVIDENCE_REQUIRED" };
     delegatedArgs = { ...args, provider_evidence: evidence };
   }
-  const response = await delegateGatewayTool(env, owner, "experiment_prepare", delegatedArgs);
+  const response = await callProviderAdapterTool(env, owner, "experiment_prepare", delegatedArgs);
   const state = response?.machine_state;
   const plan = response?.approved_plan;
   const runId = state?.run_id;
@@ -1557,7 +1557,7 @@ async function submitDelegatedExperiment(env, owner, args) {
       machine_state: { run_id: args.run_id, provider_policy_authorized: false, gpu_started: false },
       next_allowed_actions: ["experiment_status"], blocking_reason: "MODAL_GPU_BUDGET_RESERVATION_MISSING" };
   }
-  const response = await delegateGatewayTool(env, owner, "experiment_submit", {
+  const response = await callProviderAdapterTool(env, owner, "experiment_submit", {
     run_id: args.run_id, plan_fingerprint: args.plan_fingerprint, approved_plan: args.provider_approved_plan,
     authorization: { authorization_id: authorization.authorization_id, source: authorization.authorization_source,
       authorized_at: authorization.authorized_at, expires_at: authorization.expires_at },
@@ -1666,7 +1666,7 @@ async function maybeDelegateRunTool(env, owner, name, args) {
   }
   let response;
   try {
-    response = await delegateGatewayTool(env, owner, name, delegatedArgs);
+    response = await callProviderAdapterTool(env, owner, name, delegatedArgs);
   } catch (error) {
     if (plan.submit_attempted_at && !plan.provider_handle_json && name !== "experiment_artifact") {
       return { schema_version: 2, status: "pending",
@@ -1699,7 +1699,7 @@ async function callTool(name, args, request, env, context = null) {
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
   if (isGithubTool(name)) return handleGithubTool(name, env, owner);
   if (isTrainingTool(name)) return handleTrainingTool(name, args, { env, owner,
-    delegate: delegateGatewayTool, isConfigured: gatewayDelegationConfigured,
+    delegate: callProviderAdapterTool, isConfigured: providerAdapterConfigured,
     getSourceToken: async (repository) => (await createOwnedRepositoryReadToken(env, env.DB, owner, repository)).token });
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return capabilities(env, owner);
@@ -2254,7 +2254,7 @@ async function callTool(name, args, request, env, context = null) {
     const last = experiments.at(-1);
     const nextCursor = hasMore && last ? `${last.created_at}:${last.run_id}` : null;
     return { schema_version: 2, status: "ok", experiments, page: { limit, has_more: hasMore, next_cursor: nextCursor },
-      ...(gatewayDelegationConfigured(env) ? { provider_adapter: { configured: true } } : {}) };
+      ...(providerAdapterConfigured(env) ? { provider_adapter: { configured: true } } : {}) };
   }
   throw new Error("UNKNOWN_TOOL");
 }

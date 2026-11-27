@@ -10,7 +10,7 @@ assert.equal(manifest.d1, "DB");
 assert.equal(manifest.r2, "BUCKET");
 assert.ok(manifest.capabilities.includes("mcp"));
 assert.ok(statSync(join(root, "server/index.js")).size > 0);
-assert.ok(statSync(join(root, "server/gateway_delegation.js")).size > 0);
+assert.ok(statSync(join(root, "server/provider_adapter_client.js")).size > 0);
 assert.ok(statSync(join(root, "server/github_app_connection.js")).size > 0);
 assert.ok(statSync(join(root, "server/provider_account_lease.js")).size > 0);
 assert.ok(statSync(join(root, "server/runpod_provider.js")).size > 0);
