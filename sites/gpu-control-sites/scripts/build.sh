@@ -19,6 +19,7 @@ cp "$project_root/worker/runpod_provider.js" "$dist_root/server/runpod_provider.
 cp "$project_root/worker/runpod_secret.js" "$dist_root/server/runpod_secret.js"
 cp "$project_root/worker/training_authorization.js" "$dist_root/server/training_authorization.js"
 cp "$project_root/worker/training_contract.js" "$dist_root/server/training_contract.js"
+cp "$project_root/worker/provider_budget_policy.js" "$dist_root/server/provider_budget_policy.js"
 cp "$project_root/worker/training_inspection.js" "$dist_root/server/training_inspection.js"
 cp "$project_root/worker/training_plan.js" "$dist_root/server/training_plan.js"
 cp "$project_root/worker/training_source.js" "$dist_root/server/training_source.js"

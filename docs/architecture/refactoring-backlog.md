@@ -121,6 +121,17 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 - **Evidence:** provider policy and capability semantics appear in Sites
   JavaScript, Python control library, Gateway, registry JSON and prose. Modal
   can be both compute provider and adapter host; these roles differ.
+- **Progress (2026-11-28):** added a versioned Sites budget projection that
+  reads the same D1 provider-policy rows used by registered-route reservation. It reports the
+  seeded Modal CPU $30/month and $0.01/run, Modal GPU $1/month and $0.01/run,
+  RunPod $1/run with no product monthly cap, and zero-cost/no-fallback Kaggle
+  and Hugging Face policies. Missing or contradictory policy hides dollar
+  amounts and disables runnable capability claims. Owner-selected training
+  uses a separate dispatch ledger; its monthly/per-run limits are labeled
+  separately, and submit checks the D1 Modal GPU admission policy before
+  consuming authorization or dispatching. These ledgers are not yet a shared
+  provider-wide spend ceiling. Adapter normalization, quote freshness and
+  workload compatibility remain open.
 - **Work:** define a versioned provider/workload capability contract with
   provider identity, compute-vs-host role, task compatibility, quote/quota
   freshness, ceilings, paid/free semantics, cancellation and cleanup evidence.
@@ -239,6 +250,11 @@ schema parity, and append-only migrations remain open.
 3. Which external providers are allowed to run arbitrary owner-selected
    repository code under the strict manifest contract? PR #70 only proposes
    Modal; fixed Kaggle/HF/RunPod workloads do not imply this capability.
+4. Should Modal GPU's fixed-workload D1 reservation and owner-selected training
+   dispatch ledger be unified into one provider-wide monthly/per-run budget?
+   Current scopes are displayed separately and both admission gates remain
+   required; changing their combined spend ceiling needs an explicit budget
+   policy decision and migration design.
 
 While these decisions are open, continue documentation truth repair, module
 inventory, source-only tests and non-production refactoring. Do not enable

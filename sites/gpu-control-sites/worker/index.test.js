@@ -53,9 +53,20 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
     CPU_WORKLOAD_IMAGE_DIGEST: imageDigest,
     DB: {
       prepare(sql) {
-        const row = sql.includes("sqlite_master") ? { name: "human_authorizations" } : heartbeat;
+        const policyRows = sql.includes("FROM provider_budget_policies") ? [
+          { provider: "modal_cpu", monthly_limit_microusd: 30_000_000, per_run_limit_microusd: 10_000 },
+          { provider: "runpod_gpu", monthly_limit_microusd: null, per_run_limit_microusd: 1_000_000 },
+        ] : sql.includes("FROM provider_free_policies") ? [
+          { provider: "kaggle", max_cost_microusd: 0, paid_fallback_allowed: 0 },
+          { provider: "huggingface_space", max_cost_microusd: 0, paid_fallback_allowed: 0 },
+        ] : null;
+        const row = sql.includes("sqlite_master") ? { name: "human_authorizations" }
+          : sql.includes("FROM modal_gpu_budget_policy") ? {
+            monthly_limit_microusd: 1_000_000, per_run_limit_microusd: 10_000, admission_enabled: 0,
+          } : heartbeat;
         return {
           first: async () => row,
+          all: async () => ({ results: policyRows || [] }),
           bind(...values) {
             return {
               first: async () => row,
@@ -160,11 +171,23 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0029_training_authorization_evidence.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0031_training_cleanup_confirmation.sql", import.meta.url), "utf8"));
+    db.exec(`CREATE TABLE provider_budget_policies (
+      provider TEXT PRIMARY KEY, monthly_limit_microusd INTEGER, per_run_limit_microusd INTEGER NOT NULL);
+      INSERT INTO provider_budget_policies VALUES ('modal_cpu', 30000000, 10000), ('runpod_gpu', NULL, 1000000);
+      CREATE TABLE provider_free_policies (
+        provider TEXT PRIMARY KEY, max_cost_microusd INTEGER NOT NULL, paid_fallback_allowed INTEGER NOT NULL);
+      INSERT INTO provider_free_policies VALUES ('kaggle', 0, 0), ('huggingface_space', 0, 0);
+      CREATE TABLE modal_gpu_budget_policy (
+      scope TEXT PRIMARY KEY, monthly_limit_microusd INTEGER NOT NULL,
+      per_run_limit_microusd INTEGER NOT NULL, admission_enabled INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL);
+      INSERT INTO modal_gpu_budget_policy VALUES ('workspace', 1000000, 10000, 1, 0);`);
     const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner",
       MAP_TRAINING_CONTROL_PLANE_SHA: "e".repeat(40), DB: {
       prepare(sql) {
         const statement = db.prepare(sql);
-        return { sql, bind: (...args) => ({ sql, values: args,
+        return { sql, first: async () => statement.get(), all: async () => ({ results: statement.all() }),
+          bind: (...args) => ({ sql, values: args,
           run: async () => statement.run(...args),
           first: async () => statement.get(...args),
           all: async () => ({ results: statement.all(...args) }),
@@ -341,6 +364,34 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         monthly_microusd: Number(env.OWNER_TRAINING_MONTHLY_MICROUSD),
         control_plane_sha: env.MAP_TRAINING_CONTROL_PLANE_SHA,
       });
+      db.prepare("UPDATE modal_gpu_budget_policy SET admission_enabled=0 WHERE scope='workspace'").run();
+      const budgetPolicyBlocked = await submitTrainingPlan(env, "selected-owner", {
+        run_id: customPlan.machine_state.run_id,
+        plan_fingerprint: customPlan.machine_state.plan_fingerprint,
+        approved_plan: customPlan.approved_plan,
+      }, async () => { throw new Error("closed D1 budget policy must block before adapter preflight"); },
+      () => true, async () => "single-repo-token");
+      assert.equal(budgetPolicyBlocked.blocking_reason, "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED");
+      assert.equal(db.prepare("SELECT dispatch_claimed_at FROM training_plans WHERE id=?")
+        .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=?")
+        .get(customPlan.machine_state.run_id).count, 0);
+      db.prepare("UPDATE modal_gpu_budget_policy SET admission_enabled=1 WHERE scope='workspace'").run();
+      db.prepare("DELETE FROM modal_gpu_budget_policy WHERE scope='workspace'").run();
+      const missingBudgetPolicy = await submitTrainingPlan(env, "selected-owner", {
+        run_id: customPlan.machine_state.run_id,
+        plan_fingerprint: customPlan.machine_state.plan_fingerprint,
+        approved_plan: customPlan.approved_plan,
+      }, async () => { throw new Error("missing D1 budget policy must block before adapter preflight"); },
+      () => true, async () => "single-repo-token");
+      assert.equal(missingBudgetPolicy.blocking_reason, "PROVIDER_BUDGET_POLICY_UNAVAILABLE");
+      assert.equal(db.prepare("SELECT dispatch_claimed_at FROM training_plans WHERE id=?")
+        .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=?")
+        .get(customPlan.machine_state.run_id).count, 0);
+      db.prepare(`INSERT INTO modal_gpu_budget_policy
+        (scope, monthly_limit_microusd, per_run_limit_microusd, admission_enabled, updated_at)
+        VALUES ('workspace', 1000000, 10000, 1, 0)`).run();
       const preflightBlocked = await submitTrainingPlan(env, "selected-owner", {
         run_id: customPlan.machine_state.run_id,
         plan_fingerprint: customPlan.machine_state.plan_fingerprint,
@@ -372,6 +423,23 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
         .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
       assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=?")
         .get(customPlan.machine_state.run_id).count, 0);
+      const admissionRace = await submitTrainingPlan(env, "selected-owner", {
+        run_id: customPlan.machine_state.run_id,
+        plan_fingerprint: customPlan.machine_state.plan_fingerprint,
+        approved_plan: customPlan.approved_plan,
+      }, async () => {
+        db.prepare("UPDATE modal_gpu_budget_policy SET admission_enabled=0 WHERE scope='workspace'").run();
+        return { machine_state: { owner_selected_training: {
+          profile_configured: true, control_plane_configured: true, admission_enabled: true,
+          profile_fingerprint: adapterProfileFingerprint,
+        } } };
+      }, () => true, async () => "single-repo-token");
+      assert.equal(admissionRace.blocking_reason, "TRAINING_DISPATCH_NOT_RESERVED");
+      assert.equal(db.prepare("SELECT dispatch_claimed_at FROM training_plans WHERE id=?")
+        .get(customPlan.machine_state.run_id).dispatch_claimed_at, null);
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM training_authorizations WHERE plan_id=? AND consumed_at IS NOT NULL")
+        .get(customPlan.machine_state.run_id).count, 0);
+      db.prepare("UPDATE modal_gpu_budget_policy SET admission_enabled=1 WHERE scope='workspace'").run();
       const blockedStatus = await call("selected-owner", "training_status",
         { run_id: customPlan.machine_state.run_id });
       assert.equal(blockedStatus.blocking_reason, "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED");
@@ -1225,6 +1293,9 @@ test("read-only capabilities do not call Modal", async () => {
       site_profile_configured: false,
       site_control_plane_configured: false,
       admission_enabled: false,
+      provider_budget_policy_ready: true,
+      provider_budget_admission_enabled: false,
+      budget_policy: { state: "unavailable", provider: "modal_gpu", scope: "owner_training_dispatch_ledger" },
       adapter_readiness_available: false,
       adapter_profile_configured: false,
       adapter_control_plane_configured: false,
@@ -1243,9 +1314,11 @@ test("read-only capabilities do not call Modal", async () => {
       ["tiny-stories-inference-v1", "runpod-gpu-canary-v1", "modal-gpu-vector-add-v1",
         "orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"]);
     assert.deepEqual(result.provider_budgets.slice(3), [
-      { provider: "kaggle", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
+      { provider: "kaggle", policy_available: true, scope: "registered_free_workload_policy",
+        monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
         paid_fallback_allowed: false },
-      { provider: "huggingface_space", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
+      { provider: "huggingface_space", policy_available: true, scope: "registered_free_workload_policy",
+        monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
         paid_fallback_allowed: false },
     ]);
     assert.equal(providerCalls, 0);
@@ -1523,7 +1596,7 @@ test("capabilities reports configured Modal without a health probe while admissi
     });
     assert.equal(result.providers[0].paid, true);
     assert.equal(result.providers[0].credit_eligible, true);
-    assert.equal(result.provider_budgets[0].monthly_limit_usd, "1.00");
+    assert.equal(result.provider_budgets[0].monthly_limit_usd, "30.00");
     assert.equal(result.provider_budgets[0].per_run_limit_usd, "0.01");
     assert.equal(result.blocking_reason, "CPU_WORKLOAD_ADMISSION_DISABLED");
   } finally {

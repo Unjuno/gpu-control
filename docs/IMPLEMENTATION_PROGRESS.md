@@ -4629,3 +4629,38 @@ branch and refs remain unchanged.
   prepare or submit a run, enable admission, or start GPU work. The control
   function itself may be billed separately. PR #70 remains open and the latest
   source head is not the deployed Site.
+
+### Provider budget capability projection — 2026-11-28
+
+- Fixed a stale capability report that said Modal CPU had a $1 monthly ceiling
+  while the D1 reservation policy was $30/month. Added
+  `worker/provider_budget_policy.js` as the read-only projection over the same
+  D1 policy tables used by provider budget reservation.
+- Capabilities now reports separate Modal CPU, Modal GPU, RunPod, Kaggle and
+  Hugging Face limits from D1, and refuses to advertise a route as runnable
+  when its policy ledger is missing or contradictory. Modal GPU requires both
+  the existing environment admission switch and the D1 policy admission bit.
+  The internal adapter's nested budget projection is replaced with the Sites
+  authoritative view so a stale downstream copy is not surfaced to ChatGPT.
+- Security Review identified that owner-selected `training_submit` could bypass
+  this capability check. It now reads the D1 Modal GPU policy before authorization
+  consumption or dispatch, and stops if the policy is missing or admission is
+  disabled. Regression cases verify no training claim or authorization is
+  created in either state.
+- Follow-up review found a check-to-claim race. The owner-selected dispatch
+  `UPDATE` now includes the D1 admission row as an atomic SQL predicate, and a
+  regression case disables the policy during adapter preflight to verify the
+  dispatch claim and authorization consumption both remain absent.
+- Capabilities separately labels owner-selected training's configured monthly
+  and per-run limits as its own dispatch ledger. It does not claim this ledger
+  is a shared provider-wide spend ceiling with the fixed Modal GPU canary; A5
+  records that design decision as open rather than merging budgets implicitly.
+- A failed reservation response no longer repeats a stale monthly number.
+  Provider account configuration, admission and actual ledger state were not
+  changed; no health, prepare, submit or GPU operation was performed.
+- Follow-up independent Security Review confirmed both the D1 preflight and
+  atomic claim gates; no actionable findings remain in this changed slice.
+- Validation: `npm test` passed 112/112 Worker tests; Sites build and artifact
+  validation passed; forward migration tests passed; architecture DAG check
+  covers 17 runtime modules; `git diff --check` passed. Exact-head CI,
+  deployment and live ChatGPT acceptance are pending. Related backlog: A5.

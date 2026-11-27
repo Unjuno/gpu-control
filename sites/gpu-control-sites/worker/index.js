@@ -1,6 +1,7 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS,
+  OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD,
   ownerTrainingExecutionConfig } from "./training_plan.js";
 import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
 import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
@@ -13,6 +14,7 @@ import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUN
 import { submitRunpodExperiment, synchronizeRunpodExperiment, validRunpodApprovedPlan } from "./runpod_lifecycle.js";
 import { delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
+import { readProviderBudgetPolicy, usdFromMicrousd } from "./provider_budget_policy.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -55,7 +57,6 @@ const MODAL_SANDBOX_CPU_USD_PER_CORE_SECOND = 0.00003942;
 const MODAL_SANDBOX_MEMORY_USD_PER_GIB_SECOND = 0.00000667;
 const MODAL_SANDBOX_MEMORY_GIB = MODAL_SANDBOX_MEMORY_LIMIT_MIB / 1024;
 const MODAL_SANDBOX_COST_CEILING_USD = WORKLOADS.tiny_stories.cost_ceiling_usd;
-const MODAL_MONTHLY_BUDGET_USD = "1.00";
 const RUNPOD_PER_RUN_BUDGET_USD = WORKLOADS.runpod_canary.cost_ceiling_usd;
 const MODAL_PRICING_SOURCE = "https://modal.com/pricing";
 const MODAL_PRICING_CHECKED_AT = "2026-11-14";
@@ -78,7 +79,7 @@ const schemas = {
       repository: { type: "string", maxLength: 159 },
       commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
       runtime_seconds: { type: "integer", minimum: 120, maximum: 3000 },
-      max_cost_microusd: { type: "integer", minimum: 1, maximum: 1000000 },
+      max_cost_microusd: { type: "integer", minimum: 1, maximum: OWNER_TRAINING_MAX_COST_MICROUSD },
     }, required: [], additionalProperties: false,
   },
   training_list: { type: "object", properties: {}, additionalProperties: false },
@@ -1243,15 +1244,20 @@ async function humanAuthorizationStoreReady(env) {
 
 async function capabilities(env, owner) {
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
+  const budgetPolicy = await readProviderBudgetPolicy(env.DB);
+  const providerBudgets = budgetPolicy.provider_budgets;
+  const modalGpuBudget = providerBudgets.find((item) => item.provider === "modal_gpu");
+  const providerBudgetPolicyReady = budgetPolicy.state === "ready";
   const authorizationStoreReady = await humanAuthorizationStoreReady(env);
   const providerConfigured = modalConfigured(env);
   const runpodProviderConfigured = runpodConfigured(env);
   const runpodCompletionTransportVerified = env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED === "true";
   const runpodEnabled = env.RUNPOD_WORKLOAD_ADMISSION_ENABLED === "true" &&
-    runpodProviderConfigured && authorizationStoreReady && runpodCompletionTransportVerified;
+    runpodProviderConfigured && authorizationStoreReady && runpodCompletionTransportVerified && providerBudgetPolicyReady;
   // Capabilities is read-only. Defer the billable live health probe until submit,
   // after the exact plan's one-use human authorization has been verified.
-  const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady;
+  const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady &&
+    providerBudgetPolicyReady;
   const result = {
     schema_version: 2,
     status: "ok",
@@ -1259,7 +1265,9 @@ async function capabilities(env, owner) {
       ? "Capabilitiesを確認しました。Modal CPUは1 core / 512 MiB、最大30秒です。実際の接続確認はplan確認後に行います。Sandbox使用料は利用可能なクレジットがあれば充当されます。"
       : "Capabilitiesを確認しました。Modal CPU routeは停止中です。他provider/workloadの可否は各enabledとblockerを参照してください。",
     machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_inflight: 1, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
-    blocking_reason: available ? null : (!authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" : (!providerConfigured ? "MODAL_PROVIDER_NOT_CONFIGURED" : "CPU_WORKLOAD_ADMISSION_DISABLED")),
+    blocking_reason: available ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" :
+      !authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" :
+      !providerConfigured ? "MODAL_PROVIDER_NOT_CONFIGURED" : "CPU_WORKLOAD_ADMISSION_DISABLED"),
     providers: [
       { id: "modal_cpu", enabled: available, configured: providerConfigured, free: false, paid: true, credit_eligible: true },
       { id: "modal_gpu", enabled: false, configured: false, free: false, paid: true,
@@ -1267,7 +1275,8 @@ async function capabilities(env, owner) {
       { id: "runpod_gpu", enabled: runpodEnabled, configured: runpodProviderConfigured, free: false, paid: true,
         credit_eligible: false, gpu_count: 1, api_version: "v2", execution_interface: "registered_workload_only",
         completion_transport_verified: runpodCompletionTransportVerified,
-        blocker: runpodEnabled ? null : (!runpodProviderConfigured ? "RUNPOD_PROVIDER_NOT_CONFIGURED" :
+        blocker: runpodEnabled ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" :
+          !runpodProviderConfigured ? "RUNPOD_PROVIDER_NOT_CONFIGURED" :
           !runpodCompletionTransportVerified ? "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED" :
           "RUNPOD_WORKLOAD_ADMISSION_DISABLED") },
       { id: "kaggle", enabled: false, configured: false, free: true, paid: false,
@@ -1302,17 +1311,8 @@ async function capabilities(env, owner) {
         max_runtime_seconds: WORKLOADS.huggingface_evaluation.runtime_seconds,
         cancellation: WORKLOADS.huggingface_evaluation.cancellation, paid_fallback_allowed: false },
     ],
-    provider_budgets: [
-      { provider: "modal_cpu", monthly_limit_usd: MODAL_MONTHLY_BUDGET_USD,
-        per_run_limit_usd: MODAL_SANDBOX_COST_CEILING_USD },
-      { provider: "modal_gpu", monthly_limit_usd: "1.00", per_run_limit_usd: WORKLOADS.modal_gpu_canary.cost_ceiling_usd },
-      { provider: "runpod_gpu", monthly_limit_usd: null,
-        per_run_limit_usd: RUNPOD_PER_RUN_BUDGET_USD },
-      { provider: "kaggle", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
-        paid_fallback_allowed: false },
-      { provider: "huggingface_space", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
-        paid_fallback_allowed: false },
-    ],
+    provider_budget_policy_state: budgetPolicy.state,
+    provider_budgets: providerBudgets,
     paid_execution: "parked",
   };
   const githubConfigured = githubAppConfigured(env);
@@ -1323,9 +1323,15 @@ async function capabilities(env, owner) {
   }
   const ownerTrainingAdmission = env.OWNER_TRAINING_ADMISSION_ENABLED === "true";
   const ownerTrainingAdapterConfigured = gatewayDelegationConfigured(env);
-  const ownerTrainingSiteProfileConfigured = trainingRuntimeProfileConfigured(ownerTrainingExecutionConfig(env));
+  const ownerTrainingConfig = ownerTrainingExecutionConfig(env);
+  const ownerTrainingSiteProfileConfigured = trainingRuntimeProfileConfigured(ownerTrainingConfig);
   const ownerTrainingSiteControlPlaneConfigured = trainingControlPlaneConfigured(env.MAP_TRAINING_CONTROL_PLANE_SHA);
   const ownerTrainingSiteProfileFingerprint = await trainingRuntimeProfileFingerprint(ownerTrainingExecutionConfig(env));
+  const ownerTrainingBudgetAvailable = Number.isSafeInteger(ownerTrainingConfig.monthly_microusd) &&
+    ownerTrainingConfig.monthly_microusd > 0 &&
+    ownerTrainingConfig.monthly_microusd <= OWNER_TRAINING_MAX_MONTHLY_MICROUSD &&
+    Number.isSafeInteger(ownerTrainingConfig.max_cost_microusd) &&
+    ownerTrainingConfig.max_cost_microusd > 0 && ownerTrainingConfig.max_cost_microusd <= OWNER_TRAINING_MAX_COST_MICROUSD;
   const ownerTrainingCapability = {
     execution_kind: "owner_selected_python",
     compute_provider: "modal_gpu",
@@ -1340,6 +1346,13 @@ async function capabilities(env, owner) {
     site_profile_configured: ownerTrainingSiteProfileConfigured,
     site_control_plane_configured: ownerTrainingSiteControlPlaneConfigured,
     admission_enabled: ownerTrainingAdmission,
+    provider_budget_policy_ready: providerBudgetPolicyReady,
+    provider_budget_admission_enabled: modalGpuBudget?.admission_enabled === true,
+    budget_policy: ownerTrainingBudgetAvailable ? {
+      state: "ready", provider: "modal_gpu", scope: "owner_training_dispatch_ledger",
+      monthly_limit_usd: usdFromMicrousd(ownerTrainingConfig.monthly_microusd),
+      per_run_limit_usd: usdFromMicrousd(ownerTrainingConfig.max_cost_microusd),
+    } : { state: "unavailable", provider: "modal_gpu", scope: "owner_training_dispatch_ledger" },
     adapter_readiness_available: false,
     adapter_profile_configured: false,
     adapter_control_plane_configured: false,
@@ -1376,7 +1389,8 @@ async function capabilities(env, owner) {
       ownerTrainingAdapterConfigured && ownerTrainingSiteProfileConfigured && ownerTrainingSiteControlPlaneConfigured &&
       ownerTrainingAdmission && ownerTrainingCapability.adapter_profile_configured &&
       ownerTrainingCapability.adapter_control_plane_configured && ownerTrainingCapability.adapter_admission_enabled &&
-      ownerTrainingCapability.adapter_profile_matches;
+      ownerTrainingCapability.adapter_profile_matches && providerBudgetPolicyReady &&
+      modalGpuBudget?.admission_enabled === true && ownerTrainingBudgetAvailable;
     ownerTrainingCapability.blocker = !githubConfigured ? "GITHUB_APP_NOT_CONFIGURED"
       : !githubConnected ? "GITHUB_CONNECTION_REQUIRED"
       : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED"
@@ -1387,9 +1401,14 @@ async function capabilities(env, owner) {
         ? "TRAINING_AUTHORIZATION_NOT_CONFIGURED"
       : !ownerTrainingAdmission || !ownerTrainingCapability.adapter_admission_enabled
         ? "OWNER_TRAINING_ADMISSION_DISABLED"
+      : !providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
+      : modalGpuBudget?.admission_enabled !== true ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
+      : !ownerTrainingBudgetAvailable ? "OWNER_TRAINING_BUDGET_POLICY_UNAVAILABLE"
       : !ownerTrainingCapability.adapter_profile_matches ? "OWNER_TRAINING_ADAPTER_PROFILE_MISMATCH" : null;
     const { profile_fingerprint: _profileFingerprint, ...safeAdapterOwnerTraining } = adapterOwnerTraining || {};
     const safeDelegated = { ...delegated,
+      provider_budget_policy_state: budgetPolicy.state,
+      provider_budgets: providerBudgets,
       machine_state: { ...delegated.machine_state,
         owner_selected_training: adapterOwnerTraining ? safeAdapterOwnerTraining : adapterOwnerTraining } };
     result.provider_adapter = { configured: true, available: true, capabilities: safeDelegated };
@@ -1403,9 +1422,10 @@ async function capabilities(env, owner) {
       const adapterProvider = adapterProviders.find((item) => item?.id === providerId);
       const provider = result.providers.find((item) => item.id === providerId);
       provider.configured = adapterProvider?.configured === true;
-      provider.enabled = provider.configured && adapterProvider?.paid_fallback === false &&
-        (providerId !== "modal_gpu" || env.MODAL_GPU_WORKLOAD_ADMISSION_ENABLED === "true");
-      provider.blocker = provider.enabled ? null : (providerId === "modal_gpu"
+      provider.enabled = providerBudgetPolicyReady && provider.configured && adapterProvider?.paid_fallback === false &&
+        (providerId !== "modal_gpu" || env.MODAL_GPU_WORKLOAD_ADMISSION_ENABLED === "true" &&
+          modalGpuBudget?.admission_enabled === true);
+      provider.blocker = provider.enabled ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" : providerId === "modal_gpu"
         ? (provider.configured ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED" : "MODAL_GPU_PROVIDER_NOT_CONFIGURED")
         : "FREE_PROVIDER_NOT_CONFIGURED");
       const workload = result.workloads.find((item) => item.providers.includes(providerId));
@@ -2185,9 +2205,9 @@ async function callTool(name, args, request, env, context = null) {
         next_allowed_actions: [], blocking_reason: "PROVIDER_BUDGET_LEDGER_UNAVAILABLE" };
     }
     if (!budgetReserved) return { schema_version: 2, status: "blocked",
-      human_summary: "Modalの月次1ドル上限または1回0.01ドル上限に達したため、Modalには接続していません。",
-      machine_state: { run_id: args.run_id, provider: "modal_cpu", monthly_limit_usd: MODAL_MONTHLY_BUDGET_USD,
-        per_run_limit_usd: MODAL_SANDBOX_COST_CEILING_USD, sandbox_started: false },
+      human_summary: "Modalのprovider別予算上限に達したため、Modalには接続していません。",
+      machine_state: { run_id: args.run_id, provider: "modal_cpu",
+        sandbox_started: false },
       next_allowed_actions: [], blocking_reason: "PROVIDER_BUDGET_EXHAUSTED" };
     // A successful explicit health check is reusable by submit. Otherwise
     // reserve the separately billed call in the same bounded workspace and

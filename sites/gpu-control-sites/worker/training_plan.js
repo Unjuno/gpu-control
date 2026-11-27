@@ -1,6 +1,7 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource, MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./training_authorization.js";
 import { readPublicTrainingContract, trainingRuntimeProfileFingerprint } from "./training_contract.js";
+import { readProviderBudgetPolicy } from "./provider_budget_policy.js";
 
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -8,6 +9,7 @@ export const MAP_TRAINING_MAX_COST_MICROUSD = 250_000;
 export const MAP_TRAINING_MAX_RUNTIME_SECONDS = 120;
 export const MAP_TRAINING_MAX_MONTHLY_MICROUSD = 1_000_000;
 export const OWNER_TRAINING_MAX_MONTHLY_MICROUSD = 30_000_000;
+export const OWNER_TRAINING_MAX_COST_MICROUSD = 1_000_000;
 const DEFAULT_MAP_EXECUTION = Object.freeze({ dataset: "papers", run_name: "map44m", steps: 100000 });
 
 function trainingAuthorizationUrl(runId, fingerprint) {
@@ -125,7 +127,8 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
     const configuredCost = Number(env.OWNER_TRAINING_MAX_COST_MICROUSD);
     args = { ...args,
       runtime_seconds: args.runtime_seconds ?? Math.min(Number.isSafeInteger(configuredRuntime) ? configuredRuntime : 300, 300),
-      max_cost_microusd: args.max_cost_microusd ?? Math.min(Number.isSafeInteger(configuredCost) ? configuredCost : 1_000_000, 1_000_000) };
+      max_cost_microusd: args.max_cost_microusd ?? Math.min(Number.isSafeInteger(configuredCost)
+        ? configuredCost : OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_COST_MICROUSD) };
   }
   if (source.repository !== MAP_TRAINING_REPOSITORY) return previewOwnerTrainingPlan(env, owner, args, source, getSourceToken);
   if (args.runtime_seconds !== MAP_TRAINING_MAX_RUNTIME_SECONDS) return { schema_version: 2, status: "blocked",
@@ -319,7 +322,7 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
 // Authorization must already be established. This single write reserves the
 // whole plan ceiling and prevents concurrent or duplicate dispatch claims.
 export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, authorization,
-  maxMonthlyLimit = MAP_TRAINING_MAX_MONTHLY_MICROUSD) {
+  maxMonthlyLimit = MAP_TRAINING_MAX_MONTHLY_MICROUSD, requireModalGpuAdmission = false) {
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1 ||
       !Number.isSafeInteger(maxMonthlyLimit) || maxMonthlyLimit < 1 || monthlyLimit > maxMonthlyLimit) {
     throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
@@ -334,6 +337,9 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
   }
   const date = new Date(now * 1000);
   const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
+  const modalGpuAdmissionGate = requireModalGpuAdmission
+    ? `AND EXISTS (SELECT 1 FROM modal_gpu_budget_policy b
+        WHERE b.scope='workspace' AND b.admission_enabled=1)` : "";
   const results = await db.batch([
     db.prepare(`UPDATE training_plans SET dispatch_claimed_at=?
     WHERE owner_id=? AND id=? AND fingerprint=?
@@ -347,6 +353,7 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
         AND a.authorization_source IN ('site_owner_plan_confirmation','chatgpt_mcp_write_confirmation') AND a.authorized_by=?
         AND a.decision_record_id=? AND a.authorized_at IS NOT NULL
         AND a.consumed_at IS NULL AND a.expires_at>?)
+      ${modalGpuAdmissionGate}
       AND json_extract(plan_json, '$.max_cost_microusd') +
         COALESCE((SELECT SUM(json_extract(p.plan_json, '$.max_cost_microusd'))
           FROM training_plans p WHERE p.dispatch_claimed_at>=?), 0) <= ?
@@ -398,6 +405,20 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       blocking_reason: "TRAINING_AUTHORIZATION_NOT_CONFIGURED" };
   }
   const ownerSelected = plan.execution_kind === "owner_selected_python";
+  if (ownerSelected) {
+    const budgetPolicy = await readProviderBudgetPolicy(env.DB);
+    const modalGpuPolicy = budgetPolicy.provider_budgets.find((item) => item.provider === "modal_gpu");
+    if (budgetPolicy.state !== "ready" || !modalGpuPolicy) return { schema_version: 2, status: "blocked",
+      human_summary: "Modal GPUの予算ポリシーを確認できないため、実験は開始していません。",
+      machine_state: { run_id: runId, provider_budget_policy_state: "unavailable" },
+      next_allowed_actions: ["experiment_capabilities", "training_status"],
+      blocking_reason: "PROVIDER_BUDGET_POLICY_UNAVAILABLE" };
+    if (modalGpuPolicy.admission_enabled !== true) return { schema_version: 2, status: "blocked",
+      human_summary: "Modal GPUのD1受付ポリシーが停止中です。予算予約と実験開始は行っていません。",
+      machine_state: { run_id: runId, provider: "modal_gpu", budget_admission_enabled: false },
+      next_allowed_actions: ["experiment_capabilities", "training_status"],
+      blocking_reason: "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED" };
+  }
   const admissionEnabled = ownerSelected
     ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true"
     : env.MAP_TRAINING_ADMISSION_ENABLED === "true";
@@ -485,7 +506,8 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     ? Number(env.OWNER_TRAINING_MONTHLY_MICROUSD)
     : Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
-    monthlyLimit, authorization, ownerSelected ? OWNER_TRAINING_MAX_MONTHLY_MICROUSD : MAP_TRAINING_MAX_MONTHLY_MICROUSD);
+    monthlyLimit, authorization, ownerSelected ? OWNER_TRAINING_MAX_MONTHLY_MICROUSD : MAP_TRAINING_MAX_MONTHLY_MICROUSD,
+    ownerSelected);
   if (!claimed) {
     const active = await env.DB.prepare(`SELECT id FROM training_plans WHERE owner_id=? AND id<>?
       AND dispatch_claimed_at IS NOT NULL AND dispatch_rejection IS NULL AND cleanup_confirmed_at IS NULL
