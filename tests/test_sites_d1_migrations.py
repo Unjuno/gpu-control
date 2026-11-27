@@ -70,6 +70,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0027_training_dispatch_rejection.sql",
         "0028_training_execution_specs.sql",
         "0029_training_authorization_evidence.sql",
+        "0030_github_app_connections.sql",
     ]
 
     db = sqlite3.connect(":memory:")
@@ -111,7 +112,14 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
 
     for migration in migrations[1:]:
         db.executescript(migration.read_text())
-        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+    assert {row[1] for row in db.execute("PRAGMA table_info(github_installation_states)")} == {
+        "state_hash", "owner_id", "created_at", "expires_at", "consumed_at",
+    }
+    assert {row[1] for row in db.execute("PRAGMA table_info(github_app_installations)")} == {
+        "owner_id", "installation_id", "account_login", "repository_selection", "connected_at",
+    }
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 
     assert db.execute(
         "SELECT id, owner_id, idempotency_key, fingerprint, max_cost_usd FROM plans"
