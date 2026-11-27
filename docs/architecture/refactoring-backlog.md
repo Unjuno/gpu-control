@@ -146,7 +146,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,607 lines and includes tool descriptions,
+- **Evidence:** `worker/index.js` is 2,641 lines and includes tool descriptions,
   authentication, owner identity, dispatch and several provider handlers;
   `training_plan.js` and RunPod modules already provide extraction seams.
 - **Work:** make `index.js` a small transport/composition root; move cohesive
