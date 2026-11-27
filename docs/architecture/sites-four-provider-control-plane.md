@@ -9,12 +9,16 @@ The current production ChatGPT path has four compute providers:
 3. Kaggle
 4. Hugging Face
 
-Google Colab is an approved product direction, but is not yet an executable
-provider. It must be added through the same owner-bound plan, provider budget,
-idempotency, status, cancellation, result, and artifact contracts below. Until
-the Colab OAuth connection and execution lifecycle are implemented and
-verified, capabilities must report it as unavailable rather than imply that
-the official local Colab MCP is connected to ChatGPT Sites.
+Google Colab is a fifth target provider, not a separate completion path. Google
+offers a hosted MCP endpoint at `https://colaboratory.googleapis.com/mcp`, but
+a user's ChatGPT OAuth connection is not automatically available to the Sites
+Worker. A direct ChatGPT-to-Colab app may be used separately for exploration;
+its runs are outside the D1 ledger and do not satisfy GPU Control acceptance.
+The unified Colab route remains unavailable until GPU Control has its own
+owner-scoped Google connection and the common run lifecycle. The published
+Colab tools do not expose a compute-unit balance or exact per-run quote, so
+the route cannot promise a dollar/CU ceiling until a trusted quota control is
+available.
 
 Railway, Vercel, Neon, and a separately hosted PostgreSQL Gateway are not part
 of the production execution path.
@@ -63,7 +67,7 @@ Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
 | RunPod | Sites -> RunPod REST v2 | Sites secret | per-run cap; exact Pod termination required |
 | Kaggle | Sites -> Modal adapter -> Kaggle | Modal secret | free-first; no paid fallback |
 | Hugging Face | Sites -> Modal adapter -> private ZeroGPU Space | Modal secrets and Space secret | free ZeroGPU only; no paid fallback |
-| Google Colab (planned) | Sites -> authenticated Colab adapter -> one-shot managed runtime | owner-scoped Google OAuth connection, refreshed server-side | owner compute-unit ceiling; no paid fallback; runtime always stopped |
+| Google Colab (planned fifth provider; unavailable) | ChatGPT -> Sites D1 plan/lease -> owner-scoped Google OAuth -> hosted Colab API MCP | GPU Control Google connection, server-side only | runtime/resource ceiling; exact dollar/CU cap unavailable until a trusted quota/quote is exposed |
 
 ## Compatibility rule
 
@@ -76,9 +80,10 @@ configuration uses only `PROVIDER_ADAPTER_URL`, `PROVIDER_ADAPTER_KEY_ID`, and
 ## Activation acceptance
 
 - No Railway resource or PostgreSQL service is required.
-- Google Colab remains unavailable until an owner-scoped OAuth connection,
-  current account quota check, bounded one-shot execution, cancellation, and
-  artifact cleanup are verified end to end.
+- Google Colab is a target provider, but is reported unavailable until its
+  owner-scoped Sites connection, bounded plans, idempotent submission/recovery,
+  status, cancellation, result and cleanup evidence exist. Direct Google MCP
+  app calls remain outside the Sites ledger and are not product acceptance.
 - Sites reports all four registered providers and the real blocker for each.
 - Kaggle and Hugging Face calls work through the authenticated Modal adapter.
 - RunPod cannot start without an exact price-bound plan and one-use confirmation.
