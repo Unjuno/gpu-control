@@ -1,5 +1,5 @@
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
-import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_plan.js";
+import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_policy.js";
 import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { RUNPOD_WORKLOAD, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
 

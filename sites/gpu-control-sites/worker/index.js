@@ -4,8 +4,8 @@ import { normalizeTrainingArguments, safeJson, validGatewayApprovedPlan, validGa
   validPlan, validProviderApprovedPlan, validRegisteredPrepare,
   validRegisteredZeroGpuPrepare, validToolArguments } from "./experiment_input_contract.js";
 import { handleGithubTool, isGithubTool } from "./github_tools.js";
-import { OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD,
-  ownerTrainingExecutionConfig } from "./training_plan.js";
+import { OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
+import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
 import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
   trainingRuntimeProfileFingerprint } from "./training_contract.js";

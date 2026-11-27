@@ -1,4 +1,4 @@
-import { OWNER_TRAINING_MAX_COST_MICROUSD } from "./training_plan.js";
+import { OWNER_TRAINING_MAX_COST_MICROUSD } from "./training_policy.js";
 import { RUNPOD_WORKLOAD } from "./runpod_plan.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
 

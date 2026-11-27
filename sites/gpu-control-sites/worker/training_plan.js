@@ -3,16 +3,13 @@ import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./trainin
 import { readPublicTrainingContract, trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, utcMonthKey } from "./provider_budget_policy.js";
 import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
+import { DEFAULT_MAP_EXECUTION, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_MONTHLY_MICROUSD,
+  MAP_TRAINING_MAX_RUNTIME_SECONDS, MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD,
+  OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
+import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
-export const MAP_TRAINING_MAX_COST_MICROUSD = 250_000;
-export const MAP_TRAINING_MAX_RUNTIME_SECONDS = 120;
-export const MAP_TRAINING_MAX_MONTHLY_MICROUSD = 1_000_000;
-const MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD = "1.00";
-export const OWNER_TRAINING_MAX_MONTHLY_MICROUSD = 30_000_000;
-export const OWNER_TRAINING_MAX_COST_MICROUSD = 1_000_000;
-const DEFAULT_MAP_EXECUTION = Object.freeze({ dataset: "papers", run_name: "map44m", steps: 100000 });
 
 function trainingAuthorizationUrl(runId, fingerprint) {
   const url = new URL("/authorize-training", SITE_PUBLIC_ORIGIN);
@@ -27,18 +24,6 @@ function validMapExecution(value) {
     typeof value.dataset === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value.dataset) &&
     typeof value.run_name === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value.run_name) &&
     Number.isSafeInteger(value.steps) && value.steps >= 1 && value.steps <= 100000;
-}
-
-/** Runtime and quote inputs shared by source inspection and plan preview. */
-export function ownerTrainingExecutionConfig(env) {
-  return { image_id: env.OWNER_TRAINING_RUNTIME_IMAGE_ID,
-    hourly_microusd: Number(env.OWNER_TRAINING_HOURLY_MICROUSD),
-    staging_hourly_microusd: Number(env.OWNER_TRAINING_STAGING_HOURLY_MICROUSD),
-    quote_expires_at: Number(env.OWNER_TRAINING_QUOTE_EXPIRES_AT),
-    max_runtime_seconds: Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS),
-    max_cost_microusd: Number(env.OWNER_TRAINING_MAX_COST_MICROUSD),
-    monthly_microusd: Number(env.OWNER_TRAINING_MONTHLY_MICROUSD),
-    control_plane_sha: env.MAP_TRAINING_CONTROL_PLANE_SHA };
 }
 
 async function previewOwnerTrainingPlan(env, owner, args, source, getSourceToken) {

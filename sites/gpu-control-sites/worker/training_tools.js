@@ -1,5 +1,6 @@
-import { confirmTrainingCleanup, ownerTrainingExecutionConfig, prepareTrainingPlan, previewTrainingPlan,
+import { confirmTrainingCleanup, prepareTrainingPlan, previewTrainingPlan,
   submitTrainingPlan, trainingPlanState } from "./training_plan.js";
+import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { listTrainingSources, MAP_TRAINING_REPOSITORY, parseTrainingRepository, registerTrainingSource,
   resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
 import { inspectTrainingSource } from "./training_inspection.js";

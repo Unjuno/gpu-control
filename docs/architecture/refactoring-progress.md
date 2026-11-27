@@ -456,3 +456,25 @@ RunPod's official endpoint settings and request-policy documentation. No
 provider API, experiment, production setting, credential, D1, or deployment
 was used. This documentation correction does not implement RunPod support or
 complete the ordinary ChatGPT end-to-end experience.
+
+## 2026-11-28 — A7: separate training policy/profile from plan orchestration
+
+**Problem:** `experiment_input_contract.js` and `mcp_tool_contract.js` imported
+`training_plan.js` only to read policy ceilings. That made public contract
+modules depend inward on the planning use case; runtime-profile normalization
+also lived in the plan module despite having other callers.
+
+**Change:** moved immutable lane ceilings and MAP defaults to
+`worker/training_policy.js`, and moved owner-selected runtime environment
+normalization to `worker/training_runtime_profile.js`. Updated all callers and
+removed the old definitions. Added a Worker architecture rule that contract
+modules cannot import the generic training-plan orchestrator; the legitimate
+RunPod plan validator dependency remains allowed. Refreshed the measured
+Worker and test-file sizes in the repository map and backlog.
+
+**Validation:** `npm test` passes all 120 Worker tests, registry drift check,
+and architecture check across 23 runtime modules. `git diff --check` passes.
+The first version of the new architecture rule also rejected the legitimate
+RunPod provider-plan validator; narrowed it to the actual forbidden dependency
+before the passing run. Build and exact-head CI for this source change remain
+to be checked. No provider or production configuration was touched.

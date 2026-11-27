@@ -100,6 +100,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Fixed workload definitions | IDs, provider, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator drift check is the established single-source pattern. |
 | Owner-selected source identity | GitHub App install selection, one-time OAuth+PKCE owner proof, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/github_tools.js`, `worker/training_source.js` | `github_tools.js` owns Sites tool orchestration; `github_app_connection.js` owns identity proof and selected-repository-scoped token minting; `training_source.js` owns source registration and immutable commit resolution. Migration 0033 invalidates legacy unverified bindings. User OAuth tokens are discarded; installation tokens are exact-repository read-only and trusted control-plane/stager input, never workload input. |
 | Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `.gpu-control/experiment.json` at immutable commit; no repository Dockerfile or arbitrary shell command. |
+| Training policy and runtime profile | Authoritative lane ceilings/defaults and normalized owner-selected runtime environment | `worker/training_policy.js`, `worker/training_runtime_profile.js` | Input/MCP contracts consume policy constants; plan orchestration consumes the normalized runtime profile. These leaf modules do not depend on plan orchestration. |
 | Plan, admission and accounting | Preview, execution plan fingerprint, idempotency, budget reservation, authorization, lifecycle | `worker/training_plan.js`, `worker/training_authorization.js`, `worker/provider_budget_policy.js`, `worker/modal_account_evidence.js`, `drizzle/*.sql` | D1 owns Sites-side reservations; `modal_account_evidence.js` validates short-lived operator-observed provider account evidence separately from that ledger. `gateway_delegated_plans` is a historical table name for Sites adapter runs. Branch candidate admission remains off under parked policy. |
 | Sites transport and MCP dispatch | Validate request, authenticate, route to domain/provider modules | `worker/index.js`, `worker/provider_adapter_client.js`, provider lifecycle modules | The client calls the authenticated Modal provider adapter, not `gateway/gpu_gateway`. Persisted D1 table names and `GATEWAY_DELEGATION_*` diagnostics are retained compatibility identifiers. Tool dispatch has increasingly extracted domain modules, but the entrypoint still owns substantial lifecycle logic. |
 | Modal provider adapter | Verify signed Sites envelope; dispatch bounded provider/runtime operations | `modal/provider_adapter.py`, `modal/provider_adapter_core.py` | Separate Modal service and secret boundary. Adapter has provider-specific code and owner-training orchestration. |
@@ -196,11 +197,11 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (2026-11-28):** `worker/index.js` 2,564 lines; its test file
-   3,388;
+5. **Large files (2026-11-28):** `worker/index.js` 2,333 lines; its test file
+   3,418;
    `gateway/gpu_gateway/store.py` 1,156; Gateway `worker.py` 1,094;
    `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 510;
-   `worker/training_plan.js` 499. Split by cohesive domain/use case, not line
+   `worker/training_plan.js` 660. Split by cohesive domain/use case, not line
    count alone.
 6. **Documentation state drift:** `chatgpt-selected-repository-experiments.md`
    and `sites/README.md` still describe source inspection as the end of the

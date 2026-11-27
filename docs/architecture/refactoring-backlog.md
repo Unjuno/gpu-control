@@ -225,7 +225,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,351 lines and remains a large transport
+- **Evidence:** `worker/index.js` is 2,333 lines and remains a large transport
   and composition root for authentication, owner identity, routing and provider
   workflows. MCP schemas/descriptions, experiment input contracts, GitHub
   ownership, training lifecycle, budgets and RunPod lifecycle now have separate
@@ -241,7 +241,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 **Progress:** owner-selected source inspection/error projection now lives in
 `worker/training_inspection.js`; registration, plan, submit, status/cancel and
 bounded result routing live in `worker/training_tools.js`. The MAP repository
-slug is centralized in `training_source.js`. `index.js` was about 2.8k lines before the A7 contract extraction; it is now 2,564 lines.
+slug is centralized in `training_source.js`. `index.js` was about 2.8k lines before the A7 contract extraction; it is now 2,333 lines.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
@@ -259,6 +259,14 @@ bounds before owner-selected runs consume authorization or monthly budget. See
   Owner-scoped repository token issuance also moved behind the GitHub
   connection module.
 
+**Progress (2026-11-28):** immutable training lane limits and MAP defaults now
+have one authority in `worker/training_policy.js`; owner-selected Modal runtime
+configuration is normalized by `worker/training_runtime_profile.js`. The MCP
+and input-contract modules no longer import the training plan orchestrator to
+read policy constants. The Worker architecture check now rejects direct
+contract-to-plan dependencies. This is a boundary improvement only: Modal
+remains the sole owner-selected provider in source, and PR #70 is not deployed.
+
 **Progress (2026-11-28):** the ordinary custom-repository route is now
 `training_register` → `training_preview` → `training_prepare` →
 `training_submit`. Preview already validates the same immutable manifest and
@@ -271,7 +279,7 @@ build and artifact validation passed locally; exact-head CI is pending.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 
-- **Evidence:** Sites `index.test.js` is 3,388 lines (2026-11-28); Gateway store/worker tests
+- **Evidence:** Sites `index.test.js` is 3,418 lines (2026-11-28); Gateway store/worker tests
   are similarly large. The suite has valuable migration and runtime contracts.
 - **Work:** partition tests by domain and lifecycle; extract only stable test
   builders. Preserve explicit failure cases and avoid generic fixture engines.

@@ -10,6 +10,10 @@ const { graph, runtimeFiles: workerFiles, entrypoint } = discoverWorkerModules(w
 for (const [file, dependencies] of graph) {
   assert.ok(workerFiles.includes(file));
   assert.ok(!dependencies.includes(entrypoint), `${file}: domain modules must not import the Worker entrypoint`);
+  if (file.endsWith("_contract.js")) {
+    const trainingOrchestrator = dependencies.filter((dependency) => dependency.endsWith("/training_plan.js"));
+    assert.deepEqual(trainingOrchestrator, [], `${file}: contracts must consume training policy/contracts, not training plan orchestration`);
+  }
 }
 
 const visiting = new Set();
