@@ -333,3 +333,33 @@ After submission, preserve the run ID. Use it to check status or request
 cancellation. If the submit response is interrupted, check that run before
 starting another. After success, retrieve and verify the checkpoint with an
 authenticated client that can assemble the ranges and compare SHA-256.
+
+## Inspecting another public repository
+
+`training_register` can pin a public repository's default-branch commit. Use
+`training_list` to get its owner-scoped `registration_id`, then call
+`training_inspect` to read `.gpu-control/experiment.json` at that exact commit.
+The manifest is treated as data and is strictly schema-checked; its entrypoint
+and other repository text are never executed by inspection. Private repositories
+remain unavailable until a separate least-privilege GitHub App connection is
+implemented.
+
+Example manifest:
+
+```json
+{
+  "schema_version": 1,
+  "task": "train",
+  "entrypoint": "src/train.py",
+  "python_version": "3.12",
+  "dependencies_lock": "requirements.lock",
+  "gpu_profiles": ["T4"],
+  "outputs": ["checkpoints", "metrics.json"]
+}
+```
+
+At this stage, `training_inspect` only validates and reports the manifest.
+It reports `CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED`; it does not create a plan,
+start compute, or imply that the repository is executable. The generic
+provider runtime, dependency build, budget reservation, results, and cleanup
+path are still under implementation.

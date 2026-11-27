@@ -1,6 +1,7 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
-import { listTrainingSources, registerTrainingSource } from "./training_source.js";
+import { getOwnedTrainingSource, listTrainingSources, registerTrainingSource } from "./training_source.js";
+import { readPublicTrainingContract } from "./training_contract.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
 import { submitRunpodExperiment, synchronizeRunpodExperiment, validRunpodApprovedPlan } from "./runpod_lifecycle.js";
@@ -71,6 +72,9 @@ const schemas = {
     }, required: [], additionalProperties: false,
   },
   training_list: { type: "object", properties: {}, additionalProperties: false },
+  training_inspect: { type: "object", properties: {
+    registration_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
+  }, required: ["registration_id"], additionalProperties: false },
   training_register: {
     type: "object", properties: {
       repository: { type: "string", maxLength: 159 },
@@ -225,6 +229,7 @@ const toolDescriptions = {
   training_preview: "Preview MAP-44M by passing only registration_id. The server fills the fixed 120-second runtime and $0.25 ceiling, and supplies the pinned image, dataset, run settings, GPU count, price and cost calculation. A saved training configuration can be selected with execution_spec_id. This action cannot start training.",
 
   training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
+  training_inspect: "Read and strictly validate the .gpu-control/experiment.json manifest at an owner's registered, immutable public GitHub commit. This is read-only and never starts a job. A valid manifest is not proof that the repository is executable; this tool reports the current runtime gap explicitly.",
   training_register: "Register a GitHub repository for the authenticated Sites owner. If commit is omitted, the server resolves and pins the current commit on the default branch of a public repository; the configured MAP-44M source keeps its reviewed pinned commit. The Sites Worker does not receive the ChatGPT GitHub OAuth token, so private repositories require a future GitHub App connection. Registration only records source identity and does not prove private access or make a repository executable. Current training dispatch remains limited to the configured MAP-44M commit and image. This action does not start training.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
@@ -788,6 +793,8 @@ function validToolArguments(name, args, env) {
       args.max_cost_microusd <= MAP_TRAINING_MAX_COST_MICROUSD;
   }
   if (name === "training_list") return Object.keys(args).length === 0;
+  if (name === "training_inspect") return Object.keys(args).join(",") === "registration_id" &&
+    typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
   if (name === "training_register") {
     const keys = Object.keys(args);
     const allowed = new Set(["repository", "commit", "dataset", "run_name", "steps"]);
@@ -1887,6 +1894,25 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args);
   if (name === "training_list") return listTrainingSources(env.DB, owner, env);
+  if (name === "training_inspect") {
+    const source = await getOwnedTrainingSource(env.DB, owner, args.registration_id);
+    let inspected;
+    try { inspected = await readPublicTrainingContract(source.repository, source.commit); }
+    catch (error) {
+      const reason = typeof error?.message === "string" && /^TRAINING_(?:EXPERIMENT_MANIFEST|GITHUB)_/.test(error.message)
+        ? error.message : "TRAINING_EXPERIMENT_MANIFEST_UNAVAILABLE";
+      return { schema_version: 2, status: "blocked",
+        human_summary: reason === "TRAINING_EXPERIMENT_MANIFEST_NOT_FOUND"
+          ? "固定commitに .gpu-control/experiment.json がありません。実験は開始していません。"
+          : "固定commitの実験manifestを安全に確認できませんでした。実験は開始していません。",
+        machine_state: { ...source, manifest_path: ".gpu-control/experiment.json", manifest_state: "unavailable" },
+        next_allowed_actions: ["training_list"], blocking_reason: reason };
+    }
+    return { schema_version: 2, status: "blocked",
+      human_summary: "実験manifestは読み取れましたが、汎用リポジトリを実行するadapterはまだ接続されていません。実験は開始していません。",
+      machine_state: { ...source, ...inspected }, next_allowed_actions: ["training_list"],
+      blocking_reason: inspected.execution_blocking_reason };
+  }
   if (name === "training_register") return registerTrainingSource(env.DB, owner, args,
     typeof env.resolveTrainingCommit === "function" ? { resolveCommit: env.resolveTrainingCommit } : undefined);
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
@@ -2465,7 +2491,7 @@ async function handleMcp(request, env, context = null) {
   }
   if (message.method === "tools/list") {
     return json({ jsonrpc: "2.0", id, result: { tools: Object.keys(schemas).map((name) => ({ name, description: toolDescriptions[name], inputSchema: schemas[name], ...(requestedVersion === LEGACY_VERSIONS[0] ? {} : { outputSchema: OUTPUT_SCHEMA }), annotations: {
-      readOnlyHint: ["training_checkpoint", "training_status", "training_preview", "training_list", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
+      readOnlyHint: ["training_checkpoint", "training_status", "training_preview", "training_list", "training_inspect", "experiment_capabilities", "experiment_artifact", "experiment_list"].includes(name),
       destructiveHint: ["training_submit", "training_cancel", "experiment_provider_health", "experiment_submit", "experiment_cancel", "experiment_reconcile"].includes(name),
       idempotentHint: !["experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health"].includes(name),
       openWorldHint: false,

@@ -171,7 +171,7 @@ export async function listTrainingSources(db, owner, env = {}) {
     return { ...row, state: "registered", execution_profile_configured: executionProfileConfigured,
       can_prepare: executionProfileConfigured };
   });
-  const nextActions = [];
+  const nextActions = registrations.length ? ["training_inspect"] : [];
   if (registrations.some((row) => row.can_prepare)) nextActions.push("training_preview");
   if (runs.length) nextActions.push("training_status");
   return { schema_version: 2, status: "ok",

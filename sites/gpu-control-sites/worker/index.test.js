@@ -230,6 +230,28 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(selectedRepo.machine_state.default_branch, "main");
     assert.equal(selectedRepo.machine_state.state, "registered");
     assert.match(selectedRepo.human_summary, /登録だけでは実行できません/);
+    const previousFetch = globalThis.fetch;
+    const manifestBytes = Buffer.from(JSON.stringify({ schema_version: 1, task: "train",
+      entrypoint: "src/train.py", python_version: "3.12", dependencies_lock: "requirements.lock",
+      gpu_profiles: ["T4"], outputs: ["metrics.json"] }));
+    globalThis.fetch = async (url, options) => {
+      assert.equal(new URL(url).searchParams.get("ref"), selectedRepo.machine_state.commit);
+      assert.equal(options.redirect, "error");
+      return new Response(JSON.stringify({ type: "file", path: ".gpu-control/experiment.json",
+        encoding: "base64", size: manifestBytes.length, content: manifestBytes.toString("base64") }),
+      { status: 200 });
+    };
+    try {
+      assert.equal((await call("other-owner", "training_inspect",
+        { registration_id: selectedRepo.machine_state.registration_id })).error,
+      "TRAINING_REGISTRATION_NOT_FOUND");
+      const inspection = await call("selected-owner", "training_inspect",
+        { registration_id: selectedRepo.machine_state.registration_id });
+      assert.equal(inspection.status, "blocked");
+      assert.equal(inspection.blocking_reason, "CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED");
+      assert.equal(inspection.machine_state.execution_available, false);
+      assert.equal(inspection.machine_state.manifest.entrypoint, "src/train.py");
+    } finally { globalThis.fetch = previousFetch; }
     assert.equal((await call("selected-owner", "training_register", { repository: "sample-owner/sample-model", command: ["python", "train.py"] })).error, "INVALID_ARGUMENTS");
     delete env.resolveTrainingCommit;
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.registrations, []);
@@ -491,7 +513,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const history = await call("test-owner", "training_list", {});
     assert.ok(history.machine_state.runs.some(run => run.run_id === submission.run_id));
     assert.ok(history.machine_state.runs.every(run => Number.isInteger(run.dispatch_claimed_at)));
-    assert.deepEqual(history.next_allowed_actions, ["training_preview", "training_status"]);
+    assert.deepEqual(history.next_allowed_actions, ["training_inspect", "training_preview", "training_status"]);
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.runs, []);
     const rejectedPlan = await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-definite-rejection" });
@@ -577,7 +599,7 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   assert.match(trainingSubmitTool.description, /authenticated GPU Control Site/);
   assert.match(trainingSubmitTool.description, /Modal login is not needed/);
 
-  for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list"]) {
+  for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list", "training_inspect"]) {
     assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);
     assert.equal(tools[name].destructiveHint, false, `${name} should not be destructive`);
     assert.equal(tools[name].idempotentHint, true, `${name} should be idempotent`);
@@ -1852,6 +1874,10 @@ test("advertises the bounded registered inference contract", async () => {
   assert.deepEqual(trainingRegister.inputSchema.required, ["repository"]);
   assert.match(trainingRegister.description, /resolves and pins the current commit on the default branch of a public repository/);
   assert.match(trainingRegister.description, /private repositories require a future GitHub App connection/);
+  const trainingInspect = tools.find((tool) => tool.name === "training_inspect");
+  assert.deepEqual(trainingInspect.inputSchema.required, ["registration_id"]);
+  assert.match(trainingInspect.description, /never starts a job/);
+  assert.match(trainingInspect.description, /not proof that the repository is executable/);
   const trainingPreview = tools.find((tool) => tool.name === "training_preview");
   const trainingPrepare = tools.find((tool) => tool.name === "training_prepare");
   assert.deepEqual(trainingPreview.inputSchema.required, []);
