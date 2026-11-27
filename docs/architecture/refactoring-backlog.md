@@ -65,22 +65,23 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ## P1 — authority, state and provider boundaries
 
-### A3. Define the run lifecycle authority and reconcile D1 with Modal journal
+### A3. Enforce lifecycle authority across D1, adapter journal and provider
 
 - **Evidence:** Sites D1 stores owner-visible plans and cleanup evidence;
   Modal Dict stores adapter dispatch/idempotency claim; Volumes stage source,
   checkpoints and artifacts.
-- **Current ownership:** D1 is authoritative for owner identity, exact plan,
-  authorization, budget reservation and whether cleanup is confirmed. Modal
-  Dict is authoritative for whether its adapter claimed dispatch, the
-  provider/Sandbox handle and adapter-observed execution result. The boundary
-  between these state machines needs a single reconciliation rule.
-- **Work:** add a transition/authority table for each state, define who wins on
-  disagreement, bounded reconciliation, terminal/cleanup semantics, and
-  retention. Keep secrets and raw large artifacts out of D1.
-- **Done when:** each transition has one writer/authority and automated tests
+- **Current ownership:** ADR 0002 defines D1 as product authority for owner,
+  immutable plan, one-time reservation, authorization, budget and verified
+  cleanup; Modal Dict as the custom adapter's atomic dispatch/recovery journal;
+  and provider inspection as execution evidence. Missing or conflicting
+  observations stay uncertain and never authorize a replacement allocation.
+- **Work:** verify this rule across fixed Modal, RunPod, Kaggle, Hugging Face and
+  owner-selected routes; define journal retention and recovery after adapter
+  data loss. Keep secrets and raw large artifacts out of D1.
+- **Done when:** each route has one transition authority, cross-layer tests
   cover response loss, duplicate delivery, provider terminal mismatch and
-  cleanup pending without duplicate allocation.
+  cleanup pending without duplicate allocation, and journal retention cannot
+  strand a run or erase the only recovery evidence.
 
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 

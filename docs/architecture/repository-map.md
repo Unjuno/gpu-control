@@ -116,9 +116,9 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Fixed workload identity/defaults | `workloads/registry.json` | Generated `worker/workload_registry.js`, `modal/workload_registry.py` | CI checks generated copies; update source JSON and regenerate, never hand-edit generated copies. |
 | Selected GitHub installation/repositories | Sites D1 GitHub App tables plus server-side GitHub App configuration | GitHub installation is external authority for repository access | Connector login alone is not the Worker credential. Installation token is short-lived and repo-scoped. |
 | Registration, exact source SHA and execution spec | Sites D1 | `training_register`/`training_list` tool responses | Registration is not by itself proof of executable runtime/admission. |
-| Plan, idempotency, authorization, budget reservation, owner-visible state and cleanup evidence | Sites D1 | Tool response and provider observations | For fixed routes this is the durable Sites lifecycle record. D1 migration level/deployed revision may lag source. |
-| Provider job/Sandbox state | Provider API plus adapter's reconciliation handle | D1 stores the product's last verified observation and cleanup evidence | Provider state can be newer than D1; missing response is uncertain, not failure or permission to duplicate. |
-| Adapter dispatch claim and custom run journal | Modal `modal.Dict` store in the PR #70 custom adapter | D1 Sites plan/reservation/cleanup; Modal Volumes store staged source/checkpoints/artifacts | Authority split supports provider idempotency but creates two durable records. Define transition authority and reconcile disagreement before release. |
+| Plan, idempotency, authorization, budget reservation, owner-visible run identity and cleanup evidence | Sites D1 | MCP response and provider observations | D1 is the product ledger. For owner-selected training it records the immutable plan, one-time dispatch reservation, rejection and verified cleanup; it does not mirror every transient provider state. |
+| Provider/Sandbox execution and resource cleanup | Provider resource inspected by the adapter | Modal `modal.Dict` keeps the adapter's handle, claim and last accepted terminal receipt; Sites D1 stores verified cleanup evidence | Provider observations can be newer than either ledger. A timeout or missing handle is `uncertain`, never proof of failure or permission to create a replacement. |
+| Custom adapter dispatch claim and run journal | Modal `modal.Dict` store in the PR #70 custom adapter | D1 reservation; Modal Volumes hold staged source/checkpoints/artifacts | Atomic claim prevents duplicate Sandbox creation. On response loss, query the same run and recover the deterministic handle; do not submit again. The journal is not the owner-facing product ledger. |
 | Artifact bytes | Sites R2 or explicitly configured private external artifact store | D1 stores immutable owner/run/path/revision/size/digest reference | Metadata match does not prove bytes; independently retrieve and hash when acceptance requires it. |
 | Provider credentials | Provider-specific Sites secret or Modal secret | Configuration names only in source/docs; never values | Must remain outside tool schemas, D1, artifacts, logs, and workload processes. |
 | Provider pricing and quota | Provider account evidence plus provider-specific policy/quote | Saved plan snapshot | Historical prices/credits expire; internal budget is not account billing control. |
@@ -161,9 +161,12 @@ These are investigation targets, not automatic deletion instructions.
    user-facing contract independently in JavaScript. Some overlap is required
    by separate runtimes, but there is no single generated cross-runtime schema
    for plan/lifecycle/error semantics.
-3. **Run state across D1 and Modal Dict:** D1 is the owner-facing record while
-   Modal Dict is used for atomic adapter dispatch/recovery claims. Define which
-   is authoritative for each transition and the reconciliation protocol.
+3. **Run state across D1 and Modal Dict:** the intended boundary is now
+   recorded in [ADR 0002](decisions/0002-run-state-authority.md): D1 owns
+   authorization, budget and product history; the adapter journal owns
+   idempotent provider dispatch recovery; provider inspection owns current
+   execution evidence. Cross-layer contract tests and retention behavior still
+   need review before this can be considered settled for all provider routes.
 4. **Provider implementation wrappers:** `gateway/gpu_gateway` has modules
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
