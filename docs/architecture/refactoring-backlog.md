@@ -24,10 +24,13 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A0. Reconcile branch, review, deployment and provider acceptance
 
-- **Evidence (2026-11-28):** PR #70 remains open with review required; its source
-  branch is not the deployed Site. Repository mode is `parked`; owner-training
-  admission and live D1 remain unchanged. Source head, CI, review, migration and
-  deployment evidence are tracked separately in `refactoring-progress.md`.
+- **Evidence (2026-11-28):** PR #70 head is `812ed0c8c1e120beae46ba7c23a3bac7d0fb0987`;
+  all seven exact-head GitHub checks pass. The PR remains open and merge-blocked;
+  its source branch is not the deployed Site. The current PR diff is 100 files
+  (+10,014/−349), so reviewability is itself an architecture concern. Repository
+  mode is `parked`; owner-training admission and live D1 remain unchanged.
+  Source head, CI, review, migration and deployment evidence are tracked
+  separately in `refactoring-progress.md`.
 - **Work:** maintain a compact release record that separately names source
   head, merge SHA, Sites deployment/version, applied D1 migration, live tool
   schema, provider configuration, and exact end-to-end acceptance run.

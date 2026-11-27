@@ -146,9 +146,16 @@ support does not satisfy that gap. PR #70 remains an unmerged, undeployed
 candidate and repository activation remains parked.
 
 **Independent review:** the Codex Security diff-review setup validated the
-worktree and exact `main...a2f5bae` range, but the scan launcher then rejected
-the non-bare-worktree request despite the target being a valid linked Git
-worktree. No security result was produced; the plugin review is not complete.
-The review must be retried through a supported target before this batch is
-reported as independently reviewed. No provider, Site, D1, admission or secret
-state was changed.
+exact `05958170...812ed0c` range in both the linked worktree and two standalone
+clones, but the scan launcher rejected each valid non-bare Git worktree with
+`Review changes requires a non-bare Git worktree with a resolvable HEAD`. No
+security result was produced; the plugin review is not complete.
+
+**Updated release evidence:** GitHub reports all seven checks successful on
+head `812ed0c8c1e120beae46ba7c23a3bac7d0fb0987`: Python 3.11, 3.12, and 3.13;
+Sites Worker and D1 contract; Gateway; Project bridge; and Trusted reference
+container. PR #70 is still open and merge-blocked. Its net diff is 100 files
+(+10,014/−349), which makes focused, independently reviewable change batches a
+priority. The current head remains source only: no Site deployment, D1
+migration, admission change, provider call, experiment, or secret operation
+occurred in this batch.
