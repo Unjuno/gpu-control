@@ -65,8 +65,10 @@ check.
 registry/dependency check, build, and artifact validation passed. No external
 provider was contacted; no production D1, admission, or deployment changed.
 
-**Status:** implementation and docs are local and awaiting commit/push; exact
-head CI and review remain pending.
+**Status:** committed and pushed to PR #70 as `9052881446c1e32194c84530663b652ed3089bd3`.
+All exact-head checks passed: Python 3.11–3.13, Sites/D1 contract, Gateway, project
+bridge, and trusted-reference container. Review and live admission/deployment
+remain pending; repository mode remains parked.
 
 ## Open product path
 
