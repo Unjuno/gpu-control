@@ -1,3 +1,5 @@
+export const MAP_TRAINING_REPOSITORY = "unjuno/model-as-a-paper";
+
 // Parse a source reference without accepting arbitrary network destinations.
 export function parseTrainingRepository(repository) {
   if (typeof repository !== "string") throw new Error("TRAINING_SOURCE_INVALID");
@@ -122,7 +124,7 @@ export async function verifyGithubCommit(repository, commit, fetchImpl = fetch, 
 export async function registerTrainingSource(db, owner, input, { resolveCommit = resolvePublicDefaultBranchCommit } = {}) {
   const repository = parseTrainingRepository(input.repository);
   const hasMapOverrides = input.dataset !== undefined || input.run_name !== undefined || input.steps !== undefined;
-  if (hasMapOverrides && repository !== "unjuno/model-as-a-paper") return {
+  if (hasMapOverrides && repository !== MAP_TRAINING_REPOSITORY) return {
     schema_version: 2, status: "blocked",
     human_summary: "dataset、run_name、stepsの登録設定は現在MAP-44Mでのみ利用できます。",
     machine_state: { repository, ...(input.commit ? { commit: input.commit } : {}) }, next_allowed_actions: [],
@@ -139,7 +141,7 @@ export async function registerTrainingSource(db, owner, input, { resolveCommit =
   const row = await db.prepare(`SELECT id, repository, source_sha FROM training_registrations
     WHERE owner_id = ? AND repository = ? AND source_sha = ?`).bind(owner, repository, commit).first();
   let executionSpecId;
-  const execution = repository === "unjuno/model-as-a-paper"
+  const execution = repository === MAP_TRAINING_REPOSITORY
     ? { dataset: input.dataset ?? "papers", run_name: input.run_name ?? "map44m", steps: input.steps ?? 100000 }
     : {};
   if (Object.keys(execution).length) {
@@ -165,7 +167,7 @@ export async function registerTrainingSource(db, owner, input, { resolveCommit =
 }
 
 function hasConfiguredExecutionProfile(row, env) {
-  if (row.repository !== "unjuno/model-as-a-paper" || row.commit !== env.MAP_TRAINING_SOURCE_SHA) return false;
+  if (row.repository !== MAP_TRAINING_REPOSITORY || row.commit !== env.MAP_TRAINING_SOURCE_SHA) return false;
   const imageId = env.MAP_TRAINING_MODAL_IMAGE_ID;
   if (imageId) return /^im-[A-Za-z0-9]{8,128}$/.test(imageId);
   return /^sha256:[0-9a-f]{64}$/.test(env.MAP_TRAINING_IMAGE_DIGEST || "");

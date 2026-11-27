@@ -4479,3 +4479,23 @@ branch and refs remain unchanged.
 - Validation: inspected direct imports and workflow scope; documentation
   relative links and `git diff --check` passed. No service, deployment,
   database, provider, or GitHub Actions configuration was changed.
+
+### Sites source-inspection module extraction — 2026-11-28
+
+- Moved owner-selected `training_inspect` behavior from the Sites transport
+  router into `worker/training_inspection.js`. The module now owns owner-scoped
+  source lookup, selected-repository token use, manifest/lock reads, stable
+  inspection errors, truthful lock verification wording and next actions.
+- Centralized the MAP-44M repository slug as
+  `MAP_TRAINING_REPOSITORY` in `training_source.js` and migrated registration,
+  plan, validation and inspection callers. Removed the duplicate literal and
+  source-inspection contract import from `index.js`.
+- This changes module boundaries and internal ownership only; MCP names,
+  arguments and output fields remain compatible. The existing integration test
+  still exercises the full Worker route, including token scope, missing lock,
+  owner selection and fail-closed behavior.
+- Security Review of this batch found no actionable findings; owner scoping,
+  exact-repository token scope and fail-closed errors remain intact.
+- Validation: `npm test` passed 108/108 Sites Worker tests and checked the
+  generated workload registry; `git diff --check` passed. No provider calls or
+  experiments were started.

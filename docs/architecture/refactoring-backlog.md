@@ -132,7 +132,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,706 lines and includes tool descriptions,
+- **Evidence:** `worker/index.js` is 2,678 lines and includes tool descriptions,
   authentication, owner identity, dispatch and several provider handlers;
   `training_plan.js` and RunPod modules already provide extraction seams.
 - **Work:** make `index.js` a small transport/composition root; move cohesive
@@ -142,6 +142,11 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 - **Done when:** each domain owns its validation and transitions; routes call a
   small public interface; no circular imports; tools and response contracts stay
   backward compatible; cross-domain regression suite remains green.
+
+**Progress:** the first thin slice moved owner-selected GitHub source
+inspection/error projection into `worker/training_inspection.js` and
+centralized the MAP repository slug in `training_source.js`. `index.js` is now
+2,678 lines. The rest of the worker/router decomposition remains open.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 

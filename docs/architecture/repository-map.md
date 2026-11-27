@@ -81,8 +81,8 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | --- | --- | --- | --- |
 | Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `sites/gpu-control-sites/worker/index.js` and `CHATGPT_SETUP.md` | Sites is the intended ChatGPT surface. `index.js` is also an oversized router/handler collection. |
 | Fixed workload definitions | IDs, provider, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator drift check is the established single-source pattern. |
-| Owner-selected source identity | GitHub App install selection, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/training_source.js` | Owner-bound selected repos; token is trusted control-plane/stager input, never workload input. |
-| Custom workload contract | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock | `worker/training_contract.js` | `.gpu-control/experiment.json` at immutable commit; no repository Dockerfile or arbitrary shell command. |
+| Owner-selected source identity | GitHub App install selection, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/training_source.js` | Owner-bound selected repos; token is trusted control-plane/stager input, never workload input. The MAP-44M repo slug is centralized here. |
+| Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `.gpu-control/experiment.json` at immutable commit; no repository Dockerfile or arbitrary shell command. |
 | Plan, admission and accounting | Preview, execution plan fingerprint, idempotency, budget reservation, authorization, lifecycle | `worker/training_plan.js`, `worker/training_authorization.js`, `drizzle/*.sql` | D1 is the user-facing durable ledger. Branch candidate admission remains off under parked policy. |
 | Sites transport and MCP dispatch | Validate request, authenticate, route to domain/provider modules | `worker/index.js`, `worker/gateway_delegation.js`, provider lifecycle modules | Sites D1/R2 bindings; tool dispatch has increasingly extracted domain modules, but top-level module still owns substantial unrelated logic. |
 | Modal provider adapter | Verify signed Sites envelope; dispatch bounded provider/runtime operations | `modal/provider_adapter.py`, `modal/provider_adapter_core.py` | Separate Modal service and secret boundary. Adapter has provider-specific code and owner-training orchestration. |
@@ -168,7 +168,7 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files:** `worker/index.js` 2,706 lines; its test file 3,130;
+5. **Large files:** `worker/index.js` 2,678 lines; its test file 3,142;
    `gateway/gpu_gateway/store.py` 1,156; Gateway `worker.py` 1,094;
    `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 510;
    `worker/training_plan.js` 499. Split by cohesive domain/use case, not line

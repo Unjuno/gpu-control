@@ -1,8 +1,8 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { confirmTrainingCleanup, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
-import { getOwnedTrainingSource, listTrainingSources, parseTrainingRepository, registerTrainingSource,
+import { listTrainingSources, MAP_TRAINING_REPOSITORY, parseTrainingRepository, registerTrainingSource,
   resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
-import { readPublicTrainingContract } from "./training_contract.js";
+import { inspectTrainingSource } from "./training_inspection.js";
 import { bindGithubInstallation, createGithubInstallationUrl, disconnectGithubApp, githubAppConfigured,
   createGithubInstallationToken, githubConnectionStatus, getOwnedGithubInstallation, listGithubInstallationRepositories,
   verifyGithubInstallation } from "./github_app_connection.js";
@@ -791,7 +791,7 @@ function normalizeTrainingArguments(name, input, env) {
   const canonicalRepository = typeof args.repository === "string"
     ? args.repository.replace(/^https:\/\/github\.com\//i, "").toLowerCase() : "";
   if (name === "training_register" && args.commit === undefined &&
-      canonicalRepository === "unjuno/model-as-a-paper") {
+      canonicalRepository === MAP_TRAINING_REPOSITORY) {
     args.commit = env.MAP_TRAINING_SOURCE_SHA;
   }
   if (["training_preview", "training_prepare"].includes(name)) {
@@ -852,7 +852,7 @@ function validToolArguments(name, args, env) {
     const canonicalRepository = typeof args.repository === "string"
       ? args.repository.replace(/^https:\/\/github\.com\//i, "").toLowerCase() : "";
     const hasPinnedMapCommit = args.commit === env.MAP_TRAINING_SOURCE_SHA &&
-      canonicalRepository === "unjuno/model-as-a-paper";
+      canonicalRepository === MAP_TRAINING_REPOSITORY;
     return keys.includes("repository") && keys.every(key => allowed.has(key)) &&
       typeof args.repository === "string" && args.repository.length <= 159 &&
       (args.commit === undefined || (typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit)) || hasPinnedMapCommit) &&
@@ -2016,43 +2016,11 @@ async function callTool(name, args, request, env, context = null) {
   if (name === "training_preview") return previewTrainingPlan(env, owner, args,
     (repository) => ownerGithubRepositoryToken(env, owner, repository));
   if (name === "training_list") return listTrainingSources(env.DB, owner, env);
-  if (name === "training_inspect") {
-    const source = await getOwnedTrainingSource(env.DB, owner, args.registration_id);
-    let inspected;
-    try {
-      const installationToken = source.repository === "unjuno/model-as-a-paper"
-        ? null : await ownerGithubRepositoryToken(env, owner, source.repository);
-      inspected = await readPublicTrainingContract(source.repository, source.commit, fetch, installationToken);
-    }
-    catch (error) {
-      const reason = error?.message === "GITHUB_REPOSITORY_NOT_SELECTED" ? error.message
-        : typeof error?.message === "string" && /^(?:GITHUB_|TRAINING_(?:EXPERIMENT_MANIFEST|GITHUB)_)/.test(error.message)
-        ? error.message : "TRAINING_EXPERIMENT_MANIFEST_UNAVAILABLE";
-      return { schema_version: 2, status: "blocked",
-        human_summary: reason === "TRAINING_EXPERIMENT_MANIFEST_NOT_FOUND"
-          ? "固定commitに .gpu-control/experiment.json がありません。実験は開始していません。"
-          : reason === "GITHUB_APP_NOT_CONFIGURED"
-            ? "独自repositoryを確認するGitHub AppがGPU Controlに設定されていません。実験は開始していません。"
-            : reason === "GITHUB_CONNECTION_REQUIRED"
-              ? "GitHub accountを接続し、対象repositoryを選択してください。実験は開始していません。"
-              : reason === "GITHUB_REPOSITORY_NOT_SELECTED"
-                ? "対象repositoryがこのGitHub App installで選択されていません。GitHub側で対象repositoryを追加してください。実験は開始していません。"
-                : "固定commitの実験manifestを安全に確認できませんでした。実験は開始していません。",
-        machine_state: { ...source, manifest_path: ".gpu-control/experiment.json", manifest_state: "unavailable" },
-        next_allowed_actions: ["training_list"], blocking_reason: reason };
-    }
-    const dependencyLockVerified = inspected.readiness?.checks?.dependency_lock_present_at_commit === true &&
-      inspected.readiness?.checks?.dependency_lock_has_exact_versions_and_hashes === true;
-    return { schema_version: 2, status: "blocked",
-      human_summary: dependencyLockVerified
-        ? "固定commitの実験manifestとhash-locked依存を検証しました。training_inspectは実験を開始しません。実行イメージ、GPU料金、runtime上限を含む現在の実行可否はtraining_previewで確認してください。"
-        : "固定commitの実験manifestを検証しましたが、依存lockは見つからないか取得・検証できませんでした。実験は開始していません。ソースを修正した後にtraining_inspectを再実行してください。",
-      machine_state: { ...source, ...inspected }, next_allowed_actions: ["training_preview", "training_list"],
-      blocking_reason: inspected.execution_blocking_reason };
-  }
+  if (name === "training_inspect") return inspectTrainingSource(env, owner, args.registration_id,
+    (repository) => ownerGithubRepositoryToken(env, owner, repository));
   if (name === "training_register") {
     const repository = parseTrainingRepository(args.repository);
-    const isMap = repository === "unjuno/model-as-a-paper";
+    const isMap = repository === MAP_TRAINING_REPOSITORY;
     let installationToken = null;
     if (!isMap && (args.dataset !== undefined || args.run_name !== undefined || args.steps !== undefined)) {
       return registerTrainingSource(env.DB, owner, args);

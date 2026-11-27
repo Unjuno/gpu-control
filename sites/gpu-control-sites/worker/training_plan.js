@@ -1,8 +1,7 @@
-import { findOwnedTrainingSource, getOwnedTrainingSource } from "./training_source.js";
+import { findOwnedTrainingSource, getOwnedTrainingSource, MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./training_authorization.js";
 import { readPublicTrainingContract } from "./training_contract.js";
 
-const MAP_REPOSITORY = "unjuno/model-as-a-paper";
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
 export const MAP_TRAINING_MAX_COST_MICROUSD = 250_000;
@@ -111,7 +110,7 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
   // and prepared with only its registration ID. MAP keeps its reviewed fixed
   // bounds; an owner-selected source defaults to a short run and the
   // independently configured per-run ceiling. The caller may narrow either.
-  if (source.repository === MAP_REPOSITORY) {
+  if (source.repository === MAP_TRAINING_REPOSITORY) {
     args = { ...args,
       runtime_seconds: args.runtime_seconds ?? MAP_TRAINING_MAX_RUNTIME_SECONDS,
       max_cost_microusd: args.max_cost_microusd ?? MAP_TRAINING_MAX_COST_MICROUSD };
@@ -122,7 +121,7 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
       runtime_seconds: args.runtime_seconds ?? Math.min(Number.isSafeInteger(configuredRuntime) ? configuredRuntime : 300, 300),
       max_cost_microusd: args.max_cost_microusd ?? Math.min(Number.isSafeInteger(configuredCost) ? configuredCost : 1_000_000, 1_000_000) };
   }
-  if (source.repository !== MAP_REPOSITORY) return previewOwnerTrainingPlan(env, owner, args, source, getSourceToken);
+  if (source.repository !== MAP_TRAINING_REPOSITORY) return previewOwnerTrainingPlan(env, owner, args, source, getSourceToken);
   if (args.runtime_seconds !== MAP_TRAINING_MAX_RUNTIME_SECONDS) return { schema_version: 2, status: "blocked",
     human_summary: "MAP-44Mの1回あたりの実行時間上限は120秒です。",
     machine_state: { max_runtime_seconds: MAP_TRAINING_MAX_RUNTIME_SECONDS },
@@ -166,7 +165,7 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
   const imagePattern = imageId ? /^im-[A-Za-z0-9]{8,128}$/ : /^sha256:[0-9a-f]{64}$/;
   // These values are set by the operator after reviewing the commit and building
   // the image. A registration alone never gives a commit execution authority.
-  if (source.repository !== MAP_REPOSITORY ||
+  if (source.repository !== MAP_TRAINING_REPOSITORY ||
       source.commit !== env.MAP_TRAINING_SOURCE_SHA ||
       !imagePattern.test(imageIdentity || "")) {
     return { schema_version: 2, status: "blocked",
