@@ -252,7 +252,7 @@ const toolDescriptions = {
   training_inspect: "Read and strictly validate .gpu-control/experiment.json and its declared hash-pinned requirements lock at the authenticated owner's registered immutable GitHub commit. Custom repositories must be selected in that owner's read-only GitHub App installation; a short-lived token is scoped to that exact repository and never returned. Read-only: never starts a job. A valid manifest is not proof that the repository is executable until the shared GPU runtime and quote are configured.",
   training_register: "Register a GitHub repository for the authenticated Sites owner. Custom repositories must first be selected in that owner's read-only GitHub App installation. If commit is omitted, the server resolves and pins the current default-branch commit; a supplied commit is verified against GitHub. For custom repositories, continue directly to training_inspect using the registration_id returned here; never ask the user to create or remember that internal ID. MAP-44M keeps its reviewed legacy lane. Registration does not start training or make a repo executable.",
 
-  experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
+  experiment_capabilities: "Read registered workload and provider readiness, plus the owner-selected GitHub training path. For custom repository work, follow owner_selected_training.next_actions; the agent carries registration IDs internally and must not ask the user for one. training_preview remains authoritative for the selected commit's manifest, runtime, current quote, and budget. No health probe or compute starts here.",
   experiment_provider_health: "Optional standalone Modal readiness diagnostic. It requires an unconsumed exact-plan authorization; normal ChatGPT runs check health inside the confirmed experiment_submit action. This creates no Sandbox, but the Modal control-function call can be billed separately from the Sandbox cost ceiling. A shared workspace cooldown and one-use plan reservation bound calls.",
   experiment_prepare: "Prepare an exact owner-bound plan for a registered workload without executing it. Preferred intent: registered workload_id, with an agent-generated idempotency_key retained and reused only when recovering that same prepare request. Never ask the user to create or remember the key. If omitted, the server accepts the call and generates a key, but a later independent retry cannot be correlated with it. The server supplies fixed repository, commit, parameters, runtime, and cost ceiling. For ZeroGPU it selects the newest owned Kaggle run with a succeeded result, confirmed cleanup, and immutable private artifact reference; optionally pass source_run_id to select a specific completed run. Existing explicit inputs using workload, repository, commit, parameters, runtime_seconds, max_cost_usd, and idempotency_key remain supported. Supported routes are bounded Modal TinyStories CPU inference, a fixed Modal T4 GPU canary, a fixed Runpod GPU canary, Kaggle Orbitune 100-step training, and private Hugging Face ZeroGPU evaluation. Kaggle and ZeroGPU remain FREE_FIRST and never fall back to a paid provider. Modal GPU preparation does not allocate a Function call, and Runpod preparation does not allocate a Pod. Returns the exact plan and cost/quota terms for review in ChatGPT; no provider token is accepted from chat. When the user's current message already instructs ChatGPT to execute this registered workload, treat that message as the conversational execution approval: continue to experiment_submit without asking the user the same question again.",
   experiment_submit: "Start one prepared registered workload after the authenticated owner has requested its execution and the exact plan matches that request. A current user instruction to execute the registered workload is sufficient conversational approval; do not ask a second conversational confirmation after prepare. The ChatGPT client may still display its native write-action approval UI. The approved plan must exactly match the stored owner-bound plan; Sites and the Modal provider adapter record a short-lived, one-use authorization that is safely reused only for transport recovery of that same run. After submit, continue status monitoring, terminal result retrieval, and required cleanup verification without asking the user to repeat the execution instruction. Kaggle and ZeroGPU never fall back to paid execution, and no provider credential is returned to chat. Modal CPU and Modal GPU have separate per-run and monthly control-plane limits in addition to the Workspace hard limit.",
@@ -1309,6 +1309,40 @@ async function capabilities(env, owner) {
         paid_fallback_allowed: false },
     ],
     paid_execution: "parked",
+  };
+  const githubConfigured = githubAppConfigured(env);
+  let githubConnected = false;
+  if (githubConfigured) {
+    try { githubConnected = Boolean(await getOwnedGithubInstallation(env.DB, owner)); }
+    catch { githubConnected = false; }
+  }
+  const ownerTrainingAdmission = env.OWNER_TRAINING_ADMISSION_ENABLED === "true";
+  const ownerTrainingAdapterConfigured = gatewayDelegationConfigured(env);
+  const ownerTrainingPathEnabled = ownerTrainingAdmission && ownerTrainingAdapterConfigured;
+  result.owner_selected_training = {
+    execution_kind: "owner_selected_python",
+    compute_provider: "modal_gpu",
+    repository_access: "authenticated_owner_selected_github_repositories",
+    requires_manifest: ".gpu-control/experiment.json",
+    requires_hash_locked_dependencies: true,
+    registration_id_is_internal: true,
+    ask_user_for_registration_id: false,
+    github_app_configured: githubConfigured,
+    github_connected: githubConnected,
+    adapter_configured: ownerTrainingAdapterConfigured,
+    admission_enabled: ownerTrainingAdmission,
+    admission_path_enabled: ownerTrainingPathEnabled,
+    paid_fallback_allowed: false,
+    next_actions: !githubConfigured
+      ? ["github_connection_status"]
+      : !githubConnected
+      ? ["github_connection_start"]
+      : ["github_repositories", "training_register", "training_inspect", "training_preview",
+        ...(ownerTrainingPathEnabled ? ["training_prepare", "training_submit", "training_status", "training_artifact"] : ["training_list"])],
+    blocker: !githubConfigured ? "GITHUB_APP_NOT_CONFIGURED"
+      : !githubConnected ? "GITHUB_CONNECTION_REQUIRED"
+      : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED"
+      : !ownerTrainingAdmission ? "OWNER_TRAINING_ADMISSION_DISABLED" : null,
   };
   if (!gatewayDelegationConfigured(env)) {
     result.provider_adapter = { configured: false, available: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" };

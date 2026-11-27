@@ -25,18 +25,22 @@ function validMapExecution(value) {
     Number.isSafeInteger(value.steps) && value.steps >= 1 && value.steps <= 100000;
 }
 
+/** Runtime and quote inputs shared by source inspection and plan preview. */
+export function ownerTrainingExecutionConfig(env) {
+  return { image_id: env.OWNER_TRAINING_RUNTIME_IMAGE_ID,
+    hourly_microusd: Number(env.OWNER_TRAINING_HOURLY_MICROUSD),
+    staging_hourly_microusd: Number(env.OWNER_TRAINING_STAGING_HOURLY_MICROUSD),
+    quote_expires_at: Number(env.OWNER_TRAINING_QUOTE_EXPIRES_AT),
+    max_runtime_seconds: Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS),
+    monthly_microusd: Number(env.OWNER_TRAINING_MONTHLY_MICROUSD) };
+}
+
 async function previewOwnerTrainingPlan(env, owner, args, source, getSourceToken) {
-  const imageId = env.OWNER_TRAINING_RUNTIME_IMAGE_ID;
-  const rate = Number(env.OWNER_TRAINING_HOURLY_MICROUSD);
-  const stagingRate = Number(env.OWNER_TRAINING_STAGING_HOURLY_MICROUSD);
-  const quoteExpires = Number(env.OWNER_TRAINING_QUOTE_EXPIRES_AT);
-  const maxRuntime = Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS);
-  const monthly = Number(env.OWNER_TRAINING_MONTHLY_MICROUSD);
+  const config = ownerTrainingExecutionConfig(env);
+  const { image_id: imageId, hourly_microusd: rate, staging_hourly_microusd: stagingRate,
+    quote_expires_at: quoteExpires, max_runtime_seconds: maxRuntime, monthly_microusd: monthly } = config;
   const maxCost = Number(env.OWNER_TRAINING_MAX_COST_MICROUSD);
   const controlPlaneSha = env.MAP_TRAINING_CONTROL_PLANE_SHA;
-  const config = { image_id: imageId, hourly_microusd: rate, staging_hourly_microusd: stagingRate,
-    quote_expires_at: quoteExpires,
-    max_runtime_seconds: maxRuntime, monthly_microusd: monthly };
   let contract;
   try {
     const token = await getSourceToken(source.repository);
@@ -207,7 +211,7 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
     next_allowed_actions: [], blocking_reason: null };
 }
 
-export async function prepareTrainingPlan(env, owner, args, getSourceToken = async () => null) {
+export async function prepareTrainingPlan(env, owner, args, getSourceToken = async () => null, isConfigured = () => true) {
   const { idempotency_key: key, ...inputs } = args;
   const preview = await previewTrainingPlan(env, owner, inputs, getSourceToken);
   if (preview.status !== "ok") return preview;
@@ -242,11 +246,14 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
   // Owner-selected plans are authorized by the exact destructive ChatGPT MCP
   // submit call. The host presents its native confirmation once for that run.
-  const executableNow = state === "prepared" && admission && (authorized || ownerSelected);
+  const providerConfigured = isConfigured(env);
+  const executableNow = state === "prepared" && admission && providerConfigured && (authorized || ownerSelected);
   if (executableNow) actions.unshift("training_submit");
   return { ...preview, approved_plan: plan, next_allowed_actions: actions,
     human_summary: !admission
       ? "学習計画は保存しましたが、現在この条件の実行受付は停止中です。"
+      : !providerConfigured
+      ? "学習計画は保存しましたが、実行アダプターが設定されていません。"
       : authorized
       ? "学習計画を保存しました。所有者確認済みなので、このplanを送信できます。"
       : ownerSelected
@@ -255,11 +262,11 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
     machine_state: { ...plan, executable: executableNow, run_id: existing.id,
       plan_fingerprint: fingerprint, idempotency_key: key, expires_at: existing.expires_at, state,
       authorization_state: !admission ? "unavailable" : authorized ? "authorized" : "required",
-      ...(admission && !authorized && state === "prepared" && !ownerSelected
+      ...(admission && providerConfigured && !authorized && state === "prepared" && !ownerSelected
         ? { authorization_url: trainingAuthorizationUrl(existing.id, fingerprint) } : {}) } };
 }
 
-export async function trainingPlanState(env, owner, runId, cancel = false) {
+export async function trainingPlanState(env, owner, runId, cancel = false, isConfigured = () => true) {
   const db = env.DB;
   const now = Math.floor(Date.now() / 1000);
   if (cancel) {
@@ -283,18 +290,28 @@ export async function trainingPlanState(env, owner, runId, cancel = false) {
   const ownerSelected = plan.execution_kind === "owner_selected_python";
   const admission = ownerSelected ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true"
     : env.MAP_TRAINING_ADMISSION_ENABLED === "true";
+  const providerConfigured = isConfigured(env);
   const siteConfirmationRequired = !ownerSelected;
-  return { schema_version: 2, status: "ok", human_summary: "保存済みの学習計画の状態です。",
+  const readinessBlocker = state !== "prepared" ? null
+    : !admission ? (ownerSelected ? "OWNER_TRAINING_ADMISSION_DISABLED" : "MAP_TRAINING_ADMISSION_DISABLED")
+    : !providerConfigured ? "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED" : null;
+  return { schema_version: 2, status: "ok",
+    human_summary: readinessBlocker === "OWNER_TRAINING_ADMISSION_DISABLED"
+      ? "保存済み計画は確認できましたが、owner-selected GPUの受付は停止中です。"
+      : readinessBlocker === "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED"
+      ? "保存済み計画は確認できましたが、実行アダプターが設定されていません。"
+      : "保存済みの学習計画の状態です。",
     machine_state: { run_id: runId, state, plan_fingerprint: row.fingerprint,
       expires_at: row.expires_at, cancelled_at: row.cancelled_at,
       cleanup_state: row.dispatch_claimed_at === null ? "not_required"
         : row.cleanup_confirmed_at !== null ? "confirmed" : "unknown",
       authorization_state: state !== "prepared" ? "none" : !admission ? "unavailable" : authorized ? "authorized" : "required",
-      ...(siteConfirmationRequired && admission && !authorized && state === "prepared"
+      ...(siteConfirmationRequired && admission && providerConfigured && !authorized && state === "prepared"
         ? { authorization_url: trainingAuthorizationUrl(runId, row.fingerprint) } : {}),
       ...(row.dispatch_rejection ? { reason: row.dispatch_rejection } : {}) },
     next_allowed_actions: state === "prepared"
-      ? [...(admission && (authorized || ownerSelected) ? ["training_submit"] : []), "training_cancel"] : [], blocking_reason: null };
+      ? [...(admission && providerConfigured && (authorized || ownerSelected) ? ["training_submit"] : []), "training_cancel"] : [],
+    blocking_reason: readinessBlocker };
 }
 
 // Authorization must already be established. This single write reserves the

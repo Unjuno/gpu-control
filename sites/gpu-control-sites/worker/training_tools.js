@@ -1,4 +1,5 @@
-import { confirmTrainingCleanup, prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan, trainingPlanState } from "./training_plan.js";
+import { confirmTrainingCleanup, ownerTrainingExecutionConfig, prepareTrainingPlan, previewTrainingPlan,
+  submitTrainingPlan, trainingPlanState } from "./training_plan.js";
 import { listTrainingSources, MAP_TRAINING_REPOSITORY, parseTrainingRepository, registerTrainingSource,
   resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
 import { inspectTrainingSource } from "./training_inspection.js";
@@ -40,7 +41,7 @@ export async function handleTrainingTool(name, args, { env, owner, delegate, isC
       next_allowed_actions: remote.artifact_chunk.eof ? [] : ["training_artifact"], blocking_reason: null };
   }
   if (name === "training_status" || name === "training_cancel") {
-    const local = await trainingPlanState(env, owner, args.run_id, name === "training_cancel");
+    const local = await trainingPlanState(env, owner, args.run_id, name === "training_cancel", isConfigured);
     if (local.machine_state.state !== "dispatching") return local;
     const remote = await delegate(env, owner, name, {
       run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
@@ -67,10 +68,11 @@ export async function handleTrainingTool(name, args, { env, owner, delegate, isC
   }
   if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegate,
     isConfigured, getSourceToken);
-  if (name === "training_prepare") return prepareTrainingPlan(env, owner, args, getSourceToken);
+  if (name === "training_prepare") return prepareTrainingPlan(env, owner, args, getSourceToken, isConfigured);
   if (name === "training_preview") return previewTrainingPlan(env, owner, args, getSourceToken);
   if (name === "training_list") return listTrainingSources(env.DB, owner, env);
-  if (name === "training_inspect") return inspectTrainingSource(env, owner, args.registration_id, getSourceToken);
+  if (name === "training_inspect") return inspectTrainingSource(env, owner, args.registration_id,
+    getSourceToken, ownerTrainingExecutionConfig(env));
   if (name === "training_register") {
     const repository = parseTrainingRepository(args.repository);
     const isMap = repository === MAP_TRAINING_REPOSITORY;

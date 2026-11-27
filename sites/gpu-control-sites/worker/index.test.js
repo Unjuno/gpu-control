@@ -228,6 +228,12 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.prepare(`INSERT INTO github_app_installations
       (owner_id, installation_id, account_login, repository_selection, connected_at)
       VALUES (?, ?, ?, 'selected', ?)`).run("selected-owner", "98765", "sample-owner", 1);
+    const ownerCapabilities = await call("selected-owner", "experiment_capabilities", {});
+    assert.equal(ownerCapabilities.owner_selected_training.github_app_configured, true);
+    assert.equal(ownerCapabilities.owner_selected_training.github_connected, true);
+    assert.equal(ownerCapabilities.owner_selected_training.blocker, "PROVIDER_ADAPTER_NOT_CONFIGURED");
+    assert.deepEqual(ownerCapabilities.owner_selected_training.next_actions,
+      ["github_repositories", "training_register", "training_inspect", "training_preview", "training_list"]);
     const originalFetch = globalThis.fetch;
     const requests = [];
     let installedRepo = "sample-owner/sample-model";
@@ -299,6 +305,35 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       assert.equal(missingLock.machine_state.dependency_lock.state, "unavailable");
       assert.match(missingLock.human_summary, /依存lockは見つからないか取得・検証できませんでした/);
       assert.doesNotMatch(missingLock.human_summary, /hash-locked依存を検証しました/);
+      lockUnavailable = false;
+      installedRepo = "sample-owner/sample-model";
+      env.OWNER_TRAINING_RUNTIME_IMAGE_ID = "im-Abcdefgh1234";
+      env.OWNER_TRAINING_HOURLY_MICROUSD = "100000";
+      env.OWNER_TRAINING_STAGING_HOURLY_MICROUSD = "100000";
+      env.OWNER_TRAINING_QUOTE_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 600);
+      env.OWNER_TRAINING_MAX_RUNTIME_SECONDS = "300";
+      env.OWNER_TRAINING_MONTHLY_MICROUSD = "30000000";
+      env.OWNER_TRAINING_MAX_COST_MICROUSD = "1000000";
+      env.MAP_TRAINING_CONTROL_PLANE_SHA = sourceSha;
+      env.OWNER_TRAINING_ADMISSION_ENABLED = "true";
+      const readyInspection = await call("selected-owner", "training_inspect",
+        { registration_id: selectedRepo.machine_state.registration_id });
+      assert.equal(readyInspection.status, "ok");
+      assert.equal(readyInspection.blocking_reason, null);
+      const customPreview = await call("selected-owner", "training_preview",
+        { registration_id: selectedRepo.machine_state.registration_id });
+      assert.equal(customPreview.status, "ok", JSON.stringify(customPreview));
+      const customPlan = await call("selected-owner", "training_prepare",
+        { registration_id: selectedRepo.machine_state.registration_id });
+      assert.equal(customPlan.status, "ok");
+      assert.equal(customPlan.approved_plan.execution_kind, "owner_selected_python");
+      assert.equal(customPlan.machine_state.executable, false);
+      assert.ok(!customPlan.next_allowed_actions.includes("training_submit"));
+      const blockedStatus = await call("selected-owner", "training_status",
+        { run_id: customPlan.machine_state.run_id });
+      assert.equal(blockedStatus.blocking_reason, "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED");
+      assert.ok(!blockedStatus.next_allowed_actions.includes("training_submit"));
+      await call("selected-owner", "training_cancel", { run_id: customPlan.machine_state.run_id });
       installedRepo = "sample-owner/another-repository";
       assert.equal((await call("selected-owner", "training_register",
         { repository: "sample-owner/not-selected" })).error, "GITHUB_REPOSITORY_NOT_SELECTED");
@@ -1133,6 +1168,23 @@ test("read-only capabilities do not call Modal", async () => {
     assert.equal(result.machine_state.provider_configured, true);
     assert.deepEqual(result.machine_state.provider_health_checks, { configured: true, deferred_until_authorized_submit: true });
     assert.equal(result.machine_state.available, true);
+    assert.deepEqual(result.owner_selected_training, {
+      execution_kind: "owner_selected_python",
+      compute_provider: "modal_gpu",
+      repository_access: "authenticated_owner_selected_github_repositories",
+      requires_manifest: ".gpu-control/experiment.json",
+      requires_hash_locked_dependencies: true,
+      registration_id_is_internal: true,
+      ask_user_for_registration_id: false,
+      github_app_configured: false,
+      github_connected: false,
+      adapter_configured: false,
+      admission_enabled: false,
+      admission_path_enabled: false,
+      paid_fallback_allowed: false,
+      next_actions: ["github_connection_status"],
+      blocker: "GITHUB_APP_NOT_CONFIGURED",
+    });
     assert.deepEqual(result.providers.map((provider) => provider.id),
       ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space"]);
     assert.equal(result.providers[1].enabled, false);
@@ -1180,6 +1232,10 @@ test("capabilities exposes all provider routes and enables only configured route
     assert.equal(result.providers[3].blocker, null);
     assert.equal(result.providers[4].enabled, false);
     assert.equal(result.providers[4].blocker, "FREE_PROVIDER_NOT_CONFIGURED");
+    assert.equal(result.owner_selected_training.adapter_configured, true);
+    assert.equal(result.owner_selected_training.admission_enabled, false);
+    assert.equal(result.owner_selected_training.admission_path_enabled, false);
+    assert.equal(result.owner_selected_training.blocker, "GITHUB_APP_NOT_CONFIGURED");
     assert.equal(result.workloads.find((item) => item.id === "orbitune-kaggle-100-step-v1").enabled, true);
     assert.equal(result.workloads.find((item) => item.id === "orbitune-zero-gpu-eval-v1").enabled, false);
   } finally {

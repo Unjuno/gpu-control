@@ -4564,3 +4564,32 @@ branch and refs remain unchanged.
 - No runtime contract changed. `git diff --check` passed; the preceding code
   batch had 108/108 Worker tests, artifact validation, and 7/7 custom lifecycle
   tests pass. No provider execution or account setting changed.
+
+### Chat-first owner training discoverability — 2026-11-28
+
+- Added `owner_selected_training` to read-only `experiment_capabilities`,
+  separate from the fixed provider/workload inventory. It reports the required
+  owner-selected GitHub connection, immutable source manifest and hash-lock
+  requirements, Modal GPU route, current adapter/admission gates, no paid
+  fallback, and that registration IDs are carried internally by the agent.
+- Added current next actions based on GitHub App configuration and connection.
+  `training_preview` remains authoritative for source-specific runtime, quote,
+  and budget readiness; capabilities do not probe providers or start compute.
+- Tightened prepare/status so `training_submit` is advertised only when both
+  the applicable admission switch and provider adapter configuration are
+  present. A parked or unconfigured path now returns a concrete blocker rather
+  than implying that submit is ready.
+- Centralized owner-selected runtime/quote environment projection and passed it
+  to both inspection and preview. A valid manifest/lock with a configured
+  runtime now reports inspection ready; missing runtime stays an explicit
+  blocker instead of an unconditional stale message.
+- Security Review of this exact source diff found no actionable finding;
+  submit still independently rechecks admission and adapter readiness.
+- Updated the architecture map/backlog to record this as a chat-first product
+  contract and keep release state separate. No provider, credential, admission,
+  deployment, or hosted database state was changed.
+- Validation: Sites Worker architecture check passed (16 modules), all 108
+  Worker tests passed, artifact build and validation passed, and `git diff
+  --check` passed. Tests cover connected-owner discovery, ready custom source
+  inspection, and a prepared plan that correctly withholds submit when the
+  adapter is missing.

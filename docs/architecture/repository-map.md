@@ -99,7 +99,10 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 - **Primary intended interface:** natural-language ChatGPT or Work conversation
   with the Sites MCP tools. Tool descriptions and the operator Skill should let
   the agent discover the lifecycle without requiring users to supply internal
-  identifiers.
+  identifiers. `experiment_capabilities.owner_selected_training` describes the
+  custom GitHub source flow separately from fixed workload inventory; its
+  per-owner connection state is read-only, and preview remains authoritative
+  for each source's current runtime, manifest, quote and budget.
 - **Sites web surface:** public status/connection pages and the legacy MAP
   exact-plan confirmation page. Public visibility is separate from owner-bound
   tool authorization. The owner-selected path uses the native destructive MCP
@@ -132,7 +135,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | RunPod fixed workload | Sites -> RunPod REST v2 or adapter relay, depending on lifecycle | Fixed canary has historical acceptance. Owner-selected arbitrary repository execution is not a supported RunPod path in this candidate. |
 | Kaggle GPU | Sites -> authenticated Modal adapter -> fixed registered Kaggle workload | Fixed workload route has historical live acceptance; free quota and exact current account state must be refreshed. |
 | Hugging Face ZeroGPU/artifacts | Sites -> Modal adapter -> fixed Space/private artifact path | Fixed workload and immutable artifact round trip have historical evidence; not general arbitrary-code execution. |
-| Owner-selected repository | Sites GitHub App selection -> immutable SHA -> strict manifest/lock -> trusted Modal stager -> isolated Modal GPU Sandbox | Implemented in PR #70 source; owner admission is separate and repository policy remains parked. Not released/accepted by this map. |
+| Owner-selected repository | Sites GitHub App selection -> immutable SHA -> strict manifest/lock -> trusted Modal stager -> isolated Modal GPU Sandbox | PR #70 source advertises this as a separate capability; owner admission is separate and repository policy remains parked. Not released/accepted by this map. |
 | Google Colab | Candidate hosted Colab MCP/provider path | Not wired into Sites lifecycle. Direct MCP would be outside shared owner, budget, retry, artifact and cleanup contract. |
 
 ## Technology and contract inventory

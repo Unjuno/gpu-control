@@ -39,7 +39,9 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 - **Evidence:** source modules exist for GitHub App selection, registration,
   default-branch pinning, manifest/lock inspection, plan, staging, isolated
   custom Modal Sandbox, outputs and cleanup. `OWNER_TRAINING_ADMISSION_ENABLED`
-  is independently gated; policy is parked.
+  is independently gated; policy is parked. Before this batch,
+  `experiment_capabilities` exposed only fixed workloads, so an agent could
+  miss the custom repository path entirely.
 - **Work:** from a request such as “try training this repository,” discover
   repositories selected in the owner's GitHub App, pin the current default
   commit, inspect the contract, and select only a currently compatible and
@@ -158,8 +160,14 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 **Progress:** owner-selected source inspection/error projection now lives in
 `worker/training_inspection.js`; registration, plan, submit, status/cancel and
 bounded result routing live in `worker/training_tools.js`. The MAP repository
-slug is centralized in `training_source.js`. `index.js` is now 2,607 lines.
-The rest of the worker/router decomposition remains open.
+slug is centralized in `training_source.js`. `index.js` is now 2,641 lines.
+`experiment_capabilities.owner_selected_training` now advertises the custom
+GitHub journey, current connection/adapter/admission gates, no paid fallback,
+and the fact that registration IDs are agent-carried internals. Prepare and
+status only advertise submit when both admission and the provider adapter are
+configured. Training inspection and preview share one owner-runtime config
+projection so an admitted profile is not mislabeled as disconnected. The rest
+of the worker/router decomposition remains open.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 
