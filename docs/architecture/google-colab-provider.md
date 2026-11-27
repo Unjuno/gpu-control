@@ -30,39 +30,45 @@ ChatGPT Chat / Work
 ```
 
 The adapter should use Google's published `google-colab-cli` behavior where
-possible, launched as a fixed `colab run` operation without `--keep`. It must
-not accept arbitrary CLI arguments, arbitrary notebooks, user-supplied shell,
-or a public callback URL. The plan binds the repository, immutable commit,
-validated experiment manifest and lock hashes, selected accelerator, maximum
-runtime, output paths, owner, provider lease, and idempotency key. Workload code
-receives no Google OAuth refresh token, GitHub token, provider credential, or
-GPU Control signing key.
+possible. For ChatGPT's asynchronous status and cancellation contract, it should
+use a fixed `colab new` -> `colab exec` -> `colab download` -> `colab stop`
+lifecycle with an explicit run-bound session name. A bare `colab run` is not
+enough unless status, cancellation, and cleanup can be independently observed.
+The adapter must not accept arbitrary CLI arguments, arbitrary notebooks,
+user-supplied shell, or a public callback URL. The plan binds the repository,
+immutable commit, validated experiment manifest and lock hashes, selected
+accelerator, maximum runtime, output paths, owner, provider lease, and
+idempotency key. Workload code receives no Google OAuth refresh token, GitHub
+token, provider credential, or GPU Control signing key.
 
 ## Account connection and quota
 
 Colab's local CLI uses Google OAuth or ADC. Sites cannot reuse a browser's
-Google login or the ChatGPT GitHub connector as Colab authorization. A future
+Google login or the ChatGPT GitHub connector as Colab authorization. A
 `Connect Google Colab` flow needs its own Google OAuth client and owner-bound
 connection record. Refresh tokens must be encrypted at rest, scoped to the
 least permissions that support the official Colab API, refresh only in the
 trusted adapter, and be revocable from GPU Control. Access tokens must never
-enter an MCP response, experiment plan, runtime, log, or artifact.
+enter an MCP response, experiment plan, runtime, log, or artifact. Normal
+operation must not require a new login for each run.
 
 Colab accelerator availability, GPU model, session duration, idle limits, and
-compute-unit consumption are dynamic. Before allocating, the adapter must query
-current account balance, aggregate usage rate, and active assignment count, then
-apply a provider-specific lease expressed in compute units. Do not hardcode a
-monthly unit grant or infer an account's balance from a subscription label.
-Because the published usage rate is account-level and available hardware can
-change, the estimate must include a conservative margin and the run must stop
-when its configured CU ceiling is reached. If the account state or bounded CU
-exposure cannot be established, keep the route unavailable. A Google AI/Colab
-plan does not itself guarantee a particular GPU or session.
+compute-unit consumption are dynamic. The official CLI exposes the current
+account balance, aggregate CU/hour rate, and active assignment count through
+`colab usage`. Before allocating, the adapter must query that state and apply a
+provider-specific lease expressed in compute units. Do not hardcode a monthly
+unit grant or infer an account's balance from a subscription label. Since the
+rate is account-level and hardware availability can change, estimates need a
+conservative margin; reject allocation when another session makes the charge
+ambiguous, and stop the runtime when its configured CU ceiling is reached. A
+Google AI/Colab plan does not itself guarantee a particular GPU or session.
 
 ## Execution and cleanup requirements
 
-- One run creates one fresh runtime; persistent `--keep`/session mode is not
-  allowed for the ChatGPT job path.
+- One run creates one fresh runtime with a run-bound identifier. The adapter
+  explicitly stops it on success, failure, timeout, and cancel, then verifies
+  terminal release; it never offers a persistent user session through the
+  ChatGPT job path.
 - The adapter enforces one active job per owner initially, strict runtime,
   disk, output-size, and concurrency ceilings, and safe handling of an
   ambiguous create/submit response.
