@@ -4499,3 +4499,21 @@ branch and refs remain unchanged.
 - Validation: `npm test` passed 108/108 Sites Worker tests and checked the
   generated workload registry; `git diff --check` passed. No provider calls or
   experiments were started.
+
+### Sites training tool boundary — 2026-11-28
+
+- Moved training registration, preview/prepare, submit, status/cancel,
+  checkpoint and artifact routing out of `worker/index.js` into the cohesive
+  `worker/training_tools.js` domain module. The transport router now supplies
+  explicit delegation, admission and owner-scoped repository-token ports.
+- Updated the build artifact list and validator to include the extracted
+  module. The first exact-head CI run exposed a missing packaging entry for
+  `training_inspection.js`; that was fixed in a separate commit and the Sites
+  contract check then passed.
+- Kept MCP tool names, schemas and response contracts compatible. Custom
+  repository registration now recommends direct inspection with its returned
+  internal ID, so the agent does not need a list round trip or user-supplied ID.
+- Validation: build and artifact validation passed; `npm test` passed 108/108;
+  `modal/test_custom_training_lifecycle.py` passed 7/7. Exact-head CI is
+  running for the newest router extraction. No provider execution, admission,
+  credential, deployment or live state was changed.

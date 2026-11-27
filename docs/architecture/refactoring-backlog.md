@@ -40,11 +40,17 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   default-branch pinning, manifest/lock inspection, plan, staging, isolated
   custom Modal Sandbox, outputs and cleanup. `OWNER_TRAINING_ADMISSION_ENABLED`
   is independently gated; policy is parked.
-- **Work:** confirm one conversational instruction can resolve an authorized
-  repo, preview defaults, present the exact destructive MCP submit once,
-  submit idempotently, poll the same run, retrieve bounded metrics/artifacts,
-  and verify provider cleanup. Keep missing capability explicit; never fall
-  back silently to another provider.
+- **Work:** from a request such as “try training this repository,” discover
+  repositories selected in the owner's GitHub App, pin the current default
+  commit, inspect the contract, and select only a currently compatible and
+  admitted external GPU route. The agent generates and carries internal
+  registration/run IDs; it never asks the user to find or provide them. It
+  previews bounded defaults, presents the exact destructive MCP confirmation
+  once, submits idempotently, polls the same run, retrieves bounded
+  metrics/artifacts, and verifies cleanup. Ask only for a missing product
+  choice such as repository when the request is ambiguous. Keep missing
+  capability explicit; never silently fall back to a different or paid
+  provider.
 - **Done when:** ordinary ChatGPT and Work tool schemas both expose the same
   supported lane; a current authorized test demonstrates the complete lifecycle
   on the intended external GPU and owner-scoped result retrieval. No release
@@ -133,7 +139,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,678 lines and includes tool descriptions,
+- **Evidence:** `worker/index.js` is 2,607 lines and includes tool descriptions,
   authentication, owner identity, dispatch and several provider handlers;
   `training_plan.js` and RunPod modules already provide extraction seams.
 - **Work:** make `index.js` a small transport/composition root; move cohesive
@@ -144,14 +150,15 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   small public interface; no circular imports; tools and response contracts stay
   backward compatible; cross-domain regression suite remains green.
 
-**Progress:** the first thin slice moved owner-selected GitHub source
-inspection/error projection into `worker/training_inspection.js` and
-centralized the MAP repository slug in `training_source.js`. `index.js` is now
-2,678 lines. The rest of the worker/router decomposition remains open.
+**Progress:** owner-selected source inspection/error projection now lives in
+`worker/training_inspection.js`; registration, plan, submit, status/cancel and
+bounded result routing live in `worker/training_tools.js`. The MAP repository
+slug is centralized in `training_source.js`. `index.js` is now 2,607 lines.
+The rest of the worker/router decomposition remains open.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 
-- **Evidence:** Sites `index.test.js` is 3,130 lines; Gateway store/worker tests
+- **Evidence:** Sites `index.test.js` is 3,143 lines; Gateway store/worker tests
   are similarly large. The suite has valuable migration and runtime contracts.
 - **Work:** partition tests by domain and lifecycle; extract only stable test
   builders. Preserve explicit failure cases and avoid generic fixture engines.
