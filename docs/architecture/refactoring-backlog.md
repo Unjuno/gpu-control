@@ -24,9 +24,10 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A0. Reconcile branch, review, deployment and provider acceptance
 
-- **Evidence:** PR #70 candidate branch is open, mandatory review required,
-  merge blocked; repository mode `parked`; owner-training admission must remain
-  false until its release gates pass.
+- **Evidence (2026-11-28):** PR #70 remains open with review required; its source
+  branch is not the deployed Site. Repository mode is `parked`; owner-training
+  admission and live D1 remain unchanged. Source head, CI, review, migration and
+  deployment evidence are tracked separately in `refactoring-progress.md`.
 - **Work:** maintain a compact release record that separately names source
   head, merge SHA, Sites deployment/version, applied D1 migration, live tool
   schema, provider configuration, and exact end-to-end acceptance run.
@@ -162,7 +163,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,641 lines and includes tool descriptions,
+- **Evidence:** `worker/index.js` is 2,769 lines and includes tool descriptions,
   authentication, owner identity, dispatch and several provider handlers;
   `training_plan.js` and RunPod modules already provide extraction seams.
 - **Work:** make `index.js` a small transport/composition root; move cohesive
@@ -176,7 +177,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 **Progress:** owner-selected source inspection/error projection now lives in
 `worker/training_inspection.js`; registration, plan, submit, status/cancel and
 bounded result routing live in `worker/training_tools.js`. The MAP repository
-slug is centralized in `training_source.js`. `index.js` is now 2,641 lines.
+slug is centralized in `training_source.js`. `index.js` is now about 2.8k lines.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
@@ -189,9 +190,19 @@ bounds before owner-selected runs consume authorization or monthly budget. See
 [ADR 0003](decisions/0003-owner-training-profile-readiness.md). The rest of the
 worker/router decomposition remains open.
 
+**Progress (2026-11-28):** the ordinary custom-repository route is now
+`training_register` → `training_preview` → `training_prepare` →
+`training_submit`. Preview already validates the same immutable manifest and
+dependency lock as `training_inspect`, while also checking the current GPU,
+runtime, quote and budget; inspect remains available as an optional diagnostic.
+Capabilities, registration responses and `training_list` now point directly to
+preview, avoiding a redundant tool call. MCP descriptions now state the shared
+Modal reservation ceiling accurately. The 114 Worker tests, migration replay,
+build and artifact validation passed locally; exact-head CI is pending.
+
 ### A8. Split test fixtures by contract and reuse domain builders
 
-- **Evidence:** Sites `index.test.js` is 3,143 lines; Gateway store/worker tests
+- **Evidence:** Sites `index.test.js` is 3,388 lines (2026-11-28); Gateway store/worker tests
   are similarly large. The suite has valuable migration and runtime contracts.
 - **Work:** partition tests by domain and lifecycle; extract only stable test
   builders. Preserve explicit failure cases and avoid generic fixture engines.
@@ -240,7 +251,7 @@ worker/router decomposition remains open.
 **Progress:** `npm test` now runs
 `scripts/check-worker-architecture.mjs`. It checks all Worker runtime modules
 for static, in-tree imports, rejects dynamic imports and entrypoint backedges,
-and fails on cycles. It currently validates 16 runtime modules. This establishes
+and fails on cycles. It currently validates 17 runtime modules. This establishes
 the Worker dependency rule only; provider/workload boundaries, Python imports,
 schema parity, and append-only migrations remain open.
 
@@ -255,15 +266,13 @@ schema parity, and append-only migrations remain open.
 3. Which external providers are allowed to run arbitrary owner-selected
    repository code under the strict manifest contract? PR #70 only proposes
    Modal; fixed Kaggle/HF/RunPod workloads do not imply this capability.
-4. Should Modal GPU's fixed-workload D1 reservation and owner-selected training
-   dispatch ledger be unified into one provider-wide monthly/per-run budget?
-   Current scopes are displayed separately and both admission gates remain
-   required; changing their combined spend ceiling needs an explicit budget
-   policy decision and migration design.
 
-While these decisions are open, continue documentation truth repair, module
-inventory, source-only tests and non-production refactoring. Do not enable
-provider admission or remove a potentially live contract.
+**Resolved:** Modal CPU, fixed GPU, and training reservations share the Sites
+compute budget in ADR 0005 and PR #70. Its source is not deployed. While the
+remaining decisions are open, continue
+documentation truth repair, module inventory, source-only tests and
+non-production refactoring. Do not enable provider admission or remove a
+potentially live contract.
 
 ## Batch record template
 

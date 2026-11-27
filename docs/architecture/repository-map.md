@@ -174,7 +174,8 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files:** `worker/index.js` 2,641 lines; its test file 3,143;
+5. **Large files (2026-11-28):** `worker/index.js` 2,769 lines; its test file
+   3,388;
    `gateway/gpu_gateway/store.py` 1,156; Gateway `worker.py` 1,094;
    `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 510;
    `worker/training_plan.js` 499. Split by cohesive domain/use case, not line
@@ -183,6 +184,8 @@ These are investigation targets, not automatic deletion instructions.
    and `sites/README.md` still describe source inspection as the end of the
    owner-selected lane. PR #70 implements more, but policy disables admission;
    release/current-state documents must distinguish source from deployed.
+   `training_preview` performs the manifest and dependency-lock checks for the
+   standard path; `training_inspect` is an optional detailed diagnostic.
 7. **Provider names vs compute routes:** Modal is both a compute provider and
    host for the Kaggle/HF adapter. Treat adapter infrastructure separately
    from the provider selected for the experiment.

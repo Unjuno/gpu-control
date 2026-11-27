@@ -45,6 +45,29 @@ initial failure was the stale filename expectation recorded above. Independent
 code review and live migration/deployment acceptance remain pending. Parked
 policy remains in force.
 
+## 2026-11-28 — A1: remove a redundant custom-training tool hop
+
+**Goal:** make the user-owned GitHub path straightforward for an agent to
+operate from an ordinary ChatGPT request while keeping internal registration
+IDs agent-carried.
+
+**Changes:** `training_register`, capabilities, and `training_list` now direct
+the agent to `training_preview`. Preview already performs the manifest and
+hash-locked dependency checks from `training_inspect` and also validates current
+runtime, GPU, quote, and budget. `training_inspect` remains available when the
+user asks for details or the agent needs a separate diagnostic. The MCP tool
+descriptions now explain this sequence and the shared Modal reservation ceiling
+instead of describing retired route-local limits. Backlog evidence was updated
+to the current 2,769-line Worker, 3,388-line test file, and 17-module dependency
+check.
+
+**Local evidence:** 114 Worker tests, migration-forward test, generated
+registry/dependency check, build, and artifact validation passed. No external
+provider was contacted; no production D1, admission, or deployment changed.
+
+**Status:** implementation and docs are local and awaiting commit/push; exact
+head CI and review remain pending.
+
 ## Open product path
 
 The primary product outcome remains ordinary ChatGPT conversation selecting

@@ -157,13 +157,13 @@ export async function registerTrainingSource(db, owner, input, { resolveCommit =
     human_summary: executionSpecId
       ? "MAP-44Mの学習ソースと固定学習設定を登録しました。training_listで実行プロファイルを確認できます。"
       : resolved.visibility === "public"
-        ? "GitHub repositoryの既定ブランチからimmutable commitを固定しました。登録だけでは実行できません。次はtraining_inspectで実験契約を確認します。"
-        : "学習ソースを登録しました。登録だけでは実行できません。次はtraining_inspectで実験契約を確認します。",
+        ? "GitHub repositoryの既定ブランチからimmutable commitを固定しました。登録だけでは実行できません。次はtraining_previewで実験契約、GPU、runtime、見積もりをまとめて確認します。"
+        : "学習ソースを登録しました。登録だけでは実行できません。次はtraining_previewで実験契約、GPU、runtime、見積もりをまとめて確認します。",
     machine_state: { registration_id: row.id, repository: row.repository, commit: row.source_sha,
       ...(resolved.visibility === "public" ? { visibility: resolved.visibility, default_branch: resolved.default_branch } : {}),
       ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
       state: "registered" },
-    next_allowed_actions: executionSpecId ? ["training_list"] : ["training_inspect"], blocking_reason: null };
+    next_allowed_actions: executionSpecId ? ["training_list"] : ["training_preview"], blocking_reason: null };
 }
 
 function hasConfiguredExecutionProfile(row, env) {
@@ -191,8 +191,10 @@ export async function listTrainingSources(db, owner, env = {}) {
     return { ...row, state: "registered", execution_profile_configured: executionProfileConfigured,
       can_prepare: executionProfileConfigured };
   });
-  const nextActions = registrations.length ? ["training_inspect"] : [];
-  if (registrations.some((row) => row.can_prepare)) nextActions.push("training_preview");
+  // Preview performs the same manifest/lock checks as inspect and adds current
+  // runtime, GPU, quote and budget readiness. Keep inspect available as an
+  // explicitly requested diagnostic, not a mandatory extra hop.
+  const nextActions = registrations.length ? ["training_preview"] : [];
   if (runs.length) nextActions.push("training_status");
   return { schema_version: 2, status: "ok",
     human_summary: "登録済みソースと送信済み学習計画の一覧です。can_prepare=trueのソースはtraining_previewで条件と費用を確認できます。実行結果はtraining_statusで確認できます。",
