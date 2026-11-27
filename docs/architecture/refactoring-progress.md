@@ -220,3 +220,30 @@ deployment, or experiment was touched.
 **Status:** documentation only; no new commit yet. Next priority is continue
 A1/A3 implementation and architecture batches against the actual ChatGPT-to-
 external-GPU lifecycle. Do not represent PR #70 as a complete product.
+
+## 2026-11-28 — A7: isolate exact MCP input validation
+
+**Goal:** make the Sites entrypoint compose domain behavior rather than own
+provider-aware request contracts, while preserving the existing public MCP
+schema and strict owner/plan-bound runtime checks.
+
+**Change:** moved the experiment and training runtime argument validators,
+registered workload normalization, and provider-approved-plan validation from
+`worker/index.js` into `worker/experiment_input_contract.js`. The module owns
+the exact environment-bound validation seam and imports provider plan
+validators; RunPod's approved-plan validator now lives beside its plan contract
+in `worker/runpod_plan.js` and is re-exported by the lifecycle module for its
+existing module callers. `mcp_tool_contract.js` continues to own the
+client-visible JSON Schemas, descriptions and annotations. Existing external tool names and
+payloads are unchanged. The Worker entrypoint shrank by 211 lines, from 2,612
+to 2,401; the acyclic runtime graph increased from 18 to 19 modules.
+
+**Validation:** all 117 Worker tests pass; the acyclic 19-module architecture
+and generated registry checks pass; forward migration replay passes; the Site
+build copies the complete reachable module graph; and artifact validation
+passes. No provider or production operation was performed.
+
+**Status:** implementation and architecture documentation are validated; the
+implementation batch is not yet committed. The previous A0 documentation
+refresh was committed and pushed as `7c6ec6d`; this batch will update PR #70's
+exact-head CI when pushed.

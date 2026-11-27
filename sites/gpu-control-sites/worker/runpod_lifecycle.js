@@ -1,10 +1,9 @@
 import { deriveProviderAccountScopeHash, reserveProviderAccountLease, transitionProviderAccountLease } from "./provider_account_lease.js";
 import { verifyRunpodCompletion } from "./runpod_completion.js";
-import { RUNPOD_COST_CEILING_MICROUSD, RUNPOD_WORKLOAD } from "./runpod_plan.js";
+import { RUNPOD_COST_CEILING_MICROUSD, RUNPOD_WORKLOAD, validRunpodApprovedPlan } from "./runpod_plan.js";
 import { RunpodProviderError, RunpodV2Client, validateJobStatus, validateSubmittedJob } from "./runpod_provider.js";
 import { openCompletionKey, sealCompletionKey } from "./runpod_secret.js";
 
-const SHA256 = /^[0-9a-f]{64}$/;
 const JOB_ID = /^[A-Za-z0-9_-]{4,128}$/;
 
 function hex(bytes) { return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join(""); }
@@ -22,20 +21,7 @@ function canonical(value) {
 function parsePlan(row) { try { return JSON.parse(row.provider_plan_json); } catch { return null; } }
 function executionName(runId) { return `gpu-control-${runId.slice(0, 12)}`; }
 
-export function validRunpodApprovedPlan(plan) {
-  if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.schema_version !== 1 ||
-      plan.provider !== "runpod_gpu" || plan.workload !== RUNPOD_WORKLOAD || plan.max_cost_usd !== "1.00" ||
-      plan.cost_ceiling_microusd !== RUNPOD_COST_CEILING_MICROUSD || plan.gpu_count !== 1 ||
-      plan.cloud !== "SERVERLESS" || plan.paid !== true || plan.credit_eligible !== false ||
-      !SHA256.test(plan.owner_binding_sha256 || "") || !SHA256.test((plan.image_digest || "").replace(/^sha256:/, "")) ||
-      typeof plan.image !== "string" || !plan.image.endsWith(`@${plan.image_digest}`) ||
-      typeof plan.source_sha !== "string" || !/^[0-9a-f]{40}$/.test(plan.source_sha) ||
-      typeof plan.data_center_id !== "string" || !/^[A-Za-z0-9_-]{4,128}$/.test(plan.data_center_id) ||
-      typeof plan.hourly_price_usd !== "string" || !/^[0-9]+\.[0-9]{6}$/.test(plan.hourly_price_usd) ||
-      !Number.isSafeInteger(plan.pricing_valid_until) || !Number.isSafeInteger(plan.estimated_cost_microusd) ||
-      plan.estimated_cost_microusd < 1 || plan.estimated_cost_microusd > RUNPOD_COST_CEILING_MICROUSD) return false;
-  try { return new TextEncoder().encode(canonical(plan)).byteLength <= 4096; } catch { return false; }
-}
+export { validRunpodApprovedPlan };
 
 async function planRow(env, owner, args) {
   return env.DB.prepare(`SELECT id, owner_id, fingerprint, workload, repository, source_sha, image_digest,

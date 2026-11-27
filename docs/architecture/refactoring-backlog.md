@@ -192,9 +192,11 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,564 lines and includes tool descriptions,
-  authentication, owner identity, dispatch and several provider handlers;
-  `training_plan.js` and RunPod modules already provide extraction seams.
+- **Evidence:** `worker/index.js` is 2,403 lines and remains a large transport
+  and composition root for authentication, owner identity, routing and provider
+  workflows. MCP schemas/descriptions, experiment input contracts, GitHub
+  ownership, training lifecycle, budgets and RunPod lifecycle now have separate
+  modules, but provider operations and route dispatch still occupy the entry.
 - **Work:** make `index.js` a small transport/composition root; move cohesive
   GitHub-source, training-plan, artifact, capability and provider operations
   behind stable domain interfaces. Inject D1, fetch, clock and provider ports
@@ -217,7 +219,10 @@ Modal adapter readiness use the same versioned JSON conformance cases and canoni
 profile fingerprint to catch drift in independently validated runtime/quote
 bounds before owner-selected runs consume authorization or monthly budget. See
 [ADR 0003](decisions/0003-owner-training-profile-readiness.md). The rest of the
-worker/router decomposition remains open.
+  worker/router decomposition remains open. In the latest batch, exact
+  environment-bound experiment validators and registered-input normalization
+  moved to `worker/experiment_input_contract.js`, reducing the entrypoint by
+  211 lines while keeping the existing MCP schemas and runtime behavior.
 
 **Progress (2026-11-28):** the ordinary custom-repository route is now
 `training_register` → `training_preview` → `training_prepare` →

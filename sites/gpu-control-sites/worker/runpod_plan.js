@@ -42,6 +42,22 @@ export function validRunpodPrepare(input, env) {
     imageDigest(env.RUNPOD_WORKLOAD_IMAGE) !== null;
 }
 
+export function validRunpodApprovedPlan(plan) {
+  const sha256Digest = /^[0-9a-f]{64}$/;
+  if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.schema_version !== 1 ||
+      plan.provider !== "runpod_gpu" || plan.workload !== RUNPOD_WORKLOAD || plan.max_cost_usd !== "1.00" ||
+      plan.cost_ceiling_microusd !== RUNPOD_COST_CEILING_MICROUSD || plan.gpu_count !== 1 ||
+      plan.cloud !== "SERVERLESS" || plan.paid !== true || plan.credit_eligible !== false ||
+      !sha256Digest.test(plan.owner_binding_sha256 || "") || !sha256Digest.test((plan.image_digest || "").replace(/^sha256:/, "")) ||
+      typeof plan.image !== "string" || !plan.image.endsWith(`@${plan.image_digest}`) ||
+      typeof plan.source_sha !== "string" || !/^[0-9a-f]{40}$/.test(plan.source_sha) ||
+      typeof plan.data_center_id !== "string" || !/^[A-Za-z0-9_-]{4,128}$/.test(plan.data_center_id) ||
+      typeof plan.hourly_price_usd !== "string" || !/^[0-9]+\.[0-9]{6}$/.test(plan.hourly_price_usd) ||
+      !Number.isSafeInteger(plan.pricing_valid_until) || !Number.isSafeInteger(plan.estimated_cost_microusd) ||
+      plan.estimated_cost_microusd < 1 || plan.estimated_cost_microusd > RUNPOD_COST_CEILING_MICROUSD) return false;
+  try { return new TextEncoder().encode(canonical(plan)).byteLength <= 4096; } catch { return false; }
+}
+
 function estimatedCost(hourlyPriceUsd) {
   const microusd = Math.ceil(hourlyPriceUsd * RUNPOD_BILLABLE_CEILING_SECONDS * 1_000_000 / 3600);
   if (!Number.isSafeInteger(microusd) || microusd < 1 || microusd > RUNPOD_COST_CEILING_MICROUSD) {
