@@ -4498,6 +4498,20 @@ branch and refs remain unchanged.
 - Read-only source inventory only; no external service, database, secret, or
   deployment was contacted or changed.
 
+### Sites Worker dependency guard — 2026-11-28
+
+- Added `scripts/check-worker-architecture.mjs` to the normal Sites `npm test`
+  command. It inventories runtime modules, rejects dynamic imports and imports
+  outside the runtime inventory, prevents domain-to-entrypoint dependencies,
+  and detects dependency cycles with a path in the error.
+- The checker currently passes for 16 Worker runtime modules and requires no
+  third-party parser or new runtime dependency. It enforces only the explicit
+  dependency rules already established for the Worker; it does not claim to
+  validate Python/Gateway boundaries or cross-runtime schema parity.
+- Validation: `npm test` passed 108/108 Worker tests and the new architecture
+  guard; artifact build and validation passed; `git diff --check` passed. No
+  provider, credential, admission, deployment or hosted database state changed.
+
 ### Sites source-inspection module extraction — 2026-11-28
 
 - Moved owner-selected `training_inspect` behavior from the Sites transport

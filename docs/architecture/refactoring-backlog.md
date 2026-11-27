@@ -209,6 +209,13 @@ The rest of the worker/router decomposition remains open.
 - **Done when:** checks reject an actual known regression and give a local,
   actionable message; avoid broad lint rules with no established invariant.
 
+**Progress:** `npm test` now runs
+`scripts/check-worker-architecture.mjs`. It checks all Worker runtime modules
+for static, in-tree imports, rejects dynamic imports and entrypoint backedges,
+and fails on cycles. It currently validates 16 runtime modules. This establishes
+the Worker dependency rule only; provider/workload boundaries, Python imports,
+schema parity, and append-only migrations remain open.
+
 ## Decision queue
 
 1. Can the legacy Gateway package and Compose/systemd deployment contract be
