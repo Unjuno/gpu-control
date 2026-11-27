@@ -155,7 +155,7 @@ security result was produced; the plugin review is not complete.
 head `812ed0c8c1e120beae46ba7c23a3bac7d0fb0987`: Python 3.11, 3.12, and 3.13;
 Sites Worker and D1 contract; Gateway; Project bridge; and Trusted reference
 container. PR #70 is still open and merge-blocked. Its net diff is 100 files
-(+10,014/−349), which makes focused, independently reviewable change batches a
+(+10,024/−349), which makes focused, independently reviewable change batches a
 priority. The current head remains source only: no Site deployment, D1
 migration, admission change, provider call, experiment, or secret operation
 occurred in this batch.

@@ -27,7 +27,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 - **Evidence (2026-11-28):** PR #70 head is `812ed0c8c1e120beae46ba7c23a3bac7d0fb0987`;
   all seven exact-head GitHub checks pass. The PR remains open and merge-blocked;
   its source branch is not the deployed Site. The current PR diff is 100 files
-  (+10,014/−349), so reviewability is itself an architecture concern. Repository
+  (+10,024/−349), so reviewability is itself an architecture concern. Repository
   mode is `parked`; owner-training admission and live D1 remain unchanged.
   Source head, CI, review, migration and deployment evidence are tracked
   separately in `refactoring-progress.md`.
