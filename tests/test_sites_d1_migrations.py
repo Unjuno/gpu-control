@@ -72,6 +72,7 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "0029_training_authorization_evidence.sql",
         "0030_github_app_connections.sql",
         "0031_training_cleanup_confirmation.sql",
+        "0032_modal_compute_budget.sql",
     ]
 
     db = sqlite3.connect(":memory:")

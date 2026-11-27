@@ -32,12 +32,15 @@ experiments.
 
 **Local evidence:** Sites Worker architecture check, workload registry drift
 check, 114 Worker tests, migration-forward test, build and artifact validation
-passed. No provider was called and no live D1, admission flag, account limit or
-deployed Site was changed.
+passed. The complete Python suite passed (615 passed, 1 skipped, 5 subtests).
+Exact-head CI initially caught a stale migration filename expectation; the
+expectation now includes `0032_modal_compute_budget.sql`. The focused test and
+full Python suite pass locally. No provider was called and no live D1, admission
+flag, account limit or deployed Site was changed.
 
-**Status:** source batch implemented locally; independent code review, PR
-update, exact-head CI and live migration/deployment acceptance remain pending.
-Parked policy remains in force.
+**Status:** source batch is committed and pushed to PR #70. GitHub CI is rerunning
+after the migration expectation fix. Independent code review and live
+migration/deployment acceptance remain pending. Parked policy remains in force.
 
 ## Open product path
 
