@@ -24,11 +24,12 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A0. Reconcile branch, review, deployment and provider acceptance
 
-- **Evidence (2026-11-28):** PR #70 head is `812ed0c8c1e120beae46ba7c23a3bac7d0fb0987`;
-  all seven exact-head GitHub checks pass. The PR remains open and merge-blocked;
-  its source branch is not the deployed Site. The current PR diff is 100 files
-  (+10,024/−349), so reviewability is itself an architecture concern. Repository
-  mode is `parked`; owner-training admission and live D1 remain unchanged.
+- **Evidence (2026-11-28):** PR #70 head is
+  `ed76b405039f8b0c737ccce46e1e55b9caf51441`; its seven exact-head GitHub
+  checks are queued. The PR remains open and unmerged; its source branch is not
+  the deployed Site. The current PR diff is 103 files (+10,344/−349), so
+  reviewability is itself an architecture concern. Repository mode is
+  `parked`; owner-training admission and live D1 remain unchanged.
   Source head, CI, review, migration and deployment evidence are tracked
   separately in `refactoring-progress.md`.
 - **Work:** maintain a compact release record that separately names source
@@ -42,10 +43,18 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 - **Evidence:** source modules exist for GitHub App selection, registration,
   default-branch pinning, manifest/lock inspection, plan, staging, isolated
-  custom Modal Sandbox, outputs and cleanup. `OWNER_TRAINING_ADMISSION_ENABLED`
-  is independently gated; policy is parked. Before this batch,
-  `experiment_capabilities` exposed only fixed workloads, so an agent could
-  miss the custom repository path entirely.
+  custom Modal Sandbox, outputs and cleanup. `experiment_capabilities`
+  exposes owner-selected readiness separately from fixed workloads.
+  `OWNER_TRAINING_ADMISSION_ENABLED` is independently gated; policy is parked.
+- **Security correction in PR #70:** the GitHub Setup URL installation ID no
+  longer binds directly to a Sites owner. A one-time GitHub user OAuth+PKCE
+  flow proves access to the exact installation before binding. Forward
+  migration 0033 invalidates older, unverified bindings. Modal CPU/memory hard
+  limits, workload-readable staged wheels, manifest-Python wheel resolution,
+  and the delegated artifact route are also enforced in source.
+- **Remaining:** exact-head CI, independent security review, migration/deploy,
+  production settings, admission, and a real ChatGPT end-to-end GPU lifecycle
+  remain unverified. Source/tests do not close the product acceptance.
 - **Work:** from a request such as “try training this repository,” discover
   repositories selected in the owner's GitHub App, pin the current default
   commit, inspect the contract, and select only a currently compatible and

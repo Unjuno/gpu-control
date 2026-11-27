@@ -159,3 +159,36 @@ container. PR #70 is still open and merge-blocked. Its net diff is 100 files
 priority. The current head remains source only: no Site deployment, D1
 migration, admission change, provider call, experiment, or secret operation
 occurred in this batch.
+
+## 2026-11-28 — A1 security and runtime-boundary correction
+
+**Goal:** make the owner-selected GitHub-to-Modal source lane safe enough to
+continue toward ordinary ChatGPT use, while closing independently reproduced
+account-binding, resource-cap and artifact-routing gaps.
+
+**Changes:** replaced installation-ID-only linking with a one-time, owner-bound
+GitHub OAuth flow using state and PKCE; verified that the GitHub user token can
+access the exact selected installation; discarded the token without persisting
+it; and added migration 0033 to invalidate prior unverified installation
+bindings. Installation access tokens now send GitHub's expected repository
+name and verify the returned full repository identity. Modal staging and GPU
+Sandboxes now use explicit CPU/memory request-limit tuples. Staged wheels are
+readable by the unprivileged training user, wheel downloads target the manifest
+Python ABI, and the Worker delegation allowlist includes declared
+training_artifact retrieval. Added ADR 0007 and documented OAuth configuration
+and the one-time reconnect consequence.
+
+**Local evidence:** 117 Worker tests, acyclic 18-module graph, registry drift
+check, forward migration replay, Sites build and artifact validation pass.
+Modal Python tests pass with test_map_training_backend.py excluded locally
+because this workspace lacks the Modal SDK; CI has a dedicated SDK-backed
+test for it. No provider, production D1, account setting or deployment was
+changed, and no experiment was started.
+
+**Status:** code batch committed as ed76b405039f8b0c737ccce46e1e55b9caf51441
+and pushed to PR #70. The PR is open and unmerged; all seven exact-head checks
+were queued at the last read. The independent security scan remains
+incomplete; the local scanner has previously rejected valid worktrees without
+producing results. Migration/deployment, GitHub OAuth hosted-flow test,
+admission, real external-GPU acceptance, and end-to-end ChatGPT verification
+remain release gates. Repository mode remains parked.

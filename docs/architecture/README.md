@@ -21,6 +21,9 @@ front end for external compute.
 - [ADR 0006](decisions/0006-chat-first-external-compute.md): normal chat is
   the primary interface and external GPU routes must share one owner-bound
   lifecycle.
+- [ADR 0007](decisions/0007-github-installation-owner-proof.md): GitHub
+  installation callbacks require one-time user authorization before an
+  owner-bound source connection is trusted.
 - [Refactoring backlog](refactoring-backlog.md): ordered, evidence-linked
   architecture work with dependencies and acceptance conditions.
 - [Refactoring progress](refactoring-progress.md): completed batches and
