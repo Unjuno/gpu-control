@@ -201,10 +201,10 @@ authorized external GPU compute when the experiment needs it. A CPU container
 route or a fixed-workload provider canary is not equivalent acceptance.
 
 **Evidence refreshed:** PR #70 is open and unmerged at
-`3c1f3a964bccea7d7a488e85c841c9d25c832fa9`; GitHub reports `mergeable: true`.
+`bda7df121e3c0df6f340489f385c04eb38035089`; GitHub reports `mergeable: true`.
 All seven checks on that exact head remain queued. The latest inline
 review-thread read returned zero unresolved threads. PR metadata records a
-107-file diff (+10,768/−501). The candidate only implements owner-selected arbitrary source
+108-file diff (+10,809/−501). The candidate only implements owner-selected arbitrary source
 execution on Modal GPU; RunPod remains a fixed canary, Kaggle/Hugging Face remain
 fixed-workload routes, and Colab is not integrated. The candidate is unmerged,
 undeployed, and the repository remains parked.
@@ -272,7 +272,8 @@ dispatch and repository access; the import graph is acyclic across 20 reachable
 modules. Migration replay and artifact build/validation are to be rerun before
 this batch is committed. No provider call or production setting was changed.
 
-**Status:** source and documentation changes are local and uncommitted. PR #70's
-current remote head is `3c1f3a9`; the latest exact-head CI remained queued. The
-candidate still exposes arbitrary owner-source execution only on Modal GPU and
-does not meet the multi-provider acceptance requirement.
+**Status:** source and documentation changes were committed and pushed as
+`bda7df1`. PR #70's current remote head is `bda7df1`; all seven exact-head CI
+checks remain queued. The candidate still exposes arbitrary owner-source
+execution only on Modal GPU and does not meet the multi-provider acceptance
+requirement.
