@@ -21,6 +21,16 @@ owner-selected execution adapter or evidence for the isolation properties of
 such a runtime. RunPod queue result retention is also finite, so GPU Control
 must persist results and artifacts in its own store before that window expires.
 
+The current RunPod fixed-canary plan also estimates billable time as 300 seconds
+of job TTL plus 5 seconds of idle time (`RUNPOD_BILLABLE_CEILING_SECONDS = 305`).
+RunPod documents that workers are billed during initialization and that the
+default initialization timeout is 420 seconds. Current offer validation does
+not bind or validate `workers.initTimeout`, and the estimate omits that phase.
+This undercounts even before retry behavior is considered. Adding one maximum
+initialization window would make the modeled duration at least 725 seconds, but
+that alone is not a hard bound: retry attempts and worker starts also need a
+documented, enforced maximum before the plan can claim a per-run maximum charge.
+
 ## Proposed contract
 
 1. Keep ChatGPT Sites as the sole product-facing lifecycle and owner ledger.
@@ -41,7 +51,9 @@ must persist results and artifacts in its own store before that window expires.
 4. Treat a lost submit response and provider retry separately. The same
    owner-bound run must not create duplicate GPU allocations or produce
    unaccounted billed attempts. Establish RunPod's exact retry behavior and
-   include the maximum billable attempts in the signed plan's cost bound.
+   include initialization, execution, idle time and the maximum billable
+   attempts in the signed plan's cost bound. Until enforced, the fixed canary's
+   current quote is an estimate, not a hard maximum provider charge.
    Never blindly resubmit an ambiguous request.
 5. Persist terminal status, bounded metrics, checkpoint/artifact bytes and
    immutable digests into GPU Control's durable owner-scoped ledger before
@@ -70,12 +82,14 @@ must persist results and artifacts in its own store before that window expires.
 - [RunPod Serverless endpoint types](https://docs.runpod.io/serverless/endpoints/overview)
   documents queue-based execution and automatic retries on failure.
 - [RunPod endpoint settings](https://docs.runpod.io/serverless/endpoints/endpoint-configurations)
-  documents execution timeout, job TTL, worker scaling and billing lifecycle.
+  documents execution timeout, job TTL, worker scaling, initialization timeout
+  and billing during worker initialization.
 - [RunPod request handling](https://docs.runpod.io/serverless/endpoints/send-requests)
   documents request policy, result retention, `/retry`, and duplicate-job risk
   when resubmitting after a timeout or server error.
 - Repository evidence: `sites/gpu-control-sites/worker/runpod_provider.js`,
-  `worker/runpod_plan.js`, `worker/runpod_lifecycle.js`, and
+  `worker/runpod_plan.js` (currently models 305 seconds and omits initialization),
+  `worker/runpod_lifecycle.js`, and
   `policies/repository-state.yaml`.
 
 ## Revisit when

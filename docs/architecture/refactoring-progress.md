@@ -422,3 +422,37 @@ document a concrete isolated execution boundary plus retry/cost proof before
 writing provider code. Current PR head CI remains pending from the last read;
 no source test or provider execution was performed for this documentation-only
 batch.
+
+## 2026-11-28 — A0/A1: restore current release state and RunPod cost evidence
+
+**Product invariant:** the product is for an ordinary ChatGPT/Work conversation
+where the user describes an experiment and the agent resolves authorized
+source, selects a compatible external GPU, carries internal identifiers,
+executes, monitors, and returns results and cleanup evidence. A local container
+is a development tool, not an acceptable substitute for this user outcome.
+
+**Refreshed source/release state:** PR #70 remains open, unmerged and mergeable
+at `d4a517797a8052f71e26b28d92aa22ba9b4cf661`; its diff is 113 files
+(+11,379/−575). All seven exact-head checks pass. Inline review threads have
+been reconciled, while independent security review and the required GitHub
+review decision remain outstanding. Owner-selected arbitrary-repository
+execution exists only in the PR candidate for Modal GPU. RunPod is a fixed
+canary, Kaggle and Hugging Face are fixed registered workloads, and Colab is
+not integrated. Policy remains parked; no deployment, admission change or
+live arbitrary-source run is established.
+
+**RunPod cost finding:** source models 305 billable seconds as the 300-second
+job TTL plus 5-second idle timeout. RunPod's current endpoint settings guide
+says workers are billed during initialization and the default init timeout is
+420 seconds. The source does not bind that setting, so the existing estimate
+understates cost even for one initialization; retry and repeated worker-start
+accounting remain unresolved. ADR 0008 now records that the current canary
+quote is not a proven hard maximum charge and requires enforced bounds before
+owner-selected RunPod execution.
+
+**Validation and limits:** refreshed PR metadata and exact-head GitHub checks
+read-only; checked the provider client, plan, lifecycle and tests locally; read
+RunPod's official endpoint settings and request-policy documentation. No
+provider API, experiment, production setting, credential, D1, or deployment
+was used. This documentation correction does not implement RunPod support or
+complete the ordinary ChatGPT end-to-end experience.
