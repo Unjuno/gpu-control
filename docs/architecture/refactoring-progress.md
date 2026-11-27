@@ -38,9 +38,12 @@ expectation now includes `0032_modal_compute_budget.sql`. The focused test and
 full Python suite pass locally. No provider was called and no live D1, admission
 flag, account limit or deployed Site was changed.
 
-**Status:** source batch is committed and pushed to PR #70. GitHub CI is rerunning
-after the migration expectation fix. Independent code review and live
-migration/deployment acceptance remain pending. Parked policy remains in force.
+**Status:** source and migration-test batches are committed and pushed to PR #70.
+Exact-head CI passed on `99e332626eed1ccc4c12cee83ece45034d9b3d19` across Python
+3.11–3.13, Sites/D1, Gateway, project bridge and trusted-reference checks. The
+initial failure was the stale filename expectation recorded above. Independent
+code review and live migration/deployment acceptance remain pending. Parked
+policy remains in force.
 
 ## Open product path
 
