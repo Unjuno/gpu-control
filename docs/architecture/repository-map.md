@@ -69,6 +69,8 @@ flowchart TD
   GH[GitHub Actions issue bridge] -. separate interface .-> PC[project_control]
 ```
 
+A static import graph is the single runtime module inventory: the architecture check enforces acyclic imports and the build copies the reachable closure from `worker/index.js`, rejecting orphan runtime modules.
+
 The intended product flow is Sites-first. The Gateway links above represent a
 separately maintained source tree, not proof it is deployed or the live
 ChatGPT path. The actual `gateway/README.md` and product setup docs disagree on
@@ -79,7 +81,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 
 | Area | Canonical responsibility | Main source | Boundary / status |
 | --- | --- | --- | --- |
-| Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `sites/gpu-control-sites/worker/index.js` and `CHATGPT_SETUP.md` | Sites is the intended ChatGPT surface. `index.js` is also an oversized router/handler collection. |
+| Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `sites/gpu-control-sites/worker/index.js` and ``CHATGPT_SETUP.md` | `mcp_tool_contract.js` owns schemas, descriptions, output schema and annotations; `index.js` owns transport/dispatch. Sites is intended ChatGPT surface; `index.js` remains a large composition root. |
 | Fixed workload definitions | IDs, provider, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator drift check is the established single-source pattern. |
 | Owner-selected source identity | GitHub App install selection, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/training_source.js` | Owner-bound selected repos; token is trusted control-plane/stager input, never workload input. The MAP-44M repo slug is centralized here. |
 | Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `.gpu-control/experiment.json` at immutable commit; no repository Dockerfile or arbitrary shell command. |

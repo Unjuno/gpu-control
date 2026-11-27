@@ -103,6 +103,7 @@ read tool names from the old `index.js` location. The test now reads the
 authoritative `mcp_tool_contract.js`; the focused test and complete Python suite
 (615 passed, 1 skipped, 5 subtests) pass locally.
 
-**Status:** implementation and test correction are local and awaiting commit/push;
-exact-head CI and review remain pending. No Site deployment, live D1 migration,
+**Status:** implementation and test correction were pushed to PR #70; all seven
+exact-head CI checks passed on `ae9b96347864cdfa93574c43738dad0213bbb58b`. PR #70
+remains open, blocked on required review. No Site deployment, live D1 migration,
 provider change or experiment was performed.
