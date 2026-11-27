@@ -1,5 +1,6 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource } from "./training_source.js";
-import { getTrainingAuthorization } from "./training_authorization.js";
+import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./training_authorization.js";
+import { readPublicTrainingContract } from "./training_contract.js";
 
 const MAP_REPOSITORY = "unjuno/model-as-a-paper";
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
@@ -7,6 +8,7 @@ const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
 export const MAP_TRAINING_MAX_COST_MICROUSD = 250_000;
 export const MAP_TRAINING_MAX_RUNTIME_SECONDS = 120;
 export const MAP_TRAINING_MAX_MONTHLY_MICROUSD = 1_000_000;
+export const OWNER_TRAINING_MAX_MONTHLY_MICROUSD = 30_000_000;
 const DEFAULT_MAP_EXECUTION = Object.freeze({ dataset: "papers", run_name: "map44m", steps: 100000 });
 
 function trainingAuthorizationUrl(runId, fingerprint) {
@@ -24,14 +26,107 @@ function validMapExecution(value) {
     Number.isSafeInteger(value.steps) && value.steps >= 1 && value.steps <= 100000;
 }
 
-export async function previewTrainingPlan(env, owner, args) {
+async function previewOwnerTrainingPlan(env, owner, args, source, getSourceToken) {
+  const imageId = env.OWNER_TRAINING_RUNTIME_IMAGE_ID;
+  const rate = Number(env.OWNER_TRAINING_HOURLY_MICROUSD);
+  const stagingRate = Number(env.OWNER_TRAINING_STAGING_HOURLY_MICROUSD);
+  const quoteExpires = Number(env.OWNER_TRAINING_QUOTE_EXPIRES_AT);
+  const maxRuntime = Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS);
+  const monthly = Number(env.OWNER_TRAINING_MONTHLY_MICROUSD);
+  const maxCost = Number(env.OWNER_TRAINING_MAX_COST_MICROUSD);
+  const controlPlaneSha = env.MAP_TRAINING_CONTROL_PLANE_SHA;
+  const config = { image_id: imageId, hourly_microusd: rate, staging_hourly_microusd: stagingRate,
+    quote_expires_at: quoteExpires,
+    max_runtime_seconds: maxRuntime, monthly_microusd: monthly };
+  let contract;
+  try {
+    const token = await getSourceToken(source.repository);
+    contract = await readPublicTrainingContract(source.repository, source.commit, fetch, token, config);
+  } catch (error) {
+    return { schema_version: 2, status: "blocked",
+      human_summary: "GitHubの固定commitから実験manifestとdependency lockを読めませんでした。",
+      machine_state: { ...source, execution_available: false }, next_allowed_actions: [],
+      blocking_reason: error?.message?.startsWith("TRAINING_") ? error.message : "TRAINING_GITHUB_LOOKUP_FAILED" };
+  }
+  const inspected = { ...source, ...contract };
+  if (!contract.execution_available) return { schema_version: 2, status: "blocked",
+    human_summary: "このcommitは確認できましたが、GPU実行条件が揃っていません。",
+    machine_state: inspected, next_allowed_actions: [],
+    blocking_reason: contract.execution_blocking_reason };
+  if (typeof controlPlaneSha !== "string" || !/^[0-9a-f]{40}$/.test(controlPlaneSha)) {
+    return { schema_version: 2, status: "blocked",
+      human_summary: "現在のGPU Control commitをplanへ固定できません。",
+      machine_state: inspected, next_allowed_actions: [],
+      blocking_reason: "TRAINING_AUTHORIZATION_NOT_CONFIGURED" };
+  }
+  const runtime = args.runtime_seconds;
+  const budget = args.max_cost_microusd;
+  if (!Number.isSafeInteger(runtime) || runtime < 120 || runtime > maxRuntime ||
+      !Number.isSafeInteger(budget) || budget < 1 || budget > maxCost || budget > 1_000_000) {
+    return { schema_version: 2, status: "blocked",
+      human_summary: "指定した実行時間または費用上限が、このowner-selected GPU枠を超えています。",
+      machine_state: { ...inspected, max_runtime_seconds: maxRuntime, max_cost_ceiling_microusd: maxCost },
+      next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_OR_RUNTIME_INVALID" };
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const stagingRuntime = 300;
+  const estimatedCost = Math.ceil((rate * (runtime + 300) + stagingRate * stagingRuntime) / 3240);
+  if (estimatedCost > budget) return { schema_version: 2, status: "blocked",
+    human_summary: "この費用上限ではModal GPUと起動時間の見積もりをカバーできません。",
+    machine_state: { ...inspected, estimated_cost_microusd: estimatedCost },
+    next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_TOO_LOW" };
+  const gpu = contract.manifest.gpu_profiles.find((profile) => ["T4", "L4"].includes(profile));
+  const executionSpecId = [...new Uint8Array(await crypto.subtle.digest("SHA-256",
+    new TextEncoder().encode(`${source.registration_id}:${contract.manifest_sha256}:${contract.dependency_lock.sha256}`)))]
+    .slice(0, 16).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  if (args.execution_spec_id !== undefined && args.execution_spec_id !== executionSpecId) {
+    return { schema_version: 2, status: "blocked",
+      human_summary: "この固定commitとmanifestに一致するexecution specがありません。",
+      machine_state: source, next_allowed_actions: [], blocking_reason: "TRAINING_CONFIGURATION_NOT_FOUND" };
+  }
+  const lockSha = contract.dependency_lock.sha256;
+  return { schema_version: 2, status: "ok",
+    human_summary: "GitHubの固定commit、GPU profile、依存lock、実行時間、費用上限を確認しました。",
+    machine_state: { execution_kind: "owner_selected_python", registration_id: source.registration_id,
+      execution_spec_id: args.execution_spec_id || executionSpecId,
+      repository: source.repository, commit: source.commit, control_plane_sha: controlPlaneSha,
+      manifest: contract.manifest, manifest_sha256: contract.manifest_sha256,
+      dependencies_lock: contract.manifest.dependencies_lock, lock_sha256: lockSha,
+      command: ["python", contract.manifest.entrypoint], image_id: imageId, image_digest: imageId,
+      provider: "modal", provider_resource_id: "gpu-control-provider-adapter/owner_training",
+      gpu, gpu_count: 1, runtime_seconds: runtime, max_cost_microusd: budget,
+      hourly_microusd: rate, staging_hourly_microusd: stagingRate,
+      staging_runtime_seconds: stagingRuntime, staging_cpu_cores: 1, staging_memory_mib: 1024,
+      quote_expires_at: quoteExpires, estimated_cost_microusd: estimatedCost,
+      monthly_budget_microusd: monthly,
+      task: contract.manifest.task, executable: false },
+    next_allowed_actions: [], blocking_reason: null };
+}
+
+export async function previewTrainingPlan(env, owner, args, getSourceToken = async () => null) {
+  const source = args.registration_id
+    ? await getOwnedTrainingSource(env.DB, owner, args.registration_id)
+    : await findOwnedTrainingSource(env.DB, owner, args);
+  // Keep the simple chat path simple: a registered source can be previewed
+  // and prepared with only its registration ID. MAP keeps its reviewed fixed
+  // bounds; an owner-selected source defaults to a short run and the
+  // independently configured per-run ceiling. The caller may narrow either.
+  if (source.repository === MAP_REPOSITORY) {
+    args = { ...args,
+      runtime_seconds: args.runtime_seconds ?? MAP_TRAINING_MAX_RUNTIME_SECONDS,
+      max_cost_microusd: args.max_cost_microusd ?? MAP_TRAINING_MAX_COST_MICROUSD };
+  } else {
+    const configuredRuntime = Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS);
+    const configuredCost = Number(env.OWNER_TRAINING_MAX_COST_MICROUSD);
+    args = { ...args,
+      runtime_seconds: args.runtime_seconds ?? Math.min(Number.isSafeInteger(configuredRuntime) ? configuredRuntime : 300, 300),
+      max_cost_microusd: args.max_cost_microusd ?? Math.min(Number.isSafeInteger(configuredCost) ? configuredCost : 1_000_000, 1_000_000) };
+  }
+  if (source.repository !== MAP_REPOSITORY) return previewOwnerTrainingPlan(env, owner, args, source, getSourceToken);
   if (args.runtime_seconds !== MAP_TRAINING_MAX_RUNTIME_SECONDS) return { schema_version: 2, status: "blocked",
     human_summary: "MAP-44Mの1回あたりの実行時間上限は120秒です。",
     machine_state: { max_runtime_seconds: MAP_TRAINING_MAX_RUNTIME_SECONDS },
     next_allowed_actions: [], blocking_reason: "TRAINING_RUNTIME_TOO_HIGH" };
-  const source = args.registration_id
-    ? await getOwnedTrainingSource(env.DB, owner, args.registration_id)
-    : await findOwnedTrainingSource(env.DB, owner, args);
   const machine = { ...source, executable: false };
   let execution = DEFAULT_MAP_EXECUTION;
   let executionSpecId = args.execution_spec_id;
@@ -113,9 +208,9 @@ export async function previewTrainingPlan(env, owner, args) {
     next_allowed_actions: [], blocking_reason: null };
 }
 
-export async function prepareTrainingPlan(env, owner, args) {
+export async function prepareTrainingPlan(env, owner, args, getSourceToken = async () => null) {
   const { idempotency_key: key, ...inputs } = args;
-  const preview = await previewTrainingPlan(env, owner, inputs);
+  const preview = await previewTrainingPlan(env, owner, inputs, getSourceToken);
   if (preview.status !== "ok") return preview;
 
   const { executable, ...plan } = preview.machine_state;
@@ -139,21 +234,29 @@ export async function prepareTrainingPlan(env, owner, args) {
   const authorized = state === "prepared" && authorization?.authorized_at !== null &&
     authorization?.authorized_at !== undefined && authorization?.expires_at > now &&
     authorization?.consumed_at === null;
-  const admission = env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
-    Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
+  const ownerSelected = plan.execution_kind === "owner_selected_python";
+  const admission = ownerSelected
+    ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true" &&
+      Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS) >= plan.runtime_seconds
+    : env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
+      Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
-  const executableNow = state === "prepared" && admission && authorized;
+  // Owner-selected plans are authorized by the exact destructive ChatGPT MCP
+  // submit call. The host presents its native confirmation once for that run.
+  const executableNow = state === "prepared" && admission && (authorized || ownerSelected);
   if (executableNow) actions.unshift("training_submit");
   return { ...preview, approved_plan: plan, next_allowed_actions: actions,
     human_summary: !admission
       ? "学習計画は保存しましたが、現在この条件の実行受付は停止中です。"
       : authorized
       ? "学習計画を保存しました。所有者確認済みなので、このplanを送信できます。"
+      : ownerSelected
+      ? "学習計画を保存しました。ChatGPTから送信するときに、この固定commit・GPU・予算上限を1回だけ確認します。"
       : "学習計画を保存しました。送信前にauthorization_urlを開き、このplanの有料実行を確認してください。Modalへのログインは不要です。",
     machine_state: { ...plan, executable: executableNow, run_id: existing.id,
       plan_fingerprint: fingerprint, idempotency_key: key, expires_at: existing.expires_at, state,
       authorization_state: !admission ? "unavailable" : authorized ? "authorized" : "required",
-      ...(admission && !authorized && state === "prepared"
+      ...(admission && !authorized && state === "prepared" && !ownerSelected
         ? { authorization_url: trainingAuthorizationUrl(existing.id, fingerprint) } : {}) } };
 }
 
@@ -165,7 +268,7 @@ export async function trainingPlanState(env, owner, runId, cancel = false) {
       WHERE owner_id=? AND id=? AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?`)
       .bind(now, owner, runId, now).run();
   }
-  const row = await db.prepare(`SELECT fingerprint, expires_at, cancelled_at, dispatch_claimed_at, dispatch_rejection
+  const row = await db.prepare(`SELECT fingerprint, plan_json, expires_at, cancelled_at, dispatch_claimed_at, dispatch_rejection
     FROM training_plans WHERE owner_id=? AND id=?`).bind(owner, runId).first();
   if (!row) throw new Error("RUN_NOT_FOUND");
   const authorization = await getTrainingAuthorization(db, owner, runId, row.fingerprint);
@@ -175,26 +278,33 @@ export async function trainingPlanState(env, owner, runId, cancel = false) {
   const authorized = state === "prepared" && authorization?.authorized_at !== null &&
     authorization?.authorized_at !== undefined && authorization?.expires_at > now &&
     authorization?.consumed_at === null;
-  const admission = env.MAP_TRAINING_ADMISSION_ENABLED === "true";
+  let plan = {};
+  try { plan = JSON.parse(row.plan_json); } catch {}
+  const ownerSelected = plan.execution_kind === "owner_selected_python";
+  const admission = ownerSelected ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true"
+    : env.MAP_TRAINING_ADMISSION_ENABLED === "true";
+  const siteConfirmationRequired = !ownerSelected;
   return { schema_version: 2, status: "ok", human_summary: "保存済みの学習計画の状態です。",
     machine_state: { run_id: runId, state, plan_fingerprint: row.fingerprint,
       expires_at: row.expires_at, cancelled_at: row.cancelled_at,
       authorization_state: state !== "prepared" ? "none" : !admission ? "unavailable" : authorized ? "authorized" : "required",
-      ...(admission && !authorized && state === "prepared"
+      ...(siteConfirmationRequired && admission && !authorized && state === "prepared"
         ? { authorization_url: trainingAuthorizationUrl(runId, row.fingerprint) } : {}),
       ...(row.dispatch_rejection ? { reason: row.dispatch_rejection } : {}) },
     next_allowed_actions: state === "prepared"
-      ? [...(admission && authorized ? ["training_submit"] : []), "training_cancel"] : [], blocking_reason: null };
+      ? [...(admission && (authorized || ownerSelected) ? ["training_submit"] : []), "training_cancel"] : [], blocking_reason: null };
 }
 
 // Authorization must already be established. This single write reserves the
 // whole plan ceiling and prevents concurrent or duplicate dispatch claims.
-export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, authorization) {
+export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, authorization,
+  maxMonthlyLimit = MAP_TRAINING_MAX_MONTHLY_MICROUSD) {
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1 ||
-      monthlyLimit > MAP_TRAINING_MAX_MONTHLY_MICROUSD) {
+      !Number.isSafeInteger(maxMonthlyLimit) || maxMonthlyLimit < 1 || monthlyLimit > maxMonthlyLimit) {
     throw new Error("TRAINING_BUDGET_NOT_CONFIGURED");
   }
-  if (!authorization || authorization.authorization_source !== "site_owner_plan_confirmation" ||
+  if (!authorization || !["site_owner_plan_confirmation", "chatgpt_mcp_write_confirmation"]
+      .includes(authorization.authorization_source) ||
       authorization.authorized_by !== owner || authorization.decision_record_id !== `training-plan:${runId}:${fingerprint}` ||
       !/^[0-9a-f]{40}$/.test(authorization.control_plane_sha || "") ||
       !/^[0-9a-f]{32}$/.test(authorization.authorization_id || "") ||
@@ -210,7 +320,7 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
       AND EXISTS (SELECT 1 FROM training_authorizations a WHERE a.plan_id=training_plans.id
         AND a.owner_id=training_plans.owner_id AND a.fingerprint=training_plans.fingerprint
         AND a.authorization_id=? AND a.authorization_reference=? AND a.control_plane_sha=?
-        AND a.authorization_source='site_owner_plan_confirmation' AND a.authorized_by=?
+        AND a.authorization_source IN ('site_owner_plan_confirmation','chatgpt_mcp_write_confirmation') AND a.authorized_by=?
         AND a.decision_record_id=? AND a.authorized_at IS NOT NULL
         AND a.consumed_at IS NULL AND a.expires_at>?)
       AND json_extract(plan_json, '$.max_cost_microusd') +
@@ -222,7 +332,7 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
     db.prepare(`UPDATE training_authorizations SET consumed_at=?
       WHERE plan_id=? AND owner_id=? AND fingerprint=? AND control_plane_sha=?
         AND authorization_id=? AND authorization_reference=?
-        AND authorization_source='site_owner_plan_confirmation' AND authorized_by=?
+        AND authorization_source IN ('site_owner_plan_confirmation','chatgpt_mcp_write_confirmation') AND authorized_by=?
         AND decision_record_id=? AND authorized_at IS NOT NULL AND expires_at>?
         AND consumed_at IS NULL AND EXISTS (SELECT 1 FROM training_plans p
           WHERE p.id=training_authorizations.plan_id AND p.owner_id=training_authorizations.owner_id
@@ -234,15 +344,18 @@ export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, 
   return results?.[0]?.results?.[0] || null;
 }
 
-export async function submitTrainingPlan(env, owner, args, delegate, isConfigured) {
+export async function submitTrainingPlan(env, owner, args, delegate, isConfigured, getSourceToken = async () => null) {
   const { run_id: runId, plan_fingerprint: fingerprint, approved_plan: approved } = args;
   const row = await env.DB.prepare(`SELECT plan_json, dispatch_claimed_at, expires_at FROM training_plans
     WHERE owner_id=? AND id=? AND fingerprint=?`).bind(owner, runId, fingerprint).first();
   if (!row) throw new Error("RUN_NOT_FOUND");
   const plan = JSON.parse(row.plan_json);
   const { admission_token: _admissionToken, ...approvedPlan } = approved;
-  if (Object.keys(approvedPlan).length !== Object.keys(plan).length ||
-      Object.entries(plan).some(([key, value]) => !Object.hasOwn(approvedPlan, key) || approvedPlan[key] !== value)) {
+  const canonical = (value) => Array.isArray(value) ? `[${value.map(canonical).join(",")}]`
+    : value && typeof value === "object"
+      ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`
+      : JSON.stringify(value);
+  if (canonical(approvedPlan) !== canonical(plan)) {
     throw new Error("INVALID_ARGUMENTS");
   }
   if (row.dispatch_claimed_at !== null) return trainingPlanState(env, owner, runId);
@@ -252,23 +365,44 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       machine_state: { run_id: runId }, next_allowed_actions: ["training_status"],
       blocking_reason: "TRAINING_AUTHORIZATION_NOT_CONFIGURED" };
   }
-  if (env.MAP_TRAINING_ADMISSION_ENABLED !== "true" || !isConfigured(env)) {
+  const ownerSelected = plan.execution_kind === "owner_selected_python";
+  const admissionEnabled = ownerSelected
+    ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true"
+    : env.MAP_TRAINING_ADMISSION_ENABLED === "true";
+  if (!admissionEnabled || !isConfigured(env)) {
     return { schema_version: 2, status: "blocked", human_summary: "学習の実行受付は停止中です。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
   }
-  if (Number(env.MAP_TRAINING_RUNTIME_SECONDS) !== plan.runtime_seconds) {
+  const configuredRuntime = ownerSelected
+    ? Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS)
+    : Number(env.MAP_TRAINING_RUNTIME_SECONDS);
+  if (ownerSelected ? configuredRuntime < plan.runtime_seconds
+    : configuredRuntime !== plan.runtime_seconds) {
     return { schema_version: 2, status: "blocked",
       human_summary: "計画の時間上限がModalに設定された上限と一致しません。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_RUNTIME_MISMATCH" };
   }
-  const current = await previewTrainingPlan(env, owner, plan);
+  const sourceToken = ownerSelected ? await getSourceToken(plan.repository) : null;
+  const current = await previewTrainingPlan(env, owner, plan, async () => sourceToken);
   const { executable, ...currentPlan } = current.machine_state;
-  if (current.status !== "ok" || JSON.stringify(currentPlan) !== row.plan_json) {
+  const canonicalForPreview = (value) => Array.isArray(value) ? `[${value.map(canonicalForPreview).join(",")}]`
+    : value && typeof value === "object"
+      ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalForPreview(value[key])}`).join(",")}}`
+      : JSON.stringify(value);
+  if (current.status !== "ok" || canonicalForPreview(currentPlan) !== canonicalForPreview(plan)) {
     throw new Error("TRAINING_PLAN_EXPIRED");
   }
   const now = Math.floor(Date.now() / 1000);
-  const authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);
-  const expectedAuthorization = authorization && authorization.authorization_source === "site_owner_plan_confirmation" &&
+  let authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);
+  if (ownerSelected && (!authorization || authorization.expires_at <= now || authorization.consumed_at !== null)) {
+    const authorized = await authorizeTrainingChatSubmit(env.DB, owner, runId, fingerprint,
+      controlPlaneSha, now);
+    if (authorized) authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);
+  }
+  const validAuthorizationSource = ownerSelected
+    ? ["site_owner_plan_confirmation", "chatgpt_mcp_write_confirmation"].includes(authorization?.authorization_source)
+    : authorization?.authorization_source === "site_owner_plan_confirmation";
+  const expectedAuthorization = authorization && validAuthorizationSource &&
     authorization.authorized_by === owner && authorization.control_plane_sha === controlPlaneSha &&
     authorization.decision_record_id === `training-plan:${runId}:${fingerprint}` &&
     authorization.target_repository === plan.repository && authorization.target_sha === plan.commit &&
@@ -277,12 +411,21 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     authorization.runtime_seconds === plan.runtime_seconds && authorization.max_cost_microusd === plan.max_cost_microusd &&
     authorization.authorized_at !== null && authorization.expires_at > now && authorization.consumed_at === null;
   if (!expectedAuthorization) return { schema_version: 2, status: "blocked",
-    human_summary: "このplanはまだSite上で有料実行の確認が済んでいません。authorization_urlを開いて確認してください。",
+    human_summary: ownerSelected
+      ? "ChatGPTのこのplan確認を安全に記録できませんでした。計算は開始していません。"
+      : "このplanはまだSite上で有料実行の確認が済んでいません。authorization_urlを開いて確認してください。",
     machine_state: { run_id: runId, authorization_state: "required",
-      authorization_url: trainingAuthorizationUrl(runId, fingerprint) }, next_allowed_actions: ["training_status"],
+      ...(!ownerSelected ? { authorization_url: trainingAuthorizationUrl(runId, fingerprint) } : {}) },
+    next_allowed_actions: ["training_status"],
     blocking_reason: "TRAINING_AUTHORIZATION_REQUIRED" };
+  // Mint the read-only GitHub App token only after owner, exact plan, and
+  // execution authorization are verified. It is forwarded only to the trusted
+  // source stager and is never written to the D1 plan or run record.
+  const monthlyLimit = ownerSelected
+    ? Number(env.OWNER_TRAINING_MONTHLY_MICROUSD)
+    : Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
-    Number(env.MAP_TRAINING_MONTHLY_MICROUSD), authorization);
+    monthlyLimit, authorization, ownerSelected ? OWNER_TRAINING_MAX_MONTHLY_MICROUSD : MAP_TRAINING_MAX_MONTHLY_MICROUSD);
   if (!claimed) return { schema_version: 2, status: "blocked", human_summary: "計画または予算枠を確保できませんでした。",
     machine_state: { run_id: runId }, next_allowed_actions: ["training_status"], blocking_reason: "TRAINING_DISPATCH_NOT_RESERVED" };
   const delegatedAuthorization = {
@@ -312,6 +455,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       run_id: runId, plan_fingerprint: fingerprint, plan: { ...plan, run_id: runId },
       authorization: delegatedAuthorization,
       authorization_expires_at: authorization.expires_at,
+      ...(sourceToken ? { source_token: sourceToken } : {}),
     });
     if (response?.state === "blocked" &&
         ["TRAINING_ADMISSION_DISABLED", "TRAINING_AUTHORIZATION_EXPIRED"].includes(response.reason)) {
@@ -323,7 +467,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
         machine_state: { run_id: runId, state: "blocked" },
         next_allowed_actions: ["training_status"], blocking_reason: response.reason };
     }
-    if (response?.state === "running") state = "running";
+    if (["running", "staging"].includes(response?.state)) state = response.state;
   } catch {
     // The provider may have accepted the call. Recover by status, never respawn.
   }

@@ -14,6 +14,7 @@ const manifest = {
   gpu_profiles: ["T4", "L4"],
   outputs: ["checkpoints", "metrics.json"],
 };
+const lockBytes = Buffer.from(`torch==2.0.0 --hash=sha256:${"a".repeat(64)}\n`);
 
 function responseFor(value, status = 200) {
   const content = Buffer.from(JSON.stringify(value));
@@ -28,7 +29,6 @@ function fileResponse(path, bytes, status = 200) {
 
 test("reads a strict experiment manifest at the registered immutable commit", async () => {
   let requested;
-  const lockBytes = Buffer.from("torch==2.0.0\n");
   const result = await readPublicTrainingContract(repository, commit, async (url, options) => {
     const parsed = new URL(url);
     requested ??= [];
@@ -50,18 +50,17 @@ test("reads a strict experiment manifest at the registered immutable commit", as
   assert.equal(result.readiness.ready, false);
   assert.deepEqual(result.readiness.checks, {
     immutable_source: true, entrypoint: true, supported_python: true,
-    dependency_lock_path: true, dependency_lock_present_at_commit: true, supported_gpu_profile: true,
+    dependency_lock_path: true, dependency_lock_present_at_commit: true,
+    dependency_lock_has_exact_versions_and_hashes: true, supported_gpu_profile: true,
     checkpoint_output: true, metrics_output: true,
   });
   assert.equal(result.dependency_lock.sha256, createHash("sha256").update(lockBytes).digest("hex"));
-  assert.ok(result.readiness.missing.includes("reviewed_runtime_image"));
-  assert.ok(result.readiness.missing.includes("artifact_transport"));
+  assert.ok(result.readiness.missing.includes("reviewed_runtime_image_and_provider_quote"));
   assert.deepEqual(result.manifest, manifest);
 });
 
 test("uses a short-lived GitHub installation token only for the selected repository reads", async () => {
   const token = "installation-token-must-not-leak";
-  const lockBytes = Buffer.from("torch==2.0.0\n");
   const requests = [];
   const result = await readPublicTrainingContract(repository, commit, async (url, options) => {
     requests.push({ url: new URL(url), options });

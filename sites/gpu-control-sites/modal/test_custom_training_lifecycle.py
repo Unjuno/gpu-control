@@ -1,0 +1,112 @@
+import time
+from types import SimpleNamespace
+
+import pytest
+
+from custom_training_lifecycle import dispatch
+
+
+class Store(dict):
+    def put(self, key, value, *, skip_if_exists=False):
+        if skip_if_exists and key in self:
+            return False
+        self[key] = value
+        return True
+
+
+def test_one_start_bound_to_owner_and_cancel_until_terminal():
+    run = "a" * 32
+    plan = {"run_id": run}
+    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": plan,
+            "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
+    starts, cancels = [], []
+    states = iter([{"state": "running"}, {"state": "cancelled", "cleanup": "confirmed"}])
+    backend = SimpleNamespace(start=lambda plan, source_token=None: starts.append((plan, source_token)) or f"custom-training-{run}",
+                              cancel=lambda handle: cancels.append(handle),
+                              inspect=lambda *_: next(states))
+    store = Store()
+    def call(action, owner="owner"):
+        bound = {**args, "approved_plan": plan}
+        return dispatch(store, backend, owner, action, bound, validate=lambda *_: None, admission_enabled=True)
+    assert call("submit") == {"state": "staging"}
+    assert call("submit") == {"state": "staging"}
+    with pytest.raises(ValueError, match="run_identity_mismatch"):
+        call("status", "other")
+    assert call("cancel") == {"state": "cancel_requested"}
+    assert call("cancel") == {"state": "cancel_requested"}
+    assert call("status") == {"state": "cancelled", "cleanup": "confirmed"}
+    assert call("status") == {"state": "cancelled", "cleanup": "confirmed"}
+    assert len(starts) == 1 and starts[0][1] is None and cancels == [f"custom-training-{run}"]
+
+
+def test_ambiguous_start_never_retries():
+    run = "a" * 32
+    plan = {"run_id": run}
+    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": plan,
+            "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
+    attempts = []
+    def start(_, source_token=None):
+        attempts.append(1)
+        raise TimeoutError()
+    store = Store()
+    backend = SimpleNamespace(start=start)
+    with pytest.raises(TimeoutError):
+        dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None, admission_enabled=True)
+    assert dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None,
+                    admission_enabled=True) == {"state": "uncertain"}
+    assert attempts == [1]
+
+
+def test_closed_admission_and_invalid_plan_never_claim_or_start():
+    run = "a" * 32
+    plan = {"run_id": run}
+    args = {"run_id": run, "plan_fingerprint": "b" * 64, "plan": plan,
+            "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
+    store = Store()
+    backend = SimpleNamespace(start=lambda _: pytest.fail("must not start"))
+    assert dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None,
+                    admission_enabled=False)["state"] == "blocked"
+    def reject(*_):
+        raise ValueError("invalid_budget")
+    with pytest.raises(ValueError, match="invalid_budget"):
+        dispatch(store, backend, "owner", "submit", args, validate=reject, admission_enabled=True)
+    assert not store
+
+
+def test_cleanup_must_be_confirmed_before_success_or_checkpoint():
+    run = "a" * 32
+    fingerprint = "b" * 64
+    plan = {"run_id": run}
+    args = {"run_id": run, "plan_fingerprint": fingerprint, "plan": plan,
+            "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
+    backend = SimpleNamespace(start=lambda _, source_token=None: f"custom-training-{run}", cancel=lambda _: None,
+        inspect=lambda *_: {"state": "succeeded", "cleanup": "pending"},
+        checkpoint=lambda *_: pytest.fail("must not read before cleanup"))
+    store = Store()
+    dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None, admission_enabled=True)
+    status_args = {"run_id": run, "plan_fingerprint": fingerprint}
+    assert dispatch(store, backend, "owner", "status", status_args,
+                    validate=lambda *_: None, admission_enabled=True) == {
+                        "state": "cleanup_pending", "execution_state": "succeeded"}
+
+
+def test_cancel_during_cpu_staging_finishes_without_gpu_start():
+    run = "a" * 32
+    fingerprint = "b" * 64
+    plan = {"run_id": run}
+    args = {"run_id": run, "plan_fingerprint": fingerprint, "plan": plan,
+            "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
+    starts, inspections = [], []
+    backend = SimpleNamespace(
+        start=lambda *_args, **_kwargs: starts.append("stage") or f"custom-training-{run}",
+        cancel=lambda _handle: {"state": "cancelled", "cleanup": "confirmed", "gpu_used": False},
+        inspect=lambda *_args: inspections.append("inspect") or pytest.fail("cancel already completed"),
+    )
+    store = Store()
+    assert dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None,
+                    admission_enabled=True) == {"state": "staging"}
+    status_args = {"run_id": run, "plan_fingerprint": fingerprint}
+    assert dispatch(store, backend, "owner", "cancel", status_args, validate=lambda *_: None,
+                    admission_enabled=True) == {
+                        "state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
+    assert starts == ["stage"] and inspections == []

@@ -370,9 +370,19 @@ Example manifest:
 ```
 
 At this stage, `training_inspect` validates the manifest and returns structured
-compatibility checks, but reports `CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED`. It
-does not create a plan or start compute. Custom execution on Modal, RunPod,
-Kaggle, or Hugging Face is still unavailable: provider-specific source staging,
-budget reservation, sandbox/runtime integration, artifact verification, and
-cleanup evidence have not been released. The repository remains in parked
-mode, so do not interpret registration or inspection as GPU readiness.
+compatibility checks. The current branch contains a gated Modal prototype for
+fixed CPU source staging followed by a network-blocked GPU Sandbox. It is not
+released: admission remains disabled until the runtime image, separate staging
+and GPU quotes, budget reservations, complete artifact verification, cleanup,
+security review, and exact-head release gates pass. RunPod custom-repository
+execution is not implemented by the fixed RunPod canary.
+
+When the route is released, a user who explicitly asks to run may use ordinary
+ChatGPT language such as “Run one small GPU experiment from my registered
+`owner/repository` source and show me the result.” The agent prepares the
+owner-bound registration with server defaults, then submits the exact returned
+plan. ChatGPT's native write confirmation binds the selected commit, GPU,
+runtime, and cost ceiling once; there is no per-run Modal login or separate
+browser confirmation. The agent then polls the same run and verifies cleanup
+and artifacts. Until the route reports ready and admission is enabled, do not
+claim that prompt can start compute.

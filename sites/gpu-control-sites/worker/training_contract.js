@@ -33,23 +33,53 @@ function validManifest(value) {
   return true;
 }
 
-function manifestReadiness(manifest, lockfile) {
+function validateDependencyLock(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > 64 * 1024) return false;
+  let text;
+  try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { return false; }
+  const packages = new Set();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const [requirement, ...hashes] = line.split(/\s+/);
+    const match = /^([A-Za-z0-9][A-Za-z0-9_.-]{0,127})==([A-Za-z0-9][A-Za-z0-9.!+_-]{0,127})$/.exec(requirement || "");
+    if (!match || hashes.length < 1 || hashes.some((value) => !/^--hash=sha256:[0-9a-f]{64}$/.test(value))) return false;
+    const normalized = match[1].replace(/[-_.]+/g, "-").toLowerCase();
+    if (packages.has(normalized)) return false;
+    packages.add(normalized);
+    if (packages.size > 128) return false;
+  }
+  return packages.size > 0;
+}
+
+function manifestReadiness(manifest, lockfile, executionConfig) {
+  const now = Math.floor(Date.now() / 1000);
+  const runtimeConfigured = executionConfig &&
+    /^im-[A-Za-z0-9]{8,128}$/.test(executionConfig.image_id || "") &&
+    Number.isSafeInteger(executionConfig.hourly_microusd) && executionConfig.hourly_microusd > 0 &&
+    Number.isSafeInteger(executionConfig.staging_hourly_microusd) &&
+    executionConfig.staging_hourly_microusd > 0 && executionConfig.staging_hourly_microusd <= 1_000_000_000 &&
+    Number.isSafeInteger(executionConfig.quote_expires_at) && executionConfig.quote_expires_at > now &&
+    executionConfig.quote_expires_at <= now + 30 * 86400 &&
+    Number.isSafeInteger(executionConfig.max_runtime_seconds) && executionConfig.max_runtime_seconds >= 120 &&
+    executionConfig.max_runtime_seconds <= 3000 &&
+    Number.isSafeInteger(executionConfig.monthly_microusd) && executionConfig.monthly_microusd > 0 &&
+    executionConfig.monthly_microusd <= 30_000_000;
   const checks = {
     immutable_source: true,
     entrypoint: validRelativePythonPath(manifest.entrypoint),
     supported_python: ["3.11", "3.12"].includes(manifest.python_version),
     dependency_lock_path: typeof manifest.dependencies_lock === "string" && manifest.dependencies_lock.endsWith(".lock"),
     dependency_lock_present_at_commit: Boolean(lockfile),
+    dependency_lock_has_exact_versions_and_hashes: validateDependencyLock(lockfile),
     supported_gpu_profile: manifest.gpu_profiles.some((profile) => ["T4", "L4"].includes(profile)),
     checkpoint_output: manifest.outputs.some((output) => /(^|\/)(checkpoint|checkpoints)(\/|$)/i.test(output)),
     metrics_output: manifest.outputs.some((output) => /(^|\/)(metrics|metrics\.json)(\/|$)/i.test(output)),
   };
   const missing = Object.entries(checks).filter(([, ok]) => !ok).map(([key]) => key);
-  // The current runtime cannot yet build the locked environment, verify its
-  // digest, or return bounded artifacts, even if the repository manifest is
-  // otherwise compatible.
-  missing.push("reviewed_runtime_image", "dependency_environment_build", "artifact_transport", "provider_cleanup_receipt");
-  return { checks, missing, ready: false };
+  if (!runtimeConfigured) missing.push("reviewed_runtime_image_and_provider_quote");
+  return { checks, missing, ready: missing.length === 0 };
 }
 
 async function readPublicFile(repository, path, commit, maxBytes, fetchImpl, installationToken = null) {
@@ -115,7 +145,8 @@ export function validateTrainingManifest(value) {
   return validManifest(value);
 }
 
-export async function readPublicTrainingContract(repository, commit, fetchImpl = fetch, installationToken = null) {
+export async function readPublicTrainingContract(repository, commit, fetchImpl = fetch, installationToken = null,
+  executionConfig = null) {
   const source = parseTrainingSource(repository, commit);
   const url = new URL(`https://api.github.com/repos/${source.repository}/contents/${MANIFEST_PATH}`);
   url.searchParams.set("ref", source.commit);
@@ -160,12 +191,14 @@ export async function readPublicTrainingContract(repository, commit, fetchImpl =
   const lockSha256 = lockBytes
     ? [...new Uint8Array(await crypto.subtle.digest("SHA-256", lockBytes))]
       .map((byte) => byte.toString(16).padStart(2, "0")).join("") : null;
-  const readiness = manifestReadiness(manifest, lockBytes);
+  const readiness = manifestReadiness(manifest, lockBytes, executionConfig);
   return { repository: source.repository, commit: source.commit, manifest_path: MANIFEST_PATH,
     manifest, manifest_sha256: [...new Uint8Array(await crypto.subtle.digest("SHA-256", manifestBytes))]
       .map((byte) => byte.toString(16).padStart(2, "0")).join(""),
     dependency_lock: lockBytes ? { path: manifest.dependencies_lock, size_bytes: lockBytes.byteLength,
       sha256: lockSha256 } : { path: manifest.dependencies_lock, state: "unavailable" },
-    readiness, execution_available: false,
-    execution_blocking_reason: "CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED" };
+    readiness, execution_available: readiness.ready,
+    execution_blocking_reason: readiness.ready ? null :
+      readiness.missing.includes("reviewed_runtime_image_and_provider_quote")
+        ? "CUSTOM_TRAINING_RUNTIME_NOT_CONNECTED" : "TRAINING_MANIFEST_OR_LOCK_INVALID" };
 }

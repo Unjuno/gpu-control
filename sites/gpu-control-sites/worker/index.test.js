@@ -682,8 +682,8 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   assert.match(submitTool.description, /do not ask a second conversational confirmation/);
   assert.match(submitTool.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
   assert.equal(trainingSubmitTool.annotations.destructiveHint, true);
-  assert.match(trainingSubmitTool.description, /authenticated GPU Control Site/);
-  assert.match(trainingSubmitTool.description, /Modal login is not needed/);
+  assert.match(trainingSubmitTool.description, /ChatGPT MCP write confirms/);
+  assert.match(trainingSubmitTool.description, /No separate GPU Control browser confirmation or Modal login is needed/);
 
   for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list", "training_inspect"]) {
     assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);

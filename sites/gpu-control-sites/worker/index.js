@@ -75,8 +75,8 @@ const schemas = {
       execution_spec_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
       repository: { type: "string", maxLength: 159 },
       commit: { type: "string", pattern: "^[0-9a-f]{40}$" },
-      runtime_seconds: { type: "integer", minimum: MAP_TRAINING_MAX_RUNTIME_SECONDS, maximum: MAP_TRAINING_MAX_RUNTIME_SECONDS },
-      max_cost_microusd: { type: "integer", minimum: 1, maximum: MAP_TRAINING_MAX_COST_MICROUSD },
+      runtime_seconds: { type: "integer", minimum: 120, maximum: 3000 },
+      max_cost_microusd: { type: "integer", minimum: 1, maximum: 1000000 },
     }, required: [], additionalProperties: false,
   },
   training_list: { type: "object", properties: {}, additionalProperties: false },
@@ -215,7 +215,7 @@ schemas.training_submit = {
   type: "object", properties: {
     run_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
     plan_fingerprint: { type: "string", pattern: "^[0-9a-f]{64}$" },
-    approved_plan: { type: "object", additionalProperties: true, maxProperties: 20 },
+    approved_plan: { type: "object", additionalProperties: true, maxProperties: 32 },
   }, required: ["run_id", "plan_fingerprint", "approved_plan"], additionalProperties: false,
 };
 schemas.training_checkpoint = {
@@ -233,15 +233,15 @@ const toolDescriptions = {
   github_connection_status: "Read the GitHub App connection state for the authenticated GPU Control owner. No token or installation identifier is returned.",
   github_connection_disconnect: "Remove this owner's GitHub repository connection from GPU Control. This does not uninstall the GitHub App from the GitHub account; revoke it there separately if desired.",
   github_repositories: "List repositories explicitly selected for this owner's read-only GitHub App installation. Returns repository name, visibility, and default branch only; no access token is returned.",
-  training_checkpoint: "Read an owned completed training checkpoint in bounded base64 chunks. Verify the assembled file against the returned SHA-256.",
-  training_submit: "Start one exact saved MAP-44M plan after the owner has confirmed that exact plan on the authenticated GPU Control Site. If authorization is missing, training_prepare or training_status returns the owner confirmation link. ChatGPT MCP owner login is separate from this one-time exact-plan execution authorization; Modal login is not needed. Supply the exact saved approved_plan.",
+  training_checkpoint: "Read an owned completed training artifact in bounded base64 chunks. Verify the assembled file against the returned SHA-256.",
+  training_submit: "Start one exact saved training plan for the authenticated owner. For an owner-selected GitHub source, this destructive ChatGPT MCP write confirms the fixed commit, GPU, runtime, and cost once; the server binds that confirmation to a one-use authorization and budget reservation. No separate GPU Control browser confirmation or Modal login is needed. For the legacy MAP-44M lane, the Site confirmation link may still be required. Supply the exact approved_plan; after submit, monitor the same run and do not retry an uncertain dispatch.",
   training_status: "Read the state of your saved training plan.",
   training_cancel: "Cancel your unsubmitted training plan.",
-  training_prepare: "Save an exact, expiring plan for your reviewed training source. Usually pass only registration_id; the server fills the fixed 120-second runtime and $0.25 ceiling and generates an idempotency key. This does not launch a GPU job.",
-  training_preview: "Preview MAP-44M by passing only registration_id. The server fills the fixed 120-second runtime and $0.25 ceiling, and supplies the pinned image, dataset, run settings, GPU count, price and cost calculation. A saved training configuration can be selected with execution_spec_id. This action cannot start training.",
+  training_prepare: "Save one exact, expiring plan for a registered GitHub training source. For the reviewed MAP-44M lane, the server supplies its fixed runtime and profile. For an owner-selected repository, the server reads the pinned commit's .gpu-control/experiment.json and hash-locked requirements, then checks the configured Modal runtime image, GPU, runtime, quote, and per-run/monthly ceiling. Usually pass only registration_id; explicit runtime and max_cost_microusd may narrow the run. The server generates an idempotency key if omitted. This does not launch a GPU job.",
+  training_preview: "Preview a registered source before preparing it. For MAP-44M, pass only registration_id (passing only registration_id is enough) and the server fills its reviewed fixed profile. For owner-selected repositories, use the authenticated owner's read-only GitHub App selection; the server inspects the immutable commit's manifest and hash-locked dependencies and reports blockers if the shared runtime image, provider quote, or GPU profile is unavailable. This action cannot start training.",
 
   training_list: "List up to 50 registered training sources and up to 50 training dispatch attempts, newest first, for the authenticated owner. To find the latest training result, take its run_id from runs and call training_status.",
-  training_inspect: "Read and strictly validate .gpu-control/experiment.json and its declared lockfile at the authenticated owner's registered immutable GitHub commit. Custom repositories must be selected in that owner's read-only GitHub App installation; a short-lived token is scoped to that exact repository and never returned. Read-only: never starts a job. A valid manifest is not proof that the repository is executable.",
+  training_inspect: "Read and strictly validate .gpu-control/experiment.json and its declared hash-pinned requirements lock at the authenticated owner's registered immutable GitHub commit. Custom repositories must be selected in that owner's read-only GitHub App installation; a short-lived token is scoped to that exact repository and never returned. Read-only: never starts a job. A valid manifest is not proof that the repository is executable until the shared GPU runtime and quote are configured.",
   training_register: "Register a GitHub repository for the authenticated Sites owner. Custom repositories must first be selected in that owner's read-only GitHub App installation. If commit is omitted, the server resolves and pins the current default-branch commit; a supplied commit is verified against GitHub. The configured MAP-44M source retains its reviewed legacy lane. Registration does not start training or make a repo executable.",
 
   experiment_capabilities: "Read registered workload and provider readiness. Modal Sandbox CPU and memory are usage-billed with hard limits of 1 physical core and 512 MiB; available Modal credits may offset charges. Anonymous callers receive no user data.",
@@ -786,8 +786,6 @@ function normalizeTrainingArguments(name, input, env) {
     args.commit = env.MAP_TRAINING_SOURCE_SHA;
   }
   if (["training_preview", "training_prepare"].includes(name)) {
-    if (args.runtime_seconds === undefined) args.runtime_seconds = MAP_TRAINING_MAX_RUNTIME_SECONDS;
-    if (args.max_cost_microusd === undefined) args.max_cost_microusd = MAP_TRAINING_MAX_COST_MICROUSD;
     if (name === "training_prepare" && args.idempotency_key === undefined) args.idempotency_key = `map-${randomHex(16)}`;
   }
   return args;
@@ -804,7 +802,7 @@ function validToolArguments(name, args, env) {
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     typeof args.plan_fingerprint === "string" && /^[0-9a-f]{64}$/.test(args.plan_fingerprint) &&
     args.approved_plan && typeof args.approved_plan === "object" && !Array.isArray(args.approved_plan) &&
-    Object.keys(args.approved_plan).length <= 20;
+    Object.keys(args.approved_plan).length <= 32;
   if (name === "training_prepare") {
     const { idempotency_key: key, ...inputs } = args;
     return typeof key === "string" && /^[A-Za-z0-9_-]{16,128}$/.test(key) &&
@@ -822,10 +820,14 @@ function validToolArguments(name, args, env) {
     const bySource = keys === "commit,max_cost_microusd,repository,runtime_seconds" &&
       typeof args.repository === "string" && args.repository.length <= 159 &&
       typeof args.commit === "string" && args.commit.length === 40;
-    return (byRegistration || byId || bySource || bySpec) && Number.isSafeInteger(args.runtime_seconds) &&
-      args.runtime_seconds === MAP_TRAINING_MAX_RUNTIME_SECONDS &&
+    if (byRegistration) return true;
+    return (byId || bySource || bySpec) &&
+      (!bySpec || (args.runtime_seconds === MAP_TRAINING_MAX_RUNTIME_SECONDS &&
+        args.max_cost_microusd <= MAP_TRAINING_MAX_COST_MICROUSD)) &&
+      Number.isSafeInteger(args.runtime_seconds) &&
+      args.runtime_seconds >= 120 && args.runtime_seconds <= 3000 &&
       Number.isSafeInteger(args.max_cost_microusd) && args.max_cost_microusd >= 1 &&
-      args.max_cost_microusd <= MAP_TRAINING_MAX_COST_MICROUSD;
+      args.max_cost_microusd <= 1_000_000;
   }
   if (name === "training_list") return Object.keys(args).length === 0;
   if (name === "training_inspect") return Object.keys(args).join(",") === "registration_id" &&
@@ -1962,18 +1964,22 @@ async function callTool(name, args, request, env, context = null) {
       run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
     });
     const state = remote?.state === "not_found" ? "uncertain" : remote?.state;
-    if (!["running", "cancel_requested", "cancelled", "succeeded", "failed", "uncertain"].includes(state)) {
+    if (!["staging", "running", "cleanup_pending", "cancel_requested", "cancelled", "succeeded", "failed", "uncertain"].includes(state)) {
       throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
     }
     return { ...local, human_summary: "Modalの学習実行状態です。",
       machine_state: { ...local.machine_state, ...remote, state },
-      next_allowed_actions: state === "running" ? ["training_status", "training_cancel"]
+      next_allowed_actions: ["staging", "running"].includes(state) ? ["training_status", "training_cancel"]
+        : state === "cleanup_pending" ? ["training_status"]
         : ["cancel_requested", "uncertain"].includes(state) ? ["training_status"]
         : state === "succeeded" || remote.failure_code === "TRAINING_RUNTIME_LIMIT" ? ["training_checkpoint"] : [] };
   }
-  if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool, gatewayDelegationConfigured);
-  if (name === "training_prepare") return prepareTrainingPlan(env, owner, args);
-  if (name === "training_preview") return previewTrainingPlan(env, owner, args);
+  if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegateGatewayTool,
+    gatewayDelegationConfigured, (repository) => ownerGithubRepositoryToken(env, owner, repository));
+  if (name === "training_prepare") return prepareTrainingPlan(env, owner, args,
+    (repository) => ownerGithubRepositoryToken(env, owner, repository));
+  if (name === "training_preview") return previewTrainingPlan(env, owner, args,
+    (repository) => ownerGithubRepositoryToken(env, owner, repository));
   if (name === "training_list") return listTrainingSources(env.DB, owner, env);
   if (name === "training_inspect") {
     const source = await getOwnedTrainingSource(env.DB, owner, args.registration_id);

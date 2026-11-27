@@ -42,6 +42,8 @@ MODAL_ROOT = REPOSITORY_ROOT / "sites" / "gpu-control-sites" / "modal"
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name("gpu-control-provider-adapter-data", create_if_missing=True)
+custom_source_volume = modal.Volume.from_name("gpu-control-owner-training-source", create_if_missing=True)
+custom_checkpoint_volume = modal.Volume.from_name("gpu-control-owner-training-checkpoints", create_if_missing=True)
 nonce_store = modal.Dict.from_name("gpu-control-provider-adapter-nonces", create_if_missing=True)
 submission_store = modal.Dict.from_name("gpu-control-provider-adapter-submissions", create_if_missing=True)
 provider_secret = modal.Secret.from_name("gpu-control-worker")
@@ -169,6 +171,114 @@ def _service():
     return ProviderAdapter(kaggle, huggingface,
                            ModalGpuBackend(submission_store=submission_store),
                            artifact_store=artifact_store)
+
+
+def _custom_training_backend():
+    """Build the owner-selected lane only from control-plane-pinned runtime config."""
+    image_id = os.environ.get("OWNER_TRAINING_RUNTIME_IMAGE_ID", "")
+    image = modal.Image.from_id(image_id) if re.fullmatch(r"im-[A-Za-z0-9]{8,128}", image_id) else None
+    if not Path("/source-store").is_dir() or not Path("/checkpoint-store").is_dir():
+        raise ValueError("custom_training_source_volume_unavailable")
+    from custom_training_backend import CustomTrainingBackend
+    from custom_training_stage import stage_to_volumes
+
+    def stage(repository, commit, run_id, *, source_token=None):
+        return stage_to_volumes(repository, commit, run_id,
+            source_volume=custom_source_volume, checkpoint_volume=custom_checkpoint_volume,
+            source_token=source_token)
+
+    def cleanup_source(run_id):
+        if re.fullmatch(r"[a-f0-9]{32}", run_id or "") is None:
+            return False
+        root = Path("/source-store")
+        target = root / run_id
+        if target.is_symlink():
+            return False
+        if target.exists():
+            if not target.is_dir() or not target.resolve().is_relative_to(root.resolve()):
+                return False
+            import shutil
+            shutil.rmtree(target)
+            custom_source_volume.commit()
+        return True
+
+    def cleanup_checkpoint(run_id):
+        if re.fullmatch(r"[a-f0-9]{32}", run_id or "") is None:
+            return False
+        root = Path("/checkpoint-store")
+        target = root / run_id
+        if target.is_symlink():
+            return False
+        if target.exists():
+            if not target.is_dir() or not target.resolve().is_relative_to(root.resolve()):
+                return False
+            import shutil
+            shutil.rmtree(target)
+            custom_checkpoint_volume.commit()
+        return True
+
+    def lookup(name):
+        try:
+            return modal.Sandbox.from_name(APP_NAME, name, include_terminated=True)
+        except modal.exception.NotFoundError:
+            return None
+
+    def create(*args, **kwargs):
+        try:
+            return modal.Sandbox.create(*args, **kwargs)
+        except modal.exception.AlreadyExistsError:
+            existing = lookup(kwargs.get("name", ""))
+            if existing is None:
+                raise
+            return existing
+
+    return CustomTrainingBackend(
+        app=app, image=image, stage_image=adapter_image,
+        source_volume=custom_source_volume, checkpoint_volume=custom_checkpoint_volume,
+        create=create, lookup=lookup,
+        stage=stage, cleanup_source=cleanup_source,
+        cleanup_checkpoint=cleanup_checkpoint,
+        commit_source=custom_source_volume.commit,
+        commit_output=custom_checkpoint_volume.commit, checkpoint_root="/checkpoint-store",
+    )
+
+
+def _dispatch_custom_training(owner, tool, arguments):
+    from custom_training_lifecycle import dispatch
+    from custom_training_plan import validate_custom_plan
+
+    run_id = arguments.get("run_id")
+    record = submission_store.get(f"custom-training:{run_id}") if isinstance(run_id, str) else None
+    plan = arguments.get("plan") if tool == "training_submit" else record.get("plan") if isinstance(record, dict) else None
+    if not isinstance(plan, dict):
+        raise ValueError("custom_training_plan_missing")
+    image_id = os.environ.get("OWNER_TRAINING_RUNTIME_IMAGE_ID", "")
+    rate = int(os.environ.get("OWNER_TRAINING_HOURLY_MICROUSD", "0"))
+    staging_rate = int(os.environ.get("OWNER_TRAINING_STAGING_HOURLY_MICROUSD", "0"))
+    quote_expiry = int(os.environ.get("OWNER_TRAINING_QUOTE_EXPIRES_AT", "0"))
+    max_runtime = int(os.environ.get("OWNER_TRAINING_MAX_RUNTIME_SECONDS", "0"))
+    max_cost = int(os.environ.get("OWNER_TRAINING_MAX_COST_MICROUSD", "0"))
+    monthly = int(os.environ.get("OWNER_TRAINING_MONTHLY_MICROUSD", "0"))
+
+    def validate(plan_owner, fingerprint, candidate):
+        if candidate.get("execution_kind") != "owner_selected_python":
+            raise ValueError("custom_training_execution_kind_invalid")
+        validate_custom_plan(candidate, image_id=image_id, hourly_microusd=rate,
+            quote_expires_at=quote_expiry, gpu=candidate.get("gpu"),
+            manifest=candidate.get("manifest"), lock_sha256=candidate.get("lock_sha256"),
+            staging_hourly_microusd=staging_rate,
+            max_runtime_seconds=max_runtime, max_cost_ceiling_microusd=max_cost,
+            monthly_microusd=monthly,
+            control_plane_sha=os.environ.get("MAP_TRAINING_CONTROL_PLANE_SHA", ""))
+
+    custom_args = {key: arguments[key] for key in
+        ("run_id", "plan_fingerprint", "authorization_expires_at", "source_token")
+        if key in arguments}
+    if tool == "training_submit":
+        custom_args.update(plan=plan, approved_plan=plan)
+    admission = os.environ.get("OWNER_TRAINING_ADMISSION_ENABLED") == "true"
+    return dispatch(submission_store, _custom_training_backend(), owner, tool.removeprefix("training_"),
+                    custom_args, validate=validate, admission_enabled=admission)
 
 
 def _submission_binding(owner: str) -> str:
@@ -546,11 +656,21 @@ async def invoke(tool: str, request: Request):
         elif verified_tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint"}:
             if "/root/site-modal" not in sys.path:
                 sys.path.insert(0, "/root/site-modal")
-            from map_training_backend import MapTrainingBackend, dispatch_training_tool
-            result = await asyncio.to_thread(
-                dispatch_training_tool, submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
-                admission_enabled=os.environ.get("MAP_TRAINING_ADMISSION_ENABLED") == "true",
-            )
+            custom_run_id = arguments.get("run_id")
+            existing_custom = (submission_store.get(f"custom-training:{custom_run_id}")
+                               if isinstance(custom_run_id, str) else None)
+            custom_plan = arguments.get("plan") if verified_tool == "training_submit" else None
+            if isinstance(existing_custom, dict) or (isinstance(custom_plan, dict) and
+                    custom_plan.get("execution_kind") == "owner_selected_python"):
+                # The adapter is single-container and this synchronous lane
+                # serializes status/cancel around the staging-to-GPU handoff.
+                result = _dispatch_custom_training(owner, verified_tool, arguments)
+            else:
+                from map_training_backend import MapTrainingBackend, dispatch_training_tool
+                result = await asyncio.to_thread(
+                    dispatch_training_tool, submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
+                    admission_enabled=os.environ.get("MAP_TRAINING_ADMISSION_ENABLED") == "true",
+                )
         elif verified_tool == "experiment_submit":
             result = _async_submit(owner, arguments)
         elif verified_tool in {"experiment_status", "experiment_result", "experiment_cancel"}:
@@ -585,9 +705,15 @@ async def invoke(tool: str, request: Request):
         "MAP_TRAINING_SOURCE_SHA", "MAP_TRAINING_MODAL_IMAGE_ID", "MAP_TRAINING_IMAGE_DIGEST",
         "MAP_TRAINING_RUNTIME_SECONDS", "MAP_TRAINING_HOURLY_MICROUSD",
         "MAP_TRAINING_QUOTE_EXPIRES_AT", "MAP_TRAINING_ADMISSION_ENABLED",
-        "MAP_TRAINING_CONTROL_PLANE_SHA",
+        "MAP_TRAINING_CONTROL_PLANE_SHA", "OWNER_TRAINING_RUNTIME_IMAGE_ID",
+        "OWNER_TRAINING_HOURLY_MICROUSD", "OWNER_TRAINING_QUOTE_EXPIRES_AT",
+        "OWNER_TRAINING_STAGING_HOURLY_MICROUSD",
+        "OWNER_TRAINING_MAX_RUNTIME_SECONDS", "OWNER_TRAINING_MAX_COST_MICROUSD",
+        "OWNER_TRAINING_MONTHLY_MICROUSD",
+        "OWNER_TRAINING_ADMISSION_ENABLED",
     ) if key in os.environ},
-    volumes={"/data": data_volume}, timeout=120, cpu=1, memory=1024,
+    volumes={"/data": data_volume, "/source-store": custom_source_volume,
+             "/checkpoint-store": custom_checkpoint_volume}, timeout=120, cpu=1, memory=1024,
     max_containers=1,
 )
 @modal.asgi_app(requires_proxy_auth=True)
