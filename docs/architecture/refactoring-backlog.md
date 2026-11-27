@@ -192,7 +192,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,392 lines and remains a large transport
+- **Evidence:** `worker/index.js` is 2,351 lines and remains a large transport
   and composition root for authentication, owner identity, routing and provider
   workflows. MCP schemas/descriptions, experiment input contracts, GitHub
   ownership, training lifecycle, budgets and RunPod lifecycle now have separate

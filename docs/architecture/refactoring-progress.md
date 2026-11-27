@@ -201,10 +201,10 @@ authorized external GPU compute when the experiment needs it. A CPU container
 route or a fixed-workload provider canary is not equivalent acceptance.
 
 **Evidence refreshed:** PR #70 is open and unmerged at
-`aa9f1003a8c19994eef803dbd8d7b4fb431a7f1a`; GitHub reports `mergeable: true`.
-All seven checks on that exact head remain queued. The inline review-thread read
-returned zero unresolved threads. PR metadata records a 104-file diff
-(+10,460/−349). The candidate only implements owner-selected arbitrary source
+`3c1f3a964bccea7d7a488e85c841c9d25c832fa9`; GitHub reports `mergeable: true`.
+All seven checks on that exact head remain queued. The latest inline
+review-thread read returned zero unresolved threads. PR metadata records a
+107-file diff (+10,768/−501). The candidate only implements owner-selected arbitrary source
 execution on Modal GPU; RunPod remains a fixed canary, Kaggle/Hugging Face remain
 fixed-workload routes, and Colab is not integrated. The candidate is unmerged,
 undeployed, and the repository remains parked.
@@ -217,9 +217,12 @@ facts. The product outcome and external-GPU acceptance boundary remain explicit.
 worktree/commit inspection. No provider, production D1, credentials, admission,
 deployment, or experiment was touched.
 
-**Status:** documentation only; no new commit yet. Next priority is continue
-A1/A3 implementation and architecture batches against the actual ChatGPT-to-
-external-GPU lifecycle. Do not represent PR #70 as a complete product.
+**Status:** the documentation refresh was committed as `7c6ec6d`, followed by
+two A7 source batches (`118ef2e` and `3c1f3a9`) and pushed to PR #70. The
+current source head remains a candidate, not a complete or deployed product.
+The exact-head CI is queued. Next priority is continue A1/A3 and repository-wide
+architecture batches against the actual ChatGPT-to-external-GPU lifecycle.
+Do not represent PR #70 as a complete product.
 
 ## 2026-11-28 — A7: isolate exact MCP input validation
 
@@ -249,6 +252,27 @@ build copies the complete reachable module graph; and artifact validation
 passes. No provider or production operation was performed.
 
 **Status:** implementation and architecture documentation are validated; the
-implementation batch is not yet committed. The previous A0 documentation
-refresh was committed and pushed as `7c6ec6d`; this batch will update PR #70's
-exact-head CI when pushed.
+changes were committed and pushed as `118ef2e` (contract extraction) and
+`3c1f3a9` (owner-scoped source-token boundary). PR #70 exact-head CI is queued
+on `3c1f3a9`.
+
+## 2026-11-28 — A7: move GitHub MCP operations out of the composition root
+
+**Goal:** keep `index.js` responsible for authenticated transport composition
+while the GitHub source domain owns its user-facing tool workflow.
+
+**Change:** moved GitHub connection start/status/disconnect and selected-
+repository listing into `worker/github_tools.js`. `index.js` now routes those
+tool names through the domain boundary and passes owner-scoped token issuance
+to the training tools as a narrow source-read callback. Existing public MCP
+names, response shapes, owner checks and callback/web OAuth routes are retained.
+
+**Validation:** 118 Worker tests pass, including authenticated GitHub tool
+dispatch and repository access; the import graph is acyclic across 20 reachable
+modules. Migration replay and artifact build/validation are to be rerun before
+this batch is committed. No provider call or production setting was changed.
+
+**Status:** source and documentation changes are local and uncommitted. PR #70's
+current remote head is `3c1f3a9`; the latest exact-head CI remained queued. The
+candidate still exposes arbitrary owner-source execution only on Modal GPU and
+does not meet the multi-provider acceptance requirement.

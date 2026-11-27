@@ -3,14 +3,14 @@ import { listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
 import { normalizeTrainingArguments, safeJson, validGatewayApprovedPlan, validGatewayPrepare,
   validPlan, validProviderApprovedPlan, validRegisteredPrepare,
   validRegisteredZeroGpuPrepare, validToolArguments } from "./experiment_input_contract.js";
+import { handleGithubTool, isGithubTool } from "./github_tools.js";
 import { OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD,
   ownerTrainingExecutionConfig } from "./training_plan.js";
 import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
 import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
   trainingRuntimeProfileFingerprint } from "./training_contract.js";
-import { beginGithubInstallationOAuth, completeGithubInstallationOAuth, createGithubInstallationUrl,
-  createOwnedRepositoryReadToken, disconnectGithubApp, exchangeGithubOAuthCode, githubAppConfigured, githubAppOAuthConfigured,
-  githubConnectionStatus, getOwnedGithubInstallation, listGithubInstallationRepositories,
+import { beginGithubInstallationOAuth, completeGithubInstallationOAuth, createOwnedRepositoryReadToken,
+  exchangeGithubOAuthCode, githubAppConfigured, githubAppOAuthConfigured, getOwnedGithubInstallation,
   verifyGithubInstallation } from "./github_app_connection.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { prepareRunpodExperiment, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY, RUNPOD_RUNTIME_SECONDS, validRunpodPrepare } from "./runpod_plan.js";
@@ -1697,48 +1697,7 @@ async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
-  if (name === "github_connection_start") {
-    if (!githubAppOAuthConfigured(env)) return { schema_version: 2, status: "blocked",
-      human_summary: "GitHub App接続の初期設定が完了していません。GPU実験は開始していません。",
-      machine_state: { configured: false }, next_allowed_actions: [], blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
-    const link = await createGithubInstallationUrl(env.DB, owner, env.GITHUB_APP_SLUG);
-    return { schema_version: 2, status: "ok", human_summary: "GitHub Appの接続リンクを作成しました。選択リポジトリ限定でinstall後、GitHub利用者本人の確認を完了してください。",
-      machine_state: { connected: false, authorization_url: link.authorization_url,
-        expires_at: link.expires_at, requested_repository_permissions: { contents: "read", metadata: "read" },
-        repository_selection: "selected" }, next_allowed_actions: ["github_connection_status"], blocking_reason: null };
-  }
-  if (name === "github_connection_status") {
-    if (!githubAppConfigured(env)) return { schema_version: 2, status: "blocked",
-      human_summary: "GPU Control側のGitHub App設定がまだ完了していません。管理者設定後に接続できます。",
-      machine_state: { configured: false, connected: false }, next_allowed_actions: [],
-      blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
-    const connection = await githubConnectionStatus(env.DB, owner);
-    const setupConfigured = githubAppOAuthConfigured(env);
-    return { schema_version: 2, status: "ok", human_summary: !setupConfigured && !connection.connected
-      ? "GitHub接続を開始するためのOAuth設定が未完了です。"
-      : "GitHub repository connection state.",
-      machine_state: { configured: true, setup_configured: setupConfigured, ...connection },
-      next_allowed_actions: connection.connected ? ["github_repositories", "github_connection_disconnect"]
-        : setupConfigured ? ["github_connection_start"] : [], blocking_reason: null };
-  }
-  if (name === "github_connection_disconnect") return { schema_version: 2, status: "ok",
-    human_summary: "GPU ControlからGitHub repository connectionを削除しました。GitHub App自体のuninstallはGitHub側で行ってください。",
-    machine_state: await disconnectGithubApp(env.DB, owner), next_allowed_actions: ["github_connection_start"], blocking_reason: null };
-  if (name === "github_repositories") {
-    if (!githubAppConfigured(env)) return { schema_version: 2, status: "blocked",
-      human_summary: "GitHub App接続の初期設定が完了していません。",
-      machine_state: { repositories: [] }, next_allowed_actions: ["github_connection_start"],
-      blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
-    const connection = await getOwnedGithubInstallation(env.DB, owner);
-    if (!connection) return { schema_version: 2, status: "blocked",
-      human_summary: "GitHub accountがまだGPU Controlへ接続されていません。",
-      machine_state: { repositories: [] }, next_allowed_actions: ["github_connection_start"],
-      blocking_reason: "GITHUB_CONNECTION_REQUIRED" };
-    const repositories = await listGithubInstallationRepositories(env, connection.installation_id);
-    return { schema_version: 2, status: "ok", human_summary: `接続済みGitHub accountから${repositories.length}件の選択済みrepositoryを取得しました。`,
-      machine_state: { account_login: connection.account_login, repositories },
-      next_allowed_actions: ["training_register"], blocking_reason: null };
-  }
+  if (isGithubTool(name)) return handleGithubTool(name, env, owner);
   if (isTrainingTool(name)) return handleTrainingTool(name, args, { env, owner,
     delegate: delegateGatewayTool, isConfigured: gatewayDelegationConfigured,
     getSourceToken: async (repository) => (await createOwnedRepositoryReadToken(env, env.DB, owner, repository)).token });

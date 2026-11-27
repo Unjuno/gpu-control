@@ -73,10 +73,11 @@ flowchart TD
 
 A static import graph is the single runtime module inventory: the architecture
 check enforces acyclic imports and the build copies the reachable closure from
-`worker/index.js`, rejecting orphan runtime modules. The graph currently has 19
+`worker/index.js`, rejecting orphan runtime modules. The graph currently has 20
 modules; `experiment_input_contract.js` owns exact MCP argument validation and
 environment-bound plan normalization separately from the public schemas in
-`mcp_tool_contract.js`.
+`mcp_tool_contract.js`, while `github_tools.js` owns the owner-scoped GitHub
+MCP operations.
 
 The intended product flow is Sites-first. The Gateway links above represent a
 separately maintained source tree, not proof it is deployed or the live
@@ -88,9 +89,9 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 
 | Area | Canonical responsibility | Main source | Boundary / status |
 | --- | --- | --- | --- |
-| Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `worker/mcp_tool_contract.js`, `worker/experiment_input_contract.js`, `worker/index.js`, `docs/CHATGPT_SETUP.md` | `mcp_tool_contract.js` owns public schemas, descriptions, output schema and annotations; `experiment_input_contract.js` owns exact runtime input validation; `index.js` owns transport/dispatch. Sites is intended ChatGPT surface; `index.js` remains a large composition root. |
+| Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `worker/mcp_tool_contract.js`, `worker/experiment_input_contract.js`, `worker/github_tools.js`, `worker/index.js`, `docs/CHATGPT_SETUP.md` | `mcp_tool_contract.js` owns public schemas, descriptions, output schema and annotations; `experiment_input_contract.js` owns exact runtime input validation; `github_tools.js` owns the owner-scoped GitHub connection tools; `index.js` owns transport/dispatch. Sites is intended ChatGPT surface; `index.js` remains a large composition root. |
 | Fixed workload definitions | IDs, provider, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator drift check is the established single-source pattern. |
-| Owner-selected source identity | GitHub App install selection, one-time OAuth+PKCE owner proof, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/training_source.js` | Migration 0033 invalidates legacy unverified bindings. User OAuth tokens are discarded; installation tokens are exact-repository read-only and trusted control-plane/stager input, never workload input. |
+| Owner-selected source identity | GitHub App install selection, one-time OAuth+PKCE owner proof, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/github_tools.js`, `worker/training_source.js` | `github_tools.js` owns Sites tool orchestration; `github_app_connection.js` owns identity proof and selected-repository-scoped token minting; `training_source.js` owns source registration and immutable commit resolution. Migration 0033 invalidates legacy unverified bindings. User OAuth tokens are discarded; installation tokens are exact-repository read-only and trusted control-plane/stager input, never workload input. |
 | Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `.gpu-control/experiment.json` at immutable commit; no repository Dockerfile or arbitrary shell command. |
 | Plan, admission and accounting | Preview, execution plan fingerprint, idempotency, budget reservation, authorization, lifecycle | `worker/training_plan.js`, `worker/training_authorization.js`, `drizzle/*.sql` | D1 is the user-facing durable ledger. Branch candidate admission remains off under parked policy. |
 | Sites transport and MCP dispatch | Validate request, authenticate, route to domain/provider modules | `worker/index.js`, `worker/gateway_delegation.js`, provider lifecycle modules | Sites D1/R2 bindings; tool dispatch has increasingly extracted domain modules, but top-level module still owns substantial unrelated logic. |
