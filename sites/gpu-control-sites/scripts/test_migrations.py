@@ -199,5 +199,11 @@ try:
     raise AssertionError("Colab operation state must be constrained")
 except sqlite3.IntegrityError:
     pass
+try:
+    conn.execute("UPDATE google_colab_run_operations SET connection_ciphertext=?,connection_iv=? WHERE run_id=?",
+                 ("x", "0" * 16, "a" * 32))
+    raise AssertionError("Colab connection data must be stored as bounded ciphertext")
+except sqlite3.IntegrityError:
+    pass
 assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 print("D1 forward migration passed: legacy rows preserved, cancellation and stable terminal history verified")

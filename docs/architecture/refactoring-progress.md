@@ -2559,4 +2559,6 @@ bounded by that ceiling; the client adds no automatic retries.
 Sites suite passes 192 Worker tests with an acyclic graph across 70 modules.
 This only aligns the outbound call deadline; a disconnected request is still
 not durable by itself, so public execution remains gated on status-driven
-recovery using the persisted operation journal.
+recovery using the persisted operation journal. Migration checks also reject
+truncated, plaintext-sized connection blobs before any runtime token can be
+persisted.
