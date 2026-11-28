@@ -49,7 +49,8 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
     : !providerConfigured ? "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED" : null;
   const nextAllowedActions = providerResult && row.cleanup_confirmed_at !== null
     ? [...(providerResult.state === "succeeded" ? ["training_checkpoint",
-      ...(Array.isArray(providerResult.artifacts) && providerResult.artifacts.length ? ["training_artifact"] : [])] : [])]
+      ...(Array.isArray(providerResult.artifacts) && providerResult.artifacts.length ? ["training_artifact"] : [])]
+      : providerResult.failure_code === "TRAINING_RUNTIME_LIMIT" ? ["training_checkpoint"] : [])]
     : state === "prepared" ? [...(submitAdmissionReady && providerConfigured && (authorized || mcpSubmitAuthorization) ? ["training_submit"] : []), "training_cancel"] : [];
   return { schema_version: 2, status: "ok",
     human_summary: readinessBlocker === "OWNER_TRAINING_ADMISSION_DISABLED"

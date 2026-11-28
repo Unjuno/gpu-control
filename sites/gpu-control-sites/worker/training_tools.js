@@ -21,7 +21,9 @@ export function isTrainingTool(name) {
 export async function handleTrainingTool(name, args, { env, owner, delegate, isConfigured, getSourceToken }) {
   if (name === "training_checkpoint") {
     const local = await trainingPlanState(env, owner, args.run_id);
-    if (local.machine_state.state !== "dispatching" && local.machine_state.state !== "succeeded") {
+    const timeoutRecovery = local.machine_state.state === "failed" &&
+      local.machine_state.failure_code === "TRAINING_RUNTIME_LIMIT";
+    if (local.machine_state.state !== "dispatching" && local.machine_state.state !== "succeeded" && !timeoutRecovery) {
       throw new Error("RESULT_NOT_READY");
     }
     const approvedPlan = await loadApprovedTrainingPlan(env.DB, owner, args.run_id,

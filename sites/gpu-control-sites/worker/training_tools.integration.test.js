@@ -126,3 +126,48 @@ test("MAP terminal status persists the adapter cleanup_state and native checkpoi
     });
   } finally { db.close(); }
 });
+
+test("MAP runtime-limit failures keep one checkpoint-recovery action available", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`CREATE TABLE training_plans (
+      owner_id TEXT NOT NULL, id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, plan_json TEXT NOT NULL,
+      expires_at INTEGER NOT NULL, cancelled_at INTEGER, dispatch_claimed_at INTEGER,
+      dispatch_rejection TEXT, cleanup_confirmed_at INTEGER, provider_result_json TEXT
+    );
+    CREATE TABLE training_authorizations (
+      plan_id TEXT, owner_id TEXT, fingerprint TEXT, authorization_id TEXT, authorization_source TEXT,
+      authorization_reference TEXT, decision_record_id TEXT, authorized_by TEXT, control_plane_sha TEXT,
+      target_repository TEXT, target_sha TEXT, image_digest TEXT, provider TEXT, provider_resource_id TEXT,
+      gpu_count INTEGER, runtime_seconds INTEGER, max_cost_microusd INTEGER, authorized_at INTEGER,
+      expires_at INTEGER, consumed_at INTEGER
+    );`);
+    const runId = "f".repeat(32);
+    const fingerprint = "e".repeat(64);
+    const plan = { execution_kind: "map_training", run_id: runId };
+    const result = { state: "failed", cleanup: "confirmed", failure_code: "TRAINING_RUNTIME_LIMIT" };
+    db.prepare(`INSERT INTO training_plans
+      (owner_id,id,fingerprint,plan_json,expires_at,dispatch_claimed_at,cleanup_confirmed_at,provider_result_json)
+      VALUES (?,?,?,?,?,?,?,?)`).run("owner", runId, fingerprint, JSON.stringify(plan),
+        Math.floor(Date.now() / 1000) + 300, 1, 2, JSON.stringify(result));
+    const DB = { prepare(sql) { return { bind(...values) { const statement = db.prepare(sql); return {
+      first: async () => statement.get(...values),
+      run: async () => { const stored = statement.run(...values); return { meta: { changes: Number(stored.changes) } }; },
+    }; } }; } };
+    const calls = [];
+    const services = { env: { DB }, owner: "owner", isConfigured: () => true,
+      delegate: async (_env, _owner, tool, args) => {
+        calls.push({ tool, args });
+        return { state: "succeeded", checkpoint_chunk: { offset: 0, eof: true, data_base64: "YQ==" } };
+      } };
+    const status = await handleTrainingTool("training_status", { run_id: runId }, services);
+    assert.equal(status.machine_state.state, "failed");
+    assert.deepEqual(status.next_allowed_actions, ["training_checkpoint"]);
+    const checkpoint = await handleTrainingTool("training_checkpoint", { run_id: runId,
+      offset: 0, max_bytes: 1024 }, services);
+    assert.equal(checkpoint.machine_state.eof, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].tool, "training_checkpoint");
+    assert.deepEqual(calls[0].args.approved_plan, { ...plan, run_id: runId });
+  } finally { db.close(); }
+});
