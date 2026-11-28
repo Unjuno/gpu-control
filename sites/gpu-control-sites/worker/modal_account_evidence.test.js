@@ -2,21 +2,14 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
+import { canonicalJson } from "./canonical_json.js";
 
 function evidence(overrides = {}) {
   const body = { schema_version: 1, workspace: "unjuno", environment: "main",
     usage_limit_usd: "1.00", credits_used_usd: "0.15", charges_usd: "0.00", gpu: "L4",
     hourly_price_usd: "0.400000", price_source: "https://modal.com/pricing",
     verified_at: 900, expires_at: 1800, ...overrides };
-  return { ...body, evidence_id: createHash("sha256").update(canonical(body)).digest("hex") };
-}
-
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
+  return { ...body, evidence_id: createHash("sha256").update(canonicalJson(body)).digest("hex") };
 }
 
 test("L4 evidence binds a fresh one-dollar workspace cap, observed usage, and exact quote", async () => {

@@ -10,6 +10,7 @@ import { claimTrainingDispatch } from "./training_dispatch_claim.js";
 import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_authorization.js";
 import { getOwnedTrainingSource } from "./training_source.js";
 import { trainingRuntimeProfileFingerprint } from "./training_contract.js";
+import { canonicalJson } from "./canonical_json.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
@@ -23,14 +24,6 @@ function environment() {
     CPU_WORKLOAD_SOURCE_SHA: sourceSha,
     CPU_WORKLOAD_IMAGE_DIGEST: imageDigest,
   };
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function modalAccountEvidence({ gpu, usageLimitUsd, hourlyPriceUsd, creditsUsedUsd = "0.15",

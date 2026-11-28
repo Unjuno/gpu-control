@@ -5,6 +5,31 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-29 — A10: make signing fixtures share the canonical JSON authority
+
+**Finding:** four Worker test files carried local recursive key-sorting
+serializers for evidence IDs, fingerprints, or HMAC fixtures. Although they
+currently emitted the same bytes for these JSON-shaped values, a serializer
+change could update production without updating the security-sensitive test
+fixtures, weakening what those tests prove.
+
+**Change:** all four fixtures now import `worker/canonical_json.js`; the
+architecture check rejects local `canonical`/`canonicalJson` function copies
+in Worker tests. This leaves one serializer implementation for production
+and test evidence without changing a provider or external contract.
+
+**Validation:** 44 directly affected Worker tests passed; the full Sites
+suite passed (213), the Worker graph remained acyclic across 77 modules, the
+registry/build/artifact checks passed, the D1 forward migration replay passed,
+and `git diff --check` passed. No provider, credential, admission, deployment
+or billing state was touched.
+
+**Review:** the change is test-fixture and static-architecture-check only.
+The Codex Security diff scanner has previously failed to initialize in both a
+linked worktree and a regular clone (`Review changes requires a non-bare Git
+worktree with a resolvable HEAD`). That tool result is not independent review
+evidence; this batch received direct source/diff review only.
+
 ## 2026-11-28 — A3: recover owner-training results after Modal Dict expiry
 
 **Finding:** Modal Dict entries can expire after seven days without access. The

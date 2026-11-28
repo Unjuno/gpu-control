@@ -679,6 +679,12 @@ modules; the exact pushed head and CI are recorded in the progress log.
   `json.dumps`/`hashlib.sha256` implementations. The Worker keeps its own
   runtime-local serializer; matching persisted contracts still need
   cross-runtime fixtures before claiming end-to-end normalization.
+  Worker signing/fingerprint test fixtures now import the runtime-owned
+  `worker/canonical_json.js`; four local serializer copies were removed. The
+  Worker architecture check prevents those fixture-local copies from
+  returning. This aligns test evidence with the Worker contract but does not
+  yet establish JavaScript/Python byte parity for persisted cross-runtime
+  schemas; that remains the next A10 contract-validation task.
 
 ### A11. Inventory and normalize configuration
 

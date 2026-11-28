@@ -7,6 +7,7 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import worker, { modalGpuProviderEvidence } from "./index.js";
 import { maybeDelegateRunTool, reserveModalGpuLease } from "./delegated_experiment_lifecycle.js";
+import { canonicalJson } from "./canonical_json.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
@@ -102,14 +103,6 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
       },
     },
   };
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 async function capabilities(env) {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverWorkerModules } from "./worker-module-graph.mjs";
@@ -7,6 +7,16 @@ import { discoverWorkerModules } from "./worker-module-graph.mjs";
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const workerRoot = join(projectRoot, "worker");
 const { graph, runtimeFiles: workerFiles, entrypoint } = discoverWorkerModules(workerRoot);
+
+// Hash/signature fixtures must exercise the production serializer so their
+// evidence cannot drift from the runtime's canonical JSON contract.
+const workerTestFiles = readdirSync(workerRoot)
+  .filter((name) => name.endsWith(".test.js"))
+  .map((name) => join(workerRoot, name));
+const duplicateCanonicalJsonFixtures = workerTestFiles.filter((file) =>
+  /function\s+(?:canonicalJson|canonical)\s*\(/.test(readFileSync(file, "utf8")));
+assert.deepEqual(duplicateCanonicalJsonFixtures, [],
+  "Worker tests must import canonical_json.js instead of defining local canonical serializers");
 
 // ChatGPT's identity header and allowlist are interpreted only in the request
 // authentication boundary. Other modules may ask its exported helpers, but
