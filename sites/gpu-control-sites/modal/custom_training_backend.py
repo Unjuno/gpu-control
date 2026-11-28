@@ -314,6 +314,26 @@ class CustomTrainingBackend:
             return {"state": "uncertain"}
         return {"state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
 
+    def reconcile_cancelled_stage(self, run_id):
+        """Retry cleanup only after the provider confirms the stage is absent."""
+        if not isinstance(run_id, str) or re.fullmatch(r"[a-f0-9]{32}", run_id) is None:
+            raise ValueError("invalid_run_id")
+        stage = self.lookup(f"custom-training-stage-{run_id}")
+        if stage is not None:
+            return {"state": "uncertain"}
+        try:
+            if self.commit_source is not None:
+                self.commit_source()
+            if self.commit_output is not None:
+                self.commit_output()
+            source_ok = self.cleanup_source is not None and self.cleanup_source(run_id) is True
+            checkpoint_ok = self.cleanup_checkpoint is not None and self.cleanup_checkpoint(run_id) is True
+        except Exception:
+            return {"state": "uncertain"}
+        if not source_ok or not checkpoint_ok:
+            return {"state": "uncertain"}
+        return {"state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
+
     def checkpoint(self, run_id, manifest, offset, max_bytes):
         if (self.checkpoint_root is None or
                 not isinstance(run_id, str) or re.fullmatch(r"[a-f0-9]{32}", run_id) is None or

@@ -218,3 +218,30 @@ def test_uncertain_provider_observation_is_returned_without_caching_terminal_sta
         "run_id": run, "plan_fingerprint": fingerprint}, validate=lambda *_: None, admission_enabled=True)
     assert terminal == {"state": "failed", "cleanup": "confirmed", "failure_code": "PROVIDER_FAILED"}
     assert store[f"custom-training:{run}"]["terminal"] == terminal
+
+
+def test_cancel_retries_missing_stage_cleanup_without_inspecting_or_starting_gpu():
+    run = "a" * 32
+    fingerprint = "b" * 64
+    plan = {"run_id": run}
+    args = {"run_id": run, "plan_fingerprint": fingerprint, "plan": plan,
+            "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
+    events = []
+    cleanup_states = iter([{"state": "uncertain"}, {"state": "uncertain"},
+                           {"state": "uncertain"},
+                           {"state": "cancelled", "cleanup": "confirmed", "gpu_used": False}])
+    backend = SimpleNamespace(
+        start=lambda *_args, **_kwargs: f"custom-training-{run}",
+        cancel=lambda _handle: next(cleanup_states),
+        reconcile_cancelled_stage=lambda run_id: events.append(("reconcile", run_id)) or next(cleanup_states),
+        inspect=lambda *_args: pytest.fail("cancelled run must never advance or inspect for GPU start"))
+    store = Store()
+    assert dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None,
+                    admission_enabled=True) == {"state": "staging"}
+    status_args = {"run_id": run, "plan_fingerprint": fingerprint}
+    assert dispatch(store, backend, "owner", "cancel", status_args, validate=lambda *_: None,
+                    admission_enabled=True) == {"state": "cancel_requested"}
+    assert dispatch(store, backend, "owner", "status", status_args, validate=lambda *_: None,
+                    admission_enabled=True) == {
+                        "state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
+    assert events == [("reconcile", run), ("reconcile", run)]

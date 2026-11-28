@@ -150,3 +150,38 @@ def test_declared_artifact_chunk_is_owner_run_scoped_and_reverified(tmp_path):
     path.write_bytes(b"metric-error")
     with pytest.raises(ValueError, match="artifact_checksum_mismatch"):
         backend.artifact(run_id, artifact, 0, 5)
+
+
+def test_reconcile_cancelled_stage_retries_cleanup_only_after_stage_is_absent():
+    run_id = "a" * 32
+    events = []
+    stage = SimpleNamespace(object_id="stage")
+    stages = [None, stage, None]
+    source_results = iter([False, True])
+    backend = CustomTrainingBackend(
+        app=None, image=None, source_volume=Volume(), checkpoint_volume=Volume(),
+        create=lambda *_args, **_kwargs: pytest.fail("must not create a sandbox"),
+        lookup=lambda name: events.append(("lookup", name)) or stages.pop(0), stage=lambda: None,
+        commit_source=lambda: events.append(("commit_source",)),
+        commit_output=lambda: events.append(("commit_output",)),
+        cleanup_source=lambda value: events.append(("cleanup_source", value)) or next(source_results),
+        cleanup_checkpoint=lambda value: events.append(("cleanup_checkpoint", value)) or True)
+
+    assert backend.reconcile_cancelled_stage(run_id) == {"state": "uncertain"}
+    assert events == [("lookup", f"custom-training-stage-{run_id}"), ("commit_source",),
+                      ("commit_output",), ("cleanup_source", run_id),
+                      ("cleanup_checkpoint", run_id)]
+    assert backend.reconcile_cancelled_stage(run_id) == {"state": "uncertain"}
+    assert events[-1] == ("lookup", f"custom-training-stage-{run_id}")
+    assert backend.reconcile_cancelled_stage(run_id) == {
+        "state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
+    assert events[-4:] == [
+        ("commit_source",), ("commit_output",), ("cleanup_source", run_id),
+        ("cleanup_checkpoint", run_id)]
+
+
+def test_reconcile_cancelled_stage_rejects_invalid_run_id():
+    backend = CustomTrainingBackend(app=None, image=None, source_volume=Volume(), checkpoint_volume=Volume(),
+        create=lambda *_args, **_kwargs: None, lookup=lambda _name: None, stage=lambda: None)
+    with pytest.raises(ValueError, match="invalid_run_id"):
+        backend.reconcile_cancelled_stage("../other-run")

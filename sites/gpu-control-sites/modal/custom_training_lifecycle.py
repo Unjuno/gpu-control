@@ -121,6 +121,10 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
     if record["state"] == "cancel_requested":
         cancelled = backend.cancel(record["handle"])
         if isinstance(cancelled, dict) and cancelled.get("state") == "uncertain":
+            reconcile = getattr(backend, "reconcile_cancelled_stage", None)
+            if callable(reconcile):
+                cancelled = reconcile(run_id)
+        if isinstance(cancelled, dict) and cancelled.get("state") == "uncertain":
             return {"state": "cancel_requested"}
         if (isinstance(cancelled, dict) and cancelled.get("state") == "cancelled" and
                 cancelled.get("cleanup") == "confirmed"):
