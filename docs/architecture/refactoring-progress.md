@@ -5,6 +5,29 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A6: isolate Modal owner-training plan construction
+
+**Problem:** `training_plan.js` combined shared training orchestration and
+Modal-specific owner-selected plan construction. Adding Colab there would have
+made provider policy and Google runtime semantics part of the same growing
+module.
+
+**Change:** moved Modal's owner-selected source/manifest/runtime/budget plan
+construction into `worker/modal_owner_training_plan.js`. The existing public
+`previewTrainingPlan` entrypoint, MAP path, D1 records, and downstream
+authorization/submission contracts remain unchanged. This is an internal
+boundary only; it does not add Colab planning or execution.
+
+**Validation:** `npm test` in `sites/gpu-control-sites` passes (163 tests),
+the worker import graph remains acyclic across 53 modules, and the generated
+workload registry is current.
+
+**Next:** keep provider-specific plan resolution behind named modules and the
+existing shared lifecycle. Before Colab can execute, specify its `cost_unknown`
+and quota contract, exact-plan binding, asynchronous operation recovery,
+run-owned session/runtime cleanup, and output/artifact bounds. Colab remains
+unavailable until those paths are integrated and accepted end to end.
+
 ## 2026-11-28 — A6: refresh Colab CLI boundary evidence
 
 **Finding:** the current official [`google-colab-cli` README](https://github.com/googlecolab/google-colab-cli)

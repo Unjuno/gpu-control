@@ -245,6 +245,11 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   runtime/session lifecycle, bounded source/result transfer, cancellation and
   cleanup receipts. Keep cost as unknown until account CU semantics can be
   trusted; never label the internal Sites reservation a Google billing cap.
+  Keep this provider policy behind a Colab-specific plan/adapter boundary;
+  shared owner authorization, exact-plan confirmation, D1 run history, artifact
+  metadata, and terminal cleanup remain the single lifecycle authority. Modal's
+  owner-selected plan construction has been separated from the shared training
+  orchestrator as a first boundary; it is not evidence of Colab readiness.
   Keep admission closed until exact-head CI, independent security review, and
   one bounded end-to-end GPU acceptance pass.
 - **Done when:** from ordinary ChatGPT chat/Work and at least one documented
