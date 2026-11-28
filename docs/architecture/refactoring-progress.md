@@ -1961,3 +1961,18 @@ only run ownership/state transitions and needs no Runner or provider.
 **Validation:** all four focused cases pass and all 182 Sites tests pass.
 `index.test.js` is now 1,978 lines. No production contract, provider state,
 deployment, or experiment behavior changed.
+
+
+## 2026-11-28 — A8: isolate artifact retrieval route integration test
+
+**Problem:** the owner-bound chunk retrieval case combined D1 lookup, artifact
+storage metadata and checksum verification inside the broad Worker suite.
+
+**Change:** moved the existing case to
+`worker/run_artifacts.integration.test.js`. Its fixture now includes only the
+allowlisted owners, one persisted run row, and the bounded R2 object behavior.
+
+**Validation:** the focused artifact-route test passes and the complete Sites
+suite passes all 182 tests. `index.test.js` is now 1,918 lines. Owner denial,
+chunk boundaries, immutable metadata and tamper detection assertions are
+preserved. No provider, deployment, or experiment action occurred.
