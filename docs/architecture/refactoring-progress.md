@@ -2532,3 +2532,18 @@ run; it also documents exact-ID recovery for timeouts.
 188 Worker tests, two graph tests, generated registry validation, and the
 acyclic import check across 69 modules. This does not enable or live-test
 Colab execution.
+
+## 2026-11-28 — A6: add owner-bound Colab operation storage
+
+**Change:** added `google_colab_operation_store.js`. It creates a persisted
+operation before runtime allocation, returns the same stable runtime request
+ID on exact recovery, scopes reads and compare-and-set transitions by owner,
+run and plan fingerprint, constrains state transitions, and prevents runtime
+or session identity replacement. Runtime connection data can be encrypted
+with AES-GCM additional authenticated data tied to that same owner/run/plan.
+
+**Validation:** 191 Worker tests pass, including owner isolation, duplicate
+transition, runtime identity replacement, request ID retry and ciphertext
+substitution cases. Migration validation passes; the import graph is acyclic
+across 70 modules. The storage module is not yet wired into a public Colab
+submit/status route, so execution remains unavailable.

@@ -5,7 +5,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   beginGoogleColabOAuth, completeGoogleColabOAuth, createGoogleColabConnectionUrl,
-  disconnectGoogleColab, googleColabAccessToken, googleColabConnectionConfigured,
+  decryptGoogleColabOperationData, disconnectGoogleColab, encryptGoogleColabOperationData,
+  googleColabAccessToken, googleColabConnectionConfigured,
   googleColabConnectionStatus, googleColabOAuthConfigured,
 } from "./google_colab_connection.js";
 
@@ -158,4 +159,19 @@ test("OAuth response parsing is bounded and a connected owner must disconnect be
     }), { message: "GOOGLE_COLAB_OAUTH_RESPONSE_INVALID" });
     assert.deepEqual(await googleColabConnectionStatus(db, "oversized-owner"), { connected: false });
   } finally { db.close(); }
+});
+
+test("Colab runtime connection data is encrypted and bound to the exact owner, run, and plan", async () => {
+  const value = { url: "https://colab.googleusercontent.com/runtime", token: "short-lived-runtime-secret" };
+  const sealed = await encryptGoogleColabOperationData(env, "chat-owner", "a".repeat(32), "b".repeat(64), value);
+  assert.notEqual(sealed.ciphertext, Buffer.from(JSON.stringify(value)).toString("base64url"));
+  assert.deepEqual(await decryptGoogleColabOperationData(env, "chat-owner", "a".repeat(32), "b".repeat(64), {
+    ciphertext: sealed.ciphertext, iv: sealed.iv,
+  }), value);
+  await assert.rejects(decryptGoogleColabOperationData(env, "other-owner", "a".repeat(32), "b".repeat(64), sealed),
+    { message: "GOOGLE_COLAB_OPERATION_UNAVAILABLE" });
+  await assert.rejects(decryptGoogleColabOperationData(env, "chat-owner", "c".repeat(32), "b".repeat(64), sealed),
+    { message: "GOOGLE_COLAB_OPERATION_UNAVAILABLE" });
+  await assert.rejects(decryptGoogleColabOperationData(env, "chat-owner", "a".repeat(32), "c".repeat(64), sealed),
+    { message: "GOOGLE_COLAB_OPERATION_UNAVAILABLE" });
 });

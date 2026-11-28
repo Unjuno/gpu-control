@@ -241,6 +241,13 @@ has no public caller yet; it is persistence scaffolding, not an enabled Colab
 run path. The next implementation slice must add an owner-checked storage
 module with authenticated encryption and compare-and-set state transitions,
 then exercise response-loss recovery before wiring any public submit action.
+The provider-side storage module now creates the `runtime_create_pending` row
+before allocation, reuses the same persisted `requestId` on retries, scopes
+reads/transitions by owner and plan fingerprint, and uses compare-and-set state
+updates. Runtime connection payload encryption uses AES-GCM additional
+authenticated data bound to owner, run ID and plan fingerprint. Runtime/session
+identity is immutable after first persistence. These APIs have contract tests
+but are not yet called by public tools.
 
 ## References
 

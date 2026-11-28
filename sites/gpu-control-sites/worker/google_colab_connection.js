@@ -74,6 +74,43 @@ async function decryptRefreshToken(env, row) {
   } catch { throw new Error("GOOGLE_COLAB_CREDENTIAL_UNAVAILABLE"); }
 }
 
+function colabOperationAad(owner, runId, fingerprint) {
+  if (!validOwner(owner) || !/^[0-9a-f]{32}$/.test(runId || "") || !/^[0-9a-f]{64}$/.test(fingerprint || "")) {
+    throw new Error("GOOGLE_COLAB_OPERATION_INVALID");
+  }
+  return utf8(`gpu-control:colab-operation:v1:${owner}:${runId}:${fingerprint}`);
+}
+
+/** Encrypt runtime connection credentials with owner/run/plan-bound AAD. */
+export async function encryptGoogleColabOperationData(env, owner, runId, fingerprint, value) {
+  const serialized = JSON.stringify(value);
+  if (!value || typeof value !== "object" || Array.isArray(value) || typeof serialized !== "string" ||
+      new TextEncoder().encode(serialized).byteLength > 8192) throw new Error("GOOGLE_COLAB_OPERATION_INVALID");
+  const key = await encryptionKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: colabOperationAad(owner, runId, fingerprint), tagLength: 128 },
+    key, utf8(serialized));
+  return { ciphertext: base64Url(new Uint8Array(ciphertext)), iv: base64Url(iv) };
+}
+
+/** Decrypt only when the ciphertext is still bound to its original run owner. */
+export async function decryptGoogleColabOperationData(env, owner, runId, fingerprint, sealed) {
+  const key = await encryptionKey(env);
+  const iv = fromBase64Url(sealed?.iv);
+  const ciphertext = fromBase64Url(sealed?.ciphertext);
+  if (iv.length !== 12 || ciphertext.length < 16 || ciphertext.length > 12 * 1024) {
+    throw new Error("GOOGLE_COLAB_OPERATION_UNAVAILABLE");
+  }
+  try {
+    const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv,
+      additionalData: colabOperationAad(owner, runId, fingerprint), tagLength: 128 }, key, ciphertext);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(clear);
+    const value = JSON.parse(text);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid");
+    return value;
+  } catch { throw new Error("GOOGLE_COLAB_OPERATION_UNAVAILABLE"); }
+}
+
 async function googleJson(response) {
   let text;
   try {
