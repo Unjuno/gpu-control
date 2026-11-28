@@ -5,6 +5,26 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-29 — A19: move Modal GPU account policy behind its provider boundary
+
+**Finding:** `mcp_tool_dispatch.js` owned the Modal GPU's fixed T4 identity and
+$30.00 Workspace usage cap while the evidence validator lived in
+`modal_account_evidence.js`. The composition layer therefore carried provider
+policy in addition to routing tools.
+
+**Change:** `modal_gpu_policy.js` now owns the exact account-evidence
+requirements together with the admission predicate. The dispatcher delegates
+to that provider operation; the existing `modalGpuProviderEvidence` export
+remains as a compatibility alias. Policy tests bind valid evidence to T4 and
+the configured cap and reject alternate values.
+
+**Validation:** the compatibility export tests and focused Modal GPU policy
+tests pass; the full Sites suite passes (220), the Worker graph is acyclic
+across 82 runtime modules, registry freshness and architecture checks pass.
+Worker build, artifact validation, D1 forward-migration replay, and
+`git diff --check` pass. No provider, credential, admission, deployment, or
+experiment state was changed.
+
 ## 2026-11-29 — A16: centralize Colab execution and artifact bounds
 
 **Finding:** the Colab plan and generated runtime each capped runtime at 360

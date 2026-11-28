@@ -21,16 +21,12 @@ import { submitModalCpuRun } from "./modal_cpu_submission.js";
 import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 import { readRunResultArtifact } from "./run_artifacts.js";
 import { validGatewayPrepare, validToolArguments } from "./experiment_input_contract.js";
-import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
+import { modalGpuWorkloadAdmissionEnabled, readModalGpuProviderEvidence } from "./modal_gpu_policy.js";
 import { prepareGoogleColabExperiment } from "./google_colab_plan.js";
 import { submitGoogleColabExperiment, googleColabRunTool } from "./google_colab_lifecycle.js";
 
 const ZERO_GPU_WORKLOAD = WORKLOADS.huggingface_evaluation.id;
-const MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00";
-
-export async function modalGpuProviderEvidence(env, now) {
-  return readModalGpuAccountEvidence(env, { gpu: "T4", usageLimitUsd: MODAL_GPU_PROVIDER_USAGE_LIMIT_USD, now });
-}
+export { readModalGpuProviderEvidence as modalGpuProviderEvidence };
 
 /**
  * Route one already-authenticated, schema-validated MCP tool call to its domain.

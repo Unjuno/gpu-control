@@ -86,6 +86,10 @@ acceptance.
   Delegated run state is computed once in the list query, then the projected
   value drives both state filtering and the public list row. Filtering remains
   before limit/cursor pagination.
+- **A19 — Keep Modal GPU account constraints out of tool dispatch:** completed
+  in this batch. The fixed T4 and $30.00 account evidence constraints now live
+  beside Modal GPU admission policy; the MCP composition layer only forwards
+  the provider evidence operation.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct
