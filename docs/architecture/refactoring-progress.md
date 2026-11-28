@@ -3464,3 +3464,19 @@ evidence while keeping release and review limits explicit.
 Worker graph is acyclic across 82 modules, and checked documentation diffs for
 whitespace errors. This does not change runtime behavior or claim that Colab
 is deployed or live-accepted.
+
+## 2026-11-29 — A0/A20: refresh structure after Colab artifact extraction
+
+**Finding:** the Colab artifact boundary batch reduced the run-state module and
+added a dedicated artifact lifecycle contract; the previous architecture map
+no longer described the current dependency shape or module sizes.
+
+**Change:** updated the measured map to source checkpoint `b4159bc`, recorded
+84 runtime modules and the new Colab artifact owner, documented the single
+MCP artifact chunk policy, and refreshed the current source/CI evidence in
+`docs/STATUS.md`.
+
+**Validation:** module counts match `wc -l`; the exact-head CI workflows and
+the local 221-test, build, artifact, and migration checks passed for
+`b4159bc`. This does not establish an independent security review, hosted
+deployment, live Colab acceptance, or merge readiness.

@@ -5,12 +5,12 @@
 - The current source candidate is [PR #70](https://github.com/Unjuno/gpu-control/pull/70),
   branch `codex/owner-training-workloads`. GitHub is the live authority for PR
   head, review and exact-head CI; architecture documents record only fixed
-  source checkpoints. At source head `ef9df7a10d7239fe8b64d35da970052e602a81da`,
-  the 220-test Sites suite, 82-module acyclic Worker graph, Worker
+  source checkpoints. At source head `b4159bc46c6466d77b6e8391effbd0e72f16a60b`,
+  the 221-test Sites suite, 84-module acyclic Worker graph, Worker
   build/artifact validation, and D1 forward migration replay pass locally.
-  All three exact-head GitHub Actions workflows passed (CI run `46166007122`,
-  Project bridge tests `46166007057`, Sites provider runtime offline tests
-  `46166007104`).
+  All three exact-head GitHub Actions workflows passed (CI run `46167667946`,
+  Project bridge tests `46167667656`, Sites provider runtime offline tests
+  `46167667662`).
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
