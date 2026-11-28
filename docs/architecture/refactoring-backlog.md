@@ -458,6 +458,15 @@ skipped). The D1 replay test now treats the migration directory as its
 authoritative filename inventory and checks only that version prefixes remain
 ordered, unique, and gap-free.
 
+**Progress (2026-11-28):** Gateway's legacy Kaggle/Hugging Face deployment
+fixture and the Sites registry repeat provider identity, immutable source,
+image, resource, and GPU pins. A focused Gateway contract test now checks those
+shared facts against the Sites registry. Gateway-specific resource limits,
+transport, cleanup, and cost policy remain independently owned because their
+meanings and lifecycle differ; the two JSON files are not interchangeable
+runtime registries. Retiring or generating the legacy deployment contract is
+still gated by A4 and the external-operator decision.
+
 ## Decision queue
 
 1. Can the legacy Gateway package and Compose/systemd deployment contract be
