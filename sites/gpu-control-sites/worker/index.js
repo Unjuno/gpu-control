@@ -13,8 +13,9 @@ import { createGoogleColabOAuthRoutes } from "./google_colab_oauth_routes.js";
 import { createMcpOAuthRoutes } from "./mcp_oauth_routes.js";
 import { createGithubOAuthRoutes } from "./github_oauth_routes.js";
 import { mcpToolErrorCode } from "./mcp_tool_errors.js";
-import { CURRENT_MCP_VERSION, LEGACY_MCP_VERSIONS, MCP_META_PREFIX, SUPPORTED_MCP_VERSIONS,
+import { CURRENT_MCP_VERSION, LEGACY_MCP_VERSIONS, SUPPORTED_MCP_VERSIONS,
   mcpRpcError, parseMcpProtocolRequest } from "./mcp_protocol.js";
+import { mcpToolErrorResponse, mcpToolSuccessResponse } from "./mcp_tool_result.js";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
@@ -28,21 +29,6 @@ function json(data, status = 200, headers = {}) {
 
 function hasMediaType(request, expected) {
   return (request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase() === expected;
-}
-
-function envelope(name, value) {
-  if (value && value.schema_version === 2 && ["blocked", "pending", "ok", "error"].includes(value.status) &&
-      typeof value.human_summary === "string" && value.machine_state && typeof value.machine_state === "object") {
-    return { next_allowed_actions: [], blocking_reason: null, ...value };
-  }
-  return {
-    schema_version: 2,
-    status: value?.status === "blocked" ? "blocked" : "ok",
-    human_summary: typeof value?.human_summary === "string" ? value.human_summary : `${name} completed.`,
-    machine_state: value && typeof value === "object" ? value : { value },
-    next_allowed_actions: [],
-    blocking_reason: null,
-  };
 }
 
 function submitSummary(state) {
@@ -351,15 +337,13 @@ async function handleMcp(request, env, context = null, principal = null) {
       const name = message.params?.name;
       const args = normalizeTrainingArguments(name, message.params?.arguments ?? {}, env);
       if (!schemas[name] || !args || typeof args !== "object" || Array.isArray(args) || !validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
-      const value = envelope(name, await dispatchMcpTool(name, args, request, env, context, principal, {
+      const value = await dispatchMcpTool(name, args, request, env, context, principal, {
         modalGpuProviderEvidence, randomHex, authorizationUrl, submitSummary,
-      }));
-      const result = { content: [{ type: "text", text: JSON.stringify(value) }], isError: false };
-      if (requestedVersion !== LEGACY_MCP_VERSIONS[0]) result.structuredContent = value;
-      return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === CURRENT_MCP_VERSION ? { resultType: "complete", _meta: { [`${MCP_META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
+      });
+      return mcpToolSuccessResponse(id, name, value, requestedVersion);
     } catch (error) {
       const code = mcpToolErrorCode(error);
-      return json({ jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: JSON.stringify({ error: code }) }] } });
+      return mcpToolErrorResponse(id, code);
     }
   }
   return mcpRpcError(id, -32601, "Method not found");
