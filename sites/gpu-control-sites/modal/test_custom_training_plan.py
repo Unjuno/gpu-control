@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from custom_training_plan import (owner_training_profile_settings, owner_training_profile_status,
+from custom_training_plan import (owner_training_admission_enabled, owner_training_profile_settings, owner_training_profile_status,
     validate_custom_plan, validate_output_paths)
 
 
@@ -110,3 +110,10 @@ def test_owner_training_readiness_reports_only_current_bounded_profile_state():
     assert malformed_settings["hourly_microusd"] is None
     assert owner_training_profile_status(malformed_settings, admission_enabled=True,
         now=contract["now"])["blocker"] == "OWNER_TRAINING_PROFILE_NOT_CONFIGURED"
+
+
+def test_owner_training_admission_parser_requires_literal_true():
+    assert owner_training_admission_enabled({"OWNER_TRAINING_ADMISSION_ENABLED": "true"}) is True
+    for value in (None, "", "TRUE", "1", "yes", True):
+        assert owner_training_admission_enabled({"OWNER_TRAINING_ADMISSION_ENABLED": value}) is False
+    assert owner_training_admission_enabled({}) is False

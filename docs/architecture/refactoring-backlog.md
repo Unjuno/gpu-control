@@ -712,8 +712,10 @@ modules; the exact pushed head and CI are recorded in the progress log.
   and proxy-token validator, so configuration reporting cannot accept relay
   strings that dispatch will reject. Modal provider-health cooldown policy is
   now owned by `provider_health_policy.js`, and its lifecycle test derives the
-  elapsed time from that owner. Other provider configuration still needs the
-  wider inventory.
+  elapsed time from that owner. In the Modal adapter, owner-selected
+  admission is also parsed through one literal-true configuration function
+  shared by capability status and dispatch. Other provider configuration
+  still needs the wider inventory.
 
 ### A12. Add architecture checks only after rules have an owner
 

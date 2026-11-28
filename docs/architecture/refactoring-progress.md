@@ -21,6 +21,22 @@ RunPod-key configurations remain accepted.
 **Validation:** pending focused and complete Sites validation. No provider,
 credential, admission, deployment, or billing state was touched.
 
+## 2026-11-29 — A11: normalize owner-training admission in Modal
+
+**Finding:** the Modal adapter independently read and interpreted
+`OWNER_TRAINING_ADMISSION_ENABLED` when projecting capability status and again
+when dispatching each training lifecycle call. The interpretations matched,
+but the duplicated gate could drift.
+
+**Change:** added `owner_training_admission_enabled` to the training profile
+configuration owner and used it in both paths. Tests pin fail-closed behavior:
+only the literal string `true` enables the lane.
+
+**Validation:** the Modal Python suite passes (104), the complete Sites suite
+passes (214), the Worker dependency graph remains acyclic across 78 modules,
+and `git diff --check` passes. No provider, credential, admission,
+deployment, or billing state was touched.
+
 ## 2026-11-29 — A11: give Modal health cooldown one policy owner
 
 **Finding:** the workspace health-check cooldown was an inline constant in the

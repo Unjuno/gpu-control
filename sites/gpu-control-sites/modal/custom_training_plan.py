@@ -9,6 +9,11 @@ import re
 import time
 
 
+def owner_training_admission_enabled(environ):
+    """Use one fail-closed parser for the owner-selected execution gate."""
+    return environ.get("OWNER_TRAINING_ADMISSION_ENABLED") == "true"
+
+
 def owner_training_profile_settings(environ):
     """Parse adapter-owned settings once for readiness and exact-plan validation."""
     def integer(name):

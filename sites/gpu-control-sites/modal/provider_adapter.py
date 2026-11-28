@@ -146,7 +146,8 @@ def _service():
     from provider_runtime.kaggle_backend import KaggleBackend
     from provider_runtime.settings import ProviderSettings
     from workload_registry import WORKLOADS
-    from custom_training_plan import owner_training_profile_settings, owner_training_profile_status
+    from custom_training_plan import (owner_training_admission_enabled,
+                                      owner_training_profile_settings, owner_training_profile_status)
 
     kaggle_token = os.environ.get("KAGGLE_API_TOKEN", "")
     hf_write = os.environ.get("HF_ARTIFACT_WRITE_TOKEN", "")
@@ -167,7 +168,7 @@ def _service():
     huggingface = HuggingFaceSpaceBackend(settings) if hf_read else None
     owner_training_config = owner_training_profile_settings(os.environ)
     owner_training = owner_training_profile_status(owner_training_config,
-        admission_enabled=os.environ.get("OWNER_TRAINING_ADMISSION_ENABLED") == "true")
+        admission_enabled=owner_training_admission_enabled(os.environ))
     return ProviderAdapter(kaggle, huggingface,
                            ModalGpuBackend(submission_store=submission_store),
                            artifact_store=artifact_store, owner_training=owner_training)
@@ -246,7 +247,8 @@ def _custom_training_backend():
 
 def _dispatch_custom_training(owner, tool, arguments):
     from custom_training_lifecycle import dispatch
-    from custom_training_plan import owner_training_profile_settings, validate_custom_plan
+    from custom_training_plan import (owner_training_admission_enabled,
+                                      owner_training_profile_settings, validate_custom_plan)
 
     run_id = arguments.get("run_id")
     record = submission_store.get(f"custom-training:{run_id}") if isinstance(run_id, str) else None
@@ -271,7 +273,7 @@ def _dispatch_custom_training(owner, tool, arguments):
 
     from custom_training_tool_args import lifecycle_arguments
     custom_args = lifecycle_arguments(tool, arguments, plan=plan)
-    admission = os.environ.get("OWNER_TRAINING_ADMISSION_ENABLED") == "true"
+    admission = owner_training_admission_enabled(os.environ)
     return dispatch(submission_store, _custom_training_backend(), owner, tool.removeprefix("training_"),
                     custom_args, validate=validate, admission_enabled=admission)
 
