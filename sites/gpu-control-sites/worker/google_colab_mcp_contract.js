@@ -7,7 +7,9 @@ const TOOL_ARGUMENTS = {
   get_subscription: (args) => exactKeys(args, []),
   list_runtime_specs: (args) => exactKeys(args, []),
   list_runtimes: (args) => exactKeys(args, []),
-  create_runtime: (args) => exactKeys(args, ["runtime", "requestId"]) && UUID_V4.test(args.requestId) &&
+  create_runtime: (args) => (exactKeys(args, ["runtime", "requestId"]) ||
+      exactKeys(args, ["runtime", "requestId", "runtimeId"])) && UUID_V4.test(args.requestId) &&
+    (args.runtimeId === undefined || /^[a-z][a-z0-9-]{0,62}$/.test(args.runtimeId)) &&
     exactKeys(args.runtime, ["runtimeSpec"]) && validRuntimeSpec(args.runtime.runtimeSpec),
   execute_code: (args) => exactKeys(args, ["code", "executionId", "session"]) &&
     typeof args.code === "string" && args.code.length > 0 && new TextEncoder().encode(args.code).byteLength <= 256 * 1024 &&
@@ -45,7 +47,8 @@ export function validGoogleColabToolCall(name, args, options = {}) {
       typeof options.expectedSessionName === "string" && options.expectedSessionName === args.name;
   }
   if (name === "delete_runtime") {
-    return exactKeys(args, ["name"]) && RUNTIME_NAME.test(args.name) &&
+    return (exactKeys(args, ["name"]) || exactKeys(args, ["name", "allowMissing"])) &&
+      RUNTIME_NAME.test(args.name) && (args.allowMissing === undefined || args.allowMissing === true) &&
       typeof options.expectedRuntimeName === "string" && options.expectedRuntimeName === args.name;
   }
   if (name === "get_runtime") {

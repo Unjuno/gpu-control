@@ -1,9 +1,9 @@
-import { canonicalJson } from "../../worker/canonical_json.js";
+import { canonicalJson } from "./canonical_json.js";
 
 const STATES = new Set(["runtime_create_pending", "runtime_ready", "session_create_pending",
   "execution_pending", "execution_complete", "cleanup_pending", "terminal"]);
 const TRANSITIONS = {
-  runtime_create_pending: new Set(["runtime_ready", "cleanup_pending"]),
+  runtime_create_pending: new Set(["runtime_ready", "cleanup_pending", "terminal"]),
   runtime_ready: new Set(["session_create_pending", "cleanup_pending"]),
   session_create_pending: new Set(["execution_pending", "cleanup_pending"]),
   execution_pending: new Set(["execution_pending", "execution_complete", "cleanup_pending"]),

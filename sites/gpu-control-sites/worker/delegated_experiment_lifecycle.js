@@ -6,6 +6,8 @@ import { readDelegatedPlan as delegatedPlan, persistProviderAdapterObservation,
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
 import { prepareModalComputeBudgetReservation, utcMonthKey } from "./provider_budget_policy.js";
 import { WORKLOADS } from "./workload_registry.js";
+import { GOOGLE_COLAB_WORKLOAD } from "./google_colab_plan.js";
+import { googleColabRunTool, readGoogleColabArtifact } from "./google_colab_lifecycle.js";
 
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
 const ZERO_GPU_WORKLOAD = WORKLOADS.huggingface_evaluation.id;
@@ -279,6 +281,10 @@ export async function maybeDelegateRunTool(env, owner, name, args) {
     WHERE r.id=? AND r.owner_id=? AND p.provider='runpod_gpu' LIMIT 1`)
     .bind(args.run_id, owner).first();
   if (nativeRunpodRun) return null;
+  if (plan.workload === GOOGLE_COLAB_WORKLOAD) {
+    if (name === "experiment_artifact") return readGoogleColabArtifact(env, owner, args);
+    return googleColabRunTool(env, owner, name, args.run_id);
+  }
   if (plan.cancelled_at && plan.state === "prepared") {
     return { schema_version: 2, status: "ok", human_summary: "Prepared provider plan was cancelled before submission; no provider resource was created.",
       machine_state: { run_id: plan.id, state: "cancelled", workload: plan.workload,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { buildGoogleColabExecutionCode } from "../colab/lifecycle/google_colab_execution_code.js";
+import { buildGoogleColabExecutionCode } from "./google_colab_execution_code.js";
 
 const manifest = { schema_version: 1, task: "train", entrypoint: "train.py", python_version: "3.11",
   dependencies_lock: "requirements.lock", gpu_profiles: ["T4"],
@@ -13,7 +13,9 @@ test("Colab execution code pins public source and hash-locked dependencies witho
   assert.match(code, /https:\/\/github\.com\/owner\/model\.git/);
   assert.match(code, /'fetch', '--depth=1', 'origin', CFG\['commit'\]/);
   assert.match(code, /'--require-hashes'/);
-  assert.match(code, /timeout=CFG\['runtime_seconds'\]/);
+  assert.match(code, /timeout=remaining\(CFG\['runtime_seconds'\]\)/);
+  assert.match(code, /deadline = started \+ CFG\['runtime_seconds'\]/);
+  assert.match(code, /actual_python != CFG\['python_version'\]/);
   assert.match(code, /GPU_CONTROL_RECEIPT:/);
   assert.match(code, /\.receipt\.json/);
   assert.match(code, /nvidia-smi/);

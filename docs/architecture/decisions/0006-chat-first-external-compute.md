@@ -39,12 +39,12 @@ itself.
    adapters and capability data, not in agent instructions or separate user
    workflows.
 5. **Provider rollout is evidence-based and staged.** Modal is the first
-   owner-selected GPU implementation in PR #70. RunPod owner-selected source
-   execution is the next required route. Kaggle and Hugging Face can be
-   selected only for workload types their adapters actually support. Colab is
-   a later adapter unless it can meet the same identity, budget, cancellation,
-   artifact and cleanup contract. Each route is advertised only after live
-   acceptance for its claimed capability.
+   owner-selected GPU implementation in PR #70. Colab now has a source-level
+   adapter using the same owner-scoped MCP lifecycle; live acceptance and
+   release gates remain open. RunPod owner-selected source execution is the
+   next required route. Kaggle and Hugging Face can be selected only for
+   workload types their adapters actually support. Each route is advertised
+   only after live acceptance for its claimed capability.
 6. **Authorization is durable but bounded.** Repository selection grants
    source-read scope; separate owner/provider authorization and budget bound
    compute. Internal prepare/submit protocol steps must not make the agent ask

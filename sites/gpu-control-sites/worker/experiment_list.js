@@ -1,4 +1,5 @@
 import { safeJson, validGatewayApprovedPlan } from "./experiment_input_contract.js";
+import { validGoogleColabApprovedPlan } from "./google_colab_plan.js";
 import { providerAdapterConfigured } from "./provider_adapter_client.js";
 import { executionOrigin } from "./execution_origin.js";
 
@@ -49,7 +50,7 @@ export async function listExperiments(env, owner, args) {
       ORDER BY created_at DESC, id DESC LIMIT ?`).bind(...delegatedBindings, limit + 1).all();
     delegatedExperiments = delegatedRows.flatMap((row) => {
       const plan = safeJson(row.approved_plan_json);
-      if (!validGatewayApprovedPlan(plan)) return [];
+      if (!validGatewayApprovedPlan(plan) && !validGoogleColabApprovedPlan(plan)) return [];
       const response = safeJson(row.provider_response_json);
       const result = response?.result || response?.machine_state?.result || null;
       const state = row.cancelled_at && row.plan_state === "prepared" ? "cancelled"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createGoogleColabOperation, readGoogleColabOperation, transitionGoogleColabOperation } from "../colab/lifecycle/google_colab_operation_store.js";
+import { createGoogleColabOperation, readGoogleColabOperation, transitionGoogleColabOperation } from "./google_colab_operation_store.js";
 
 function database() {
   const sqlite = new DatabaseSync(":memory:");

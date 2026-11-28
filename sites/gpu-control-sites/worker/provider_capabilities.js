@@ -6,6 +6,9 @@ import { PROVIDERS, PROVIDER_ROUTES } from "./provider_catalog.js";
 import { MODAL_MAX_RUNTIME_SECONDS, MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE,
   MODAL_SANDBOX_COST_CEILING_USD, MODAL_SANDBOX_RESOURCES, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { getOwnerTrainingCapability } from "./owner_training_capabilities.js";
+import { googleColabConnectionConfigured, googleColabConnectionStatus } from "./google_colab_connection.js";
+import { googleColabLifecycleConfigured } from "./google_colab_tools.js";
+import { googleColabAdmissionEnabled } from "./google_colab_policy.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -14,13 +17,17 @@ const MODAL_GPU_WORKLOAD = WORKLOADS.modal_gpu_canary.id;
 
 function providerRouteCapability(route) {
   const provider = PROVIDERS[route.provider];
-  const free = provider.billing_model === "included_quota";
+  const free = provider.billing_model === "included_quota" && provider.subscription_cost_outside_gpu_control !== true;
+  const paid = provider.billing_model === "usage_billed";
   return {
     id: route.id,
     enabled: false,
     configured: false,
     free,
-    paid: !free,
+    paid,
+    billing_model: provider.billing_model,
+    ...(provider.quota_balance_available_via_api === false ? { quota_limited: true,
+      exact_run_cost_available: false, subscription_cost_outside_gpu_control: true } : {}),
     credit_eligible: provider.credit_eligible,
     ...(route.gpu_count ? { gpu_count: route.gpu_count } : {}),
     ...(route.api_version ? { api_version: route.api_version } : {}),
@@ -82,6 +89,10 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
   const providerBudgetPolicyReady = budgetPolicy.state === "ready";
   const authorizationStoreReady = await humanAuthorizationStoreReady(env);
   const providerConfigured = modalConfigured(env);
+  const colabOAuthConfigured = googleColabConnectionConfigured(env);
+  const colabConnected = colabOAuthConfigured && (await googleColabConnectionStatus(env.DB, owner)).connected;
+  const colabLifecycleReady = colabConnected && await googleColabLifecycleConfigured(env);
+  const colabAdmissionEnabled = googleColabAdmissionEnabled(env);
   const runpodProviderConfigured = runpodConfigured(env);
   const runpodCompletionTransportVerified = env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED === "true";
   const runpodEnabled = env.RUNPOD_WORKLOAD_ADMISSION_ENABLED === "true" &&
@@ -109,6 +120,18 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
       !runpodProviderConfigured ? "RUNPOD_PROVIDER_NOT_CONFIGURED" :
       !runpodCompletionTransportVerified ? "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED" :
       "RUNPOD_WORKLOAD_ADMISSION_DISABLED"),
+  });
+  Object.assign(providerByRoute.get(PROVIDER_ROUTES.google_colab.id), {
+    configured: colabOAuthConfigured && await googleColabLifecycleConfigured(env),
+    connected: colabConnected,
+    admission_enabled: colabAdmissionEnabled,
+    enabled: colabLifecycleReady && colabAdmissionEnabled,
+    exact_run_cost_available: false,
+    compute_unit_balance_available_via_api: false,
+    paid_fallback_allowed: false,
+    blocker: colabLifecycleReady && colabAdmissionEnabled ? null : (!colabOAuthConfigured ? "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED"
+      : !colabConnected ? "GOOGLE_COLAB_CONNECTION_REQUIRED" : !colabLifecycleReady ? "COLAB_RUN_STORAGE_NOT_CONFIGURED"
+        : "GOOGLE_COLAB_WORKLOAD_ADMISSION_DISABLED"),
   });
   for (const routeId of [PROVIDER_ROUTES.kaggle.id, PROVIDER_ROUTES.huggingface_space.id]) {
     Object.assign(providerByRoute.get(routeId), { blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" });

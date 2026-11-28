@@ -1,8 +1,9 @@
 import { canonicalJson } from "./canonical_json.js";
 import { WORKLOADS } from "./workload_registry.js";
+import { GOOGLE_COLAB_WORKLOAD } from "./google_colab_plan.js";
 
 const DELEGATED_WORKLOADS = [WORKLOADS.kaggle_training.id,
-  WORKLOADS.huggingface_evaluation.id, WORKLOADS.modal_gpu_canary.id];
+  WORKLOADS.huggingface_evaluation.id, WORKLOADS.modal_gpu_canary.id, GOOGLE_COLAB_WORKLOAD];
 
 export async function readDelegatedPlan(env, owner, runId) {
   try {

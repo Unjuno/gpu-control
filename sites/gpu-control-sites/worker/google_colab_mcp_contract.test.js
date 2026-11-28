@@ -53,6 +53,12 @@ test("Colab calls accept only the documented bounded lifecycle contract", () => 
   assert.equal(validGoogleColabToolCall("delete_runtime", { name: runtime.name }, {
     expectedRuntimeName: runtime.name,
   }), true);
+  assert.equal(validGoogleColabToolCall("delete_runtime", { name: runtime.name, allowMissing: true }, {
+    expectedRuntimeName: runtime.name,
+  }), true);
+  assert.equal(validGoogleColabToolCall("delete_runtime", { name: runtime.name, allowMissing: false }, {
+    expectedRuntimeName: runtime.name,
+  }), false);
   assert.equal(validGoogleColabToolCall("delete_runtime", { name: "runtimes/other-owner-runtime" }, {
     expectedRuntimeName: runtime.name,
   }), false);

@@ -1,5 +1,5 @@
-import { parseTrainingSource } from "../../worker/training_source.js";
-import { validateTrainingManifest } from "../../worker/training_contract.js";
+import { parseTrainingSource } from "./training_source.js";
+import { validateTrainingManifest } from "./training_contract.js";
 
 const MAX_RUNTIME_SECONDS = 360;
 const MAX_OUTPUT_FILE_BYTES = 50 * 1024 * 1024;
@@ -20,7 +20,8 @@ export function buildGoogleColabExecutionCode({ runId, repository, commit, visib
   const repoUrl = `https://github.com/${source.repository}.git`;
   const config = JSON.stringify({ run_id: runId, repository: source.repository, commit: source.commit,
     repo_url: repoUrl, runtime_seconds: runtimeSeconds, entrypoint: manifest.entrypoint,
-    dependency_lock: manifest.dependencies_lock, outputs: manifest.outputs, accelerator });
+    dependency_lock: manifest.dependencies_lock, python_version: manifest.python_version,
+    outputs: manifest.outputs, accelerator });
   return `# GPU Control owner-selected Colab execution. No credentials are embedded.
 hashlib = __import__('hashlib')
 json = __import__('json')
@@ -41,14 +42,34 @@ if RECEIPT.exists():
     emit(json.loads(RECEIPT.read_text(encoding='utf-8')))
 else:
     started = time.monotonic()
+    deadline = started + CFG['runtime_seconds']
+    def remaining(maximum):
+        value = deadline - time.monotonic()
+        if value <= 0: raise subprocess.TimeoutExpired([], 0)
+        return min(maximum, value)
     outcome = {'run_id': CFG['run_id'], 'repository': CFG['repository'], 'commit': CFG['commit'],
                'state': 'failed', 'exit_code': None, 'metrics': None, 'artifacts': [], 'gpu': None,
                'error_code': None}
     try:
+        actual_python = f'{sys.version_info.major}.{sys.version_info.minor}'
+        if actual_python != CFG['python_version']:
+            raise RuntimeError('COLAB_EXECUTION_FAILED')
         gpu_info = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
-            check=True, timeout=10, capture_output=True, text=True).stdout.strip().splitlines()
+            check=True, timeout=remaining(10), capture_output=True, text=True).stdout.strip().splitlines()
+        if not gpu_info:
+            raise RuntimeError('GPU_NOT_AVAILABLE')
+        if not ROOT.exists():
+            subprocess.run(['git', 'clone', '--filter=blob:none', '--no-checkout',
+                CFG['repo_url'], str(ROOT)], check=True, timeout=remaining(120), capture_output=True, text=True)
+        subprocess.run(['git', '-C', str(ROOT), 'fetch', '--depth=1', 'origin', CFG['commit']],
+            check=True, timeout=remaining(120), capture_output=True, text=True)
+        subprocess.run(['git', '-C', str(ROOT), 'checkout', '--detach', CFG['commit']],
+            check=True, timeout=remaining(30), capture_output=True, text=True)
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '--require-hashes',
+            '-r', str(ROOT / CFG['dependency_lock'])], check=True, timeout=remaining(180),
+            capture_output=True, text=True)
         torch = __import__('torch')
-        if not torch.cuda.is_available() or not gpu_info:
+        if not torch.cuda.is_available():
             raise RuntimeError('GPU_NOT_AVAILABLE')
         torch_gpu = torch.cuda.get_device_name(0)
         if CFG['accelerator'].lower() not in torch_gpu.lower():
@@ -56,18 +77,8 @@ else:
         outcome['gpu'] = {'name': torch_gpu, 'nvidia_smi_name': gpu_info[0],
             'cuda_available': True, 'device_count': torch.cuda.device_count(),
             'torch_version': torch.__version__, 'cuda_version': torch.version.cuda}
-        if not ROOT.exists():
-            subprocess.run(['git', 'clone', '--filter=blob:none', '--no-checkout',
-                CFG['repo_url'], str(ROOT)], check=True, timeout=120, capture_output=True, text=True)
-        subprocess.run(['git', '-C', str(ROOT), 'fetch', '--depth=1', 'origin', CFG['commit']],
-            check=True, timeout=120, capture_output=True, text=True)
-        subprocess.run(['git', '-C', str(ROOT), 'checkout', '--detach', CFG['commit']],
-            check=True, timeout=30, capture_output=True, text=True)
-        subprocess.run([sys.executable, '-m', 'pip', 'install', '--require-hashes',
-            '-r', str(ROOT / CFG['dependency_lock'])], check=True, timeout=180,
-            capture_output=True, text=True)
         process = subprocess.run([sys.executable, str(ROOT / CFG['entrypoint'])], cwd=str(ROOT),
-            timeout=CFG['runtime_seconds'], capture_output=True, text=True)
+            timeout=remaining(CFG['runtime_seconds']), capture_output=True, text=True)
         outcome['exit_code'] = process.returncode
         outcome['state'] = 'succeeded' if process.returncode == 0 else 'failed'
         metrics_path = ROOT / 'metrics.json'
@@ -109,7 +120,7 @@ else:
         outcome['exit_code'] = error.returncode
     except Exception:
         outcome['error_code'] = 'COLAB_EXECUTION_FAILED'
-    outcome['elapsed_seconds'] = min(int(time.monotonic() - started), CFG['runtime_seconds'] + 360)
+    outcome['elapsed_seconds'] = min(int(time.monotonic() - started), CFG['runtime_seconds'] + 1)
     temp_path = RECEIPT.with_suffix('.tmp')
     temp_path.write_text(json.dumps(outcome, sort_keys=True, separators=(',', ':')), encoding='utf-8')
     os.replace(temp_path, RECEIPT)

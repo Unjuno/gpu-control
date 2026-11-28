@@ -1,6 +1,6 @@
-import { readBoundedResponseBytes } from "../../worker/http_response_body.js";
-import { validGoogleColabRuntime } from "../../worker/google_colab_mcp_contract.js";
-import { sha256Hex } from "../../worker/sha256.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
+import { validGoogleColabRuntime } from "./google_colab_mcp_contract.js";
+import { sha256Hex } from "./sha256.js";
 
 export const GOOGLE_COLAB_MAX_FILE_BYTES = 50 * 1024 * 1024;
 const FILE_TIMEOUT_MS = 30_000;

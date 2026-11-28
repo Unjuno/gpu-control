@@ -9,6 +9,8 @@ test("advertises the bounded registered inference contract", async () => {
   assert.deepEqual(prepare.inputSchema.properties.workload.enum,
     ["tiny-stories-inference-v1", "runpod-gpu-canary-v1", "orbitune-kaggle-100-step-v1",
       "orbitune-zero-gpu-eval-v1", "modal-gpu-vector-add-v1"]);
+  assert.equal(prepare.inputSchema.properties.provider.const, "google_colab");
+  assert.match(prepare.inputSchema.properties.provider.description, /any compatible client/);
   assert.equal(prepare.inputSchema.properties.max_cost_usd.pattern, "^(?:0(?:\\.[0-9]{1,6})?|1(?:\\.0{1,6})?)$");
   const modalParameters = prepare.inputSchema.properties.parameters.oneOf[0];
   assert.deepEqual(modalParameters.required, ["max_new_tokens", "prompt", "seed"]);
@@ -18,7 +20,7 @@ test("advertises the bounded registered inference contract", async () => {
   assert.match(prepare.description, /private Hugging Face ZeroGPU evaluation/);
   assert.match(prepare.description, /fixed Runpod GPU canary/);
   assert.match(prepare.description, /does not allocate a Pod/);
-  assert.match(prepare.description, /FREE_FIRST and never fall back to a paid provider/);
+  assert.match(prepare.description, /FREE_FIRST and never fall back to a paid provider unless the user explicitly selects that paid route/);
   assert.match(prepare.description, /agent-generated idempotency_key/);
   assert.match(prepare.description, /Never ask the user to create or remember the key/);
   assert.match(prepare.inputSchema.properties.idempotency_key.description, /reuse the same key if retrying that request/);
@@ -60,6 +62,9 @@ test("keeps MCP guidance and operation annotations client-neutral", () => {
 
   assert.deepEqual(health.inputSchema.required, ["run_id", "plan_fingerprint"]);
   assert.deepEqual(submit.inputSchema.required, ["plan_fingerprint", "run_id"]);
+  assert.equal(submit.inputSchema.properties.positive_compute_units_attested.type, "boolean");
+  assert.match(submit.inputSchema.properties.positive_compute_units_attested.description,
+    /never infer it from subscription tier alone/);
   assert.match(prepare.description, /without asking the user the same question again/);
   assert.match(submit.description, /do not ask a second conversational confirmation/);
   assert.match(submit.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);

@@ -11,9 +11,10 @@ assert.ok(providerCatalog.providers && typeof providerCatalog.providers === "obj
 assert.ok(providerCatalog.routes && typeof providerCatalog.routes === "object");
 for (const [providerId, provider] of Object.entries(providerCatalog.providers)) {
   assert.match(providerId, /^[a-z][a-z0-9_]*$/);
-  assert.equal(provider.budget_provider, providerId);
+  assert.equal(provider.budget_provider === null || provider.budget_provider === providerId, true);
   assert.ok(["usage_billed", "included_quota"].includes(provider.billing_model));
   assert.equal(typeof provider.credit_eligible, "boolean");
+  if (provider.budget_provider === null) assert.equal(provider.quota_limited, true);
   if (provider.billing_model === "included_quota") assert.equal(provider.paid_fallback_allowed, false);
 }
 for (const [routeId, route] of Object.entries(providerCatalog.routes)) {
@@ -48,7 +49,7 @@ for (const workload of Object.values(registry.workloads)) {
 
 const compact = JSON.stringify(registry.workloads);
 const js = `// Generated from workloads/registry.json by scripts/generate_workload_registry.mjs.\nexport const WORKLOADS = Object.freeze(${compact});\nexport const WORKLOAD_IDS = Object.freeze(Object.values(WORKLOADS).map((item) => item.id));\n`;
-const providerJs = `// Generated from workloads/provider-catalog.json by scripts/generate_workload_registry.mjs.\nexport const PROVIDER_CATALOG = Object.freeze(${JSON.stringify(providerCatalog)});\nexport const PROVIDERS = Object.freeze(Object.fromEntries(Object.entries(PROVIDER_CATALOG.providers).map(([id, provider]) => [id, Object.freeze({ id, ...provider })])));\nexport const PROVIDER_ROUTES = Object.freeze(Object.fromEntries(Object.entries(PROVIDER_CATALOG.routes).map(([id, route]) => [id, Object.freeze({ id, ...route })])));\nexport const PROVIDER_ROUTE_IDS = Object.freeze(Object.keys(PROVIDER_ROUTES));\nexport const PROVIDER_BUDGET_IDS = Object.freeze([...new Set(Object.values(PROVIDERS).map((provider) => provider.budget_provider))]);\nexport const FREE_PROVIDER_BUDGET_IDS = Object.freeze(Object.values(PROVIDERS).filter((provider) => provider.billing_model === "included_quota").map((provider) => provider.budget_provider));\n`;
+const providerJs = `// Generated from workloads/provider-catalog.json by scripts/generate_workload_registry.mjs.\nexport const PROVIDER_CATALOG = Object.freeze(${JSON.stringify(providerCatalog)});\nexport const PROVIDERS = Object.freeze(Object.fromEntries(Object.entries(PROVIDER_CATALOG.providers).map(([id, provider]) => [id, Object.freeze({ id, ...provider })])));\nexport const PROVIDER_ROUTES = Object.freeze(Object.fromEntries(Object.entries(PROVIDER_CATALOG.routes).map(([id, route]) => [id, Object.freeze({ id, ...route })])));\nexport const PROVIDER_ROUTE_IDS = Object.freeze(Object.keys(PROVIDER_ROUTES));\nexport const PROVIDER_BUDGET_IDS = Object.freeze([...new Set(Object.values(PROVIDERS).map((provider) => provider.budget_provider).filter(Boolean))]);\nexport const FREE_PROVIDER_BUDGET_IDS = Object.freeze(Object.values(PROVIDERS).filter((provider) => provider.billing_model === "included_quota" && provider.budget_provider).map((provider) => provider.budget_provider));\n`;
 const pyJsonLiteral = JSON.stringify(JSON.stringify(registry.workloads));
 const py = `# Generated from workloads/registry.json by scripts/generate_workload_registry.mjs.\nimport json\n\nWORKLOADS = json.loads(${pyJsonLiteral})\n` +
   Object.entries({

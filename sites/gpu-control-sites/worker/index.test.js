@@ -184,7 +184,7 @@ test("GitHub App connection tools are owner-scoped and fail closed until configu
     assert.equal(byName.get("github_repositories").annotations.readOnlyHint, true);
     assert.equal(byName.get("github_connection_disconnect").annotations.destructiveHint, true);
     assert.match(byName.get("experiment_capabilities").description, /colab_capabilities/);
-    assert.match(byName.get("experiment_capabilities").description, /not yet connected to the shared run lifecycle/);
+    assert.match(byName.get("experiment_capabilities").description, /Google Colab readiness reports owner OAuth connection/);
   } finally { db.close(); }
 });
 
@@ -287,7 +287,7 @@ test("read-only capabilities do not call Modal", async () => {
       blocker: "GITHUB_APP_NOT_CONFIGURED",
     });
     assert.deepEqual(result.providers.map((provider) => provider.id),
-      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space"]);
+      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space", "google_colab"]);
     assert.equal(result.providers[1].enabled, false);
     assert.equal(result.providers[1].configured, false);
     assert.equal(result.provider_budgets[0].provider, "modal");
@@ -346,7 +346,7 @@ test("capabilities exposes all provider routes and enables only configured route
     }), { status: 200, headers: { "content-type": "application/json" } });
     const result = await capabilities(env);
     assert.deepEqual(result.providers.map((provider) => provider.id),
-      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space"]);
+      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space", "google_colab"]);
     assert.equal(result.providers[1].configured, true);
     assert.equal(result.providers[1].enabled, false);
     assert.equal(result.providers[1].blocker, "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED");
@@ -1655,6 +1655,7 @@ test("scheduled reconciliation advances one active delegated provider run", asyn
     bind(...values) {
       return {
         async first() {
+          if (sql.includes("workload=? AND state='submitted'")) return null;
           if (sql.includes("WHERE owner_id=? AND state='submitted'")) {
             assert.deepEqual(values, ["test-owner", "orbitune-kaggle-100-step-v1",
               "orbitune-zero-gpu-eval-v1", "modal-gpu-vector-add-v1"]);
@@ -1686,8 +1687,11 @@ test("scheduled reconciliation advances one active delegated provider run", asyn
   };
   try {
     const response = await toolCall(env, "test-owner", "experiment_reconcile", {});
-    const value = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(value.status, "pending");
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await response.json();
+    assert.ok(body.result, JSON.stringify(body));
+    const value = JSON.parse(body.result.content[0].text);
+    assert.equal(value.status, "pending", JSON.stringify(value));
     assert.match(value.human_summary, /Scheduled provider reconciliation completed/);
     assert.equal(request.tool, "experiment_status");
     assert.equal(request.arguments.run_id, runId);

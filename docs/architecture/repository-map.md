@@ -62,15 +62,14 @@ flowchart LR
   O --> A
 ```
 
-This diagram combines two distinct contracts: the released/previously accepted
-fixed-workload routes and the current PR #70 owner-selected Modal candidate.
-Do not infer the latter is deployed. The intended agent workflow must discover
-the authorized source and currently compatible external GPU route from current
-capabilities, keep provider IDs internal, and return verified result and
-cleanup. Google Colab currently has owner-bound connection and read-only
-capability discovery only; its execution lifecycle is not integrated. A direct
-external Colab MCP call bypasses the Sites owner, budget, run-history, and
-cleanup ledger.
+This diagram combines the previously accepted fixed-workload routes and the
+PR #70 owner-selected Modal and Colab source candidates. Do not infer these
+source paths are deployed. The intended agent workflow discovers authorized
+sources and compatible external routes from current capabilities, keeps
+provider IDs internal, and returns verified results and cleanup. Colab now
+uses the shared MCP dispatcher and D1/R2 lifecycle in source. Direct external
+Colab MCP or CLI calls still bypass the Sites owner, run-history and cleanup
+ledger, and are outside GPU Control acceptance.
 
 The Colab owner-connection setup/callback handlers are composed through
 `worker/google_colab_oauth_routes.js`. The independent OAuth surface for other

@@ -5,6 +5,7 @@ import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { mapTrainingConfiguration } from "./map_training_configuration.js";
 import { RUNPOD_WORKLOAD, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
 import { canonicalJson } from "./canonical_json.js";
+import { validGoogleColabApprovedPlan, validGoogleColabPrepare } from "./google_colab_plan.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -120,7 +121,7 @@ export function validGatewayApprovedPlan(value) {
 
 
 export function validProviderApprovedPlan(value) {
-  return validGatewayApprovedPlan(value) || validRunpodApprovedPlan(value);
+  return validGatewayApprovedPlan(value) || validRunpodApprovedPlan(value) || validGoogleColabApprovedPlan(value);
 }
 
 export function normalizeTrainingArguments(name, input, env) {
@@ -201,7 +202,7 @@ export function validToolArguments(name, args, env) {
       (args.steps === undefined || (Number.isSafeInteger(args.steps) && args.steps >= 1 && args.steps <= 100000));
   }
 
-  if (name === "experiment_prepare") return validPlan(args, env) || validRunpodPrepare(args, env) ||
+  if (name === "experiment_prepare") return validGoogleColabPrepare(args) || validPlan(args, env) || validRunpodPrepare(args, env) ||
     validGatewayPrepare(args) || validRegisteredPrepare(args) || validRegisteredZeroGpuPrepare(args);
   if (name === "experiment_submit" && args.provider_approved_plan !== undefined) return Object.keys(args).sort().join(",") === "plan_fingerprint,provider_approved_plan,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&

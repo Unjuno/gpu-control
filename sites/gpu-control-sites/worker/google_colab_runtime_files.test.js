@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { GOOGLE_COLAB_MAX_FILE_BYTES, readGoogleColabRuntimeFile } from "../colab/lifecycle/google_colab_runtime_files.js";
+import { GOOGLE_COLAB_MAX_FILE_BYTES, readGoogleColabRuntimeFile } from "./google_colab_runtime_files.js";
 
 const bytes = new TextEncoder().encode("immutable checkpoint bytes");
 const runtime = { name: "runtimes/gpu-control-run", runtimeSpec: {

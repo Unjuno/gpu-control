@@ -62,11 +62,11 @@ acceptance.
   compatible MCP client; the agent resolves authorized source and compatible
   external GPU, carries IDs/provider details internally, and returns verified
   result and cleanup. ChatGPT chat/Work is an important client, not a product
-  boundary. Modal is currently the only
-  owner-selected route in PR #70; Google Colab is the next integration target
-  but currently provides connection/capability reads only. RunPod
-  arbitrary-source follows after Colab; Kaggle/Hugging Face remain
-  fixed-workload routes.
+  boundary. Modal and Google Colab have owner-selected source paths in the
+  PR #70 candidate; Colab's source now connects prepare/submit/status/cancel/
+  artifact/reconcile through the shared MCP ledger. Neither source status nor
+  local tests prove deployed readiness or a live run. RunPod arbitrary-source
+  follows after Colab; Kaggle/Hugging Face remain fixed-workload routes.
 - **Done when:** no current-state document promotes PR source or old canaries
   into present-day deployed capability; the first-run ChatGPT prompt names
   actual available actions and blockers.
@@ -114,12 +114,13 @@ acceptance.
   cleanup contract. A local/container-only result does not satisfy this
   requirement.
 - **Provider sequence:** Modal GPU is the first owner-selected implementation.
-  The next addition is Google Colab through Google's hosted Colab MCP, using
-  the existing owner-bound Google connection and the same Sites plan/run
-  ledger. Colab's unknown account-level compute-unit balance, unrestricted
-  runtime egress, long-call recovery, and destructive runtime cleanup must be
-  represented in its exact plan and durable lifecycle before execution is
-  advertised. The official `google-colab-cli` remains a local/CI client for
+  Google Colab source is now integrated through Google's hosted Colab MCP,
+  using the owner-bound Google connection and the same Sites plan/run ledger.
+  Colab's unknown account-level compute-unit balance, unrestricted runtime
+  egress, long-call recovery, and destructive runtime cleanup are represented
+  in its plan and lifecycle. Exact-head CI, security review, production
+  configuration/migration and one live acceptance run remain release gates.
+  The official `google-colab-cli` remains a local/CI client for
   compatible authenticated agents; direct CLI jobs do not form a second Sites
   provider route or run ledger. Ordinary PR CI stays offline and does not
   allocate a Colab runtime. After Colab, the same repository contract should
@@ -289,43 +290,31 @@ acceptance.
   create a second control plane or silently fork the ledger. Add another
   client only when it can call the shared control-plane contract under the
   same owner identity and authorization.
-- **Work:** implement owner-bound Google OAuth connect/disconnect, protected
-  credential refresh, hosted MCP client, exact-plan creation, idempotent
-  runtime/session lifecycle, bounded source/result transfer, cancellation and
-  cleanup receipts. Keep cost as unknown until account CU semantics can be
-  trusted; never label the internal Sites reservation a Google billing cap.
-  **Open boundary decision (2026-11-28):** Colab's managed runtime does not
-  inherit the Modal sandbox's enforced no-egress policy; installing
-  hash-locked dependencies may require Internet access from the runtime. The
-  provider contract must state `network_egress: unrestricted`, keep
-  provider/GitHub credentials and private data out of the runtime, and delete
-  only a newly created run-owned runtime after the exact plan authorizes it.
-  This material provider-specific disclosure is recorded for owner review;
-  admission remains closed until the route and its authorization wording are
-  accepted and implemented.
-  Keep this provider policy behind a Colab-specific plan/adapter boundary;
-  shared owner authorization, exact-plan confirmation, D1 run history, artifact
-  metadata, and terminal cleanup remain the single lifecycle authority. Modal's
-  owner-selected plan construction has been separated from the shared training
-  orchestrator as a first boundary; it is not evidence of Colab readiness.
-  Google runtime creation and execution can outlive one interactive MCP
-  request. Persist stable Google request/session/execution IDs in the existing
-  owner-bound training run and let later status calls reattach to the exact
-  unfinished operation. Do not add a queue, a longer blocking HTTP wait, or a
-  second run ledger unless a Colab operation proves unrecoverable through its
-  documented idempotency contract. Never replay an execution after its result
-  has been returned; treat a lost persistence response as uncertain. Runtime
-  deletion remains an explicit owner action; automated cleanup closes only
-  the session created for the run.
-  Keep admission closed until exact-head CI, independent security review, and
-  one bounded end-to-end GPU acceptance pass.
-- **Done when:** from ordinary ChatGPT chat/Work and at least one documented
-  non-ChatGPT MCP client, the owner can ask for a registered repository
-  experiment without supplying internal IDs; each client uses the same
-  owner-bound plans and run ledger; Colab is selected only when its current
-  connected-account capabilities and product bounds permit it; and provider
-  GPU, outputs/digests, terminal state, and cleanup are verified in that same
-  ledger. Standalone CLI runs are clearly labeled outside GPU Control.
+- **Implemented in source (2026-11-28):** owner-bound Google OAuth and
+  encrypted refresh credentials; fixed hosted-MCP client; public immutable
+  source prepare; shared exact-plan submit; stable runtime/session/execution
+  journal; status-driven recovery; owner-scoped cancellation; bounded checksum
+  verified R2 artifacts; shared status/result/list/reconcile routes; provider
+  catalog and budget semantics. The same MCP contract is available to ChatGPT/
+  Work and any authenticated compatible MCP client.
+- **Remaining:** exact-head CI, independent security review, production
+  configuration and migration, and one owner-authorized bounded GPU run that
+  independently verifies GPU, output digests, terminal state, and cleanup.
+  No live provider runtime was used by this local validation. The plan
+  discloses `network_egress: unrestricted`, unknown account CU/USD cost, no
+  automatic top-up or paid fallback, and deletion of only the run-owned
+  runtime after artifact collection. Source must prove that positive-CU owner
+  attestation is bound to the exact native submit confirmation before live
+  admission.
+- **CLI boundary:** `google-colab-cli` can be used directly by an authenticated
+  local/CI agent, but such jobs are outside the GPU Control run ledger. A
+  client that needs shared history should call the same GPU Control MCP
+  lifecycle; do not add a parallel CLI adapter or second run ledger.
+- **Done when:** a compatible MCP client can discover Colab for an owner,
+  prepare an owner-selected public repository without manual IDs, submit an
+  exact bounded plan, recover the same run, retrieve verified artifacts, and
+  confirm cleanup. A separate documented client acceptance and a live bounded
+  GPU run are required before advertising this capability as released.
 
 ### A13. Add owner-bound OAuth for non-ChatGPT MCP clients
 

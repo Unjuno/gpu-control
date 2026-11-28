@@ -77,8 +77,10 @@ provider routes; that would fork authorization, retries, history, and cleanup.
    distributed workers on managed runtimes when the account is free or has no
    positive compute-unit balance. The Colab API exposes tier and runtime
    eligibility but not the balance. At the exact-plan write confirmation, the
-   owner must attest that the account has positive units; recheck tier and GPU
-   eligibility immediately before submit. Never treat an earlier attestation
+   owner must set `positive_compute_units_attested: true` on the exact submit
+   only after confirming positive units and accepting that actual consumption
+   is not exposed or capped by GPU Control; recheck tier and GPU eligibility
+   immediately before submit. Never treat an earlier attestation
    as reusable. A free tier without positive units is not an allowed automated
    execution route. The run plan must state that exact dollar cost is
    unknown and that GPU Control cannot buy or top up Pay-As-You-Go units.
@@ -105,8 +107,8 @@ provider routes; that would fork authorization, retries, history, and cleanup.
 5. Run offline CI and independent security review. Keep admission closed.
 6. After the owner connects the Google account, verify one small bounded GPU
    execution under current Colab account quota, independently validate its
-   artifact digest and actual GPU, and verify runtime deletion before enabling
-   ongoing chat use.
+   artifact digest and actual GPU, and verify run-owned runtime deletion before
+   advertising the route from any MCP client.
 
 ## Consequences
 
@@ -131,13 +133,17 @@ provider routes; that would fork authorization, retries, history, and cleanup.
 
 ## Current implementation status (2026-11-28)
 
-The Sites source now includes the first slice: owner-scoped OAuth state and
-encrypted refresh-token storage, one-time Google identity binding, refresh and
-disconnect, and a fixed-endpoint/fixed-tool Google MCP HTTP client. The
-read-only `colab_capabilities` tool reports Google account eligibility and
-explicitly reports the missing execution lifecycle. This does not yet create a
-Colab run, advertise an enabled execution route, or write Colab provider state
-into the shared run ledger. Keep admission closed.
+The PR #70 source candidate now wires the owner-scoped OAuth connection and
+fixed hosted MCP client into the shared provider lifecycle. It prepares
+owner-selected public GitHub sources, persists a Colab operation journal,
+recovers status against stable runtime/session/execution IDs, routes
+cancellation and verified R2 artifacts through common MCP tools, and includes
+Colab in scheduled reconciliation and provider capabilities. Unit and
+contract tests pass locally. This is source evidence only: exact-head CI,
+independent security review, production OAuth/configuration and migration, and
+one bounded live GPU acceptance remain incomplete. Admission is closed by
+default. The exact-call positive-CU attestation is part of the submit contract;
+keep admission closed until the remaining release gates pass.
 
 ## References
 

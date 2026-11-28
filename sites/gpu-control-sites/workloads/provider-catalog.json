@@ -22,6 +22,15 @@
       "billing_model": "included_quota",
       "credit_eligible": false,
       "paid_fallback_allowed": false
+    },
+    "google_colab": {
+      "budget_provider": null,
+      "billing_model": "included_quota",
+      "credit_eligible": false,
+      "paid_fallback_allowed": false,
+      "subscription_cost_outside_gpu_control": true,
+      "quota_balance_available_via_api": false,
+      "quota_limited": true
     }
   },
   "routes": {
@@ -53,6 +62,13 @@
       "provider": "huggingface_space",
       "requires_gpu": true,
       "adapter_hosted": true
+    },
+    "google_colab": {
+      "provider": "google_colab",
+      "requires_gpu": true,
+      "adapter_hosted": false,
+      "gpu_count": 1,
+      "execution_interface": "owner_selected_public_source"
     }
   }
 }

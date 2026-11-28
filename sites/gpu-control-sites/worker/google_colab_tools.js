@@ -2,46 +2,74 @@ import { createGoogleColabConnectionUrl, disconnectGoogleColab, googleColabConne
   googleColabConnectionStatus } from "./google_colab_connection.js";
 import { callGoogleColabMcpTool, googleColabStructuredResult } from "./google_colab_mcp_client.js";
 import { projectGoogleColabCapabilities } from "./google_colab_capabilities.js";
+import { googleColabAdmissionEnabled } from "./google_colab_policy.js";
 
 const COLAB_TOOLS = new Set([
   "colab_connection_start", "colab_connection_status", "colab_connection_disconnect", "colab_capabilities",
 ]);
 export function isGoogleColabTool(name) { return COLAB_TOOLS.has(name); }
 
+export async function googleColabLifecycleConfigured(env) {
+  if (!env?.DB || !env?.BUCKET || typeof env.BUCKET.put !== "function" || typeof env.BUCKET.get !== "function") return false;
+  try {
+    const rows = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table'
+      AND name IN ('google_colab_run_operations','google_colab_run_artifacts')`).all();
+    return Array.isArray(rows?.results) && rows.results.length === 2;
+  } catch { return false; }
+}
+
+/** Read fresh owner-scoped subscription, GPU eligibility, and runtime facts. */
+export async function readGoogleColabCapabilities(env, owner, options = {}) {
+  const connection = await googleColabConnectionStatus(env.DB, owner);
+  const configured = googleColabConnectionConfigured(env);
+  const admissionEnabled = googleColabAdmissionEnabled(env);
+  const executionLifecycleEnabled = await googleColabLifecycleConfigured(env);
+  if (!configured || !connection.connected) return { configured, connected: connection.connected,
+    account_email_redacted: connection.account_email_redacted || null, execution_lifecycle_enabled: false,
+    admission_enabled: admissionEnabled, eligible_gpu_specs: [], active_runtime_count: null, active_gpu_runtime_count: null,
+    blocking_reason: configured ? "GOOGLE_COLAB_CONNECTION_REQUIRED" : "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED" };
+  const [subscriptionResponse, specResponse, runtimeResponse] = await Promise.all([
+    callGoogleColabMcpTool(env, owner, "get_subscription", {}, options),
+    callGoogleColabMcpTool(env, owner, "list_runtime_specs", {}, options),
+    callGoogleColabMcpTool(env, owner, "list_runtimes", {}, options),
+  ]);
+  const subscription = googleColabStructuredResult(subscriptionResponse);
+  const specData = googleColabStructuredResult(specResponse);
+  const runtimeData = googleColabStructuredResult(runtimeResponse);
+  const capability = projectGoogleColabCapabilities(subscription, specData, runtimeData);
+  return { configured: true, connected: true, account_email_redacted: connection.account_email_redacted,
+    subscription_tier: capability.tier, eligible_gpu_specs: capability.eligibleGpuSpecs,
+    active_runtime_count: capability.activeRuntimeCount, active_gpu_runtime_count: capability.activeGpuRuntimeCount,
+    execution_lifecycle_enabled: executionLifecycleEnabled, admission_enabled: admissionEnabled,
+    cost_terms: { per_run_usd: null, remaining_quota: null,
+      semantics: "google_account_subscription_quota_not_quantified_per_run",
+      quota_exhaustion_effect: "google_paid_account_reverts_to_free_tier_restrictions",
+      compute_unit_balance_available_via_api: false, positive_compute_units_required_for_automation: true,
+      positive_compute_units_verified: false, automatic_top_up_available: false, paid_fallback_allowed: false },
+    execution_security: { network_egress: "unrestricted", private_data_allowed: false,
+      provider_credentials_allowed: false, run_owned_runtime_deletion_requires_exact_plan_confirmation: true },
+    blocking_reason: !executionLifecycleEnabled ? "COLAB_RUN_STORAGE_NOT_CONFIGURED"
+      : !admissionEnabled ? "GOOGLE_COLAB_WORKLOAD_ADMISSION_DISABLED" : null,
+    exact_run_cost_available: false };
+}
+
 /** Manage the authenticated owner's Google Colab identity connection. */
 export async function handleGoogleColabTool(name, env, owner, options = {}) {
   if (!isGoogleColabTool(name)) return null;
   if (name === "colab_capabilities") {
-    const connection = await googleColabConnectionStatus(env.DB, owner);
-    if (!googleColabConnectionConfigured(env) || !connection.connected) return { schema_version: 2,
+    const capability = await readGoogleColabCapabilities(env, owner, options);
+    if (!capability.connected || !capability.configured) return { schema_version: 2,
       status: "blocked", human_summary: "Google Colabの接続またはSites側OAuth設定がありません。Google APIは呼び出していません。",
-      machine_state: { configured: googleColabConnectionConfigured(env), connected: false,
-        execution_lifecycle_enabled: false }, next_allowed_actions: googleColabConnectionConfigured(env)
-          ? ["colab_connection_start"] : [], blocking_reason: connection.connected ? "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED" : "GOOGLE_COLAB_CONNECTION_REQUIRED" };
-    const [subscriptionResponse, specResponse, runtimeResponse] = await Promise.all([
-      callGoogleColabMcpTool(env, owner, "get_subscription", {}, options),
-      callGoogleColabMcpTool(env, owner, "list_runtime_specs", {}, options),
-      callGoogleColabMcpTool(env, owner, "list_runtimes", {}, options),
-    ]);
-    const subscription = googleColabStructuredResult(subscriptionResponse);
-    const specData = googleColabStructuredResult(specResponse);
-    const runtimeData = googleColabStructuredResult(runtimeResponse);
-    const { tier, activeRuntimeCount, activeGpuRuntimeCount, eligibleGpuSpecs } =
-      projectGoogleColabCapabilities(subscription, specData, runtimeData);
+      machine_state: capability, next_allowed_actions: capability.configured ? ["colab_connection_start"] : [],
+      blocking_reason: capability.blocking_reason };
     return { schema_version: 2, status: "ok",
-      human_summary: "Google ColabのGPU eligibilityを読み取りました。Compute Unit残高はAPIで確認できず、GPU Controlからの実験実行ライフサイクルもまだ無効です。",
-      machine_state: { configured: true, connected: true, account_email_redacted: connection.account_email_redacted,
-        subscription_tier: tier, eligible_gpu_specs: eligibleGpuSpecs, active_runtime_count: activeRuntimeCount,
-        active_gpu_runtime_count: activeGpuRuntimeCount, execution_lifecycle_enabled: false,
-        cost_terms: { per_run_usd: null, remaining_quota: null,
-          semantics: "google_account_subscription_quota_not_quantified_per_run",
-          quota_exhaustion_effect: "google_paid_account_reverts_to_free_tier_restrictions",
-          compute_unit_balance_available_via_api: false, positive_compute_units_required_for_automation: true,
-          positive_compute_units_verified: false, automatic_top_up_available: false, paid_fallback_allowed: false },
-        execution_security: { network_egress: "unrestricted", private_data_allowed: false,
-          provider_credentials_allowed: false, run_owned_runtime_deletion_requires_exact_plan_confirmation: true },
-        blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED", exact_run_cost_available: false },
-      next_allowed_actions: [], blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED" };
+      human_summary: !capability.execution_lifecycle_enabled
+        ? "Google ColabのGPU eligibilityを読み取りましたが、実行ライフサイクルのストレージ設定が未完了です。runtimeは作成していません。"
+        : !capability.admission_enabled
+          ? "Google ColabのGPU eligibilityは読み取りましたが、実行受付は閉じています。runtimeは作成していません。"
+          : "Google ColabのGPU eligibilityと実行経路を確認しました。実験ごとにplanを作成し、ChatGPTの実行確認後にowner専用runtimeを使います。USD費用とCompute Unit残高はAPIで確認できません。",
+      machine_state: capability, next_allowed_actions: capability.execution_lifecycle_enabled && capability.admission_enabled ? ["experiment_prepare"] : [],
+      blocking_reason: capability.blocking_reason };
   }
   if (name === "colab_connection_status") {
     const connection = await googleColabConnectionStatus(env.DB, owner);

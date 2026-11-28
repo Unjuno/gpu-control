@@ -174,6 +174,7 @@ assert {row[1] for row in conn.execute("PRAGMA table_info(google_colab_oauth_sta
 assert conn.execute("SELECT COUNT(*) FROM google_colab_accounts").fetchone() == (0,)
 assert conn.execute("SELECT COUNT(*) FROM google_colab_oauth_states").fetchone() == (0,)
 assert any(path.name == "0037_colab_run_operations.sql" for path in paths)
+assert any(path.name == "0038_colab_run_artifacts.sql" for path in paths)
 assert {row[1] for row in conn.execute("PRAGMA table_info(google_colab_run_operations)")} == {
     "run_id", "owner_id", "plan_fingerprint", "state", "runtime_request_id", "execution_id",
     "runtime_name", "session_name", "connection_ciphertext", "connection_iv",

@@ -1,16 +1,15 @@
 # Google Colab provider integration
 
-Status: in progress. The selected product path is the official hosted Colab API
-MCP behind the existing GPU Control MCP. ChatGPT chat/Work and compatible
-authenticated MCP clients use the same owner-bound plan, run, budget, result,
-and cleanup lifecycle. The
-current code includes owner-bound OAuth storage, a bounded Google MCP client,
-and read-only capability discovery. Provider execution, unified run records,
-and live availability are not yet implemented. `colab_capabilities` reports
-this blocker explicitly. The official Colab CLI is a separate local/CI entry
-point; its executions do not create GPU Control ledger records or substitute
-for this lifecycle. A later CLI client should call the shared GPU Control MCP
-instead of keeping a second run ledger or bypassing its authorization.
+Status: source-integrated; release and live-provider acceptance pending. The
+selected product path is the official hosted Colab API MCP behind the existing
+GPU Control MCP. ChatGPT chat/Work and compatible authenticated MCP clients use
+the same owner-bound plan, run, artifact, and cleanup lifecycle. Source now
+includes prepare/submit/status/cancel/artifact/reconcile and D1/R2 persistence.
+Local tests do not prove production secrets, migrations, Google OAuth setup, or
+live Colab GPU behavior. The official Colab CLI is a separate local/CI entry
+point; direct CLI executions do not create GPU Control ledger records and are
+not evidence for this provider route. A client that needs shared history
+should call the shared GPU Control MCP rather than maintain a second ledger.
 
 ## Product and client paths
 
@@ -62,8 +61,8 @@ pretending that Sites authentication automatically grants Google access.
    agent-managed.
 3. Submit uses the current exact saved plan and a stable UUID requestId. Google
    documents `requestId` idempotency for `create_runtime`; retry an ambiguous
-   request only with the same ID. Store the returned operation/runtime identity
-   before progressing.
+   request only with the same ID. The operation journal is written before the
+   provider call and binds its state to owner/run/fingerprint.
 4. Execution uses one run-owned session and one unique `executionId` per code
    call. After `DEADLINE_EXCEEDED` or `UNAVAILABLE`, repeat the same call with
    the same session/executionId to reattach; never rerun training as a retry.
@@ -74,10 +73,10 @@ pretending that Sites authentication automatically grants Google access.
    outputs before runtime deletion, independently compute checksums, then
    verify the owned runtime is absent. If the exact plan did not disclose
    runtime deletion, leave it intact and report cleanup as incomplete.
-6. Persist status transitions, provider operation IDs, runtime/session IDs,
-   bounded logs, artifacts, and cleanup receipt in the owner-scoped Sites
-   ledger. Treat Google errors, workload output, logs, and artifacts as
-   untrusted data.
+6. Persist status transitions, provider operation IDs, encrypted
+   runtime/session IDs, bounded results, R2 artifact metadata and cleanup
+   receipt in the owner-scoped Sites ledger. Treat Google errors, workload
+   output, logs, and artifacts as untrusted data.
 
 ## Long-call and recovery boundary
 
@@ -155,40 +154,25 @@ back to a paid provider or claim GPU availability from subscription tier alone.
 
 ## Implementation sequence
 
-1. **In progress:** Google OAuth connection, callback, owner binding, encrypted
+1. **Implemented in source:** Google OAuth callback, owner binding, encrypted
    token storage, refresh, disconnect/revocation, and account-isolation tests.
-   The current implementation is local to Sites and is not deployed.
-2. **In progress:** the hosted-MCP client enforces endpoint allowlisting,
-   bounded request/response sizes, OAuth refresh, and a fixed tool allowlist.
-   `google_colab_mcp_contract.js` validates exact runtime/session/execution
-   inputs and response identity. Internal runtime/session reads, creation,
-   execution, and deletion must bind to the expected run-owned runtime,
-   session, and execution IDs. In particular, `list_sessions` and
-   `delete_session` require the exact expected runtime/session, while
-   `get_runtime`, `execute_code`, and `delete_runtime` require their persisted
-   identity. This prevents generic calls from inspecting or deleting unrelated
-   notebook sessions. These operations have no public Sites caller yet; Colab
-   remains a read-only public capability surface. The current request timeout
-   is not suitable for runtime creation or long training.
-3. Add Colab capabilities and prepare logic with immutable source, eligible
-   runtime spec, hard runtime/output bounds, and an explicit `cost_unknown`
-   semantics until quota evidence is trustworthy.
-4. Add idempotent D1 submit and a persisted Colab operation state machine to
-   the existing training run. Store stable `requestId`, `sessionId`, and
-   `executionId` values before remote calls; `training_status` resumes only
-   the exact unfinished call after ambiguity. Do not create a second queue or
-   run ledger, and do not automatically replay a completed execution ID.
-   Implement cancellation, bounded result/artifact retrieval, and confirmed
-   session/runtime cleanup. The exact plan and native execution confirmation
-   must explicitly authorize deletion of the run-owned runtime after outputs
-   are verified; never delete a runtime that pre-dates the run.
-5. Keep CI offline by default. Use mocks/contracts for routine CI; a separate
-   owner-controlled live Colab acceptance workflow may be added only when its
-   credential, quota, cost, and cleanup bounds are verified and the workflow
-   cannot allocate on ordinary pull requests.
-6. Keep Colab admission closed until exact-head CI, independent security
-   review, Google-account owner isolation, one bounded live GPU run, digest
-   verification, and cleanup verification pass.
+2. **Implemented in source:** the hosted-MCP client enforces endpoint
+   allowlisting, bounded request/response sizes, OAuth refresh, fixed tools,
+   short/long call deadlines and runtime/session/execution identity checks.
+3. **Implemented in source:** capability and prepare resolve an immutable
+   public source, eligible runtime spec, hard runtime/output bounds and
+   `cost_unknown` semantics. Private repositories are rejected.
+4. **Implemented in source:** shared MCP submit/status/cancel/artifact and
+   scheduled reconciliation use the D1 operation journal and shared owner-
+   bound run ledger. Stable runtime/session/execution IDs recover the same
+   operation. Verified output files are stored in private R2 before the
+   run-owned runtime is deleted.
+5. **Remaining:** exact-head CI, independent security review, production
+   OAuth/configuration and migration, and one small owner-authorized live GPU
+   acceptance with digest and cleanup verification. The submit contract now
+   requires an exact-call positive-CU attestation. Routine CI stays offline
+   and must not allocate a Colab runtime.
+6. Keep admission closed until all remaining release evidence passes.
 
 ## Security implementation notes
 
@@ -207,11 +191,10 @@ Modal-only pricing, admission and runtime assumptions. Do not route Colab into
 them by adding provider conditionals. Extract a provider-neutral owner-bound
 plan/authorization/ledger contract first, then keep Modal and Colab policy
 adapters separate. Colab's `cost_unknown` cannot be represented by a zero-cost
-USD reservation; the exact plan must instead require an explicit positive-CU
-attestation and disclose that Google does not expose a balance or hard spend
-cap through the documented API. No Colab execution tool should be public
-until this separate policy path, durable recovery, cancellation, artifact
-verification and owned-runtime cleanup are implemented.
+USD reservation; its plan discloses that Google does not expose a balance or
+hard spend cap. The source path is wired, and submit enforces the positive-CU
+attestation on the exact call. It must not be advertised as released until the
+independent review and live acceptance gates pass.
 
 Google's current tool contracts also constrain allocation and cleanup:
 `list_sessions` includes user-notebook sessions, and `create_session` with a
@@ -230,24 +213,18 @@ Each execution must persist a UUID `executionId` before dispatch. After
 code and execution ID. Because replaying a completed ID starts the code again,
 the journal must distinguish pending from completed before retrying. Provider
 execution can take 600 seconds, so a caller's request timeout is not the run
-state: an owner-scoped durable coordinator or status-triggered exact-operation
-recovery is required before submit is exposed.
+state. The owner-scoped operation journal and status-triggered exact-operation
+recovery are implemented in source; live response-loss recovery remains an
+acceptance item.
 
-The first schema slice adds `google_colab_run_operations`, linked by a
-composite owner/run/fingerprint foreign key to the existing delegated plan
-ledger. It constrains operation states and separates stable operation IDs,
-encrypted connection data, code digest, and bounded result storage. The table
-has no public caller yet; it is persistence scaffolding, not an enabled Colab
-run path. The next implementation slice must add an owner-checked storage
-module with authenticated encryption and compare-and-set state transitions,
-then exercise response-loss recovery before wiring any public submit action.
-The provider-side storage module now creates the `runtime_create_pending` row
-before allocation, reuses the same persisted `requestId` on retries, scopes
-reads/transitions by owner and plan fingerprint, and uses compare-and-set state
-updates. Runtime connection payload encryption uses AES-GCM additional
-authenticated data bound to owner, run ID and plan fingerprint. Runtime/session
-identity is immutable after first persistence. These APIs have contract tests
-but are not yet called by public tools.
+`google_colab_run_operations` is linked by a composite owner/run/fingerprint
+foreign key to the shared delegated plan ledger. The owner-checked storage
+module creates the `runtime_create_pending` row before allocation, reuses the
+same persisted `requestId` on retries, scopes transitions by owner and plan
+fingerprint, and encrypts runtime connection data with AES-GCM additional
+authenticated data bound to owner, run ID and plan fingerprint. Runtime and
+session identities are immutable after first persistence. The public MCP
+dispatcher now uses these operations for submit and status recovery.
 
 `google_colab_execution_code.js` now generates a deterministic credential-free
 Python runner for an immutable public source and reviewed manifest. It enforces
@@ -255,15 +232,14 @@ hash-locked dependency installation, a 360-second execution ceiling, a
 run-specific durable receipt, declared-output path/size/checksum capture, and
 an actual `nvidia-smi` plus PyTorch CUDA/GPU-name check before invoking the
 entrypoint. It rejects private source visibility and mismatched GPU profiles.
-The generator is still not connected to a public plan/submit/status lifecycle;
-it cannot currently be invoked by an MCP user and does not establish live
-Colab availability.
+The generator is used by the owner-selected Colab submit lifecycle in source;
+it does not by itself establish live Colab availability.
 
 `google_colab_runtime_files.js` implements the first artifact transport slice:
 GET one declared relative path from the exact run-owned runtime, reject
 redirects, enforce the API's 50 MiB per-file limit, and independently verify
-the receipt's exact size and SHA-256. It does not yet stream into R2 or expose
-the artifact through the shared chunked `experiment_artifact` tool.
+the receipt's exact size and SHA-256. Verified files are persisted to private
+R2 and returned by the shared owner-scoped chunked `experiment_artifact` tool.
 
 `colab/lifecycle/google_colab_result.js` parses exactly one bounded
 `GPU_CONTROL_RECEIPT` record and binds it to the prepared run, public
@@ -271,9 +247,9 @@ repository, immutable commit, selected T4/L4 profile, declared output paths,
 artifact sizes and checksums.
 Ordinary stdout is not control data. A successful result requires explicit
 CUDA/GPU evidence, exit code zero, and a metrics artifact; malformed or
-duplicate receipts fail closed. This parser is contract-tested but remains
-unreachable from MCP until the Colab lifecycle is wired into the shared run
-ledger.
+duplicate receipts fail closed. The parser is used by the public Colab
+lifecycle. The integrated source is locally contract-tested, but requires
+exact-head review, production setup and live GPU acceptance before release.
 
 ## References
 

@@ -2611,3 +2611,26 @@ They are now isolated under `colab/lifecycle/`; tests still import those
 modules directly, while the Worker bundle includes only reachable production
 code. This parser is not yet connected to public MCP execution tools; Colab is
 not yet a usable experiment route and no live runtime was started.
+
+## 2026-11-28 — A6: connect Colab to the shared MCP run lifecycle
+
+**Change:** the PR #70 source candidate now routes owner-selected public Colab
+plans through the shared experiment MCP contract. The D1 operation journal
+persists stable runtime/session/execution identities and encrypted runtime
+connection data; the shared status/result/cancel/artifact tools resume the same
+run, retrieve checksum-verified outputs into private R2, and record cleanup.
+Capabilities and scheduled reconciliation include Colab. The public tool
+descriptions state that Colab USD cost/CU balance is unavailable, runtime
+egress is unrestricted, there is no paid fallback/top-up, and only the
+run-owned runtime may be deleted. Colab tools are described as client-neutral
+for any compatible authenticated MCP client; direct CLI jobs remain outside
+the shared ledger.
+
+**Validation:** all 201 Sites tests passed; Worker dependency graph is acyclic
+across 75 runtime modules; `npm run build`, D1 migration validation, and
+`git diff --check` passed. Local mocks only; no Google runtime was allocated.
+This is PR source evidence, not deployment or live provider acceptance. Open
+release work includes exact-head CI, independent security review, production
+OAuth/configuration and migration, a verified positive-CU owner attestation
+bound to the exact submit confirmation, and one bounded GPU run with
+independent GPU/artifact/cleanup verification.

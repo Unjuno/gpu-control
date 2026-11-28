@@ -22,6 +22,8 @@ import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_a
 import { readRunResultArtifact } from "./run_artifacts.js";
 import { validGatewayPrepare, validToolArguments } from "./experiment_input_contract.js";
 import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
+import { prepareGoogleColabExperiment } from "./google_colab_plan.js";
+import { submitGoogleColabExperiment, googleColabRunTool } from "./google_colab_lifecycle.js";
 
 const ZERO_GPU_WORKLOAD = WORKLOADS.huggingface_evaluation.id;
 const MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00";
@@ -46,6 +48,9 @@ export async function dispatchMcpTool(name, args, request, env, context, princip
   if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
   if (name === "experiment_capabilities") return getExperimentCapabilities(env, owner, { modalConfigured });
   if (name === "experiment_prepare") {
+    if (args.provider === "google_colab") return prepareGoogleColabExperiment(env, owner, args, {
+      getSourceToken: async (repository) => (await createOwnedRepositoryReadToken(env, env.DB, owner, repository)).token,
+    });
     let prepareArgs = args;
     if (args.workload_id === ZERO_GPU_WORKLOAD) {
       prepareArgs = await resolveZeroGpuPrepare(env, owner, args);
@@ -80,6 +85,9 @@ export async function dispatchMcpTool(name, args, request, env, context, princip
   }
   if (name === "experiment_submit") {
     if (!validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
+    if (args.provider_approved_plan?.provider === "google_colab") {
+      return submitGoogleColabExperiment(env, owner, args);
+    }
     if (args.provider_approved_plan?.provider === "runpod_gpu") {
       return submitRunpodExperiment(env, owner, args, {
         reserveBudget: (input) => reserveProviderBudget(env, input),
@@ -110,7 +118,7 @@ export async function dispatchMcpTool(name, args, request, env, context, princip
     return cancelLocalRun(env, owner, args.run_id, { synchronizeRunpod: synchronizeRunpodExperiment });
   }
   if (name === "experiment_reconcile") return reconcileProviderRuns(env, owner, {
-    maybeDelegateRunTool, synchronizeRunpod: synchronizeRunpodExperiment,
+    maybeDelegateRunTool, synchronizeRunpod: synchronizeRunpodExperiment, googleColabRunTool,
   });
   if (name === "experiment_artifact") {
     const delegated = await maybeDelegateRunTool(env, owner, name, args);
