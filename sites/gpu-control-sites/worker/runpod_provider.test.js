@@ -63,8 +63,11 @@ test("job relay is pinned to the authenticated provider adapter origin", async (
   assert.match(request.init.headers["x-gpu-control-sites-signature"], /^[0-9a-f]{64}$/);
   assert.equal(request.init.body.includes(env.RUNPOD_API_KEY), false);
   assert.equal(runpodConfigured({ ...relayed, RUNPOD_API_KEY: undefined }), true);
+  assert.equal(runpodConfigured({ ...relayed, RUNPOD_API_KEY: undefined, PROVIDER_ADAPTER_HMAC_KEY_B64: "short" }), false);
+  assert.equal(runpodConfigured({ ...relayed, RUNPOD_API_KEY: undefined, PROVIDER_ADAPTER_PROXY_TOKEN_SECRET: "invalid" }), false);
   assert.throws(() => new RunpodV2Client({ ...relayed, PROVIDER_ADAPTER_URL: "https://evil.invalid" }, { owner: "owner-1" }),
     (error) => error.code === "RUNPOD_RELAY_INVALID");
+  assert.equal(runpodConfigured({ ...relayed, RUNPOD_API_KEY: undefined, PROVIDER_ADAPTER_URL: "https://evil.invalid" }), false);
   assert.throws(() => new RunpodV2Client(relayed),
     (error) => error.code === "RUNPOD_RELAY_OWNER_REQUIRED");
 });

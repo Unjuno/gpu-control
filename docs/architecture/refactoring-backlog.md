@@ -707,9 +707,11 @@ modules; the exact pushed head and CI are recorded in the progress log.
   Focused validation covers configured and missing values. MAP-specific
   source, image, quote, runtime, and monthly settings now have the same
   normalization boundary and guard. The MAP admission flag is parsed at that
-  boundary but remains a separate live gate from profile validity. Shared
-  control-plane signing and other provider configuration still need the wider
-  inventory.
+  boundary but remains a separate live gate from profile validity. RunPod
+  relay readiness now delegates to the provider adapter's full URL, HMAC-key,
+  and proxy-token validator, so configuration reporting cannot accept relay
+  strings that dispatch will reject. Other provider configuration still needs
+  the wider inventory.
 
 ### A12. Add architecture checks only after rules have an owner
 

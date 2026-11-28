@@ -5,6 +5,22 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-29 — A11: share RunPod relay readiness validation
+
+**Finding:** `runpodConfigured` treated a relay URL and two proxy-token strings
+as sufficient configuration, while `jobTransport` used the provider adapter's
+full validator for the pinned host, HMAC key, key ID, and token formats. This
+could report a ready RunPod route that failed as soon as dispatch constructed
+the transport.
+
+**Change:** RunPod readiness now calls `providerAdapterConfigured`, the same
+authority used by dispatch. Regression assertions cover malformed HMAC,
+malformed proxy secret, and untrusted adapter host; valid relay and direct
+RunPod-key configurations remain accepted.
+
+**Validation:** pending focused and complete Sites validation. No provider,
+credential, admission, deployment, or billing state was touched.
+
 ## 2026-11-29 — A10: make signing fixtures share the canonical JSON authority
 
 **Finding:** four Worker test files carried local recursive key-sorting

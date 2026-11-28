@@ -23,9 +23,9 @@ export class RunpodProviderError extends Error {
 export function runpodConfigured(env) {
   const directKey = typeof env?.RUNPOD_API_KEY === "string" && env.RUNPOD_API_KEY.length >= 20 && env.RUNPOD_API_KEY.length <= 512 &&
     !/[\s\x00-\x1f\x7f]/.test(env.RUNPOD_API_KEY);
-  const relay = env?.RUNPOD_USE_PROVIDER_ADAPTER === "true" &&
-    typeof env?.PROVIDER_ADAPTER_URL === "string" && typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID === "string" &&
-    typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET === "string";
+  // Keep readiness aligned with the transport's complete validation. Merely
+  // present relay strings can otherwise advertise a route that dispatch rejects.
+  const relay = env?.RUNPOD_USE_PROVIDER_ADAPTER === "true" && providerAdapterConfigured(env);
   return (directKey || relay) && typeof env?.RUNPOD_WORKLOAD_IMAGE === "string" &&
     IMAGE_DIGEST_RE.test(env.RUNPOD_WORKLOAD_IMAGE) && typeof env?.RUNPOD_SERVERLESS_ENDPOINT_ID === "string" &&
     ENDPOINT_ID_RE.test(env.RUNPOD_SERVERLESS_ENDPOINT_ID) && typeof env?.RUNPOD_GPU_ID === "string" &&
