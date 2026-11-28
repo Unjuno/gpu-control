@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import worker from "./index.js";
 import { authenticateMcpAccessToken, beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
   createMcpOAuthConsent, exchangeMcpOAuthToken, mcpAuthorizationServerMetadata,
   mcpProtectedResourceMetadata, registerMcpOAuthClient, revokeMcpOAuthToken } from "./mcp_oauth.js";
@@ -44,6 +45,49 @@ function database() {
     },
   };
 }
+
+test("Sites HTTP exposes OAuth discovery, public-client registration and owner consent", async () => {
+  const db = database();
+  const env = { DB: db };
+  try {
+    const protectedResource = await worker.fetch(new Request(`${origin}/.well-known/oauth-protected-resource`), env);
+    assert.equal(protectedResource.status, 200);
+    assert.equal((await protectedResource.json()).resource, resource);
+
+    const serverMetadata = await worker.fetch(new Request(`${origin}/.well-known/oauth-authorization-server`), env);
+    assert.equal(serverMetadata.status, 200);
+    const metadata = await serverMetadata.json();
+    assert.equal(metadata.registration_endpoint, `${origin}/oauth/register`);
+    assert.equal(metadata.authorization_endpoint, `${origin}/oauth/authorize`);
+    assert.equal(metadata.token_endpoint, `${origin}/oauth/token`);
+
+    const registered = await worker.fetch(new Request(`${origin}/oauth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": "192.0.2.10" },
+      body: JSON.stringify({ client_name: "Example chat client", redirect_uris: [callback] }),
+    }), env);
+    assert.equal(registered.status, 201);
+    const client = await registered.json();
+
+    const authorizationUrl = new URL(`${origin}/oauth/authorize`);
+    for (const [key, value] of Object.entries({ response_type: "code", client_id: client.client_id,
+      redirect_uri: callback, scope: "experiments:read", state: "client-state",
+      code_challenge: await challenge(verifier), code_challenge_method: "S256", resource })) {
+      authorizationUrl.searchParams.set(key, value);
+    }
+    const consent = await worker.fetch(new Request(authorizationUrl), env);
+    assert.equal(consent.status, 200);
+    assert.match(consent.headers.get("set-cookie"), /__Host-gpu-control-mcp-consent=/);
+    assert.match(await consent.text(), /Example chat client/);
+
+    const tokenWithBearerHeader = await worker.fetch(new Request(`${origin}/oauth/token`, {
+      method: "POST", headers: { authorization: "Bearer ignored",
+        "content-type": "application/x-www-form-urlencoded" },
+      body: "grant_type=authorization_code",
+    }), env);
+    assert.equal(tokenWithBearerHeader.status, 400);
+  } finally { db.sqlite.close(); }
+});
 
 test("MCP OAuth authorizes one linked owner, binds audience, rotates refresh tokens, and revokes replayed families", async () => {
   const db = database();

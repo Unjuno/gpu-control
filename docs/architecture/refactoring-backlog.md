@@ -272,6 +272,12 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   wrong-audience, expired, revoked, replayed-refresh, and insufficient-scope
   requests fail at the HTTP boundary; and existing ChatGPT auth/schema remains
   compatible. No provider execution is enabled by OAuth itself.
+- **Progress (2026-11-28):** added a Worker HTTP integration test for protected
+  resource and authorization-server discovery, DCR, consent-page creation,
+  and rejection of a bearer header at the token endpoint. OAuth module tests
+  cover the full local PKCE/owner-binding/token lifecycle. The independent
+  external-client handshake and shared two-client ledger check remain release
+  gates.
 
 ## P2 — reduce module entropy without moving complexity to callers
 

@@ -1244,3 +1244,23 @@ and diff check pass. No provider operation or deployment occurred.
 **Independent review:** no actionable findings. The review confirmed that
 missing settings still fail closed and the normalization preserves existing
 runtime/budget semantics.
+
+
+## 2026-11-28 — A13: exercise external MCP OAuth over Worker HTTP
+
+**Problem:** OAuth protocol functions had focused unit coverage, but no test
+followed a remote client through the Worker's published discovery and client
+registration routes. Route wiring or HTTP media-type checks could fail while
+the protocol module tests still passed.
+
+**Change:** added an HTTP integration case that reads protected-resource and
+authorization-server metadata, registers a public DCR client, opens its
+owner-consent page with PKCE, and verifies that the token endpoint rejects an
+Authorization bearer header. Existing OAuth module tests continue to cover
+GitHub subject binding, code exchange, audience, scope, expiry, refresh
+rotation/replay, and revocation.
+
+**Validation:** all 159 Worker tests pass; the graph is acyclic across 50
+runtime modules; D1 migration, Worker build and artifact validation pass. This
+is local source evidence only. No external client, provider, or deployed Site
+was contacted.
