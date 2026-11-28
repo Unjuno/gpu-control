@@ -369,15 +369,30 @@ duplicate source and provider reads in the ordinary run path.
 
 ### A9. Consolidate Python/Gateway provider runtime duplication by consumer
 
-- **Evidence:** root `src/gpu_control` provides a reusable library; Gateway
-  wraps/re-exports parts of `modal/provider_runtime`; adapter packaging tests
-  constrain the Modal image.
+- **Evidence:** Kaggle and Hugging Face provider implementation has one
+  canonical owner under `sites/gpu-control-sites/modal/provider_runtime/`.
+  Five Gateway import paths (`kaggle_backend`, `huggingface_space_backend`,
+  `huggingface_artifacts`, `kaggle_bridge`, and `orbitune_workload`) alias those
+  exact module objects through `_sites_provider_runtime.py`. Gateway registry,
+  worker, inventory code and existing tests still call those import paths;
+  Docker images package the shared runtime. Root `src/gpu_control` remains a
+  separate reusable control library rather than a second implementation of
+  these provider adapters.
 - **Work:** build an import/call graph. Keep one provider implementation for
-  Kaggle/HF semantics; remove wrappers only after every service/test imports the
-  canonical contract and packaging still excludes unrelated Gateway services.
+  Kaggle/HF semantics; retain only compatibility facades with real callers.
+  Retire a facade only alongside its Gateway caller or after those callers use
+  the canonical namespace and packaging still excludes unrelated Gateway
+  services.
 - **Done when:** one implementation owns each provider protocol, with
   intentional compatibility facades only where a real external caller needs
   them.
+- **Progress (2026-11-28):** repository and image paths both load the same
+  Sites-owned runtime; the five Gateway facades replace their `sys.modules`
+  entry with the canonical implementation. Added an identity contract test for
+  all five paths to the provider-runtime CI workflow. This confirms no second
+  implementation is being maintained; Gateway callers still justify the
+  import facades, so removing them now would spread migration work or break
+  callers. The service-level Gateway retirement decision remains open under A4.
 
 ## P3 — standards that prevent regression
 
