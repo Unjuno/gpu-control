@@ -52,7 +52,9 @@ function database() {
       refresh_token_ciphertext TEXT NOT NULL, refresh_token_iv TEXT NOT NULL,
       connected_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );`);
-  sqlite.exec(readFileSync(new URL("../drizzle/0037_colab_run_operations.sql", import.meta.url), "utf8"));
+  for (const migration of ["0037_colab_run_operations.sql", "0038_colab_run_artifacts.sql"]) {
+    sqlite.exec(readFileSync(new URL(`../drizzle/${migration}`, import.meta.url), "utf8"));
+  }
   const db = {
     prepare(sql) {
       return { bind(...values) {
@@ -72,7 +74,7 @@ function mcpResponse(id, structuredContent) {
   return Response.json({ jsonrpc: "2.0", id, result: { structuredContent } });
 }
 
-test("Colab recovers a lost runtime-create response with the same request ID and one runtime", async () => {
+test("Colab recovers create and cleanup response loss without rerunning or confirming early", async () => {
   const { db, sqlite } = database();
   try {
     await sqlite.prepare(`INSERT INTO gateway_delegated_plans
@@ -99,6 +101,8 @@ test("Colab recovers a lost runtime-create response with the same request ID and
     const runtimeRequests = [];
     const providerResources = new Map();
     let createCalls = 0;
+    let executionCalls = 0;
+    let deleteCalls = 0;
     const fetchImpl = async (url, init = {}) => {
       if (new URL(url).hostname === "oauth2.googleapis.com") {
         return Response.json({ access_token: "access-token-for-test", expires_in: 3600 });
@@ -122,6 +126,7 @@ test("Colab recovers a lost runtime-create response with the same request ID and
         session: { name: sessionName },
       });
       if (name === "execute_code") {
+        executionCalls += 1;
         const receipt = { run_id: runId, repository: plan.repository, commit: plan.source_sha,
           state: "failed", elapsed_seconds: 1, artifacts: [], metrics: null, gpu: null,
           exit_code: 1, error_code: "COLAB_EXECUTION_FAILED" };
@@ -129,7 +134,10 @@ test("Colab recovers a lost runtime-create response with the same request ID and
           executionCount: 1, stdout: `GPU_CONTROL_RECEIPT:${JSON.stringify(receipt)}`,
           stderr: "", result: "", outputTruncated: false });
       }
-      if (name === "delete_runtime") return mcpResponse(request.id, { deleted: true });
+      if (name === "delete_runtime") {
+        deleteCalls += 1;
+        return mcpResponse(request.id, deleteCalls === 1 ? { deleted: false } : {});
+      }
       throw new Error(`unexpected Colab tool: ${name}`);
     };
 
@@ -142,12 +150,22 @@ test("Colab recovers a lost runtime-create response with the same request ID and
 
     const recovered = await googleColabRunTool(env, owner, "experiment_status", runId,
       { fetchImpl, now: 102 });
-    assert.equal(recovered.machine_state.state, "failed");
-    assert.equal(recovered.machine_state.cleanup_state, "confirmed");
-    assert.equal(recovered.machine_state.runtime_deleted, true);
+    assert.equal(recovered.machine_state.state, "uncertain");
+    assert.equal(recovered.machine_state.cleanup_state, "unknown");
+    assert.equal(recovered.machine_state.operation_state, "cleanup_pending");
+    assert.equal((await readGoogleColabOperation(db, owner, runId, fingerprint)).state, "cleanup_pending");
+    assert.equal(executionCalls, 1, "execution is not replayed while cleanup is pending");
+
+    const cleaned = await googleColabRunTool(env, owner, "experiment_status", runId,
+      { fetchImpl, now: 103 });
+    assert.equal(cleaned.machine_state.state, "failed");
+    assert.equal(cleaned.machine_state.cleanup_state, "confirmed");
+    assert.equal(cleaned.machine_state.runtime_deleted, true);
     assert.equal(createCalls, 2, "the exact runtime create operation is retried after a lost response");
     assert.deepEqual(runtimeRequests, [runtimeRequestId, runtimeRequestId]);
     assert.equal(providerResources.size, 1, "the same provider request identity resolves one runtime");
+    assert.equal(executionCalls, 1);
+    assert.equal(deleteCalls, 2, "cleanup retries until Google's empty success response is observed");
     assert.equal((await readGoogleColabOperation(db, owner, runId, fingerprint)).state, "terminal");
   } finally {
     sqlite.close();

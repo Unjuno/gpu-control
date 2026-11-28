@@ -7,7 +7,8 @@ import { encryptGoogleColabOperationData, decryptGoogleColabOperationData } from
 import { buildGoogleColabExecutionCode } from "./google_colab_execution_code.js";
 import { parseGoogleColabExecutionReceipt } from "./google_colab_result.js";
 import { readGoogleColabRuntimeFile } from "./google_colab_runtime_files.js";
-import { validGoogleColabExecution, validGoogleColabRuntime, validGoogleColabSession } from "./google_colab_mcp_contract.js";
+import { validGoogleColabExecution, validGoogleColabRuntime, validGoogleColabRuntimeDeletion,
+  validGoogleColabSession } from "./google_colab_mcp_contract.js";
 import { sha256Hex } from "./sha256.js";
 import { putVerifiedRunArtifactObject, readVerifiedRunArtifactObjectChunk } from "./run_artifacts.js";
 
@@ -264,7 +265,7 @@ async function advanceGoogleColabRun(env, owner, planRow, plan, operation, optio
     if (operation.state === "cleanup_pending") {
       const cleanup = await call(env, owner, "delete_runtime", { name: operation.runtime_name, allowMissing: true },
         { expectedRuntimeName: operation.runtime_name, fetchImpl });
-      if (cleanup === null || typeof cleanup !== "object") throw new Error("GOOGLE_COLAB_CLEANUP_UNCONFIRMED");
+      if (!validGoogleColabRuntimeDeletion(cleanup)) throw new Error("GOOGLE_COLAB_CLEANUP_UNCONFIRMED");
       const finalState = receipt?.state === "succeeded" ? "succeeded" : "failed";
       return finish(env, owner, planRow, operation, receipt, artifacts, finalState, options.now);
     }

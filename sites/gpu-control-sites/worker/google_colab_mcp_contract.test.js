@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validGoogleColabExecution, validGoogleColabRuntime, validGoogleColabSession,
-  validGoogleColabToolCall, isGoogleColabRuntimeProxyUrl } from "./google_colab_mcp_contract.js";
+  validGoogleColabToolCall, validGoogleColabRuntimeDeletion, isGoogleColabRuntimeProxyUrl } from "./google_colab_mcp_contract.js";
 
 const runtime = { name: "runtimes/gpu-control-test", runtimeSpec: {
   variant: "VARIANT_GPU", accelerator: "T4", shape: "SHAPE_STANDARD",
@@ -102,4 +102,12 @@ test("Colab runtime, session, and execution responses are bound to expected iden
   assert.equal(validGoogleColabExecution({ session: "runtimes/gpu-control-test/sessions/run-1",
     executionId: "other", executionCount: 1, stdout: "ok", stderr: "", result: "", outputTruncated: false },
   "runtimes/gpu-control-test/sessions/run-1", "7b21ceba-679e-4fd9-b1e7-cd53202b87f0"), false);
+});
+
+test("Colab runtime deletion accepts only Google's empty success response", () => {
+  assert.equal(validGoogleColabRuntimeDeletion({}), true);
+  assert.equal(validGoogleColabRuntimeDeletion({ deleted: false }), false);
+  assert.equal(validGoogleColabRuntimeDeletion({ deleted: true }), false);
+  assert.equal(validGoogleColabRuntimeDeletion(null), false);
+  assert.equal(validGoogleColabRuntimeDeletion([]), false);
 });

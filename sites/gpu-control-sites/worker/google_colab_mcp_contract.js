@@ -103,3 +103,8 @@ export function validGoogleColabExecution(value, expectedSession, expectedExecut
        typeof value.executionError.name === "string" && typeof value.executionError.value === "string" &&
        Array.isArray(value.executionError.traceback) && value.executionError.traceback.every((line) => typeof line === "string"))));
 }
+
+/** Google returns an empty protobuf message when delete_runtime succeeds. */
+export function validGoogleColabRuntimeDeletion(value) {
+  return exactKeys(value, []);
+}
