@@ -1893,3 +1893,7 @@ modules; `git diff --check` passes. Independent read-only security review
 found no actionable issue with owner checks, exact plan binding, control-plane
 checks, one-use challenges, POST validation, or HTML protections. No live
 provider or deployment operation occurred.
+
+The architecture checker also rejects browser confirmation challenge SQL
+outside `worker/training_authorization_routes.js`, preserving that security
+boundary as an automated invariant.
