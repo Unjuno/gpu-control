@@ -71,7 +71,7 @@ Adding a provider requires an adapter contract, a registry entry, owner-scoped d
 6. Prepared-plan cancellation is persisted under the deployed D1 schema. Running cancellation is not called complete until provider terminal state and cleanup are observed.
 7. Cross-owner reads return no metadata; tool logs/artifacts cannot trigger another action; CPU evidence is never presented as GPU evidence.
 
-The release check must distinguish code merged to the GitHub PR, the Sites version published, D1 migrations applied, and the tool contract visible in both a new ChatGPT chat and Codex. A successful build or preview alone does not prove the chat tool contract is current. This change does not publish the Site or start an experiment.
+The release check must distinguish code merged to the GitHub PR, the Sites version published, D1 migrations applied, and the tool contract visible in a new ChatGPT chat and at least one compatible external MCP client. A successful build or preview alone does not prove the chat tool contract is current. This change does not publish the Site or start an experiment.
 
 ## Owner-selected repository lifecycle
 
@@ -93,7 +93,7 @@ repository, the current candidate exposes a separate sequence:
    and repeat the same checks before prepare.
 4. Invoke the destructive `training_submit`
    with the returned plan. The current user request supplies intent; the
-   ChatGPT client's write confirmation remains a distinct UI boundary.
+   connected MCP client's native write confirmation remains a distinct UI boundary.
 5. Recover or monitor the same run, retrieve bounded result/artifact data and
    verify provider terminal state and cleanup before declaring completion.
 

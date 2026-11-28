@@ -49,6 +49,26 @@ it does not establish an external OAuth release or live client handshake. No
 provider execution, credential, admission, budget, OAuth deployment, or live
 Site configuration was changed.
 
+## 2026-11-28 — A13: synchronize client-neutral operations and source map
+
+**Finding:** the operational guide and architecture map still described the
+owner-selected write confirmation as ChatGPT-native and the repository map
+pointed to an older source revision and test count. This contradicted the
+shared MCP contract and made the architecture snapshot stale immediately after
+the prior batch.
+
+**Change:** the setup and lifecycle guides now name the connected MCP client's
+native write confirmation, while retaining ChatGPT-specific sign-in guidance
+where the current GitHub owner-link setup actually depends on Sites identity.
+The repository map records the current commit and verified test/CI snapshot.
+
+**Validation:** current head `527a711` has all seven exact-head CI checks green;
+Sites tests pass 187/187, root `uv run pytest` passes 619 with one skipped and
+five subtests, the architecture graph is acyclic across 67 runtime modules,
+and `git diff --check` passes. This documentation/comment batch does not change
+runtime behavior or prove OAuth deployment, external client handshake, or
+Colab execution readiness.
+
 ## 2026-11-28 — Normalize the client-neutral MCP product boundary
 
 **Finding:** the owner-bound OAuth design, MCP client guide, and provider

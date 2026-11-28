@@ -299,9 +299,9 @@ key proves only that layer. It does not prove an end-to-end provider route.
 When the owner says to execute a registered workload, that one instruction
 authorizes the bounded lifecycle for the prepared plan that matches it:
 `prepare -> submit -> monitor -> result -> cleanup`. Do not ask the owner to
-repeat "run this plan once" after `prepare`. The ChatGPT client may still show
-its native write-action approval UI; that is distinct from an additional
-conversational confirmation.
+repeat "run this plan once" after `prepare`. The connected MCP client may still
+show its own native write-action approval UI; that is distinct from an
+additional conversational confirmation.
 
 Provider credentials are long-lived, least-privilege runtime configuration and
 are reused across runs. Do not create or rotate them per experiment. Credential
@@ -345,12 +345,11 @@ source/image, Modal function, runtime, and budget, then consumes it with the
 dispatch reservation. Continue monitoring the same run after submission; do
 not resubmit after an ambiguous response.
 
-For owner-selected repositories, the native ChatGPT confirmation on the exact
-`training_submit` write is the per-run checkpoint. Do not add the legacy Site
-confirmation step to that route. Compatible external MCP clients use their own
-native write confirmation when available; their client policy must permit the
-write tool. Authentication grants access to the shared control plane but is
-not itself a spend approval.
+For owner-selected repositories, the connected MCP client's native
+confirmation on the exact `training_submit` write is the per-run checkpoint.
+Do not add the legacy Site confirmation step to that route. Each compatible
+client's policy must permit the write tool. Authentication grants access to the
+shared control plane but is not itself a spend approval.
 
 After submission, preserve the run ID. Use it to check status or request
 cancellation. If the submit response is interrupted, check that run before
@@ -436,11 +435,11 @@ provider status explicitly confirms cleanup. A lost submit response,
 the same run with `training_status` before another run can start.
 
 When the route is released, a user who explicitly asks to run may use ordinary
-ChatGPT language such as “Run one small GPU experiment from my registered
+chat language such as “Run one small GPU experiment from my
 `owner/repository` source and show me the result.” The agent prepares the
 owner-bound registration with server defaults, then submits the exact returned
-plan. ChatGPT's native write confirmation binds the selected commit, GPU,
-runtime, and cost ceiling once; there is no per-run Modal login or separate
-browser confirmation. The agent then polls the same run and verifies cleanup
-and artifacts. Until the route reports ready and admission is enabled, do not
-claim that prompt can start compute.
+plan. The connected client's native write confirmation binds the selected
+commit, GPU, runtime, and cost ceiling once; there is no per-run Modal login or
+separate browser confirmation. The agent then polls the same run and verifies
+cleanup and artifacts. Until the route reports ready and admission is enabled,
+do not claim that prompt can start compute.

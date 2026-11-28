@@ -97,8 +97,8 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
     : mapConfig.admission_enabled &&
       mapConfig.runtime_seconds === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
-  // Owner-selected plans are authorized by the exact destructive ChatGPT MCP
-  // submit call. The host presents its native confirmation once for that run.
+  // Owner-selected plans are authorized by the exact destructive MCP submit
+  // call. The connected host presents its native confirmation once for that run.
   const providerConfigured = isConfigured(env);
   const currentBudgetPolicy = await readProviderBudgetPolicy(env.DB);
   const modalBudget = currentBudgetPolicy.provider_budgets.find((item) => item.provider === "modal");

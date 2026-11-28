@@ -7,10 +7,10 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `3ff0841` on PR #70. The Sites Worker
-suite passes 186 tests and its graph is acyclic across 67 runtime modules. The
+**Current source snapshot:** code head `527a711` on PR #70. The Sites Worker
+suite passes 187 tests and its graph is acyclic across 67 runtime modules. The
 root Python suite passes 619 tests, one skipped, and five subtests. All seven
-exact-head CI checks pass on `3ff0841`. Local success is not hosted release
+exact-head CI checks pass on `527a711`. Local success is not hosted release
 evidence.
 `worker/index.js` is 147 lines,
 while `worker/index.test.js` is 1,978 lines and remains the largest integration
@@ -80,7 +80,7 @@ modules reuse the Worker's shared request-body parsers and HTML renderer.
 
 ```mermaid
 flowchart TD
-  CHAT[ChatGPT or Work MCP client] --> SITE[Sites Worker transport and tool dispatch]
+  CHAT[ChatGPT Work or compatible MCP client] --> SITE[Sites Worker transport and tool dispatch]
   SITE --> DOM[Domain modules: source, plan, auth, budgets, lifecycle]
   DOM --> D1[(Sites D1)]
   DOM --> R2[(Sites R2)]
