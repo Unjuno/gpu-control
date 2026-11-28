@@ -23,6 +23,16 @@ def test_timeout_and_output_truncation(tmp_path):
     assert result["output_truncated"] is True
 
 
+def test_multibyte_output_stays_within_encoded_byte_limit(tmp_path):
+    result = run_command(
+        [sys.executable, "-c", "import sys; sys.stdout.write('€' * 3000)"],
+        tmp_path, 5, output_limit=8192)
+
+    assert result["state"] == "succeeded"
+    assert result["output_truncated"] is True
+    assert len(result["output"].encode("utf-8")) <= 8192
+
+
 def test_cancel_and_failure_are_distinct(tmp_path):
     start = time.monotonic()
     cancelled = run_command([sys.executable, "-c", "import time; time.sleep(10)"], tmp_path, 5,

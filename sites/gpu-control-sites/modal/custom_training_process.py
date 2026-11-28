@@ -77,6 +77,9 @@ def run_command(command, source_dir, runtime_seconds, *, cancelled=lambda: False
         reader.join(timeout=1)
     return {"state": reason or ("succeeded" if process.returncode == 0 else "failed"),
             "exit_code": process.returncode,
-            "output": bytes(data[:output_limit]).decode("utf-8", errors="replace"),
+            # Ignore an incomplete trailing UTF-8 sequence at the byte cap.
+            # Replacement characters can encode to more bytes than the slice,
+            # violating the result-size contract in downstream persistence.
+            "output": bytes(data[:output_limit]).decode("utf-8", errors="ignore"),
             "output_truncated": len(data) > output_limit,
             "gpu_activity_seen": gpu_activity_seen}
