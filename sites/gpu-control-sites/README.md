@@ -263,9 +263,12 @@ Migration 0033 invalidates prior GitHub installation bindings and pending setup
 states; each owner must connect once again after migration.
 `github_repositories` lists the selected repositories; `training_register`
 accepts the repository name and pins its current default-branch commit. The
-server creates the registration ID. `training_inspect` reads the manifest and
-lockfile at that immutable commit with a short-lived token scoped to that one
-repository. Tokens are never returned to MCP or passed to training code.
+server creates the registration ID. For a run request, `training_prepare`
+validates the manifest and lockfile at that immutable commit while also
+checking the runtime, GPU, quote, and budget. Use `training_inspect` for a
+detailed diagnostic or inspect-only request. The short-lived source token is
+scoped to that one repository and is never returned to MCP or passed to
+training code.
 
 The source candidate continues through manifest inspection, preview, expiring
 plan preparation, exact ChatGPT MCP write confirmation, owner/monthly and

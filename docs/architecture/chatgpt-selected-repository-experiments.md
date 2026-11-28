@@ -33,10 +33,12 @@ every run. A user-configured provider budget lease bounds repeated runs.
 - `training_register` resolves and pins the default-branch SHA when omitted;
   custom private-source reads use a short-lived installation token scoped to
   that selected repository. Registration alone does not authorize compute.
-- `training_inspect`/`training_preview` validate
+- `training_prepare` validates
   `.gpu-control/experiment.json`, a hash-locked dependency file, supported GPU
-  profile, configured runtime image and quote. `training_prepare` stores an
-  exact expiring plan; `training_submit` rechecks it, binds the ChatGPT write
+  profile, configured runtime image, quote, and budget while storing an exact
+  expiring plan. `training_inspect` and `training_preview` are optional
+  diagnostics; the normal run path does not repeat their checks before prepare.
+  `training_submit` rechecks the plan, binds the ChatGPT write
   confirmation, reserves the owner/monthly and single-run limit, then delegates
   to the Modal adapter.
 - The candidate includes a trusted source-staging sandbox and a separate

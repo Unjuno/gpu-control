@@ -78,16 +78,20 @@ The release check must distinguish code merged to the GitHub PR, the Sites versi
 The fixed workload lifecycle above is not the only user path. For a user-owned
 repository, the current candidate exposes a separate sequence:
 
-1. Connect once through the owner's read-only GitHub App installation and list
-   selected repositories.
-2. Register the repository. The server pins its current default-branch commit
-   if the user did not supply one; the user never has to invent a registration
-   ID because the tool response returns it.
-3. Inspect/preview the commit's `.gpu-control/experiment.json` and hash-locked
-   dependencies. `training_preview` checks the current runtime image, GPU,
-   quote, runtime and budget. Inspection alone does not establish that the
-   route is executable.
-4. Prepare the exact bounded plan, then invoke the destructive `training_submit`
+1. Use owner readiness already returned by `experiment_capabilities`. If the
+   GitHub App is not connected, start the one-time connection flow. If the user
+   named a repository, register it directly; list repositories only when the
+   requested repository is unclear or registration reports it is not selected.
+2. Registration pins the current default-branch commit when the user did not
+   supply one. The user never has to invent a registration ID; the agent keeps
+   the returned ID internally.
+3. For a run request, call `training_prepare` directly. It validates the
+   commit's `.gpu-control/experiment.json`, hash-locked dependencies, current
+   provider route, runtime image, GPU, quote and budget while saving the exact
+   bounded plan. `training_inspect` and `training_preview` remain available for
+   detailed diagnostics and inspect/plan-only requests; do not call them first
+   and repeat the same checks before prepare.
+4. Invoke the destructive `training_submit`
    with the returned plan. The current user request supplies intent; the
    ChatGPT client's write confirmation remains a distinct UI boundary.
 5. Recover or monitor the same run, retrieve bounded result/artifact data and

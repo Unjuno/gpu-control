@@ -5,6 +5,28 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A1: remove duplicate inspection from the chat run path
+
+**Problem:** the operator Skill instructed an agent to call `training_inspect`
+after registration and then call `training_prepare`, although prepare invokes
+the same source contract and dependency-lock checks before adding the live
+provider, GPU, quote, budget, and admission checks. The public registration
+description also directed run requests through `training_preview` first.
+
+**Change:** a run request now proceeds from capabilities to direct repository
+registration and `training_prepare`; repository listing is conditional on an
+ambiguous source or an unselected-repository response. Detailed inspection and
+preview remain available for inspect-only or diagnostic requests. Updated the
+MCP description, operator Skill, setup guide, Sites guide, and architecture
+flow to share this sequence. No tool schema, provider, execution authority,
+or budget behavior changed.
+
+**Validation:** the full Sites Worker suite passes (120 tests); the 28-module
+runtime graph is acyclic, generated workload registries are current, the Worker
+artifact builds, and `git diff --check` passes. This removes redundant source
+and provider reads from the normal repository-run path; it does not add a
+provider or make the Modal candidate released/available.
+
 ## 2026-11-28 — A7: isolate owner-selected execution readiness
 
 **Problem:** the fixed-workload capability projection also resolved a separate

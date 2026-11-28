@@ -281,14 +281,14 @@ contract-to-plan dependencies. This is a boundary improvement only: Modal
 remains the sole owner-selected provider in source, and PR #70 is not deployed.
 
 **Progress (2026-11-28):** the ordinary custom-repository route is now
-`training_register` → `training_preview` → `training_prepare` →
-`training_submit`. Preview already validates the same immutable manifest and
-dependency lock as `training_inspect`, while also checking the current GPU,
-runtime, quote and budget; inspect remains available as an optional diagnostic.
-Capabilities, registration responses and `training_list` now point directly to
-preview, avoiding a redundant tool call. MCP descriptions now state the shared
-Modal reservation ceiling accurately. The 114 Worker tests, migration replay,
-build and artifact validation passed locally; exact-head CI is pending.
+The default source-run path is now `experiment_capabilities` →
+`training_register` → `training_prepare` → `training_submit`. A user-named,
+connected repository goes directly to registration; repository listing is
+reserved for ambiguous requests or an unselected repository. Prepare validates
+the same immutable manifest and dependency lock as inspection/preview while
+also checking the current provider, GPU, runtime, quote and budget. Inspection
+and preview remain optional for diagnostics or plan-only requests. This avoids
+duplicate source and provider reads in the ordinary run path.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 

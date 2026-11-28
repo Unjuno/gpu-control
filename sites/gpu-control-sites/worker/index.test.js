@@ -2259,7 +2259,8 @@ test("advertises the bounded registered inference contract", async () => {
   assert.match(trainingRegister.description, /selected in that owner's read-only GitHub App installation/);
   assert.match(trainingRegister.description, /resolves and pins the current default-branch commit/);
   assert.match(trainingRegister.description, /supplied commit is verified against GitHub/);
-  assert.match(trainingRegister.description, /continue directly to training_preview/);
+  assert.match(trainingRegister.description, /For a run request, continue directly to training_prepare/);
+  assert.match(trainingRegister.description, /do not repeat these checks before prepare/);
   assert.match(trainingRegister.description, /Never ask the user to create or remember the internal ID/);
   const trainingInspect = tools.find((tool) => tool.name === "training_inspect");
   assert.deepEqual(trainingInspect.inputSchema.required, ["registration_id"]);

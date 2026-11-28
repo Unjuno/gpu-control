@@ -205,11 +205,12 @@ These are investigation targets, not automatic deletion instructions.
    `worker/training_plan.js` 660. Split by cohesive domain/use case, not line
    count alone.
 6. **Documentation state drift:** `chatgpt-selected-repository-experiments.md`
-   and `sites/README.md` still describe source inspection as the end of the
-   owner-selected lane. PR #70 implements more, but policy disables admission;
-   release/current-state documents must distinguish source from deployed.
-   `training_preview` performs the manifest and dependency-lock checks for the
-   standard path; `training_inspect` is an optional detailed diagnostic.
+   and `sites/README.md` have previously described source inspection as the end
+   of the owner-selected lane. PR #70 implements more, but policy disables
+   admission; release/current-state documents must distinguish source from
+   deployed. `training_prepare` performs manifest, dependency-lock, provider,
+   runtime, quote and budget checks for a run request. `training_inspect` and
+   `training_preview` remain optional detailed/plan-only diagnostics.
 7. **Provider names vs compute routes:** Modal is both a compute provider and
    host for the Kaggle/HF adapter. Treat adapter infrastructure separately
    from the provider selected for the experiment.

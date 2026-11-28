@@ -365,10 +365,12 @@ specific repository selected, then authorize GPU Control on GitHub to prove
 your account can access that installation. Then call github_repositories to
 verify the selection and training_register with the repository name. The server pins
 the current default-branch commit and creates the registration ID; the user
-does not need to find a commit or create an ID. Call `training_inspect` to
-validate `.gpu-control/experiment.json` and its lockfile at that immutable
-commit. A per-request token is limited to that single repository and is not
-returned to the client.
+does not need to find a commit or create an ID. For a run request, continue
+directly to `training_prepare`, which validates `.gpu-control/experiment.json`,
+its lockfile, and the current runtime, GPU, quote, and budget in one call. Use
+`training_inspect` only for a detailed diagnostic or when the user asks to
+inspect without running. A per-request token is limited to that single
+repository and is not returned to the client.
 
 Example manifest:
 
