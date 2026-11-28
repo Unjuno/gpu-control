@@ -1530,3 +1530,28 @@ rotation/replay, and revocation.
 runtime modules; D1 migration, Worker build and artifact validation pass. This
 is local source evidence only. No external client, provider, or deployed Site
 was contacted.
+
+
+## 2026-11-28 — A6: isolate MAP-specific plan construction
+
+**Problem:** `training_plan.js` still combined owner-selected Modal planning,
+MAP-44M's fixed workload/image/account-evidence rules, and the shared plan
+record lifecycle. That made a second compute provider harder to add without
+mixing its runtime policy into MAP's reviewed exception.
+
+**Change:** moved MAP-44M-specific execution-spec selection, fixed runtime and
+cost validation, image/source pin checks, quote calculation, and Modal account
+evidence checks into `worker/map_training_plan.js`. The existing
+`previewTrainingPlan` function remains the routing boundary; saved plan shape,
+authorization, submit, status, cancellation, and public tool contracts are
+unchanged. This is a source organization change, not Colab support.
+
+**Validation:** Sites `npm test` passes all 166 tests, including the existing
+owner-scoped training registration/prepare/submit contract; the Worker graph is
+acyclic across 55 modules and the generated workload registry is current.
+`git diff --check` passes. No provider call, experiment, or deployment occurred.
+
+**Next:** keep shared plan/run coordination separate from provider-owned
+admission and accounting. Colab remains unavailable until its quota/cost,
+egress, idempotent operation recovery, artifact, and owned-session cleanup
+contracts are resolved and implemented.
