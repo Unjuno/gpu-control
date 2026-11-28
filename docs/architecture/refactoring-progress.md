@@ -2349,3 +2349,8 @@ round trip from `index.test.js`; transport authorization coverage is unchanged.
 **Validation:** focused contract tests pass (2); the full Sites suite passes
 (187 Worker tests, 2 graph tests), and the graph remains acyclic across 67
 modules. No public MCP schema, annotation, or runtime behavior changed.
+
+The repository map now points at `bcefd695ef1c20e0c4da3defc52aebd02e5604c2`,
+records the reduced `index.test.js` size (1,867 lines), and confirms all seven
+exact-head CI checks succeeded. The new contract assertions keep the complete
+Worker suite at 187 tests.
