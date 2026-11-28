@@ -381,6 +381,12 @@ duplicate source and provider reads in the ordinary run path.
   domain; reject contradictory or orphaned settings. Never print secret values.
 - **Done when:** every runtime setting has one owner and test; no undocumented
   magic fallback or stale configuration can advertise an unavailable route.
+- **Progress (2026-11-28):** owner-selected runtime image, hourly/staging
+  rates, quote expiry, runtime, and cost/monthly ceilings are parsed only by
+  `worker/training_runtime_profile.js`. The training plan consumes that
+  normalized object, and the architecture check forbids raw reads elsewhere.
+  Focused validation covers configured and missing values. MAP-specific
+  settings and other provider configuration still need the same inventory.
 
 ### A12. Add architecture checks only after rules have an owner
 

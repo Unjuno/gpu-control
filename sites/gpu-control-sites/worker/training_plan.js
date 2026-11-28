@@ -98,6 +98,7 @@ async function previewOwnerTrainingPlan(env, owner, args, source, getSourceToken
 }
 
 export async function previewTrainingPlan(env, owner, args, getSourceToken = async () => null) {
+  const ownerConfig = ownerTrainingExecutionConfig(env);
   const source = args.registration_id
     ? await getOwnedTrainingSource(env.DB, owner, args.registration_id)
     : await findOwnedTrainingSource(env.DB, owner, args);
@@ -110,8 +111,8 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
       runtime_seconds: args.runtime_seconds ?? MAP_TRAINING_MAX_RUNTIME_SECONDS,
       max_cost_microusd: args.max_cost_microusd ?? MAP_TRAINING_MAX_COST_MICROUSD };
   } else {
-    const configuredRuntime = Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS);
-    const configuredCost = Number(env.OWNER_TRAINING_MAX_COST_MICROUSD);
+    const configuredRuntime = ownerConfig.max_runtime_seconds;
+    const configuredCost = ownerConfig.max_cost_microusd;
     args = { ...args,
       runtime_seconds: args.runtime_seconds ?? Math.min(Number.isSafeInteger(configuredRuntime) ? configuredRuntime : 300, 300),
       max_cost_microusd: args.max_cost_microusd ?? Math.min(Number.isSafeInteger(configuredCost)
@@ -126,7 +127,7 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
     next_allowed_actions: ["experiment_capabilities"], blocking_reason: "PROVIDER_BUDGET_POLICY_UNAVAILABLE" };
   const laneMonthlyLimit = source.repository === MAP_TRAINING_REPOSITORY
     ? Number(env.MAP_TRAINING_MONTHLY_MICROUSD)
-    : Number(env.OWNER_TRAINING_MONTHLY_MICROUSD);
+    : ownerConfig.monthly_microusd;
   const laneMonthlyMaximum = source.repository === MAP_TRAINING_REPOSITORY
     ? MAP_TRAINING_MAX_MONTHLY_MICROUSD : OWNER_TRAINING_MAX_MONTHLY_MICROUSD;
   if (!Number.isSafeInteger(args.max_cost_microusd) || args.max_cost_microusd < 1 ||
@@ -263,9 +264,10 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
     authorization?.authorized_at !== undefined && authorization?.expires_at > now &&
     authorization?.consumed_at === null;
   const ownerSelected = plan.execution_kind === "owner_selected_python";
+  const ownerConfig = ownerTrainingExecutionConfig(env);
   const admission = ownerSelected
     ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true" &&
-      Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS) >= plan.runtime_seconds
+      ownerConfig.max_runtime_seconds >= plan.runtime_seconds
     : env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
       Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
@@ -467,6 +469,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       blocking_reason: "TRAINING_AUTHORIZATION_NOT_CONFIGURED" };
   }
   const ownerSelected = plan.execution_kind === "owner_selected_python";
+  const ownerConfig = ownerTrainingExecutionConfig(env);
   {
     const budgetPolicy = await readProviderBudgetPolicy(env.DB);
     const modalProviderPolicy = budgetPolicy.provider_budgets.find((item) => item.provider === "modal");
@@ -497,7 +500,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_ADMISSION_DISABLED" };
   }
   const configuredRuntime = ownerSelected
-    ? Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS)
+    ? ownerConfig.max_runtime_seconds
     : Number(env.MAP_TRAINING_RUNTIME_SECONDS);
   if (ownerSelected ? configuredRuntime < plan.runtime_seconds
     : configuredRuntime !== plan.runtime_seconds) {
@@ -585,7 +588,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   // execution authorization are verified. It is forwarded only to the trusted
   // source stager and is never written to the D1 plan or run record.
   const monthlyLimit = ownerSelected
-    ? Number(env.OWNER_TRAINING_MONTHLY_MICROUSD)
+    ? ownerConfig.monthly_microusd
     : Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
     monthlyLimit, authorization, ownerSelected ? OWNER_TRAINING_MAX_MONTHLY_MICROUSD : MAP_TRAINING_MAX_MONTHLY_MICROUSD,

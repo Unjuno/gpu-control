@@ -1219,3 +1219,24 @@ acyclic across 50 runtime modules. No provider operation or deployment occurred.
 same owner-bound MCP OAuth contract only after PR #70's migration and routes
 are deployed and a fresh no-compute handshake passes. This is not yet a live
 claim or an anonymous public API.
+
+
+## 2026-11-28 — A11: centralize owner-selected runtime configuration reads
+
+**Problem:** Owner runtime image, hourly and staging rates, quote expiry,
+runtime duration, and run/monthly ceilings were converted from Worker
+environment bindings in both `training_runtime_profile.js` and
+`training_plan.js`. This allowed runtime policy consumers to interpret the
+same values independently.
+
+**Change:** `training_runtime_profile.js` remains the sole parser for these
+profile settings. `training_plan.js` now consumes its normalized object for
+preview defaults, saved-plan readiness, and submit-time runtime/budget checks.
+The architecture check rejects raw reads of those settings outside the
+normalization module. Admission remains its separate live gate; no defaults,
+ceilings, or persisted plan fields changed.
+
+**Validation:** focused profile tests cover normalized numeric values and
+missing settings; the full Sites suite passes with 158 tests and a 50-module
+acyclic runtime graph. D1 migration test, Worker build, artifact validation,
+and diff check pass. No provider operation or deployment occurred.

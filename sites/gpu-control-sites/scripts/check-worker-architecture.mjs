@@ -18,6 +18,16 @@ const platformIdentitySources = workerFiles.filter((file) =>
 assert.deepEqual(platformIdentitySources, [],
   "ChatGPT platform identity and owner allowlist may only be interpreted by mcp_request_auth.js");
 
+// Owner-selected runtime profile values are normalized in one module. Admission
+// remains a separate live gate, but image, pricing, quote, runtime and budget
+// inputs must not be re-parsed by capabilities or lifecycle callers.
+const trainingRuntimeProfileBoundary = join(workerRoot, "training_runtime_profile.js");
+const ownerRuntimeProfileSources = workerFiles.filter((file) =>
+  file !== trainingRuntimeProfileBoundary &&
+    /\benv\??\.(?:OWNER_TRAINING_RUNTIME_IMAGE_ID|OWNER_TRAINING_HOURLY_MICROUSD|OWNER_TRAINING_STAGING_HOURLY_MICROUSD|OWNER_TRAINING_QUOTE_EXPIRES_AT|OWNER_TRAINING_MAX_RUNTIME_SECONDS|OWNER_TRAINING_MAX_COST_MICROUSD|OWNER_TRAINING_MONTHLY_MICROUSD)\b/.test(readFileSync(file, "utf8")));
+assert.deepEqual(ownerRuntimeProfileSources, [],
+  "Owner training runtime profile values may only be read by training_runtime_profile.js");
+
 const artifactStorageSources = workerFiles.filter((file) =>
   file !== join(workerRoot, "run_artifacts.js") && /\bBUCKET\.(?:get|put|delete)\s*\(/.test(readFileSync(file, "utf8")));
 assert.deepEqual(artifactStorageSources, [],
