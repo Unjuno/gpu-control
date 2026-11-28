@@ -245,3 +245,46 @@ def test_cancel_retries_missing_stage_cleanup_without_inspecting_or_starting_gpu
                     admission_enabled=True) == {
                         "state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
     assert events == [("reconcile", run), ("reconcile", run)]
+
+
+def test_cancel_intent_is_persisted_before_handle_recovery_and_survives_lost_create_response():
+    run = "a" * 32
+    fingerprint = "b" * 64
+    plan = {"run_id": run}
+    store = Store({f"custom-training:{run}": {
+        "owner": "owner", "fingerprint": fingerprint, "plan": plan, "state": "dispatching"}})
+    recoveries, cancellations = [], []
+
+    def recover(candidate):
+        assert store[f"custom-training:{run}"]["state"] == "cancel_requested"
+        recoveries.append(candidate)
+        return None if len(recoveries) == 1 else f"custom-training-{run}"
+
+    backend = SimpleNamespace(recover=recover,
+        start=lambda *_args, **_kwargs: pytest.fail("must not retry ambiguous create"),
+        cancel=lambda handle: cancellations.append(handle) or {
+            "state": "cancelled", "cleanup": "confirmed", "gpu_used": False},
+        inspect=lambda *_args: pytest.fail("cancelled recovery must never inspect or advance to GPU"))
+    cancel_args = {"run_id": run, "plan_fingerprint": fingerprint, "approved_plan": plan}
+    assert dispatch(store, backend, "owner", "cancel", cancel_args,
+                    validate=lambda *_: None, admission_enabled=True) == {"state": "cancel_requested"}
+    assert store[f"custom-training:{run}"]["state"] == "cancel_requested"
+    assert dispatch(store, backend, "owner", "status", cancel_args,
+                    validate=lambda *_: None, admission_enabled=True) == {
+                        "state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
+    assert recoveries == [plan, plan]
+    assert cancellations == [f"custom-training-{run}"]
+
+
+def test_cancel_without_journal_persists_intent_even_when_provider_handle_is_not_visible():
+    run = "a" * 32
+    fingerprint = "b" * 64
+    plan = {"run_id": run}
+    store = Store()
+    backend = SimpleNamespace(recover=lambda _plan: None,
+        start=lambda *_args, **_kwargs: pytest.fail("must not allocate"))
+    args = {"run_id": run, "plan_fingerprint": fingerprint, "approved_plan": plan}
+    assert dispatch(store, backend, "owner", "cancel", args,
+                    validate=lambda *_: None, admission_enabled=True) == {"state": "cancel_requested"}
+    assert store[f"custom-training:{run}"] == {
+        "owner": "owner", "fingerprint": fingerprint, "plan": plan, "state": "cancel_requested"}

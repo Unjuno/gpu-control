@@ -27,6 +27,18 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
     record = store.get(key)
     if record is not None and (record.get("owner") != owner or record.get("fingerprint") != fingerprint):
         raise ValueError("run_identity_mismatch")
+    if record is None and action == "cancel":
+        plan = args.get("approved_plan")
+        if not isinstance(plan, dict) or plan.get("run_id") != run_id:
+            raise ValueError("run_identity_mismatch")
+        intent = {"owner": owner, "fingerprint": fingerprint, "plan": plan,
+                  "state": "cancel_requested"}
+        if store.put(key, intent, skip_if_exists=True):
+            record = intent
+        else:
+            record = store.get(key)
+            if record is None or record.get("owner") != owner or record.get("fingerprint") != fingerprint:
+                raise ValueError("run_identity_mismatch")
     if record is None and action in {"status", "cancel", "checkpoint", "artifact"}:
         plan = args.get("approved_plan")
         if not isinstance(plan, dict) or plan.get("run_id") != run_id:
@@ -40,7 +52,8 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
         if not isinstance(handle, str):
             return {"state": "uncertain"}
         recovered = {"owner": owner, "fingerprint": fingerprint, "plan": plan,
-                     "handle": _handle(handle), "state": "running"}
+                     "handle": _handle(handle),
+                     "state": "cancel_requested" if action == "cancel" else "running"}
         if store.put(key, recovered, skip_if_exists=True):
             record = recovered
         else:
@@ -87,14 +100,18 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
             record.get("plan", {}).get("run_id") != run_id):
         raise ValueError("run_identity_mismatch")
     if "handle" not in record:
+        if action == "cancel" and record.get("state") != "cancel_requested":
+            record = {**record, "state": "cancel_requested"}
+            store.put(key, record)
         # A Sandbox create can succeed while its response is lost. Recover the
         # deterministic provider name before declaring uncertainty; never
         # repeat the create call for this plan.
         recover = getattr(backend, "recover", None)
         handle = recover(record.get("plan", {})) if callable(recover) else None
         if not isinstance(handle, str):
-            return {"state": "uncertain"}
-        record = {**record, "handle": _handle(handle), "state": "running"}
+            return {"state": "cancel_requested" if record.get("state") == "cancel_requested" else "uncertain"}
+        record = {**record, "handle": _handle(handle),
+                  "state": "cancel_requested" if record.get("state") == "cancel_requested" else "running"}
         store.put(key, record)
     if record.get("terminal") is not None:
         result = record["terminal"]
