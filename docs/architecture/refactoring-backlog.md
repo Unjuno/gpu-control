@@ -245,6 +245,14 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   runtime/session lifecycle, bounded source/result transfer, cancellation and
   cleanup receipts. Keep cost as unknown until account CU semantics can be
   trusted; never label the internal Sites reservation a Google billing cap.
+  **Open boundary decision (2026-11-28):** Colab's managed runtime does not
+  inherit the Modal sandbox's enforced no-egress policy; installing
+  hash-locked dependencies may require Internet access from the runtime. A
+  Colab-specific route must either make that network access explicit while
+  keeping provider/GitHub credentials out of the runtime and deleting its
+  run-owned runtime, or remain unavailable until egress can be enforced. The
+  owner has been asked to select the intended boundary; admission remains
+  closed while implementation and this decision are incomplete.
   Keep this provider policy behind a Colab-specific plan/adapter boundary;
   shared owner authorization, exact-plan confirmation, D1 run history, artifact
   metadata, and terminal cleanup remain the single lifecycle authority. Modal's

@@ -5,6 +5,20 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A0: refresh the exact source and verification snapshot
+
+**Source:** PR #70, branch `codex/owner-training-workloads`, head
+`dce3f00ff676ef38d1115c53a7edb604b3ddb92e`. GitHub reports the PR open and
+mergeable, review required, and all seven exact-head CI jobs queued. No merge,
+deployment, D1 migration, admission change, or provider run is established by
+this snapshot.
+
+**Local verification:** root `uv run pytest` passes 616 tests and five
+subtests, with one skipped; Sites `npm test` passes 166 tests and reports an
+acyclic graph across 54 Worker runtime modules. Current structural counts are
+recorded in [`repository-map.md`](repository-map.md). These checks do not
+replace the queued GitHub checks or prove a live MCP/provider lifecycle.
+
 ## 2026-11-28 — A6: isolate Modal owner-training plan construction
 
 **Problem:** `training_plan.js` combined shared training orchestration and
