@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { listMcpTools } from "./mcp_tool_contract.js";
+import { validToolArguments } from "./experiment_input_contract.js";
 
 test("advertises the bounded registered inference contract", async () => {
   const tools = listMcpTools("2026-07-28", "2025-03-26");
@@ -97,5 +98,14 @@ test("keeps MCP guidance and operation annotations client-neutral", () => {
     { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false });
   assert.deepEqual(health.annotations,
     { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false });
+});
+
+test("advertised Colab connection tools pass the common entrypoint validator", () => {
+  const tools = new Map(listMcpTools("2026-07-28", "2025-03-26").map((tool) => [tool.name, tool]));
+  for (const name of ["colab_connection_start", "colab_connection_status", "colab_connection_disconnect", "colab_capabilities"]) {
+    assert.ok(tools.has(name), `${name} is advertised`);
+    assert.equal(validToolArguments(name, {}, {}), true, `${name} accepts its declared empty input`);
+    assert.equal(validToolArguments(name, { unexpected: true }, {}), false, `${name} rejects undeclared input`);
+  }
 });
 

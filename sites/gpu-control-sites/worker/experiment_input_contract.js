@@ -140,7 +140,8 @@ export function normalizeTrainingArguments(name, input, env) {
 
 export function validToolArguments(name, args, env) {
   if (["github_connection_start", "github_connection_status", "github_connection_disconnect",
-    "github_repositories"].includes(name)) return Object.keys(args).length === 0;
+    "github_repositories", "colab_connection_start", "colab_connection_status",
+    "colab_connection_disconnect", "colab_capabilities"].includes(name)) return Object.keys(args).length === 0;
   if (name === "training_checkpoint") return Object.keys(args).sort().join(",") === "max_bytes,offset,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     Number.isSafeInteger(args.offset) && args.offset >= 0 &&

@@ -3321,3 +3321,26 @@ export remains compatible.
 across 79 runtime modules. Worker build, artifact validation, D1 forward
 migration replay and `git diff --check` pass. No provider API, credential,
 admission value, deployment, or experiment was accessed or changed.
+
+## 2026-11-29 — A14: align Colab connection tools with MCP input validation
+
+**Finding:** `tools/list` advertised `colab_connection_start`,
+`colab_connection_status`, `colab_connection_disconnect`, and
+`colab_capabilities`, but `validToolArguments()` did not accept any of them.
+The Worker rejected every call as `INVALID_ARGUMENTS` before dispatch, making
+the advertised Google account connection path unusable from ChatGPT or another
+MCP client.
+
+**Change:** added the four exact empty-input tools to the common validator.
+The worker-level regression test invokes them through the authenticated MCP
+entrypoint, checks owner denial and fail-closed behavior while Google OAuth is
+unconfigured, verifies malformed extra fields are rejected, and confirms the
+tools remain discoverable. A contract test ties the advertised tools to the
+same validator behavior.
+
+**Validation:** focused MCP and Worker entrypoint tests pass (41/41). The
+full Sites suite passes 217 tests; the 79-module Worker graph is acyclic.
+Worker build, artifact validation, D1 forward migration replay, and
+`git diff --check` pass. Exact-head CI will be checked after pushing. No
+Google OAuth, runtime, credential, provider setting, or experiment was
+accessed or changed.

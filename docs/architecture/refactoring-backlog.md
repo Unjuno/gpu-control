@@ -59,6 +59,13 @@ acceptance.
   construction consume that profile. Direct API-key access remains confined
   to the provider transport boundary, and a static architecture check prevents
   consumers from reading profile bindings independently.
+- **A14 — Colab connection tools pass the entrypoint contract:** completed in
+  the current batch. The four advertised zero-argument Colab account tools
+  were absent from the common runtime argument validator, so MCP calls failed
+  with `INVALID_ARGUMENTS` before reaching their handlers. The contract test
+  now checks advertisement, accepted empty input, and rejected extra input;
+  an authenticated Worker-level test verifies the routes remain owner-scoped
+  and fail closed when OAuth is not configured.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct

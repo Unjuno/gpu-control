@@ -181,6 +181,46 @@ test("GitHub App connection tools are owner-scoped and fail closed until configu
   } finally { db.close(); }
 });
 
+test("Google Colab connection tools are reachable through authenticated MCP and fail closed until configured", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(readFileSync(new URL("../drizzle/0034_google_colab_account_connection.sql", import.meta.url), "utf8"));
+    const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner", DB: {
+      prepare(sql) {
+        return { bind(...values) {
+          const statement = db.prepare(sql);
+          return { run: async () => statement.run(...values), first: async () => statement.get(...values),
+            all: async () => ({ results: statement.all(...values) }) };
+        } };
+      },
+    } };
+    const call = async (user, name, args = {}) => {
+      const response = await toolCall(env, user, name, args);
+      if (response.status !== 200) return { httpStatus: response.status };
+      const body = await response.json();
+      if (!body.result) return { isError: true, code: body.error?.code };
+      return { ...JSON.parse(body.result.content[0].text), isError: body.result.isError };
+    };
+    assert.equal((await call("unauthorized", "colab_connection_status")).httpStatus, 403);
+    assert.deepEqual((await call("test-owner", "colab_connection_status")).machine_state,
+      { configured: false, connected: false });
+    assert.equal((await call("test-owner", "colab_capabilities")).blocking_reason,
+      "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED");
+    assert.equal((await call("test-owner", "colab_connection_start")).blocking_reason,
+      "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED");
+    assert.equal((await call("test-owner", "colab_connection_disconnect")).machine_state.disconnected, false);
+    assert.deepEqual(await call("test-owner", "colab_connection_status", { extra: true }),
+      { error: "INVALID_ARGUMENTS", isError: true });
+
+    const listed = await worker.fetch(new Request("https://site.invalid/mcp", { method: "POST",
+      headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }) }), env);
+    const tools = new Map((await listed.json()).result.tools.map((tool) => [tool.name, tool]));
+    for (const name of ["colab_connection_start", "colab_connection_status", "colab_connection_disconnect", "colab_capabilities"])
+      assert.ok(tools.has(name), `${name} is advertised`);
+  } finally { db.close(); }
+});
+
 test("root page is a public status surface without granting execution authority", async () => {
   const response = await worker.fetch(new Request("https://gpu-control.example/"), {});
   assert.equal(response.status, 200);
