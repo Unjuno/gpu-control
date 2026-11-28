@@ -1619,3 +1619,29 @@ pushed to PR #70. GitHub reports the PR open and mergeable, review required,
 and all seven exact-head checks queued. This is a local source capability and
 policy improvement only; Colab execution remains disabled and no Site was
 deployed.
+
+
+## 2026-11-28 — A7: isolate saved training-plan state and cleanup projection
+
+**Problem:** `training_plan.js` combined provider-neutral preview/prepare/submit
+coordination with persisted status, readiness, cancellation, cleanup receipt
+projection, and construction of the canonical authorization URL. These state
+read operations are useful independently of the provider-specific submit path.
+
+**Change:** moved saved-plan state/readiness/cancellation and cleanup receipt
+handling into `worker/training_plan_state.js`; centralized the authorization
+URL in `training_authorization.js`. The existing tool handlers and D1-backed
+integration test now call the canonical modules. The public MCP tools, plan
+shape, SQL schema, and authorization semantics are unchanged.
+
+**Validation:** `npm test` passes all 166 Sites tests, including the D1-backed
+registration/submit/cleanup test; the Worker graph is acyclic across 57
+runtime modules and the generated workload registry is current. `git diff
+--check` passes. The focused registration test passes. No provider request,
+experiment, credential, configuration change, or deployment occurred.
+
+**Remote state before this batch:** PR #70 was open and mergeable, all seven
+checks had completed successfully at `c13c962`, and review remained required.
+The local refactor is committed as `68a69be`; exact-head CI and review must be
+refreshed after push. This does not establish merge, deployment, or Colab
+execution support.
