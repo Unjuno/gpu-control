@@ -58,14 +58,15 @@ else:
             raise RuntimeError('GPU_NOT_AVAILABLE')
         if not ROOT.exists():
             subprocess.run(['git', 'clone', '--filter=blob:none', '--no-checkout',
-                CFG['repo_url'], str(ROOT)], check=True, timeout=remaining(120), capture_output=True, text=True)
+                CFG['repo_url'], str(ROOT)], check=True, timeout=remaining(120),
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(['git', '-C', str(ROOT), 'fetch', '--depth=1', 'origin', CFG['commit']],
-            check=True, timeout=remaining(120), capture_output=True, text=True)
+            check=True, timeout=remaining(120), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(['git', '-C', str(ROOT), 'checkout', '--detach', CFG['commit']],
-            check=True, timeout=remaining(30), capture_output=True, text=True)
+            check=True, timeout=remaining(30), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--require-hashes',
             '-r', str(ROOT / CFG['dependency_lock'])], check=True, timeout=remaining(180),
-            capture_output=True, text=True)
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         torch = __import__('torch')
         if not torch.cuda.is_available():
             raise RuntimeError('GPU_NOT_AVAILABLE')
@@ -76,7 +77,8 @@ else:
             'cuda_available': True, 'device_count': torch.cuda.device_count(),
             'torch_version': torch.__version__, 'cuda_version': torch.version.cuda}
         process = subprocess.run([sys.executable, str(ROOT / CFG['entrypoint'])], cwd=str(ROOT),
-            timeout=remaining(CFG['runtime_seconds']), capture_output=True, text=True)
+            timeout=remaining(CFG['runtime_seconds']), stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL)
         outcome['exit_code'] = process.returncode
         outcome['state'] = 'succeeded' if process.returncode == 0 else 'failed'
         metrics_path = ROOT / 'metrics.json'

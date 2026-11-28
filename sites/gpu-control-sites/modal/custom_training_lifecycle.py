@@ -127,8 +127,12 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
             store.put(key, {**record, "state": "cancelled", "terminal": cancelled})
             return cancelled
     result = backend.inspect(record["handle"], record["plan"], record.get("state") == "cancel_requested")
-    if not isinstance(result, dict) or result.get("state") not in {"staging", "running", "cancel_requested", "cleanup_pending", "succeeded", "failed", "cancelled"}:
+    if not isinstance(result, dict) or result.get("state") not in {"staging", "running", "cancel_requested", "cleanup_pending", "uncertain", "succeeded", "failed", "cancelled"}:
         raise ValueError("invalid_provider_state")
+    if result["state"] == "uncertain":
+        # Provider absence without a durable result is an observation, not a
+        # terminal failure. Keep the existing record intact for recovery.
+        return result
     if result["state"] in {"staging", "running"}:
         return {**result, "state": "cancel_requested" if record["state"] == "cancel_requested" else result["state"]}
     if result["state"] in {"cancel_requested", "cleanup_pending"}:

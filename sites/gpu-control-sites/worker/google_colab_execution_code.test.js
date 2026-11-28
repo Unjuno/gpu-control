@@ -23,6 +23,10 @@ test("Colab execution code pins public source and hash-locked dependencies witho
   assert.match(code, /nvidia-smi/);
   assert.match(code, /torch\.cuda\.is_available\(\)/);
   assert.match(code, /GPU_SPEC_MISMATCH/);
+  assert.match(code, /stdout=subprocess\.DEVNULL, stderr=subprocess\.DEVNULL/);
+  assert.equal((code.match(/capture_output=True, text=True/g) || []).length, 1,
+    "only the bounded single-GPU nvidia-smi query may capture output");
+  assert.match(code, /process = subprocess\.run\(\[sys\.executable, str\(ROOT \/ CFG\['entrypoint'\]\)\], cwd=str\(ROOT\),\s*timeout=remaining\(CFG\['runtime_seconds'\]\), stdout=subprocess\.DEVNULL,\s*stderr=subprocess\.DEVNULL\)/);
   assert.match(code, new RegExp(String(GOOGLE_COLAB_MAX_ARTIFACT_BYTES)));
   assert.match(code, new RegExp(String(GOOGLE_COLAB_MAX_TOTAL_ARTIFACT_BYTES)));
   assert.doesNotMatch(code, /Bearer |token|secret/i);

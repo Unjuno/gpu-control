@@ -193,3 +193,28 @@ def test_missing_journal_without_recovery_evidence_is_uncertain_and_never_alloca
     }, validate=lambda *_: None, admission_enabled=True)
     assert result == {"state": "uncertain"}
     assert starts == []
+
+
+def test_uncertain_provider_observation_is_returned_without_caching_terminal_state():
+    run = "a" * 32
+    fingerprint = "b" * 64
+    plan = {"run_id": run}
+    args = {"run_id": run, "plan_fingerprint": fingerprint, "plan": plan,
+            "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
+    states = iter([{"state": "uncertain", "cleanup": "unknown"},
+                   {"state": "failed", "cleanup": "confirmed", "failure_code": "PROVIDER_FAILED"}])
+    backend = SimpleNamespace(start=lambda *_args, **_kwargs: f"custom-training-{run}",
+        cancel=lambda *_: None, inspect=lambda *_: next(states))
+    store = Store()
+    dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None, admission_enabled=True)
+
+    observed = dispatch(store, backend, "owner", "status", {
+        "run_id": run, "plan_fingerprint": fingerprint}, validate=lambda *_: None, admission_enabled=True)
+    assert observed == {"state": "uncertain", "cleanup": "unknown"}
+    assert store[f"custom-training:{run}"]["state"] == "staging"
+    assert "terminal" not in store[f"custom-training:{run}"]
+
+    terminal = dispatch(store, backend, "owner", "status", {
+        "run_id": run, "plan_fingerprint": fingerprint}, validate=lambda *_: None, admission_enabled=True)
+    assert terminal == {"state": "failed", "cleanup": "confirmed", "failure_code": "PROVIDER_FAILED"}
+    assert store[f"custom-training:{run}"]["terminal"] == terminal
