@@ -3567,3 +3567,10 @@ state changed. PR #70 still requires review and is not deployed.
 
 Approved-plan validation now also reads the per-run reservation ceiling from
 the canonical workload registry instead of repeating the `$1.00` literal.
+
+**Verification update:** this reservation-ceiling normalization is at runtime
+source head `78a2a17`. Focused RunPod/MCP tests pass 28/28; the full Sites
+suite passes 222/222, the graph remains acyclic across 85 modules, and build,
+artifact validation, and migration replay pass. Exact-head CI runs
+`46170711441`, `46170711445`, and `46170711444` all pass. PR #70 remains open
+with review required and is not deployed.
