@@ -2003,3 +2003,35 @@ for `fec62dd`: Python 3.11/3.12/3.13, Sites Worker and D1 contract, trusted
 reference container, Gateway provider-runtime, and Project bridge. No
 production deployment, D1 migration, provider setting, credential, admission
 flag or experiment changed.
+
+## 2026-11-28 — A4: remove the retired Gateway comment bridge
+
+**Finding:** `gateway/COMMENT_BRIDGE.md` already declared the comment-to-Gateway
+workflow retired, its policy disabled, and its CLI/routes retained only as
+historical reference. The active Project Checks implementation is separately
+owned by `project_control/runner.py` and
+`.github/workflows/project-checks-ci.yml`; the legacy bridge was not invoked by
+that workflow or the current Gateway provider-runtime CI.
+
+**Change:** removed the unused legacy bridge policy, CLI, FastAPI route module,
+submission helper, and two bridge-specific test files (1,111 lines). The local
+Gateway compatibility app no longer installs the retired routes. Kept the
+independent Project Checks implementation, Sites control plane, provider-runtime
+compatibility imports, legacy service, and dated historical records. Updated
+Gateway and architecture documentation to identify the active owners.
+
+**Local validation:** root `uv run pytest` passes 619 tests, one skipped, and
+five subtests. `git diff --check` passes, and the remaining active Gateway,
+`project_control`, and architecture sources contain no imports or paths to the
+removed bridge. The change is committed and pushed as
+`98db55a111f2a945bce295ea6cc51743d18b2cdd`.
+
+**Hosted validation:** all seven exact-head PR checks pass: Python 3.11/3.12/3.13,
+Sites Worker and D1 contract, trusted reference container, Gateway
+provider-runtime, and Project bridge. No provider, deployment, D1 migration,
+credential, or admission setting changed.
+
+**Remaining A4:** the old FastAPI/PostgreSQL Gateway and deployment templates
+remain a local compatibility service. This checkout cannot establish whether
+an external operator still uses them; continue with source-level caller and
+package-boundary work before deciding their retirement.
