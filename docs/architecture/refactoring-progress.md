@@ -1682,3 +1682,34 @@ unchanged.
 **Limit:** the Sites Worker has its own runtime-local serializer. Persisted
 cross-runtime contract fixtures still need a separate audit; this change
 centralizes Python behavior only.
+
+
+## 2026-11-28 — A7: isolate MCP tool-to-domain dispatch
+
+**Problem:** `worker/index.js` mixed HTTP/MCP protocol composition and identity
+checks with provider/workload dispatch across GitHub, Colab, training, Modal,
+RunPod, Kaggle and Hugging Face routes. The entrypoint also retained unused
+provider/workload constants and imports.
+
+**Change:** moved the authenticated tool routing into
+`worker/mcp_tool_dispatch.js`. The HTTP entrypoint still validates MCP
+metadata, scopes and the authenticated principal, then passes the normalized
+call and a small set of run-specific callbacks. Removed unused provider and
+workload imports/constants. Tool names, argument schemas, owner checks,
+provider gates, public result envelopes and route behavior remain unchanged.
+
+**Validation:** Sites `npm test` passes all 166 tests; static Worker packaging
+and dependency checks pass with an acyclic graph of 58 runtime modules. The
+generated workload registry is current and both edited modules pass `node
+--check`. `git diff --check` passes. No provider request, experiment, or
+deployment occurred.
+
+**Independent review:** read-only security review found no actionable issues.
+It confirmed owner authentication and scope/schema validation remain before
+dispatch, and that provider admission, budget gates, and callback wiring were
+not weakened or moved into caller-controlled authority.
+
+**Source snapshot:** code batch `c5c8fe5` reduces `worker/index.js` from 816 to
+693 lines and puts provider/workload dispatch behind a 122-line module. This is
+an ownership boundary improvement, not proof of deployment or live provider
+availability.

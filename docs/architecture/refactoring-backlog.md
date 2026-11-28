@@ -340,9 +340,9 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 bounded result routing live in `worker/training_tools.js`. The MAP repository
 slug is centralized in `training_source.js`. Historical checkpoints measured
 2,333 and 2,175 lines before later lifecycle and transport extractions; the
-current entrypoint is 816 lines. Remaining dispatch/composition work is about
-separating route registration from HTTP and MCP protocol handling, not reducing
-the file by line count alone.
+entrypoint was 816 lines before the latest dispatch extraction. The current
+HTTP/auth composition root is 693 lines; remaining work is to separate route
+registration and OAuth page handlers without weakening their boundaries.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
@@ -377,6 +377,15 @@ the same immutable manifest and dependency lock as inspection/preview while
 also checking the current provider, GPU, runtime, quote and budget. Inspection
 and preview remain optional for diagnostics or plan-only requests. This avoids
 duplicate source and provider reads in the ordinary run path.
+
+**Progress (2026-11-28):** authenticated MCP tool-to-domain/provider routing
+now lives in `worker/mcp_tool_dispatch.js`. `index.js` retains request parsing,
+MCP metadata/scope checks, HTTP routing and response envelopes, then passes the
+normalized call and bounded submission callbacks to the dispatch interface.
+Unused provider/workload imports and constants were removed from the entrypoint.
+The Worker graph remains acyclic and all 166 Sites contract tests pass;
+`index.js` is now 693 lines. Route registration and OAuth page handlers remain
+coupled to the HTTP composition root and are the next A7 boundary to assess.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 
