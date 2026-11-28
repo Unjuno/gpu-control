@@ -545,3 +545,30 @@ provider is added, no login is requested, and no runtime is allocated.
 README, checked 2026-11-28. The exact target client's ability to connect a local
 stdio server must be verified independently; the local README does not claim
 ChatGPT web support.
+
+
+## 2026-11-28 — A5/A7: derive workload discovery from the canonical registry
+
+**Problem:** the `experiment_capabilities.workloads` response repeated names,
+provider IDs, GPU flags, runtime limits, cost ceilings, and cleanup behavior
+that already have an authority in the generated workload registry. Adding a
+registry entry could leave the agent-facing inventory silently incomplete.
+
+**Change:** workload capability rows now derive their common metadata from the
+registry. Provider runtime readiness still comes from current route-specific
+checks, and only the explicit existing workload IDs can be marked enabled.
+Unknown/new registry entries are included but remain disabled until a route is
+explicitly supported. The previous capability array order is preserved.
+
+**Validation:** all 120 Sites tests pass, including the exact capability IDs,
+order, route blockers and enablement checks. Registry drift, the 25-module
+acyclic architecture check, Worker build, artifact validation, and
+`git diff --check` pass. The first test run caught an output-order regression;
+the stable public order was restored before the passing run. No provider,
+production setting, admission or credential was changed.
+
+**Remaining:** static provider roles/budget IDs are still repeated across
+provider policy, tool validation and adapter/runtime contracts; consolidating
+those is a separate A5 design slice. Arbitrary repository execution remains
+Modal-only in the unmerged candidate; this discovery refactor does not make
+RunPod, Kaggle, Hugging Face or Colab arbitrary-source routes available.

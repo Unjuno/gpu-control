@@ -25,6 +25,42 @@ async function humanAuthorizationStoreReady(env) {
   }
 }
 
+function workloadCapabilityEntries(env, enabledByWorkloadId) {
+  const byId = new Map(Object.values(WORKLOADS).map((workload) => [workload.id, workload]));
+  // Keep the established response order stable; newly registered workloads
+  // remain visible, but are appended and disabled until explicitly supported.
+  const orderedIds = [WORKLOAD, RUNPOD_WORKLOAD, MODAL_GPU_WORKLOAD, KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD];
+  const workloads = [
+    ...orderedIds.map((id) => byId.get(id)).filter(Boolean),
+    ...[...byId.values()].filter((workload) => !orderedIds.includes(workload.id)),
+  ];
+  return workloads.map((workload) => {
+    const capability = {
+      id: workload.id,
+      name: workload.display_name,
+      providers: [workload.provider],
+      enabled: enabledByWorkloadId.get(workload.id) === true,
+      provider: workload.provider,
+      requires_gpu: workload.requires_gpu,
+      max_runtime_seconds: workload.runtime_seconds,
+      max_cost_usd: workload.cost_ceiling_usd,
+      cancellation: workload.cancellation,
+    };
+    if (workload.id === WORKLOAD) {
+      capability.sandbox_resources = { ...MODAL_SANDBOX_RESOURCES };
+      capability.estimated_max_sandbox_cost_usd = estimateModalSandboxCostUsd(workload.runtime_seconds);
+      capability.image_digest = env.CPU_WORKLOAD_IMAGE_DIGEST || null;
+    } else if (workload.id === RUNPOD_WORKLOAD) {
+      capability.image = env.RUNPOD_WORKLOAD_IMAGE || null;
+    } else if (workload.id === MODAL_GPU_WORKLOAD) {
+      capability.gpu = workload.adapter_manifest.gpu;
+    } else if ([KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD].includes(workload.id)) {
+      capability.paid_fallback_allowed = false;
+    }
+    return capability;
+  });
+}
+
 export async function getExperimentCapabilities(env, owner, { modalConfigured }) {
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
   const budgetPolicy = await readProviderBudgetPolicy(env.DB);
@@ -43,6 +79,10 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     modalProviderBudget.monthly_remaining_microusd >= 10_000;
   const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady &&
     providerBudgetPolicyReady && modalCpuBudgetAvailable;
+  const enabledByWorkloadId = new Map([
+    [WORKLOAD, available],
+    [RUNPOD_WORKLOAD, runpodEnabled],
+  ]);
   const result = {
     schema_version: 2,
     status: "ok",
@@ -73,33 +113,7 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
       { id: "huggingface_space", enabled: false, configured: false, free: true, paid: false,
         paid_fallback_allowed: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" },
     ],
-    workloads: [
-      { id: WORKLOAD, name: WORKLOADS.tiny_stories.display_name, providers: [WORKLOADS.tiny_stories.provider], enabled: available,
-        provider: WORKLOADS.tiny_stories.provider, requires_gpu: WORKLOADS.tiny_stories.requires_gpu,
-        max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_cost_usd: WORKLOADS.tiny_stories.cost_ceiling_usd,
-        cancellation: WORKLOADS.tiny_stories.cancellation, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES },
-        estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS),
-        image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST || null },
-      { id: RUNPOD_WORKLOAD, name: WORKLOADS.runpod_canary.display_name, providers: [WORKLOADS.runpod_canary.provider], enabled: runpodEnabled,
-        provider: WORKLOADS.runpod_canary.provider, requires_gpu: WORKLOADS.runpod_canary.requires_gpu,
-        max_runtime_seconds: WORKLOADS.runpod_canary.runtime_seconds, max_cost_usd: WORKLOADS.runpod_canary.cost_ceiling_usd,
-        cancellation: WORKLOADS.runpod_canary.cancellation, image: env.RUNPOD_WORKLOAD_IMAGE || null },
-      { id: MODAL_GPU_WORKLOAD, name: WORKLOADS.modal_gpu_canary.display_name, providers: [WORKLOADS.modal_gpu_canary.provider], enabled: false,
-        provider: WORKLOADS.modal_gpu_canary.provider, requires_gpu: WORKLOADS.modal_gpu_canary.requires_gpu,
-        max_cost_usd: WORKLOADS.modal_gpu_canary.cost_ceiling_usd,
-        max_runtime_seconds: WORKLOADS.modal_gpu_canary.runtime_seconds,
-        cancellation: WORKLOADS.modal_gpu_canary.cancellation, gpu: WORKLOADS.modal_gpu_canary.adapter_manifest.gpu },
-      { id: KAGGLE_WORKLOAD, name: WORKLOADS.kaggle_training.display_name, providers: [WORKLOADS.kaggle_training.provider], enabled: false,
-        provider: WORKLOADS.kaggle_training.provider, requires_gpu: WORKLOADS.kaggle_training.requires_gpu,
-        max_cost_usd: WORKLOADS.kaggle_training.cost_ceiling_usd,
-        max_runtime_seconds: WORKLOADS.kaggle_training.runtime_seconds,
-        cancellation: WORKLOADS.kaggle_training.cancellation, paid_fallback_allowed: false },
-      { id: ZERO_GPU_WORKLOAD, name: WORKLOADS.huggingface_evaluation.display_name, providers: [WORKLOADS.huggingface_evaluation.provider], enabled: false,
-        provider: WORKLOADS.huggingface_evaluation.provider, requires_gpu: WORKLOADS.huggingface_evaluation.requires_gpu,
-        max_cost_usd: WORKLOADS.huggingface_evaluation.cost_ceiling_usd,
-        max_runtime_seconds: WORKLOADS.huggingface_evaluation.runtime_seconds,
-        cancellation: WORKLOADS.huggingface_evaluation.cancellation, paid_fallback_allowed: false },
-    ],
+    workloads: workloadCapabilityEntries(env, enabledByWorkloadId),
     provider_budget_policy_state: budgetPolicy.state,
     provider_budgets: providerBudgets,
     paid_execution: "parked",
@@ -210,7 +224,12 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     }
     const adapterProviders = Array.isArray(delegated?.machine_state?.providers)
       ? delegated.machine_state.providers : [];
-    for (const providerId of ["kaggle", "huggingface_space", "modal_gpu"]) {
+    const adapterWorkloads = new Map([
+      ["kaggle", KAGGLE_WORKLOAD],
+      ["huggingface_space", ZERO_GPU_WORKLOAD],
+      ["modal_gpu", MODAL_GPU_WORKLOAD],
+    ]);
+    for (const [providerId, workloadId] of adapterWorkloads) {
       const adapterProvider = adapterProviders.find((item) => item?.id === providerId);
       const provider = result.providers.find((item) => item.id === providerId);
       const budgetProvider = providerId === "modal_gpu" ? modalProviderBudget
@@ -230,8 +249,8 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
           : (budgetProvider?.monthly_remaining_microusd ?? 0) < 10_000 ? "PROVIDER_BUDGET_EXHAUSTED"
             : "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED")
         : "FREE_PROVIDER_NOT_CONFIGURED");
-      const workload = result.workloads.find((item) => item.providers.includes(providerId));
-      workload.enabled = provider.enabled;
+      const workload = result.workloads.find((item) => item.id === workloadId);
+      if (workload) workload.enabled = provider.enabled;
     }
   } catch {
     result.provider_adapter = { configured: true, available: false, blocker: "PROVIDER_ADAPTER_UNAVAILABLE" };
