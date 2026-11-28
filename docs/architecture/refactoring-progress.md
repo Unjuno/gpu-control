@@ -5,6 +5,26 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A13: make cross-client onboarding actionable
+
+**Finding:** the shared OAuth and run-ledger contract existed in source, but
+the client guide described compatibility and release gates without a short
+no-compute verification path. It also left the ChatGPT Sites identity and
+external-client OAuth flows easy to conflate, and did not call out that a
+client/workspace may allow MCP reads while blocking writes.
+
+**Change:** `MCP_CLIENTS.md` now gives a four-step connect, authorize, verify,
+and request workflow; distinguishes ChatGPT Sites identity from external MCP
+OAuth; explains read/execute scopes and shared run history; and states the
+current ChatGPT custom-MCP account-tier write limitation. The Colab CLI stays
+documented as an independent executor unless it is routed through the shared
+owner-bound lifecycle. Source commit: `1de3aa1`.
+
+**Validation:** `git diff --check` passed. Exact-head PR #70 CI passed all
+seven checks at `1de3aa10c1d47bdededeaf9fa106b6dc1cc87a78`. The PR remains open
+with review required; this is source and CI evidence only, not a deployed
+OAuth handshake or live run.
+
 ## 2026-11-28 — A3: correct the reconciliation execution contract
 
 **Finding:** `experiment_reconcile` was described by the public MCP schema,
