@@ -277,7 +277,8 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 1,959 lines and remains a large transport
+- **Evidence:** `worker/index.js` is 2,175 lines at source candidate `615e039`
+  and remains a large transport
   and composition root for authentication, owner identity, routing and provider
   workflows. MCP schemas/descriptions, experiment input contracts, GitHub
   ownership, training lifecycle, budgets, RunPod lifecycle, fixed-route and
@@ -295,7 +296,9 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 **Progress:** owner-selected source inspection/error projection now lives in
 `worker/training_inspection.js`; registration, plan, submit, status/cancel and
 bounded result routing live in `worker/training_tools.js`. The MAP repository
-slug is centralized in `training_source.js`. `index.js` was about 2.8k lines before the A7 contract extraction; it is now 2,333 lines.
+slug is centralized in `training_source.js`. `index.js` was about 2.8k lines
+before the A7 contract extraction; it measured 2,333 lines at an earlier
+checkpoint and is 2,175 lines at source candidate `615e039`.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
@@ -333,7 +336,8 @@ duplicate source and provider reads in the ordinary run path.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 
-- **Evidence:** Sites `index.test.js` is 3,418 lines (2026-11-28); Gateway store/worker tests
+- **Evidence:** Sites `index.test.js` is 3,444 lines at source candidate
+  `615e039` (2026-11-28); Gateway store/worker tests
   are similarly large. The suite has valuable migration and runtime contracts.
 - **Work:** partition tests by domain and lifecycle; extract only stable test
   builders. Preserve explicit failure cases and avoid generic fixture engines.

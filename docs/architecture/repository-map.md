@@ -200,8 +200,8 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (2026-11-28):** `worker/index.js` 2,333 lines; its test file
-   3,418;
+5. **Large files (2026-11-28 source candidate `615e039`):**
+   `worker/index.js` 2,175 lines; its test file 3,444 lines.
    `gateway/gpu_gateway/store.py` 1,156; Gateway `worker.py` 1,094;
    `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 510;
    `worker/training_plan.js` 660. Split by cohesive domain/use case, not line
