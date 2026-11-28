@@ -8,6 +8,7 @@ import { prepareModalComputeBudgetReservation, utcMonthKey } from "./provider_bu
 import { WORKLOADS } from "./workload_registry.js";
 import { GOOGLE_COLAB_WORKLOAD } from "./google_colab_plan.js";
 import { googleColabRunTool, readGoogleColabArtifact } from "./google_colab_lifecycle.js";
+import { modalGpuWorkloadAdmissionEnabled } from "./modal_gpu_policy.js";
 
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
 const ZERO_GPU_WORKLOAD = WORKLOADS.huggingface_evaluation.id;
@@ -109,7 +110,7 @@ export async function submitDelegatedExperiment(env, owner, args, services) {
   const provider = approvedPlan?.provider;
   let policyAuthorized = false;
   if (provider === "modal_gpu") {
-    if (env.MODAL_GPU_WORKLOAD_ADMISSION_ENABLED !== "true") return { schema_version: 2, status: "blocked",
+    if (!modalGpuWorkloadAdmissionEnabled(env)) return { schema_version: 2, status: "blocked",
       human_summary: "Modal GPU admissionは停止中です。GPU Functionは起動していません。",
       machine_state: { run_id: args.run_id, provider_policy_authorized: false, gpu_started: false },
       next_allowed_actions: [], blocking_reason: "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED" };

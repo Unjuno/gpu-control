@@ -82,6 +82,12 @@ const modalCpuAdmissionSources = modulesReadingBindingsOutside(modalCpuPolicyBou
 assert.deepEqual(modalCpuAdmissionSources, [],
   "Modal CPU admission may only be interpreted by modal_cpu_policy.js");
 
+const modalGpuPolicyBoundary = join(workerRoot, "modal_gpu_policy.js");
+const modalGpuAdmissionSources = modulesReadingBindingsOutside(modalGpuPolicyBoundary,
+  ["MODAL_GPU_WORKLOAD_ADMISSION_ENABLED"]);
+assert.deepEqual(modalGpuAdmissionSources, [],
+  "Modal GPU admission may only be interpreted by modal_gpu_policy.js");
+
 const googleColabOAuthBoundary = join(workerRoot, "google_colab_connection.js");
 const googleColabOAuthSources = modulesReadingBindingsOutside(googleColabOAuthBoundary,
   ["GOOGLE_COLAB_OAUTH_CALLBACK_URL"]);

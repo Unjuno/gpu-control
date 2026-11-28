@@ -78,6 +78,10 @@ acceptance.
   generated runtime code, artifact retrieval, and receipt validation consume
   the same values. Provider API request/response limits remain separate because
   they bound different trust and transport surfaces.
+- **A17 — One Modal GPU admission interpretation:** completed in this batch.
+  Capability projection and delegated submit both consume
+  `modal_gpu_policy.js`; the Worker architecture check rejects direct reads of
+  the admission binding elsewhere.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct

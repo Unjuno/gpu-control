@@ -30,6 +30,24 @@ and artifact validation pass, the D1 forward-migration replay passes, and
 `git diff --check` passes. No provider, credential, admission, deployment, or
 experiment was accessed or changed.
 
+## 2026-11-29 — A17: centralize Modal GPU admission interpretation
+
+**Finding:** capability projection and delegated submit independently
+interpreted `MODAL_GPU_WORKLOAD_ADMISSION_ENABLED === "true"`. Although the
+literal matched, the two paths could drift and capability discovery might
+report a different gate from the one submit enforces.
+
+**Change:** added `worker/modal_gpu_policy.js` as the single fail-closed
+interpreter. Both capability projection and submit now use it. The Worker
+architecture check prevents other runtime modules from reading this binding
+directly; a unit test pins the literal-true behavior.
+
+**Validation:** focused policy/budget tests pass, the full Sites suite passes
+(218), the Worker dependency graph is acyclic across 82 runtime modules, and
+registry freshness and architecture checks pass. Build, artifact and D1
+migration checks follow before commit. No provider, credential, admission,
+deployment, or experiment state was changed.
+
 ## 2026-11-29 — A11: share RunPod relay readiness validation
 
 **Finding:** `runpodConfigured` treated a relay URL and two proxy-token strings

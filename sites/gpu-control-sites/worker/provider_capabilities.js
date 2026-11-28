@@ -12,6 +12,7 @@ import { googleColabAdmissionEnabled } from "./google_colab_policy.js";
 import { runpodAdmissionBlocker } from "./runpod_admission.js";
 import { readRunpodConfiguration } from "./runpod_configuration.js";
 import { modalCpuAdmissionEnabled } from "./modal_cpu_policy.js";
+import { modalGpuWorkloadAdmissionEnabled } from "./modal_gpu_policy.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -185,7 +186,7 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
       provider.configured = adapterProvider?.configured === true;
       provider.enabled = providerBudgetPolicyReady && provider.configured && adapterProvider?.paid_fallback === false &&
         (!modalGpuRoute || Number.isSafeInteger(budgetProvider?.monthly_remaining_microusd) &&
-          budgetProvider.monthly_remaining_microusd >= 10_000 && env.MODAL_GPU_WORKLOAD_ADMISSION_ENABLED === "true" &&
+          budgetProvider.monthly_remaining_microusd >= 10_000 && modalGpuWorkloadAdmissionEnabled(env) &&
           budgetProvider?.modal_gpu_admission_enabled === true);
       if (modalGpuRoute && budgetProvider) {
         provider.budget_scope = budgetProvider.scope;
