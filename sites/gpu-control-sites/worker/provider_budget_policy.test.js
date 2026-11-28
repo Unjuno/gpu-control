@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, reserveProviderBudget } from "./provider_budget_policy.js";
+import { assessModalTrainingBudget, prepareModalComputeBudgetReservation,
+  readProviderBudgetPolicy, reserveProviderBudget } from "./provider_budget_policy.js";
 
 function database({ modalMonthly = 30_000_000, modalReserved = 0, freePolicies } = {}) {
   const result = (value) => ({ first: async () => value, all: async () => ({ results: value }), bind() { return this; } });
@@ -102,6 +103,31 @@ test("Modal capabilities expose reserved and remaining Sites budget without call
   assert.equal(modal.monthly_reserved_usd, "29.99");
   assert.equal(modal.monthly_remaining_microusd, 10_000);
   assert.equal(modal.monthly_remaining_usd, "0.01");
+});
+
+test("Modal training budget assessment is shared across capability, prepare, and status gates", async () => {
+  const policy = await readProviderBudgetPolicy(database({ modalReserved: 29_500_000 }));
+  const common = { maxCostMicrousd: 600_000, monthlyLimitMicrousd: 10_000_000,
+    monthlyMaximumMicrousd: 20_000_000 };
+  const capability = assessModalTrainingBudget(policy, common);
+  assert.equal(capability.ready, true);
+  assert.equal(capability.monthlyRemainingPositive, true);
+  assert.equal(capability.remainingSatisfied, true);
+  assert.equal(assessModalTrainingBudget(policy, { ...common, requireGpuAdmission: true }).ready, true);
+  assert.equal(assessModalTrainingBudget(policy, { ...common, requireGpuAdmission: true,
+    requireRemaining: true }).blocker, "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY",
+  "status blocks when the full exact run ceiling no longer fits the remaining Sites reservation");
+  assert.equal(assessModalTrainingBudget(policy, { ...common, monthlyLimitMicrousd: 20_000_001,
+    monthlyMaximumMicrousd: 20_000_000 }).blocker, "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY");
+  assert.equal(assessModalTrainingBudget(policy, { ...common, maxCostMicrousd: 1_000_001 }).blocker,
+    "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY");
+  const admissionClosed = await readProviderBudgetPolicy({ prepare(sql) {
+    const statement = database().prepare(sql);
+    if (sql.includes("FROM modal_gpu_admission_policy")) return { ...statement, first: async () => ({ admission_enabled: 0 }) };
+    return statement;
+  } });
+  assert.equal(assessModalTrainingBudget(admissionClosed, { ...common, requireGpuAdmission: true }).blocker,
+    "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED");
 });
 
 test("Modal CPU, fixed GPU, and training share one atomic monthly reservation ledger", async () => {

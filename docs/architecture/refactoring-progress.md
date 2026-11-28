@@ -2392,3 +2392,22 @@ progress references. The GitHub installation owner-proof decision remains ADR
 the decision index and file numbering, and ran `git diff --check`. This is a
 documentation-only change; no provider, runtime, credential, deployment, or
 admission state changed.
+
+## 2026-11-28 — A5: centralize Modal training budget decisions
+
+**Finding:** owner capability, training prepare, submit and status each
+reinterpreted the same Modal D1 budget projection. The duplicated checks could
+disagree about provider policy availability, the per-run ceiling, the lane's
+monthly ceiling, remaining reservation, and GPU admission.
+
+**Change:** added `assessModalTrainingBudget` beside the authoritative D1
+budget projection and migrated all four consumers. The shared result keeps
+capability discovery's positive-remaining check distinct from prepare/status'
+exact full-plan remaining-budget check, and submit's current admission check.
+Updated the architecture map to state that custom training is Modal-only in
+source today; it no longer describes this orchestrator as provider-neutral.
+
+**Validation:** focused provider-budget tests pass (7); full Sites checks pass
+(2 dependency-graph tests, acyclic graph across 67 Worker modules, current
+generated registry, and 188 Worker tests). No D1 schema, provider, credential,
+deployment, or admission state changed.

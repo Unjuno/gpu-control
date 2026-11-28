@@ -3,7 +3,7 @@ import { authorizeTrainingMcpSubmit, getTrainingAuthorization, trainingAuthoriza
 import { trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { previewModalOwnerTrainingPlan } from "./modal_owner_training_plan.js";
 import { previewMapTrainingPlan } from "./map_training_plan.js";
-import { readProviderBudgetPolicy } from "./provider_budget_policy.js";
+import { assessModalTrainingBudget, readProviderBudgetPolicy } from "./provider_budget_policy.js";
 import { claimTrainingDispatch } from "./training_dispatch_claim.js";
 import { trainingPlanState } from "./training_plan_state.js";
 import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
@@ -39,22 +39,20 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
         ? configuredCost : OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_COST_MICROUSD) };
   }
   const budgetPolicy = await readProviderBudgetPolicy(env.DB);
-  const modalBudget = budgetPolicy.provider_budgets.find((item) => item.provider === "modal");
-  if (budgetPolicy.state !== "ready" || !modalBudget) return { schema_version: 2, status: "blocked",
-    human_summary: "Modal計算ルート共通の予算ポリシーを確認できないため、計画を作成できません。",
-    machine_state: { repository: source.repository, commit: source.commit,
-      provider_budget_policy_state: "unavailable" },
-    next_allowed_actions: ["experiment_capabilities"], blocking_reason: "PROVIDER_BUDGET_POLICY_UNAVAILABLE" };
   const laneMonthlyLimit = source.repository === MAP_TRAINING_REPOSITORY
     ? mapConfig.monthly_microusd
     : ownerConfig.monthly_microusd;
   const laneMonthlyMaximum = source.repository === MAP_TRAINING_REPOSITORY
     ? MAP_TRAINING_MAX_MONTHLY_MICROUSD : OWNER_TRAINING_MAX_MONTHLY_MICROUSD;
-  if (!Number.isSafeInteger(args.max_cost_microusd) || args.max_cost_microusd < 1 ||
-      args.max_cost_microusd > modalBudget.per_run_limit_microusd ||
-      args.max_cost_microusd > modalBudget.monthly_remaining_microusd ||
-      !Number.isSafeInteger(laneMonthlyLimit) || laneMonthlyLimit < 1 ||
-      laneMonthlyLimit > laneMonthlyMaximum || laneMonthlyLimit > modalBudget.monthly_limit_microusd) return { schema_version: 2, status: "blocked",
+  const budgetAssessment = assessModalTrainingBudget(budgetPolicy, { maxCostMicrousd: args.max_cost_microusd,
+    monthlyLimitMicrousd: laneMonthlyLimit, monthlyMaximumMicrousd: laneMonthlyMaximum, requireRemaining: true });
+  const modalBudget = budgetAssessment.providerBudget;
+  if (!budgetAssessment.policyAvailable) return { schema_version: 2, status: "blocked",
+    human_summary: "Modal計算ルート共通の予算ポリシーを確認できないため、計画を作成できません。",
+    machine_state: { repository: source.repository, commit: source.commit,
+      provider_budget_policy_state: "unavailable" },
+    next_allowed_actions: ["experiment_capabilities"], blocking_reason: "PROVIDER_BUDGET_POLICY_UNAVAILABLE" };
+  if (!budgetAssessment.limitsSatisfied) return { schema_version: 2, status: "blocked",
     human_summary: "指定された実験上限がModal計算ルート共通の1回または月次上限を超えています。",
     machine_state: { provider: "modal", per_run_limit_usd: modalBudget.per_run_limit_usd,
       monthly_limit_usd: modalBudget.monthly_limit_usd },
@@ -101,12 +99,9 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
   // call. The connected host presents its native confirmation once for that run.
   const providerConfigured = isConfigured(env);
   const currentBudgetPolicy = await readProviderBudgetPolicy(env.DB);
-  const modalBudget = currentBudgetPolicy.provider_budgets.find((item) => item.provider === "modal");
   const planMonthlyBudget = plan.monthly_budget_microusd ?? mapConfig.monthly_microusd;
-  const gpuBudgetReady = currentBudgetPolicy.state === "ready" &&
-    modalBudget?.modal_gpu_admission_enabled === true &&
-    plan.max_cost_microusd <= modalBudget.per_run_limit_microusd &&
-    Number.isSafeInteger(planMonthlyBudget) && planMonthlyBudget <= modalBudget.monthly_limit_microusd;
+  const gpuBudgetReady = assessModalTrainingBudget(currentBudgetPolicy, { maxCostMicrousd: plan.max_cost_microusd,
+    monthlyLimitMicrousd: planMonthlyBudget, requireGpuAdmission: true }).ready;
   const executableNow = state === "prepared" && admission && gpuBudgetReady && providerConfigured &&
     (authorized || ownerSelected);
   if (executableNow) actions.unshift("training_submit");
@@ -151,21 +146,22 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   const mapConfig = mapTrainingConfiguration(env);
   {
     const budgetPolicy = await readProviderBudgetPolicy(env.DB);
-    const modalProviderPolicy = budgetPolicy.provider_budgets.find((item) => item.provider === "modal");
-    if (budgetPolicy.state !== "ready" || !modalProviderPolicy) return { schema_version: 2, status: "blocked",
+    const trainingBudget = assessModalTrainingBudget(budgetPolicy, {
+      maxCostMicrousd: plan.max_cost_microusd,
+      monthlyLimitMicrousd: ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd,
+      requireGpuAdmission: true,
+    });
+    if (!trainingBudget.policyAvailable) return { schema_version: 2, status: "blocked",
       human_summary: "Modal GPUの予算ポリシーを確認できないため、実験は開始していません。",
       machine_state: { run_id: runId, provider_budget_policy_state: "unavailable" },
       next_allowed_actions: ["experiment_capabilities", "training_status"],
       blocking_reason: "PROVIDER_BUDGET_POLICY_UNAVAILABLE" };
-    if (modalProviderPolicy.modal_gpu_admission_enabled !== true) return { schema_version: 2, status: "blocked",
+    if (!trainingBudget.gpuAdmissionEnabled) return { schema_version: 2, status: "blocked",
       human_summary: "Modal GPUのD1受付ポリシーが停止中です。予算予約と実験開始は行っていません。",
       machine_state: { run_id: runId, provider: "modal_gpu", budget_admission_enabled: false },
       next_allowed_actions: ["experiment_capabilities", "training_status"],
       blocking_reason: "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED" };
-    if (!Number.isSafeInteger(plan.max_cost_microusd) ||
-        plan.max_cost_microusd > modalProviderPolicy.per_run_limit_microusd ||
-        !Number.isSafeInteger(ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd) ||
-        (ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd) > modalProviderPolicy.monthly_limit_microusd) return { schema_version: 2, status: "blocked",
+    if (!trainingBudget.limitsSatisfied) return { schema_version: 2, status: "blocked",
       human_summary: "実験上限がModal計算ルート共通の予算上限を超えています。",
       machine_state: { run_id: runId, provider: "modal", budget_policy_available: true },
       next_allowed_actions: ["experiment_capabilities", "training_status"],

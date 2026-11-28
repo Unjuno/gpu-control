@@ -1,5 +1,5 @@
 import { getTrainingAuthorization, trainingAuthorizationUrl } from "./training_authorization.js";
-import { readProviderBudgetPolicy } from "./provider_budget_policy.js";
+import { assessModalTrainingBudget, readProviderBudgetPolicy } from "./provider_budget_policy.js";
 import { ownerTrainingAdmissionEnabled } from "./training_runtime_profile.js";
 import { mapTrainingConfiguration } from "./map_training_configuration.js";
 
@@ -30,14 +30,14 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
   const providerConfigured = isConfigured(env);
   const siteConfirmationRequired = !ownerSelected;
   const budgetPolicy = state === "prepared" ? await readProviderBudgetPolicy(db) : null;
-  const modalBudget = budgetPolicy?.provider_budgets.find((item) => item.provider === "modal");
   const monthlyLimit = ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd;
-  const modalPolicyReady = budgetPolicy?.state === "ready" && modalBudget;
-  const gpuAdmissionReady = modalBudget?.modal_gpu_admission_enabled === true;
-  const budgetWithinPolicy = modalPolicyReady && Number.isSafeInteger(plan.max_cost_microusd) &&
-    plan.max_cost_microusd <= modalBudget.per_run_limit_microusd && Number.isSafeInteger(monthlyLimit) &&
-    monthlyLimit <= modalBudget.monthly_limit_microusd &&
-    plan.max_cost_microusd <= modalBudget.monthly_remaining_microusd;
+  const budgetAssessment = budgetPolicy ? assessModalTrainingBudget(budgetPolicy, {
+    maxCostMicrousd: plan.max_cost_microusd, monthlyLimitMicrousd: monthlyLimit,
+    requireRemaining: true, requireGpuAdmission: true,
+  }) : null;
+  const modalPolicyReady = budgetAssessment?.policyAvailable === true;
+  const gpuAdmissionReady = budgetAssessment?.gpuAdmissionEnabled === true;
+  const budgetWithinPolicy = budgetAssessment?.limitsSatisfied === true;
   const submitAdmissionReady = admission && gpuAdmissionReady && budgetWithinPolicy;
   const readinessBlocker = state !== "prepared" ? null
     : !modalPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE"

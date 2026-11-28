@@ -5,11 +5,17 @@ import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
 import { ownerTrainingAdmissionEnabled, ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { trainingControlPlaneSha } from "./training_security_configuration.js";
 import { OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
-import { PROVIDERS } from "./provider_catalog.js";
+import { assessModalTrainingBudget } from "./provider_budget_policy.js";
 
 export async function getOwnerTrainingCapability(env, owner, budgetPolicy) {
   const providerBudgets = budgetPolicy.provider_budgets;
-  const modalProviderBudget = providerBudgets.find((item) => item.provider === PROVIDERS.modal.budget_provider);
+  const runtimeConfig = ownerTrainingExecutionConfig(env);
+  const modalBudgetAssessment = assessModalTrainingBudget(budgetPolicy, {
+    maxCostMicrousd: runtimeConfig.max_cost_microusd,
+    monthlyLimitMicrousd: runtimeConfig.monthly_microusd,
+    monthlyMaximumMicrousd: OWNER_TRAINING_MAX_MONTHLY_MICROUSD,
+  });
+  const modalProviderBudget = modalBudgetAssessment.providerBudget;
   const providerBudgetPolicyReady = budgetPolicy.state === "ready";
   const githubConfigured = githubAppConfigured(env);
   let githubConnected = false;
@@ -19,18 +25,11 @@ export async function getOwnerTrainingCapability(env, owner, budgetPolicy) {
   }
   const admissionEnabled = ownerTrainingAdmissionEnabled(env);
   const adapterConfigured = providerAdapterConfigured(env);
-  const runtimeConfig = ownerTrainingExecutionConfig(env);
   const siteProfileConfigured = trainingRuntimeProfileConfigured(runtimeConfig);
   const siteControlPlaneConfigured = trainingControlPlaneConfigured(trainingControlPlaneSha(env));
   const siteProfileFingerprint = await trainingRuntimeProfileFingerprint(ownerTrainingExecutionConfig(env));
-  const budgetAvailable = Number.isSafeInteger(runtimeConfig.monthly_microusd) &&
-    runtimeConfig.monthly_microusd > 0 &&
-    runtimeConfig.monthly_microusd <= OWNER_TRAINING_MAX_MONTHLY_MICROUSD &&
-    runtimeConfig.monthly_microusd <= (modalProviderBudget?.monthly_limit_microusd ?? 0) &&
-    (modalProviderBudget?.monthly_remaining_microusd ?? 0) > 0 &&
-    Number.isSafeInteger(runtimeConfig.max_cost_microusd) &&
-    runtimeConfig.max_cost_microusd > 0 && runtimeConfig.max_cost_microusd <= OWNER_TRAINING_MAX_COST_MICROUSD &&
-    runtimeConfig.max_cost_microusd <= (modalProviderBudget?.per_run_limit_microusd ?? 0);
+  const budgetAvailable = modalBudgetAssessment.limitsSatisfied && modalBudgetAssessment.monthlyRemainingPositive &&
+    runtimeConfig.max_cost_microusd <= OWNER_TRAINING_MAX_COST_MICROUSD;
 
   const capability = {
     execution_kind: "owner_selected_python",

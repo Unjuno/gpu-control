@@ -126,6 +126,37 @@ export async function readProviderBudgetPolicy(db) {
   }
 }
 
+/** Apply the shared Modal training gates to one current policy projection. */
+export function assessModalTrainingBudget(policy, {
+  maxCostMicrousd, monthlyLimitMicrousd, monthlyMaximumMicrousd,
+  requireRemaining = false, requireGpuAdmission = false,
+} = {}) {
+  const modal = policy?.provider_budgets?.find((item) => item.provider === PROVIDERS.modal.budget_provider) || null;
+  const policyAvailable = policy?.state === "ready" && modal?.policy_available === true &&
+    Number.isSafeInteger(modal.per_run_limit_microusd) && modal.per_run_limit_microusd > 0 &&
+    Number.isSafeInteger(modal.monthly_limit_microusd) && modal.monthly_limit_microusd > 0 &&
+    Number.isSafeInteger(modal.monthly_remaining_microusd) && modal.monthly_remaining_microusd >= 0;
+  const gpuAdmissionEnabled = modal?.modal_gpu_admission_enabled === true;
+  const runLimitSatisfied = maxCostMicrousd === undefined ||
+    Number.isSafeInteger(maxCostMicrousd) && maxCostMicrousd > 0 && maxCostMicrousd <= (modal?.per_run_limit_microusd ?? 0);
+  const monthlyLimitSatisfied = monthlyLimitMicrousd === undefined ||
+    Number.isSafeInteger(monthlyLimitMicrousd) && monthlyLimitMicrousd > 0 &&
+      monthlyLimitMicrousd <= (modal?.monthly_limit_microusd ?? 0) &&
+      (monthlyMaximumMicrousd === undefined || monthlyLimitMicrousd <= monthlyMaximumMicrousd);
+  const monthlyRemainingPositive = Number.isSafeInteger(modal?.monthly_remaining_microusd) &&
+    modal.monthly_remaining_microusd > 0;
+  const remainingSatisfied = !requireRemaining ||
+    Number.isSafeInteger(maxCostMicrousd) && maxCostMicrousd <= (modal?.monthly_remaining_microusd ?? -1);
+  const limitsSatisfied = runLimitSatisfied && monthlyLimitSatisfied && remainingSatisfied;
+  const ready = policyAvailable && limitsSatisfied && (!requireGpuAdmission || gpuAdmissionEnabled);
+  const blocker = !policyAvailable ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
+    : requireGpuAdmission && !gpuAdmissionEnabled ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
+    : !limitsSatisfied ? "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY" : null;
+  return { providerBudget: modal, policyAvailable, gpuAdmissionEnabled,
+    monthlyRemainingPositive, runLimitSatisfied, monthlyLimitSatisfied,
+    remainingSatisfied, limitsSatisfied, ready, blocker };
+}
+
 export function prepareModalComputeBudgetReservation(db, {
   runId, source, fingerprint, periodKey, requestedMicrousd, now, requireGpuAdmission = false,
 }) {
