@@ -15,6 +15,7 @@ import {
   githubAppOAuthConfigured,
   githubConnectionStatus,
   listGithubInstallationRepositories,
+  listOwnedGithubRepositories,
   verifyGithubInstallation,
 } from "./github_app_connection.js";
 
@@ -30,6 +31,7 @@ function database() {
   sqlite.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../drizzle/0033_github_installation_user_authorization.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../drizzle/0035_github_owner_identity.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../drizzle/0041_github_user_repository_scope.sql", import.meta.url), "utf8"));
   const db = {
     prepare(sql) {
       return { bind(...values) {
@@ -97,7 +99,7 @@ test("install callback requires user access to the exact installation before bin
     const linked = await completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa", async (url, init) => {
       assert.equal(init.headers.authorization, "Bearer ghu_aaaaaaaaaaaaaaaaaaaa");
       if (String(url) === "https://api.github.com/user") return mockResponse({ id: 7654321, login: "Unjuno" });
-      assert.equal(String(url), "https://api.github.com/user/installations/98765/repositories?per_page=1&page=1");
+      assert.equal(String(url), "https://api.github.com/user/installations/98765/repositories?per_page=100&page=1");
       return mockResponse({ total_count: 1, repositories: [{ id: 7, full_name: "Unjuno/model-as-a-paper" }] });
     }, 1_800_000_031);
     assert.deepEqual(linked, { connected: true, account_login: "Unjuno", repository_selection: "selected" });
@@ -131,7 +133,7 @@ test("a GitHub subject cannot be rebound to another Sites owner or silently swit
       const oauthState = new URL(authorization.authorization_url).searchParams.get("state");
       await completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa", async (url) => {
         return mockResponse(String(url) === "https://api.github.com/user"
-          ? { id: identityId, login } : { total_count: 1, repositories: [{}] });
+          ? { id: identityId, login } : { total_count: 1, repositories: [{ id: 7, full_name: "Unjuno/model-as-a-paper" }] });
       }, 1_800_000_002);
     };
     await assert.rejects(link("second-owner", 7654321, "Unjuno"),
@@ -226,15 +228,17 @@ test("installation token is scoped to one repository and only Contents read", as
 test("owner repository token minting proves the exact repository is selected first", async () => {
   const db = database();
   await db.prepare(`INSERT INTO github_app_installations
-    (owner_id, installation_id, account_login, repository_selection, connected_at)
-    VALUES (?, ?, ?, 'selected', ?)`)
-    .bind("site-owner", "98765", "Unjuno", 1_800_000_000).run();
+    (owner_id, installation_id, account_login, repository_selection, user_authorized_repositories_json, connected_at)
+    VALUES (?, ?, ?, 'selected', ?, ?)`)
+    .bind("site-owner", "98765", "Unjuno", JSON.stringify(["unjuno/model-as-a-paper"]), 1_800_000_000).run();
   let scopedTokenRequests = 0;
   const fetchImpl = async (url, init) => {
     const path = new URL(url).pathname;
     if (path === "/installation/repositories") {
-      return mockResponse({ total_count: 1,
-        repositories: [{ full_name: "Unjuno/model-as-a-paper", private: true, default_branch: "main" }] });
+      return mockResponse({ total_count: 2, repositories: [
+        { full_name: "Unjuno/model-as-a-paper", private: true, default_branch: "main" },
+        { full_name: "Unjuno/other-private", private: true, default_branch: "main" },
+      ] });
     }
     const body = JSON.parse(init.body);
     if (body.repositories) {
@@ -253,9 +257,30 @@ test("owner repository token minting proves the exact repository is selected fir
     assert.equal(token.token, "ghs-owner-scoped");
     await assert.rejects(createOwnedRepositoryReadToken(env, db, "site-owner", "other/private-repo", { fetchImpl }),
       { message: "GITHUB_REPOSITORY_NOT_SELECTED" });
+    await assert.rejects(createOwnedRepositoryReadToken(env, db, "site-owner", "Unjuno/other-private", { fetchImpl }),
+      { message: "GITHUB_REPOSITORY_NOT_SELECTED" });
     assert.equal(scopedTokenRequests, 1);
     await assert.rejects(createOwnedRepositoryReadToken(env, db, "another-owner", "Unjuno/model-as-a-paper", { fetchImpl }),
       { message: "GITHUB_CONNECTION_REQUIRED" });
+  } finally { db.close(); }
+});
+
+test("repository list is intersected with the GitHub user's OAuth-authorized repository scope", async () => {
+  const db = database();
+  await db.prepare(`INSERT INTO github_app_installations
+    (owner_id, installation_id, account_login, repository_selection, user_authorized_repositories_json, connected_at)
+    VALUES (?, ?, ?, 'selected', ?, ?)`)
+    .bind("site-owner", "98765", "Unjuno", JSON.stringify(["unjuno/allowed"]), 1_800_000_000).run();
+  const fetchImpl = async (url, init) => new URL(url).pathname === "/installation/repositories"
+    ? mockResponse({ total_count: 2, repositories: [
+      { full_name: "Unjuno/allowed", private: true, default_branch: "main" },
+      { full_name: "Unjuno/not-allowed-to-user", private: true, default_branch: "main" },
+    ] })
+    : mockResponse({ token: "ghs-list-only", expires_at: new Date(Date.now() + 60_000).toISOString(),
+      permissions: { contents: "read", metadata: "read" } });
+  try {
+    const repositories = await listOwnedGithubRepositories(env, db, "site-owner", { fetchImpl });
+    assert.deepEqual(repositories.map((repo) => repo.repository), ["unjuno/allowed"]);
   } finally { db.close(); }
 });
 

@@ -225,10 +225,29 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
   if (intent.consumed_at !== null) throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
   if (!validInstallationId(intent.pending_installation_id)) throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
   const identity = await readGithubOAuthIdentity(userToken, fetchImpl);
-  const access = await githubApiWithUserToken(
-    `/user/installations/${intent.pending_installation_id}/repositories?per_page=1&page=1`, userToken, fetchImpl);
-  if (!Number.isSafeInteger(access.total_count) || access.total_count < 0 || access.total_count > 500 ||
-      !Array.isArray(access.repositories) || access.repositories.length > 1) {
+  const authorizedRepositories = [];
+  let totalCount = null;
+  for (let page = 1; page <= 5; page += 1) {
+    const access = await githubApiWithUserToken(
+      `/user/installations/${intent.pending_installation_id}/repositories?per_page=100&page=${page}`, userToken, fetchImpl);
+    if (!Number.isSafeInteger(access.total_count) || access.total_count < 0 || access.total_count > 500 ||
+        !Array.isArray(access.repositories) || access.repositories.length > 100 ||
+        (totalCount !== null && totalCount !== access.total_count)) {
+      throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
+    }
+    totalCount = access.total_count;
+    for (const repository of access.repositories) {
+      if (!Number.isSafeInteger(repository?.id) || repository.id < 1 ||
+          typeof repository.full_name !== "string" ||
+          !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository.full_name)) {
+        throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
+      }
+      authorizedRepositories.push(repository.full_name.toLowerCase());
+    }
+    if (authorizedRepositories.length >= totalCount || access.repositories.length === 0) break;
+  }
+  if (totalCount === null || authorizedRepositories.length !== totalCount ||
+      new Set(authorizedRepositories).size !== authorizedRepositories.length) {
     throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
   }
   const consumedAt = now;
@@ -247,13 +266,14 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
       SELECT owner_id FROM github_installation_states WHERE oauth_state_hash=? AND completion_nonce=?)`)
       .bind(stateHash, completionNonce),
     db.prepare(`INSERT INTO github_app_installations
-      (owner_id, installation_id, account_login, repository_selection, connected_at)
-      SELECT owner_id, pending_installation_id, pending_account_login, 'selected', ?
+      (owner_id, installation_id, account_login, repository_selection, user_authorized_repositories_json, connected_at)
+      SELECT owner_id, pending_installation_id, pending_account_login, 'selected', ?, ?
       FROM github_installation_states WHERE oauth_state_hash=? AND completion_nonce=?
       ON CONFLICT(owner_id) DO UPDATE SET installation_id=excluded.installation_id,
         account_login=excluded.account_login, repository_selection=excluded.repository_selection,
+        user_authorized_repositories_json=excluded.user_authorized_repositories_json,
         connected_at=excluded.connected_at`)
-      .bind(now, stateHash, completionNonce),
+      .bind(JSON.stringify(authorizedRepositories), now, stateHash, completionNonce),
     db.prepare(`INSERT INTO github_owner_identities (owner_id, github_user_id, verified_at)
       SELECT owner_id, ?, ? FROM github_installation_states
       WHERE oauth_state_hash=? AND completion_nonce=?
@@ -386,9 +406,24 @@ export async function listGithubInstallationRepositories(env, installationId, op
   return repos;
 }
 
+export async function listOwnedGithubRepositories(env, db, owner, options = {}) {
+  const connection = await getOwnedGithubInstallation(db, owner);
+  if (!connection) throw new Error("GITHUB_CONNECTION_REQUIRED");
+  let authorized;
+  try { authorized = JSON.parse(connection.user_authorized_repositories_json); }
+  catch { throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED"); }
+  if (!Array.isArray(authorized) || authorized.length > 500 ||
+      authorized.some((item) => typeof item !== "string" || !/^[a-z0-9-]+\/[a-z0-9_.-]+$/.test(item))) {
+    throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
+  }
+  const authorizedSet = new Set(authorized);
+  return (await listGithubInstallationRepositories(env, connection.installation_id, options))
+    .filter((repository) => authorizedSet.has(repository.repository));
+}
+
 export async function getOwnedGithubInstallation(db, owner) {
   if (!validOwner(owner)) throw new Error("GITHUB_CONNECTION_INVALID");
-  return db.prepare(`SELECT installation_id, account_login, repository_selection
+  return db.prepare(`SELECT installation_id, account_login, repository_selection, user_authorized_repositories_json
     FROM github_app_installations WHERE owner_id=?`).bind(owner).first();
 }
 
@@ -397,7 +432,7 @@ export async function createOwnedRepositoryReadToken(env, db, owner, repository,
   if (!githubAppConfigured(env)) throw new Error("GITHUB_APP_NOT_CONFIGURED");
   const connection = await getOwnedGithubInstallation(db, owner);
   if (!connection) throw new Error("GITHUB_CONNECTION_REQUIRED");
-  const repositories = await listGithubInstallationRepositories(env, connection.installation_id, options);
+  const repositories = await listOwnedGithubRepositories(env, db, owner, options);
   if (!repositories.some((item) => item.repository.toLowerCase() === repository.toLowerCase())) {
     throw new Error("GITHUB_REPOSITORY_NOT_SELECTED");
   }

@@ -1,6 +1,5 @@
 import { createGithubInstallationUrl, disconnectGithubApp, githubAppConfigured, githubAppOAuthConfigured,
-  githubConnectionStatus, getOwnedGithubInstallation,
-  listGithubInstallationRepositories } from "./github_app_connection.js";
+  githubConnectionStatus, getOwnedGithubInstallation, listOwnedGithubRepositories } from "./github_app_connection.js";
 
 const GITHUB_TOOLS = new Set([
   "github_connection_start", "github_connection_status",
@@ -50,7 +49,7 @@ export async function handleGithubTool(name, env, owner) {
     human_summary: "GitHub accountがまだGPU Controlへ接続されていません。",
     machine_state: { repositories: [] }, next_allowed_actions: ["github_connection_start"],
     blocking_reason: "GITHUB_CONNECTION_REQUIRED" };
-  const repositories = await listGithubInstallationRepositories(env, connection.installation_id);
+  const repositories = await listOwnedGithubRepositories(env, env.DB, owner);
   return { schema_version: 2, status: "ok", human_summary: `接続済みGitHub accountから${repositories.length}件の選択済みrepositoryを取得しました。`,
     machine_state: { account_login: connection.account_login, repositories },
     next_allowed_actions: ["training_register"], blocking_reason: null };

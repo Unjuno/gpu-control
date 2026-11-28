@@ -55,6 +55,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0028_training_execution_specs.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0029_training_authorization_evidence.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0041_github_user_repository_scope.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0031_training_cleanup_confirmation.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0040_training_terminal_result.sql", import.meta.url), "utf8"));
     db.exec(`CREATE TABLE provider_budget_policies (
@@ -142,8 +143,9 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     env.GITHUB_APP_SLUG = "gpu-control-source";
     env.GITHUB_APP_PRIVATE_KEY = appKeys.privateKey.export({ type: "pkcs8", format: "pem" });
     db.prepare(`INSERT INTO github_app_installations
-      (owner_id, installation_id, account_login, repository_selection, connected_at)
-      VALUES (?, ?, ?, 'selected', ?)`).run("selected-owner", "98765", "sample-owner", 1);
+      (owner_id, installation_id, account_login, repository_selection, user_authorized_repositories_json, connected_at)
+      VALUES (?, ?, ?, 'selected', ?, ?)`).run("selected-owner", "98765", "sample-owner",
+        JSON.stringify(["sample-owner/sample-model"]), 1);
     const ownerCapabilities = await call("selected-owner", "experiment_capabilities", {});
     assert.equal(ownerCapabilities.machine_state.owner_selected_training.github_app_configured, true);
     assert.equal(ownerCapabilities.machine_state.owner_selected_training.github_connected, true);
