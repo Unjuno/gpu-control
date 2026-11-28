@@ -68,6 +68,9 @@ test("keeps MCP guidance and operation annotations client-neutral", () => {
   assert.match(prepare.description, /without asking the user the same question again/);
   assert.match(submit.description, /do not ask a second conversational confirmation/);
   assert.match(submit.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
+  const reconcile = byName.experiment_reconcile;
+  assert.match(reconcile.description, /explicit tool call/);
+  assert.match(reconcile.description, /not an automatic background schedule/);
   assert.equal(trainingSubmit.annotations.destructiveHint, true);
   assert.match(trainingSubmit.description, /destructive MCP write action/);
   assert.match(trainingSubmit.description, /client may also show its own native write-approval UI/);

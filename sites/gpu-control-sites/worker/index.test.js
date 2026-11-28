@@ -1635,7 +1635,7 @@ test("delegated private artifact uses the exact persisted immutable reference", 
   }
 });
 
-test("scheduled reconciliation advances one active delegated provider run", async () => {
+test("explicit reconciliation advances one active delegated provider run", async () => {
   const runId = "6".repeat(32);
   const plan = {
     id: runId, owner_id: "test-owner", fingerprint: "a".repeat(64),
@@ -1692,7 +1692,7 @@ test("scheduled reconciliation advances one active delegated provider run", asyn
     assert.ok(body.result, JSON.stringify(body));
     const value = JSON.parse(body.result.content[0].text);
     assert.equal(value.status, "pending", JSON.stringify(value));
-    assert.match(value.human_summary, /Scheduled provider reconciliation completed/);
+    assert.match(value.human_summary, /Provider reconciliation completed/);
     assert.equal(request.tool, "experiment_status");
     assert.equal(request.arguments.run_id, runId);
     assert.equal(request.arguments.runtime_seconds, 300);

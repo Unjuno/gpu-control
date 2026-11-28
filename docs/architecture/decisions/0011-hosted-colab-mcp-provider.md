@@ -133,17 +133,18 @@ provider routes; that would fork authorization, retries, history, and cleanup.
 
 ## Current implementation status (2026-11-28)
 
-The PR #70 source candidate (head `2842bd9`) now wires the owner-scoped OAuth connection and
+The PR #70 source candidate wires the owner-scoped OAuth connection and
 fixed hosted MCP client into the shared provider lifecycle. It prepares
 owner-selected public GitHub sources, persists a Colab operation journal,
 recovers status against stable runtime/session/execution IDs, routes
 cancellation and verified R2 artifacts through common MCP tools, and includes
-Colab in scheduled reconciliation and provider capabilities. The 204-test
-Sites suite and all seven exact-head CI checks pass; a lifecycle integration
-test also covers lost runtime-create response recovery with a fake provider.
-This is source evidence only: independent security review, production
-OAuth/configuration and migration, and one bounded live GPU acceptance remain
-incomplete. Admission is closed by
+Colab in the explicit `experiment_reconcile` MCP operation and provider
+capabilities. No automatic background schedule is configured in this
+repository; reconciliation advances only when an authenticated MCP client
+calls it. The local lifecycle integration test covers lost runtime-create
+response recovery with a fake provider. This is source evidence only:
+independent security review, production OAuth/configuration and migration, and
+one bounded live GPU acceptance remain incomplete. Admission is closed by
 default. The exact-call positive-CU attestation is part of the submit contract;
 keep admission closed until the remaining release gates pass.
 

@@ -186,7 +186,12 @@ acceptance.
   observations stay uncertain and never authorize a replacement allocation.
 - **Work:** verify this rule across fixed Modal, RunPod, Kaggle, Hugging Face and
   owner-selected routes; define journal retention and recovery after adapter
-  data loss. Keep secrets and raw large artifacts out of D1.
+  data loss. Keep secrets and raw large artifacts out of D1. The current
+  `experiment_reconcile` is an explicit owner-authenticated MCP call, not a
+  scheduled background worker; do not promise recovery after a chat closes.
+  Owner-selected `training_*` runs also have no background reconciler. Decide
+  and verify a durable background execution host before making unattended
+  cleanup an advertised property.
 - **Done when:** each route has one transition authority, cross-layer tests
   cover response loss, duplicate delivery, provider terminal mismatch and
   cleanup pending without duplicate allocation, and journal retention cannot

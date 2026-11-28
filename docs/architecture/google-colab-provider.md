@@ -163,8 +163,8 @@ back to a paid provider or claim GPU availability from subscription tier alone.
    public source, eligible runtime spec, hard runtime/output bounds and
    `cost_unknown` semantics. Private repositories are rejected.
 4. **Implemented in source:** shared MCP submit/status/cancel/artifact and
-   scheduled reconciliation use the D1 operation journal and shared owner-
-   bound run ledger. Stable runtime/session/execution IDs recover the same
+   explicit `experiment_reconcile` calls use the D1 operation journal and
+   shared owner-bound run ledger. Stable runtime/session/execution IDs recover the same
    operation. Verified output files are stored in private R2 before the
    run-owned runtime is deleted.
 5. **Remaining:** independent security review, production OAuth/configuration

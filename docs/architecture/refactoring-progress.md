@@ -5,6 +5,27 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A3: correct the reconciliation execution contract
+
+**Finding:** `experiment_reconcile` was described by the public MCP schema,
+operator Skill and Colab ADR as an automatic Site cloud schedule. No scheduled
+handler or schedule binding exists in the current repository. The tool is an
+explicit owner-authenticated MCP operation. It advances at most one eligible
+Colab, delegated-provider and RunPod run; it does not reconcile owner-selected
+`training_*` jobs.
+
+**Change:** corrected the MCP description and response summary to identify an
+explicit call, aligned the Skill and Colab architecture records, and recorded
+the missing background runner as an open architecture decision. Added a
+contract assertion so the public tool text cannot again promise an automatic
+schedule.
+
+**Validation:** all 211 Sites tests pass; the Worker dependency graph is
+acyclic across 77 runtime modules; Worker build and artifact validation pass;
+D1 forward-migration replay and `git diff --check` pass. This is local source
+evidence only. No background recovery, provider action, admission change,
+deployment, or live run was performed.
+
 ## 2026-11-28 — A1: synchronize operator guidance with current provider routes
 
 **Follow-up finding:** the Sites README, ChatGPT setup guide and public

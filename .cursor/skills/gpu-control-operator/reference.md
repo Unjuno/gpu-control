@@ -18,8 +18,10 @@ Supporting tools:
 - `experiment_cancel`: request cancellation, then continue status/cleanup checks.
 - `experiment_provider_health`: optional Modal diagnostic only when the returned
   plan and server allow it; normal submit performs its own readiness check.
-- `experiment_reconcile`: scheduled/owner maintenance for persisted runs; it
-  does not grant execution authority.
+- `experiment_reconcile`: an explicit owner-authenticated MCP call that
+  advances one eligible Colab run, one delegated-provider run, and one RunPod
+  run. It does not grant execution authority and is not an automatic
+  background schedule. Use `experiment_status` for a specific run.
 
 Always use the tool's current schema. Never copy an old plan, run ID, source
 SHA, artifact revision, price, authorization, or provider state from examples.

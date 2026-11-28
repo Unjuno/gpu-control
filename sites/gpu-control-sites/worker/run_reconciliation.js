@@ -79,7 +79,7 @@ export async function reconcileProviderRuns(env, owner, providers) {
   if (!active.length) return { schema_version: 2, status: "ok", human_summary: "No active provider run requires reconciliation.",
     machine_state: { active_run: false }, next_allowed_actions: [], blocking_reason: null };
   if (active.length === 1) return { ...active[0],
-    human_summary: `Scheduled provider reconciliation completed. ${active[0].human_summary || ""}`.trim() };
+    human_summary: `Provider reconciliation completed. ${active[0].human_summary || ""}`.trim() };
   const statuses = active.map((item) => item.status);
   const status = statuses.includes("error") ? "error" : statuses.includes("blocked") ? "blocked"
     : statuses.includes("pending") ? "pending" : "ok";
