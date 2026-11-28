@@ -2354,3 +2354,24 @@ The repository map now points at `bcefd695ef1c20e0c4da3defc52aebd02e5604c2`,
 records the reduced `index.test.js` size (1,867 lines), and confirms all seven
 exact-head CI checks succeeded. The new contract assertions keep the complete
 Worker suite at 187 tests.
+
+## 2026-11-28 — A6: specify Colab long-call recovery against provider limits
+
+**Finding:** the Colab MCP client currently times out every call after 30
+seconds, while Google's execution API may continue running after its 600-second
+response deadline. Reusing an execution ID reattaches only while its result is
+pending; after the result is returned, reusing that ID executes the code again.
+Cloudflare HTTP Workers also cancel outstanding work when the client
+disconnects, with only a short `waitUntil` extension.
+
+**Change:** documented distinct durable identities and state transitions for
+runtime creation, code execution, result persistence, and deletion. The
+architecture gate now forbids depending on one long MCP request or an
+in-memory promise and requires status recovery to reattach to the same pending
+execution before Colab admission can be enabled.
+
+**Evidence:** [Google execute_code contract](https://developers.google.com/colab/api/reference/mcp/tools_list/execute_code)
+and [Cloudflare Worker limits](https://developers.cloudflare.com/workers/platform/limits/)
+were reviewed on 2026-11-28. No runtime or provider call was made; no
+admission, credential, budget, or deployment setting changed. The current
+adapter remains read-only and the execution lifecycle is unimplemented.

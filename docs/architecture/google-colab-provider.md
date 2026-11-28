@@ -79,6 +79,41 @@ pretending that Sites authentication automatically grants Google access.
    ledger. Treat Google errors, workload output, logs, and artifacts as
    untrusted data.
 
+## Long-call and recovery boundary
+
+Google's `execute_code` API cuts off a tool call after 600 seconds with
+`DEADLINE_EXCEEDED`, but the kernel code keeps running and the session remains
+busy. A retry with the same session and `executionId` reattaches to that exact
+execution; it does not start another one while the result is pending. After a
+result has been returned, reusing that ID runs the code again. Persist the
+exact session and execution ID before calling Google, persist the result before
+advancing the run, and never infer that a lost HTTP response means the job
+failed or that a completed execution is safe to replay. See Google's
+[`execute_code` contract](https://developers.google.com/colab/api/reference/mcp/tools_list/execute_code).
+
+`create_runtime` has a separate stable UUID `requestId` for idempotent runtime
+creation; persist it before submitting and reuse it after an ambiguous
+response. Runtime creation, code execution, result retrieval, and deletion
+must be distinct persisted state transitions. Do not reuse one generic HTTP
+timeout or automatic retry policy for all four operations.
+
+The Sites Worker client currently applies a 30-second timeout to every Google
+MCP call. Keep that limit for short capability reads. The execution adapter
+needs a recoverable call protocol that survives the connected MCP client's
+own request deadline. Cloudflare documents no hard wall-clock duration for an
+HTTP-triggered Worker while the client remains connected, but work may be
+cancelled when that connection ends; `waitUntil()` extends work for only 30
+seconds after response or disconnect. Therefore a long Colab execution cannot
+depend on one open `training_submit` request or an in-memory promise. Persist
+the request identity and make `training_status` resume only the same pending
+operation, or use a separately justified durable Cloudflare coordinator. See
+[Workers platform limits](https://developers.cloudflare.com/workers/platform/limits/).
+
+Before enabling Colab admission, prove that a disconnected or timed-out chat
+request leaves enough durable state to recover the run and delete its owned
+runtime without asking the user to resubmit training. A second call with a new
+execution ID is a new execution and must never be used as transport recovery.
+
 ## Quota and cost semantics
 
 The Colab API MCP's `get_subscription` returns only `FREE`, `PRO`, or `PRO_PLUS`;
