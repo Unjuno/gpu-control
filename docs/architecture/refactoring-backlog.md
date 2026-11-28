@@ -99,7 +99,7 @@ acceptance.
   are verified.
 - **Remaining:** independent security review, migration/deploy, production
   settings, admission, and a real ChatGPT end-to-end GPU lifecycle remain
-  unverified. The latest PR #70 implementation commit is `27372e1`; all seven
+  unverified. The latest PR #70 implementation commit is `5b4410a`; all seven
   checks pass there. Later PR commits only refresh documentation. Source/tests
   do not close product acceptance.
 - **Work:** from a request such as “try training this repository,” discover
@@ -127,7 +127,7 @@ acceptance.
   Colab's unknown account-level compute-unit balance, unrestricted runtime
   egress, long-call recovery, and destructive runtime cleanup are represented
   in its plan and lifecycle. All seven exact-head CI checks pass at PR tip
-  `27372e1`; independent security review, production configuration/migration
+  `5b4410a`; independent security review, production configuration/migration
   and one live acceptance run remain release gates.
   The official `google-colab-cli` remains a local/CI client for
   compatible authenticated agents; direct CLI jobs do not form a second Sites

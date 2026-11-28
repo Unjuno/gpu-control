@@ -4,9 +4,9 @@
 
 - The current source candidate is PR #70 branch
   `codex/owner-training-workloads`, latest implementation commit
-  `27372e1e2b73d7ee1faff1bd3e398af4f04f4b9b`. PR #70 remains open and
-  unmerged. All seven GitHub Actions checks passed for that implementation
-  commit; later branch commits only refresh release/architecture records.
+  `5b4410a03b5f5f890a1923f53f4c65631c8d2e73`. PR #70 remains open and
+  unmerged. All seven exact-head GitHub Actions checks passed for that
+  implementation commit; any later branch commits only refresh records.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
@@ -27,8 +27,9 @@
   and [the prioritized backlog](architecture/refactoring-backlog.md).
 - The prior full local validation at `748ac11` passed 206 tests; the Worker
   graph was acyclic across 76 modules, and build and D1 migration replay
-  passed. The current error-contract change passes its focused 3-test suite;
-  the exact-head GitHub Actions suite passes at `27372e1`. The Colab
+  passed. Focused tests for RunPod public errors and custom-training journal
+  loss pass 5/5 across their two suites; exact-head CI passes at `5b4410a`.
+  The Colab
   lifecycle integration test covers same-request-ID recovery after lost
   mocked runtime-create and cleanup responses on both status and cancellation.
   A non-empty deletion response leaves cleanup pending; a later exact empty
@@ -41,8 +42,8 @@
   without contacting Colab. The `748ac11` RunPod follow-up preserves an
   ambiguous cancellation request and completes cancellation when the same
   receipt is recovered, while returning pending until cleanup is confirmed.
-  Commit `27372e1` also exposes the fixed RunPod lease/recovery error codes to
-  MCP clients and corrects the Colab CLI guide; it does not change provider
+  Commits `27372e1` and `5b4410a` expose fixed recovery state/errors to MCP
+  clients and correct the Colab CLI guide; they do not change provider
   execution or admission.
 
 The dated entries below are historical snapshots. Their deployment versions,
