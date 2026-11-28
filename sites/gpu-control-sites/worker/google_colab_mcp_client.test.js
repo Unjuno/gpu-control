@@ -66,6 +66,22 @@ test("Google Colab MCP client is pinned to the hosted endpoint, allowlists tool 
       { message: "GOOGLE_COLAB_TOOL_INVALID" });
     await assert.rejects(callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "execute_code", {}),
       { message: "GOOGLE_COLAB_TOOL_INVALID" });
+    await assert.rejects(callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "delete_runtime",
+      { name: "runtimes/run-owned" }), { message: "GOOGLE_COLAB_TOOL_INVALID" });
+    const deletion = await callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "delete_runtime",
+      { name: "runtimes/run-owned" }, {
+        expectedRuntimeName: "runtimes/run-owned",
+        fetchImpl: async (url, init) => {
+          if (String(url) === "https://oauth2.googleapis.com/token") {
+            return response({ access_token: "short-lived-access", scope: colabScope, expires_in: 3600 });
+          }
+          const request = JSON.parse(init.body);
+          assert.equal(request.params.name, "delete_runtime");
+          assert.deepEqual(request.params.arguments, { name: "runtimes/run-owned" });
+          return response({ jsonrpc: "2.0", id: request.id, result: { structuredContent: { done: true } } });
+        },
+      });
+    assert.deepEqual(deletion, { structuredContent: { done: true } });
     await assert.rejects(callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "get_subscription", {}, {
       fetchImpl: async (url) => String(url) === "https://oauth2.googleapis.com/token"
         ? response({ access_token: "short-lived-access", scope: colabScope, expires_in: 3600 })

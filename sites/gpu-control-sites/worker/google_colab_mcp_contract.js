@@ -33,7 +33,11 @@ function validRuntimeSpec(spec) {
 }
 
 /** Validate the narrow Google Colab MCP surface required by the shared run lifecycle. */
-export function validGoogleColabToolCall(name, args) {
+export function validGoogleColabToolCall(name, args, options = {}) {
+  if (name === "delete_runtime") {
+    return exactKeys(args, ["name"]) && RUNTIME_NAME.test(args.name) &&
+      typeof options.expectedRuntimeName === "string" && options.expectedRuntimeName === args.name;
+  }
   return TOOL_ARGUMENTS[name]?.(args) === true;
 }
 

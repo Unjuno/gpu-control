@@ -48,7 +48,7 @@ function parseMcpResponse(text, contentType, id) {
 
 /** Call only the fixed Google Colab hosted MCP endpoint and its fixed tool set. */
 export async function callGoogleColabMcpTool(env, owner, name, argumentsValue = {}, options = {}) {
-  if (!validGoogleColabToolCall(name, argumentsValue)) {
+  if (!validGoogleColabToolCall(name, argumentsValue, options)) {
     throw new Error("GOOGLE_COLAB_TOOL_INVALID");
   }
   const auth = await googleColabAccessToken(env.DB, env, owner, { fetchImpl: options.fetchImpl });

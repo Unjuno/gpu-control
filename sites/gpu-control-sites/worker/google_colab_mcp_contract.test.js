@@ -23,6 +23,18 @@ test("Colab calls accept only the documented bounded lifecycle contract", () => 
     executionId: "7b21ceba-679e-4fd9-b1e7-cd53202b87f0",
     session: "runtimes/gpu-control-test/sessions/run-1" }), false);
   assert.equal(validGoogleColabToolCall("delete_runtime", { name: runtime.name }), false);
+  assert.equal(validGoogleColabToolCall("delete_runtime", { name: runtime.name }, {
+    expectedRuntimeName: runtime.name,
+  }), true);
+  assert.equal(validGoogleColabToolCall("delete_runtime", { name: "runtimes/other-owner-runtime" }, {
+    expectedRuntimeName: runtime.name,
+  }), false);
+  assert.equal(validGoogleColabToolCall("delete_runtime", { name: "https://attacker.example/runtime" }, {
+    expectedRuntimeName: runtime.name,
+  }), false);
+  assert.equal(validGoogleColabToolCall("delete_runtime", { name: runtime.name, force: true }, {
+    expectedRuntimeName: runtime.name,
+  }), false);
   assert.equal(validGoogleColabToolCall("execute_code", { code: "print('ok')", executionId: "id",
     session: "runtimes/gpu-control-test/sessions/run-1", extra: true }), false);
 });

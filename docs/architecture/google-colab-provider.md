@@ -126,9 +126,12 @@ back to a paid provider or claim GPU availability from subscription tier alone.
 2. **In progress:** the hosted-MCP client enforces endpoint allowlisting,
    bounded request/response sizes, OAuth refresh, and a fixed tool allowlist.
    `google_colab_mcp_contract.js` validates exact runtime/session/execution
-   inputs and response identity. These operations have no public Sites caller
-   yet; Colab remains a read-only public capability surface. The current
-   request timeout is not suitable for runtime creation or long training.
+   inputs and response identity. Its internal `delete_runtime` call now also
+   requires the expected run-owned runtime name to match exactly, so generic
+   runtime deletion cannot be requested through that client. These operations
+   have no public Sites caller yet; Colab remains a read-only public capability
+   surface. The current request timeout is not suitable for runtime creation
+   or long training.
 3. Add Colab capabilities and prepare logic with immutable source, eligible
    runtime spec, hard runtime/output bounds, and an explicit `cost_unknown`
    semantics until quota evidence is trustworthy.

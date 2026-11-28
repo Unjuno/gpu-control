@@ -2181,3 +2181,24 @@ the FastAPI/PostgreSQL service is local-compatibility code and not a production
 dependency. The map now states that consistently and preserves the separate
 A4 question about unknown external use. No runtime code or deployment behavior
 changed.
+
+## 2026-11-28 — A6: bind Colab runtime deletion to the owned runtime identity
+
+**Finding:** the Colab integration contract requires deleting a runtime created
+for one exact run after verified output retrieval, but the fixed hosted-MCP
+client rejected `delete_runtime` entirely. Google documents this tool as the
+operation that removes the runtime, files, sessions, and state; deleting only a
+session leaves the allocated runtime running.
+
+**Change:** the internal Colab MCP client now admits `delete_runtime` only when
+the requested runtime name exactly matches an expected run-owned runtime name
+supplied by its trusted caller. The call still rejects missing ownership
+context, a different runtime, malformed names, or extra arguments. Added
+contract and client tests for those cases. No public Sites tool calls this
+operation yet; this change enables a future shared-lifecycle adapter without
+making arbitrary or owner-existing runtime deletion available.
+
+**Validation:** focused Colab MCP client/contract tests pass (6). No Colab
+runtime was created or deleted, no credentials or admission settings changed,
+and Colab execution remains unavailable until the persisted shared lifecycle
+is implemented.
