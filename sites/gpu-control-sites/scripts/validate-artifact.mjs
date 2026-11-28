@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
+const sourceMigrations = fileURLToPath(new URL("../drizzle/", import.meta.url));
 const manifest = JSON.parse(readFileSync(join(root, ".openai/hosting.json"), "utf8"));
 assert.equal(manifest.project_id, "appgprj_6af482670c2081919ffe27a6faa0f746");
 assert.equal(manifest.d1, "DB");
@@ -20,92 +21,22 @@ assert.ok(statSync(join(root, "server/training_contract.js")).size > 0);
 assert.ok(statSync(join(root, "server/provider_budget_policy.js")).size > 0);
 assert.ok(statSync(join(root, "server/training_inspection.js")).size > 0);
 assert.ok(statSync(join(root, "server/training_tools.js")).size > 0);
-const migrations = readdirSync(join(root, ".openai/drizzle"));
-assert.ok(migrations.some((name) => name.endsWith(".sql")));
-assert.ok(migrations.includes("0000_control_plane.sql"));
-assert.ok(migrations.includes("0001_result_artifacts.sql"));
-const artifactMigration = readFileSync(join(root, ".openai/drizzle/0001_result_artifacts.sql"), "utf8");
-assert.match(artifactMigration, /result_artifact_sha256/);
-assert.match(artifactMigration, /result_artifact_size/);
-assert.ok(migrations.includes("0002_cancellation.sql"));
-const cancellationMigration = readFileSync(join(root, ".openai/drizzle/0002_cancellation.sql"), "utf8");
-assert.match(cancellationMigration, /cancel_requested INTEGER NOT NULL DEFAULT 0/);
-assert.match(cancellationMigration, /CHECK \(cancel_requested IN \(0, 1\)\)/);
-assert.ok(migrations.includes("0003_runner_cancellation_protocol.sql"));
-const runnerProtocolMigration = readFileSync(join(root, ".openai/drizzle/0003_runner_cancellation_protocol.sql"), "utf8");
-assert.match(runnerProtocolMigration, /cancellation_protocol INTEGER NOT NULL DEFAULT 0/);
-assert.match(runnerProtocolMigration, /CHECK \(cancellation_protocol IN \(0, 1\)\)/);
-assert.ok(migrations.includes("0004_sandbox_cost_ceiling.sql"));
-const costCeilingMigration = readFileSync(join(root, ".openai/drizzle/0004_sandbox_cost_ceiling.sql"), "utf8");
-assert.match(costCeilingMigration, /max_cost_usd TEXT NOT NULL CHECK \(max_cost_usd IN \('0\.00', '0\.01'\)\)/);
-assert.match(costCeilingMigration, /SELECT[\s\S]*max_cost_usd[\s\S]*FROM plans/);
-assert.match(costCeilingMigration, /PRAGMA foreign_key_check/);
-assert.ok(migrations.includes("0005_human_plan_authorization.sql"));
-const humanAuthorizationMigration = readFileSync(join(root, ".openai/drizzle/0005_human_plan_authorization.sql"), "utf8");
-assert.match(humanAuthorizationMigration, /CREATE TABLE authorization_challenges/);
-assert.match(humanAuthorizationMigration, /CREATE TABLE human_authorizations/);
-assert.match(humanAuthorizationMigration, /plan_id TEXT NOT NULL UNIQUE REFERENCES plans\(id\)/);
-assert.match(humanAuthorizationMigration, /CHECK \(expires_at - authorized_at <= 900\)/);
-assert.ok(migrations.includes("0006_runpod_account_leases.sql"));
-const accountLeaseMigration = readFileSync(join(root, ".openai/drizzle/0006_runpod_account_leases.sql"), "utf8");
-assert.match(accountLeaseMigration, /PRIMARY KEY \(provider, account_scope_sha256\)/);
-assert.match(accountLeaseMigration, /state IN \('reserved', 'submitting', 'uncertain', 'active', 'cleanup_pending', 'released'\)/);
-assert.match(accountLeaseMigration, /provider_account_leases_one_active_per_run/);
-assert.doesNotMatch(accountLeaseMigration, /lease_expires_at/);
-assert.ok(migrations.includes("0007_modal_health_check_limit.sql"));
-const healthLimitMigration = readFileSync(join(root, ".openai/drizzle/0007_modal_health_check_limit.sql"), "utf8");
-assert.match(healthLimitMigration, /scope TEXT PRIMARY KEY CHECK \(scope = 'workspace'\)/);
-assert.match(healthLimitMigration, /last_checked_at INTEGER NOT NULL CHECK/);
-assert.ok(migrations.includes("0008_modal_plan_health_authorization.sql"));
-const planHealthMigration = readFileSync(join(root, ".openai/drizzle/0008_modal_plan_health_authorization.sql"), "utf8");
-assert.match(planHealthMigration, /plan_id TEXT PRIMARY KEY REFERENCES plans\(id\)/);
-assert.match(planHealthMigration, /CREATE INDEX modal_authorized_health_checks_owner_checked/);
-assert.ok(migrations.includes("0009_modal_health_readiness.sql"));
-const healthReadinessMigration = readFileSync(join(root, ".openai/drizzle/0009_modal_health_readiness.sql"), "utf8");
-assert.match(healthReadinessMigration, /ADD COLUMN ready INTEGER NOT NULL DEFAULT 0 CHECK \(ready IN \(0, 1\)\)/);
-assert.ok(migrations.includes("0011_chatgpt_tool_authorization.sql"));
-const chatgptAuthorizationMigration = readFileSync(join(root, ".openai/drizzle/0011_chatgpt_tool_authorization.sql"), "utf8");
-assert.match(chatgptAuthorizationMigration, /authorization_source TEXT NOT NULL DEFAULT 'site_confirmation'/);
-assert.match(chatgptAuthorizationMigration, /chatgpt_mcp_write_confirmation/);
-assert.ok(migrations.includes("0012_provider_runtime_state.sql"));
-const providerRuntimeMigration = readFileSync(join(root, ".openai/drizzle/0012_provider_runtime_state.sql"), "utf8");
-assert.match(providerRuntimeMigration, /ADD COLUMN provider TEXT NOT NULL DEFAULT 'modal_cpu'/);
-assert.match(providerRuntimeMigration, /ADD COLUMN provider_job_id TEXT/);
-assert.match(providerRuntimeMigration, /runs_provider_job_id_unique/);
-assert.ok(migrations.includes("0013_provider_budgets.sql"));
-const providerBudgetMigration = readFileSync(join(root, ".openai/drizzle/0013_provider_budgets.sql"), "utf8");
-assert.match(providerBudgetMigration, /'modal_cpu', 30000000, 10000/);
-assert.match(providerBudgetMigration, /'runpod_gpu', NULL, 1000000/);
-assert.ok(migrations.includes("0014_gateway_delegation.sql"));
-const gatewayDelegationMigration = readFileSync(join(root, ".openai/drizzle/0014_gateway_delegation.sql"), "utf8");
-assert.match(gatewayDelegationMigration, /CREATE TABLE IF NOT EXISTS gateway_delegated_plans/);
-assert.match(gatewayDelegationMigration, /CREATE TABLE IF NOT EXISTS gateway_delegated_authorizations/);
-assert.ok(migrations.includes("0015_modal_starter_budget.sql"));
-const modalStarterBudgetMigration = readFileSync(join(root, ".openai/drizzle/0015_modal_starter_budget.sql"), "utf8");
-assert.match(modalStarterBudgetMigration, /UPDATE provider_budget_policies/);
-assert.ok(migrations.includes("0017_free_provider_policies.sql"));
-const freeProviderPolicyMigration = readFileSync(join(root, ".openai/drizzle/0017_free_provider_policies.sql"), "utf8");
-assert.match(freeProviderPolicyMigration, /CREATE TABLE provider_free_policies/);
-assert.match(freeProviderPolicyMigration, /'kaggle', 0, 0/);
-assert.match(freeProviderPolicyMigration, /'huggingface_space', 0, 0/);
-assert.match(freeProviderPolicyMigration, /CREATE TABLE provider_free_run_authorizations/);
-assert.ok(migrations.includes("0021_reliable_run_history.sql"));
-const reliableRunHistoryMigration = readFileSync(join(root, ".openai/drizzle/0021_reliable_run_history.sql"), "utf8");
-assert.match(reliableRunHistoryMigration, /ADD COLUMN cancelled_at INTEGER/);
-assert.match(reliableRunHistoryMigration, /ADD COLUMN source_run_id TEXT/);
-assert.match(reliableRunHistoryMigration, /ADD COLUMN submit_attempted_at INTEGER/);
-assert.match(reliableRunHistoryMigration, /CREATE TRIGGER gateway_delegated_terminal_at_once/);
-assert.match(reliableRunHistoryMigration, /CREATE TRIGGER runs_completed_at_once/);
-for (const migration of [
-  "0022_training_registrations.sql",
-  "0023_training_plans.sql",
-  "0024_training_plan_cancellation.sql",
-  "0025_training_submission_claim.sql",
-  "0026_training_authorizations.sql",
-  "0027_training_dispatch_rejection.sql",
-  "0028_training_execution_specs.sql",
-]) {
-  assert.ok(migrations.includes(migration), `Missing migration ${migration}`);
+const sourceMigrationNames = readdirSync(sourceMigrations)
+  .filter((name) => name.endsWith(".sql"))
+  .sort();
+const artifactMigrationsRoot = join(root, ".openai/drizzle");
+const artifactMigrationNames = readdirSync(artifactMigrationsRoot)
+  .filter((name) => name.endsWith(".sql"))
+  .sort();
+assert.ok(sourceMigrationNames.length > 0, "source migration history must not be empty");
+assert.deepEqual(artifactMigrationNames, sourceMigrationNames,
+  "built artifact must include exactly the source D1 migration files");
+for (const name of sourceMigrationNames) {
+  assert.deepEqual(
+    readFileSync(join(artifactMigrationsRoot, name)),
+    readFileSync(join(sourceMigrations, name)),
+    `built artifact migration ${name} must match its source bytes`,
+  );
 }
 const worker = await import(new URL("../dist/server/index.js", import.meta.url));
 assert.equal(typeof worker.default.fetch, "function");

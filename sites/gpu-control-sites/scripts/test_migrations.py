@@ -72,6 +72,14 @@ conn.execute(
      '{"execution_kind":"owner_selected_python","max_cost_microusd":500000}',
      shared_created_at, shared_created_at + 300, shared_created_at),
 )
+assert conn.execute(
+    "SELECT monthly_limit_microusd,per_run_limit_microusd "
+    "FROM provider_budget_policies WHERE provider='modal_cpu'"
+).fetchone() == (1_000_000, 10_000)
+assert conn.execute(
+    "SELECT monthly_limit_microusd,per_run_limit_microusd "
+    "FROM provider_budget_policies WHERE provider='runpod_gpu'"
+).fetchone() == (None, 1_000_000)
 conn.executescript(shared_budget.read_text(encoding="utf-8"))
 github_user_authorization = next(path for path in paths if path.name == "0033_github_installation_user_authorization.sql")
 conn.execute("INSERT INTO github_app_installations VALUES (?,?,?,?,?)",
@@ -121,6 +129,10 @@ assert conn.execute("SELECT completed_at FROM runs WHERE id=?", ("c" * 32,)).fet
 assert conn.execute("SELECT monthly_limit_microusd,per_run_limit_microusd FROM modal_compute_budget_policy WHERE scope='workspace'").fetchone() == (
     30_000_000, 1_000_000,
 )
+assert conn.execute(
+    "SELECT monthly_limit_microusd,per_run_limit_microusd "
+    "FROM provider_budget_policies WHERE provider='runpod_gpu'"
+).fetchone() == (None, 1_000_000)
 assert conn.execute("SELECT admission_enabled FROM modal_gpu_admission_policy WHERE scope='workspace'").fetchone() == (1,)
 assert conn.execute("SELECT source,reserved_microusd FROM modal_compute_budget_reservations WHERE run_id=?", ("1" * 32,)).fetchone() == (
     "modal_cpu", 10_000,

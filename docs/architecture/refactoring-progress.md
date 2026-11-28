@@ -2273,3 +2273,23 @@ suite passes 624 tests, one skipped and five subtests; the Sites suite passes
 Worker modules. The workflow YAML parses, and all seven exact-head CI checks
 pass on `2adfab9c38bcf1ecdef3ec9901d5ab25f4c9e7b3`. No migration was added or
 edited by this change.
+
+## 2026-11-28 — A12: make migration artifact verification source-driven
+
+**Finding:** `validate-artifact.mjs` had a long hand-maintained list of old
+migration filenames and SQL regexes that stopped at migration 0028. That list
+duplicated schema semantics and failed to establish that the latest migrations
+were actually copied into the hosted artifact.
+
+**Change:** artifact validation now compares the source and packaged migration
+filename sets and exact bytes. Migration replay tests own schema semantics;
+they now exercise cancellation and provider limits, authorization expiry,
+health-check scope, active lease requirements, and the Modal budget transition.
+The legacy budget fixture checks both the old route-specific policy before
+unification and the shared policy afterward. The migration test fixture now
+inserts named columns instead of relying on the table's evolving column order.
+
+**Validation:** full Python suite passes 624 tests, one skipped, and five
+subtests. Sites build, artifact validation, populated migration replay,
+dependency graph checks, generated registry check, and all 187 Worker tests
+pass locally. Hosted validation is pending.

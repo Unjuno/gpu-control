@@ -637,6 +637,14 @@ and Gateway CI runs those payload contracts plus its previously uninvoked
 systemd-template tests and syntax verifier. CPU smoke and tiny-LM assets remain
 separate because they have independent consumers.
 
+**Progress (2026-11-28):** `validate-artifact.mjs` no longer maintains a
+hand-written list of historical migration filenames and SQL fragments. It
+verifies that every source migration is copied byte-for-byte into the built
+artifact. Schema behavior belongs to the SQLite migration replay tests, which
+exercise persisted rows, constraints, provider budget transitions, and
+forward compatibility. The complete source history remains protected by the
+append-only CI guard above.
+
 ## Decision queue
 
 1. Can the legacy Gateway package and Compose/systemd deployment contract be
