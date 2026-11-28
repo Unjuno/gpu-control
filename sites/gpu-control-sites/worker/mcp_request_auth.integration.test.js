@@ -75,9 +75,17 @@ test("MCP bearer authentication binds audience and separates read and execute sc
   assert.match(wrongToken.headers.get("www-authenticate"), /error="invalid_token"/);
 });
 
-test("ChatGPT and external OAuth clients receive the same MCP tool contract", async () => {
+test("ChatGPT and external OAuth clients share the MCP tools and owner run ledger", async () => {
   const token = `gpc_at_${"c".repeat(43)}`;
   const tokenHash = createHash("sha256").update(token).digest("hex");
+  const ownerIdsReadFromLedger = [];
+  const ownedRun = {
+    run_id: "shared-owner-run", state: "succeeded", created_at: 100, updated_at: 110,
+    completed_at: 110, cleanup_state: "confirmed", result_json: "{}",
+    result_artifact_id: null, lease_id: null, cleanup_receipt_json: null,
+    workload: "tiny-stories-inference-v1", repository: "owner/research",
+    source_sha: "a".repeat(40), image_digest: "sha256:" + "b".repeat(64), provider: "modal_cpu",
+  };
   const env = {
     GPU_CONTROL_ALLOWED_USER_IDS: "shared-owner",
     DB: { prepare(sql) {
@@ -86,7 +94,11 @@ test("ChatGPT and external OAuth clients receive the same MCP tool contract", as
           ? { owner_id: "shared-owner", client_id: "external-client", scope: "experiments:read",
             resource: `${siteOrigin}/mcp`, expires_at: 1_900_000_000 }
           : null;
-        return { first: async () => tokenRow, all: async () => ({ results: [] }) };
+        if (sql.includes("FROM runs r")) ownerIdsReadFromLedger.push(values[0]);
+        return {
+          first: async () => tokenRow,
+          all: async () => ({ results: sql.includes("FROM runs r") ? [ownedRun] : [] }),
+        };
       } };
     } },
   };
@@ -102,4 +114,19 @@ test("ChatGPT and external OAuth clients receive the same MCP tool contract", as
   const externalTools = (await externalResponse.json()).result.tools;
   assert.deepEqual(externalTools, chatgptTools);
   assert.ok(chatgptTools.some((tool) => tool.name === "experiment_capabilities"));
+
+  const runList = { jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "experiment_list", arguments: {} } };
+  const chatgptRunsResponse = await worker.fetch(rpcRequest(runList,
+    { "oai-authenticated-user-id": "shared-owner" }), env);
+  const externalRunsResponse = await worker.fetch(rpcRequest(runList,
+    { authorization: `Bearer ${token}` }), env);
+  assert.equal(chatgptRunsResponse.status, 200);
+  assert.equal(externalRunsResponse.status, 200);
+  const chatgptRuns = await chatgptRunsResponse.json();
+  const externalRuns = await externalRunsResponse.json();
+  assert.deepEqual(externalRuns.result, chatgptRuns.result);
+  const runListValue = JSON.parse(chatgptRuns.result.content[0].text);
+  assert.deepEqual(runListValue.machine_state.experiments.map((run) => run.run_id), ["shared-owner-run"]);
+  assert.deepEqual(ownerIdsReadFromLedger, ["shared-owner", "shared-owner"]);
 });

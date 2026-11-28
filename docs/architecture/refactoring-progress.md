@@ -12,10 +12,12 @@ same Worker, but the cross-client test only verified OAuth scope behavior. A
 future client-specific dispatcher could have diverged without a test showing
 that both authenticated transports expose the same MCP tool contract.
 
-**Change:** added an integration case that sends `tools/list` through the
-ChatGPT Sites identity header and through an owner-bound OAuth bearer for the
-same owner, then compares the complete tool/schema/annotation response. The
-contract remains shared; the two identity transports remain separate.
+**Change:** added an integration case that sends `tools/list` and
+`experiment_list` through the ChatGPT Sites identity header and an owner-bound
+OAuth bearer for the same owner. It compares the complete tool/schema/
+annotation response and verifies that both paths read the same owner-filtered
+run ledger row. The contract remains shared; the two identity transports
+remain separate.
 
 **Validation:** the focused MCP request-auth integration suite passes all three
 cases. The full Sites suite passes all 187 tests; the architecture checker
