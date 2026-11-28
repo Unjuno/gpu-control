@@ -1058,3 +1058,21 @@ queued terminal cleanup, Modal cooperative request, and delegated cancel;
 D1 forward migration tests pass; the Worker graph is acyclic across 45 runtime
 modules; build, Site artifact validation and `git diff --check` pass. No
 provider operation or deployment occurred.
+
+
+## 2026-11-28 — A7: isolate provider-run reconciliation
+
+**Problem:** the dispatcher queried and advanced one delegated-provider run
+and one native RunPod run, then merged their outcomes into the reconciliation
+tool response. The policy was separate, but provider recovery selection and
+result aggregation were still composition-root responsibilities.
+
+**Change:** moved delegated and RunPod recovery selection, bounded status
+updates, failure responses and combined response projection into
+`worker/run_reconciliation.js`. The module receives the two provider lifecycle
+ports and does not submit new provider work.
+
+**Validation:** all 151 Worker tests pass, including recovery of one active
+delegated run and RunPod lifecycle contracts; D1 forward migration tests pass;
+build packages 46 reachable Worker modules; artifact validation and
+`git diff --check` pass. No provider operation or deployment occurred.

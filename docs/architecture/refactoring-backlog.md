@@ -492,3 +492,9 @@ queued/running cancellation transitions and dispatches RunPod cancellation
 through its lifecycle adapter. Delegated cancellation remains adapter-owned;
 Modal CPU cancellation remains a persisted cooperative request. The shared
 151-test suite passes with an acyclic 45-module graph.
+
+**Progress (2026-11-28):** `worker/run_reconciliation.js` now owns recovery
+selection and result aggregation for existing delegated and RunPod runs. It
+invokes existing lifecycle adapters and never submits new work. The complete
+151-test suite, D1 migration check, Worker build and artifact verification
+pass; the import graph is acyclic across 46 runtime modules.

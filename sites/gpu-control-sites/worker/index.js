@@ -26,6 +26,7 @@ import { listExperiments } from "./experiment_list.js";
 import { executionOrigin } from "./execution_origin.js";
 import { readExperimentStatus } from "./experiment_status.js";
 import { cancelLocalRun } from "./local_run_cancellation.js";
+import { reconcileProviderRuns } from "./run_reconciliation.js";
 import { readDelegatedPlan as delegatedPlan, persistProviderAdapterObservation,
   publicProviderAdapterResponse } from "./provider_adapter_run_store.js";
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
@@ -1424,70 +1425,10 @@ async function callTool(name, args, request, env, context = null, principal = nu
     if (delegated) return delegated;
     return cancelLocalRun(env, owner, args.run_id, { synchronizeRunpod: synchronizeRunpodExperiment });
   }
-  if (name === "experiment_reconcile") {
-    let delegatedResult = null;
-    const delegatedRow = await env.DB.prepare(`SELECT id, owner_id FROM gateway_delegated_plans
-      WHERE owner_id=? AND state='submitted' AND workload IN (?, ?, ?)
-        AND COALESCE(provider_state, 'queued') IN ('queued','running')
-      ORDER BY COALESCE(updated_at, created_at), created_at LIMIT 1`)
-      .bind(owner, KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD, MODAL_GPU_WORKLOAD).first();
-    if (delegatedRow) {
-      try {
-        delegatedResult = await maybeDelegateRunTool(
-          env, owner, "experiment_status", { run_id: delegatedRow.id });
-        if (!delegatedResult) throw new Error("RUN_NOT_FOUND");
-      } catch {
-        try {
-          await env.DB.prepare(`UPDATE gateway_delegated_plans SET updated_at=?
-            WHERE owner_id=? AND id=? AND state='submitted'`)
-            .bind(Math.floor(Date.now() / 1000), owner, delegatedRow.id).run();
-        } catch {}
-        delegatedResult = { schema_version: 2, status: "error",
-          human_summary: "Delegated-provider reconciliation failed safely; no new work was submitted.",
-          machine_state: { run_id: delegatedRow.id, state: "reconciliation_error" },
-          next_allowed_actions: ["experiment_status"],
-          blocking_reason: "DELEGATED_RECONCILIATION_FAILED" };
-      }
-    }
-    const row = await env.DB.prepare(`SELECT r.id, r.owner_id FROM runs r JOIN plans p ON p.id=r.plan_id
-      LEFT JOIN provider_account_leases l ON l.provider='runpod' AND l.run_id=r.id
-      WHERE r.owner_id=? AND p.provider='runpod_gpu' AND (
-        r.state IN ('queued','running') OR
-        (r.state IN ('succeeded','failed','cancelled') AND r.cleanup_state='confirmed'
-          AND l.state IN ('active','cleanup_pending'))
-      ) ORDER BY CASE WHEN r.state IN ('succeeded','failed','cancelled') THEN 0 ELSE 1 END, r.created_at LIMIT 1`)
-      .bind(owner).first();
-    if (!row) {
-      if (delegatedResult) return { ...delegatedResult,
-        human_summary: `Scheduled provider reconciliation completed. ${delegatedResult.human_summary || ""}`.trim() };
-      return { schema_version: 2, status: "ok", human_summary: "No active provider run requires reconciliation.",
-        machine_state: { active_run: false }, next_allowed_actions: [], blocking_reason: null };
-    }
-    let runpodResult;
-    try {
-      const updated = await synchronizeRunpodExperiment(env, owner, row.id);
-      runpodResult = { schema_version: 2,
-        status: ["queued", "running"].includes(updated.state) ? "pending" : "ok",
-        human_summary: "Runpod Serverless job reconciliation completed.",
-        machine_state: { run_id: updated.id, state: updated.state, cleanup_state: updated.cleanup_state },
-        next_allowed_actions: ["experiment_status"], blocking_reason: null };
-    } catch {
-      runpodResult = { schema_version: 2, status: "error",
-        human_summary: "Runpod reconciliation failed safely; no new work was submitted.",
-        machine_state: { run_id: row.id, state: "reconciliation_error" },
-        next_allowed_actions: ["experiment_status"],
-        blocking_reason: "RUNPOD_RECONCILIATION_FAILED" };
-    }
-    if (!delegatedResult) return runpodResult;
-    const statuses = [delegatedResult.status, runpodResult.status];
-    const status = statuses.includes("error") ? "error" : statuses.includes("blocked") ? "blocked"
-      : statuses.includes("pending") ? "pending" : "ok";
-    return { schema_version: 2, status,
-      human_summary: "Scheduled delegated-provider and Runpod reconciliation completed.",
-      machine_state: { delegated: delegatedResult.machine_state, runpod: runpodResult.machine_state },
-      next_allowed_actions: ["experiment_status"],
-      blocking_reason: delegatedResult.blocking_reason || runpodResult.blocking_reason };
-  }
+  if (name === "experiment_reconcile") return reconcileProviderRuns(env, owner, {
+    maybeDelegateRunTool,
+    synchronizeRunpod: synchronizeRunpodExperiment,
+  });
   if (name === "experiment_artifact") {
     const delegated = await maybeDelegateRunTool(env, owner, name, args);
     if (delegated) return delegated;
