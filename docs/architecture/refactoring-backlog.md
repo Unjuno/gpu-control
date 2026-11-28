@@ -110,6 +110,20 @@ acceptance.
   per-request execution timeout, job TTL, worker idle timeout, initialization
   assumption, and the estimated billable window. Plan validation/pricing and
   provider request construction now share it.
+- **A23 — Intersect GitHub App and user repository permissions:** completed
+  in this batch. OAuth setup stores the authenticated user's bounded
+  installation repository set; listing and read-token creation require the
+  exact repository to also be in that set. Migration 0041 clears older
+  connections lacking this proof. Scope snapshot limitations are recorded in
+  [ADR 0014](decisions/0014-github-user-repository-scope.md).
+- **A24 — Persist Colab cancellation through cleanup recovery:** completed in
+  this batch. Cancellation is recorded before provider deletion; status and
+  repeated submit honor the tombstone, retry cleanup, and do not resume code
+  execution. Missing operation journals remain uncertain and do not falsely
+  claim that no runtime exists.
+- **A25 — Route owner-training recovery from the approved plan:** completed
+  in this batch. The Modal adapter uses the signed owner-selected execution
+  kind when recovering a run without its local submission journal.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct

@@ -5,6 +5,32 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-29 — A23/A24/A25: close authorization and recovery gaps
+
+**Finding:** exact-head review found three behavioral defects in the
+owner-selected experiment candidate: an App installation's repository list
+could exceed the connected GitHub user's permissions; a failed Colab delete
+could allow status recovery to resume execution; and a journal-less Modal
+owner-selected status request could fall through to the fixed MAP handler.
+
+**Change:** GitHub OAuth now records the authenticated user's bounded
+installation repository set and gates repository discovery and one-repository
+token minting against it. Migration 0041 clears older unscoped connections.
+Colab persists cancellation before cleanup, retains a tombstone if the
+operation journal is missing, and routes status or repeated submit to cleanup
+recovery. Modal dispatch selects the custom lifecycle from its signed approved
+plan when the local submission journal is absent. The changes are isolated in
+separate commits; ADR 0014 documents the repository-scope behavior and its
+revocation limits.
+
+**Validation:** Sites suite 223/223, D1 migration replay, the full Python
+suite, focused Modal routing/package/lifecycle tests (24), and `git diff
+--check` pass. Exact-head GitHub checks pass for PR head `7ff8905`. No
+provider call, credential, admission, production migration, or deployment
+occurred. The connected ChatGPT MCP still exposes registered workloads; it is
+not yet the live owner-selected execution route. PR source and green CI do not
+complete that product acceptance.
+
 ## 2026-11-29 — A19: move Modal GPU account policy behind its provider boundary
 
 **Finding:** `mcp_tool_dispatch.js` owned the Modal GPU's fixed T4 identity and

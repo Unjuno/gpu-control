@@ -41,6 +41,9 @@ conversations a reliable front end for external compute.
 - [ADR 0013](decisions/0013-map-modal-account-evidence.md): bind current
   Modal account usage evidence to MAP training plans without treating the
   Sites reservation as a provider billing cap.
+- [ADR 0014](decisions/0014-github-user-repository-scope.md): intersect
+  GitHub App installation access with the authenticated user's repository
+  scope before discovery or read-token issuance.
 - [Colab provider specification](google-colab-provider.md): OAuth, runtime,
   idempotency, quota, artifact and cleanup contracts for the integration.
 - [Google Colab CLI guide](../GOOGLE_COLAB_CLI.md): what the official CLI can
