@@ -13,6 +13,7 @@ import { dispatchMcpTool, modalGpuProviderEvidence } from "./mcp_tool_dispatch.j
 import { createGoogleColabOAuthRoutes } from "./google_colab_oauth_routes.js";
 import { createMcpOAuthRoutes } from "./mcp_oauth_routes.js";
 import { createGithubOAuthRoutes } from "./github_oauth_routes.js";
+import { mcpToolErrorCode } from "./mcp_tool_errors.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -390,33 +391,7 @@ async function handleMcp(request, env, context = null, principal = null) {
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
-      const known = new Set(["GITHUB_APP_NOT_CONFIGURED", "GITHUB_APP_API_FAILED", "GITHUB_APP_API_RESPONSE_INVALID",
-        "GITHUB_CONNECTION_INVALID", "GITHUB_CONNECTION_REQUIRED", "GITHUB_INSTALLATION_STATE_EXPIRED",
-        "GITHUB_INSTALLATION_STATE_REPLAYED", "GITHUB_INSTALLATION_ALREADY_LINKED", "GITHUB_INSTALLATION_SCOPE_INVALID",
-        "GITHUB_INSTALLATION_TOKEN_SCOPE_INVALID", "GITHUB_REPOSITORY_NOT_SELECTED",
-        "TRAINING_BUDGET_NOT_CONFIGURED", "TRAINING_PLAN_EXPIRED",
-        "TRAINING_REGISTRATION_NOT_FOUND", "TRAINING_SOURCE_INVALID", "TRAINING_GITHUB_PRIVATE_REQUIRES_APP",
-        "TRAINING_GITHUB_REPOSITORY_NOT_PUBLIC", "TRAINING_GITHUB_REPOSITORY_ARCHIVED", "TRAINING_GITHUB_RATE_LIMITED",
-        "TRAINING_GITHUB_LOOKUP_FAILED", "TRAINING_GITHUB_RESPONSE_TOO_LARGE", "TRAINING_GITHUB_RESPONSE_INVALID",
-        "TRAINING_GITHUB_DEFAULT_COMMIT_UNAVAILABLE", "TRAINING_GITHUB_COMMIT_UNAVAILABLE",
-        "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED",
-        "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS",
-        "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL",
-        "GOOGLE_COLAB_CONNECTION_INVALID", "GOOGLE_COLAB_CONNECTION_STATE_EXPIRED", "GOOGLE_COLAB_CONNECTION_STATE_REPLAYED",
-        "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED", "GOOGLE_COLAB_OAUTH_FAILED", "GOOGLE_COLAB_OAUTH_RESPONSE_INVALID",
-        "GOOGLE_COLAB_OAUTH_SCOPE_INVALID", "GOOGLE_COLAB_IDENTITY_INVALID", "GOOGLE_COLAB_CONNECTION_REQUIRED",
-        "GOOGLE_COLAB_CRYPTO_NOT_CONFIGURED", "GOOGLE_COLAB_CREDENTIAL_UNAVAILABLE",
-        "GOOGLE_COLAB_RECONNECT_REQUIRES_DISCONNECT"]);
-      const runpodProviderCodes = new Set([
-        "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
-        "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",
-        "RUNPOD_ENDPOINT_CONFIGURATION_MISMATCH", "RUNPOD_CATALOG_PRICE_INVALID_OR_ABOVE_MAXIMUM",
-        "RUNPOD_NETWORK_ERROR",
-      ]);
-      const code = known.has(error?.message) ? error.message
-        : (error?.name === "RunpodProviderError" && runpodProviderCodes.has(error?.code) ? error.code
-        : (typeof error?.message === "string" && error.message.startsWith("GATEWAY_DELEGATION_")
-          ? "GATEWAY_DELEGATION_FAILED" : "INTERNAL_ERROR"));
+      const code = mcpToolErrorCode(error);
       return json({ jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: JSON.stringify({ error: code }) }] } });
     }
   }
