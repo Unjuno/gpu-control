@@ -19,7 +19,9 @@ the owner-selected execution's runtime, artifact, and receipt ceilings. Plan
 validation, generated Python, file retrieval, and receipt parsing consume those
 exports. The existing `GOOGLE_COLAB_MAX_FILE_BYTES` export remains as a
 compatibility alias. HTTP payload limits stay in their respective transport
-modules because they protect different boundaries.
+modules because they protect different boundaries. The static Worker
+architecture check now rejects reintroduced execution/artifact limit literals
+in their consumer modules.
 
 **Validation:** focused Colab plan/runner/artifact tests pass (11/11), the full
 Sites suite passes (217), the Worker dependency graph is acyclic across 81

@@ -88,6 +88,18 @@ const googleColabOAuthSources = modulesReadingBindingsOutside(googleColabOAuthBo
 assert.deepEqual(googleColabOAuthSources, [],
   "Google Colab OAuth callback configuration may only be interpreted by google_colab_connection.js");
 
+// Colab runtime and artifact bounds cross the plan, generated-code, retrieval,
+// and receipt-validation boundaries. Keep the numeric source in one module so
+// the remote runner and the control plane cannot silently drift apart.
+const googleColabExecutionLimitsBoundary = join(workerRoot, "google_colab_execution_limits.js");
+const colabExecutionLimitLiterals = /(?:360|50\s*\*\s*1024\s*\*\s*1024|100\s*\*\s*1024\s*\*\s*1024)/;
+const colabExecutionLimitConsumers = ["google_colab_plan.js", "google_colab_execution_code.js",
+  "google_colab_result.js", "google_colab_runtime_files.js"].map((name) => join(workerRoot, name));
+const duplicateGoogleColabExecutionLimits = colabExecutionLimitConsumers.filter((file) =>
+  file !== googleColabExecutionLimitsBoundary && colabExecutionLimitLiterals.test(readFileSync(file, "utf8")));
+assert.deepEqual(duplicateGoogleColabExecutionLimits, [],
+  "Colab execution and artifact limits must be imported from google_colab_execution_limits.js");
+
 // The reviewed MAP workload profile has one environment parser as well. The
 // live admission decision remains separate from profile validity, and the
 // shared control-plane signing key has its own identity/security concern.
