@@ -44,9 +44,28 @@ directly; a unit test pins the literal-true behavior.
 
 **Validation:** focused policy/budget tests pass, the full Sites suite passes
 (218), the Worker dependency graph is acyclic across 82 runtime modules, and
-registry freshness and architecture checks pass. Build, artifact and D1
-migration checks follow before commit. No provider, credential, admission,
-deployment, or experiment state was changed.
+registry freshness and architecture checks pass. Worker build and artifact
+validation, D1 forward-migration replay, and `git diff --check` pass. No
+provider, credential, admission, deployment, or experiment state was changed.
+
+## 2026-11-29 — A18: project delegated run state once for list and filters
+
+**Finding:** the delegated run-list query computed the same state CASE once in
+its state filter and again in JavaScript for the returned row. Expiry time was
+also read separately for those interpretations. This duplication could make
+an item match a state filter but be returned with another state.
+
+**Change:** the delegated list query now projects `projected_state` once in a
+subquery. The outer query uses that field for state filtering before ordering
+and limit; the response mapper reads the same projected field. Local run state
+remains sourced from its authoritative `runs.state` column.
+
+**Validation:** the experiment read-model suite passes, including a real
+SQLite projection and filter-before-pagination case. The full Sites suite
+passes (219), the Worker dependency graph is acyclic across 82 runtime modules,
+registry and architecture checks pass, Worker build/artifact validation and
+D1 forward-migration replay pass, and `git diff --check` passes. No provider,
+credential, admission, deployment, or experiment was accessed or changed.
 
 ## 2026-11-29 — A11: share RunPod relay readiness validation
 

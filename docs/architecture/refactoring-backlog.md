@@ -82,6 +82,10 @@ acceptance.
   Capability projection and delegated submit both consume
   `modal_gpu_policy.js`; the Worker architecture check rejects direct reads of
   the admission binding elsewhere.
+- **A18 — One delegated-list state projection:** completed in this batch.
+  Delegated run state is computed once in the list query, then the projected
+  value drives both state filtering and the public list row. Filtering remains
+  before limit/cursor pagination.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct

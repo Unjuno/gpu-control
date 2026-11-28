@@ -1802,9 +1802,10 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
         },
         async all() {
           if (sql.includes("FROM gateway_delegated_plans")) {
-            const owner = values[0];
+            const owner = values[1];
             return { results: [...plans.values()].filter((row) => row.owner_id === owner).map((row) => ({
               run_id: row.id, plan_state: row.state, provider_state: row.provider_state,
+              projected_state: row.submit_attempted_at && !row.provider_state ? "uncertain" : row.provider_state || "queued",
               created_at: row.created_at, updated_at: row.updated_at || row.created_at,
               workload: row.workload, approved_plan_json: row.approved_plan_json,
             })) };

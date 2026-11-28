@@ -28,34 +28,34 @@ export async function listExperiments(env, owner, args) {
     execution_origin: executionOrigin({ ...row, id: row.run_id }),
     result_available: Boolean(row.result_json || row.result_artifact_id),
     cleanup_state: row.cleanup_state || "unknown" }));
+  const now = Math.floor(Date.now() / 1000);
   const delegatedBindings = [owner];
   let delegatedWhere = "owner_id = ?";
   if (cursor) { delegatedWhere += " AND (created_at < ? OR (created_at = ? AND id < ?))"; delegatedBindings.push(cursorAt, cursorAt, cursorId); }
   if (args.workload) { delegatedWhere += " AND workload = ?"; delegatedBindings.push(args.workload); }
   if (args.provider) { delegatedWhere += " AND json_extract(approved_plan_json, '$.provider') = ?"; delegatedBindings.push(args.provider); }
-  if (args.state) {
-    delegatedWhere += ` AND CASE WHEN cancelled_at IS NOT NULL AND state='prepared' THEN 'cancelled'
-      WHEN state='prepared' AND expires_at < ? THEN 'expired' WHEN state='prepared' THEN 'prepared'
-      WHEN submit_attempted_at IS NOT NULL AND provider_state IS NULL THEN 'uncertain'
-      ELSE COALESCE(provider_state, 'queued') END = ?`;
-    delegatedBindings.push(Math.floor(Date.now() / 1000), args.state);
-  }
   let delegatedExperiments = [];
   try {
-    const { results: delegatedRows } = await env.DB.prepare(`SELECT id AS run_id, state AS plan_state,
+    const { results: delegatedRows } = await env.DB.prepare(`SELECT * FROM (
+      SELECT id AS run_id, state AS plan_state,
         cancelled_at, submit_attempted_at, provider_state, provider_response_json, terminal_at,
         created_at, COALESCE(updated_at, created_at) AS updated_at,
-        workload, source_run_id, approved_plan_json, expires_at
+        workload, source_run_id, approved_plan_json, expires_at,
+        CASE WHEN cancelled_at IS NOT NULL AND state='prepared' THEN 'cancelled'
+          WHEN state='prepared' AND expires_at < ? THEN 'expired'
+          WHEN state='prepared' THEN 'prepared'
+          WHEN submit_attempted_at IS NOT NULL AND provider_state IS NULL THEN 'uncertain'
+          ELSE COALESCE(provider_state, 'queued') END AS projected_state
       FROM gateway_delegated_plans WHERE ${delegatedWhere}
-      ORDER BY created_at DESC, id DESC LIMIT ?`).bind(...delegatedBindings, limit + 1).all();
+    ) WHERE (? IS NULL OR projected_state = ?)
+      ORDER BY created_at DESC, run_id DESC LIMIT ?`)
+      .bind(now, ...delegatedBindings, args.state ?? null, args.state ?? null, limit + 1).all();
     delegatedExperiments = delegatedRows.flatMap((row) => {
       const plan = safeJson(row.approved_plan_json);
       if (!validGatewayApprovedPlan(plan) && !validGoogleColabApprovedPlan(plan)) return [];
       const response = safeJson(row.provider_response_json);
       const result = response?.result || response?.machine_state?.result || null;
-      const state = row.cancelled_at && row.plan_state === "prepared" ? "cancelled"
-        : row.plan_state === "prepared" ? (row.expires_at < Math.floor(Date.now() / 1000) ? "expired" : "prepared")
-          : row.submit_attempted_at && !row.provider_state ? "uncertain" : (row.provider_state || "queued");
+      const state = row.projected_state;
       const cleanup = response?.machine_state?.cleanup_state || result?.cleanup_state ||
         (response?.cleanup_confirmed === true || (state === "cancelled" && !row.submit_attempted_at)
           ? "confirmed" : "unknown");
