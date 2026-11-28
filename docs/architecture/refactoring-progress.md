@@ -1926,3 +1926,23 @@ and D1 fake. Assertions and HTTP route coverage are unchanged.
 still passes all 182 tests and the Worker graph remains acyclic across 66
 runtime modules. `index.test.js` is now 2,317 lines. No production code,
 provider, account, or deployment state changed.
+
+
+## 2026-11-28 — A8: isolate Modal health-route integration tests
+
+**Problem:** Modal health authorization, credential destination, redirect,
+cooldown, result persistence and no-Sandbox guarantees were mixed into the
+general Worker integration suite and used its broad environment builder.
+
+**Change:** moved the nine existing health-route integration cases to
+`worker/provider_health_diagnostic.integration.test.js`. The new fixture owns
+only the plan authorization, workspace cooldown and per-plan result rows that
+these cases exercise. The separate status-polling case stays with run lifecycle
+coverage.
+
+**Validation:** all nine focused cases pass and the complete Sites suite passes
+all 182 tests; the Worker graph remains acyclic across 66 runtime modules.
+`index.test.js` is now 2,065 lines. The tests preserve the no-provider-call
+checks for unauthorized, unconfigured, admission-closed, redirected and
+budget-store-failure paths. No real provider request, account change,
+deployment or execution occurred.

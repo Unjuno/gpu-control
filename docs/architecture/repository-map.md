@@ -7,14 +7,16 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `34b33c8` on PR #70. The full Python
+**Current source snapshot:** code head `625d8fa` on PR #70. The full Python
 suite passes with one skip; the Sites Worker suite passes 182 tests and its
 graph is acyclic across 66 runtime modules. GitHub exact-head CI and review
 state are recorded in `refactoring-progress.md`; exact-head CI passed on
-`ddaba89` after this code head. Local success is not release evidence.
+`ddaba89` before the latest test-only extractions. Local success is not release
+evidence.
 `worker/index.js` is 147 lines,
-while `worker/index.test.js` is 2,317 lines and remains the largest integration
+while `worker/index.test.js` is 2,065 lines and remains the largest integration
 fixture. The ChatGPT authorization route integration test is 125 lines; the
+Modal health route integration test is 277 lines; the
 owner-training registration integration test is 682 lines, the
 experiment read-model route test is 222 lines, and the MCP request-auth route
 test is 43 lines. The Gateway provider-runtime CI selection, including five
@@ -229,12 +231,12 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (current worktree at PR #70 code head `34b33c8`):**
+5. **Large files (current worktree at PR #70 code head `625d8fa`):**
    `worker/index.js` 147 lines; `worker/training_authorization_routes.js` 210 lines;
    `worker/mcp_tool_dispatch.js` 122 lines;
    `worker/delegated_experiment_lifecycle.js` 391 lines;
    `worker/modal_cpu_lifecycle.js` 165 lines; Worker integration test
-   `worker/index.test.js` 2,317 lines; owner-selected training registration
+   `worker/index.test.js` 2,065 lines; owner-selected training registration
    lifecycle coverage is in `worker/training_registration.integration.test.js`
    (682 lines). `worker/training_plan.js` is now 332 lines and coordinates
    preview/prepare/submit. `worker/training_plan_state.js` (78 lines) owns
