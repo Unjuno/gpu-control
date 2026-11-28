@@ -99,8 +99,9 @@ acceptance.
   are verified.
 - **Remaining:** independent security review, migration/deploy, production
   settings, admission, and a real ChatGPT end-to-end GPU lifecycle remain
-  unverified. The current PR #70 head is `27372e1`; all seven exact-head CI
-  checks pass there. Source/tests do not close product acceptance.
+  unverified. The latest PR #70 implementation commit is `27372e1`; all seven
+  checks pass there. Later PR commits only refresh documentation. Source/tests
+  do not close product acceptance.
 - **Work:** from a request such as “try training this repository,” discover
   repositories selected in the owner's GitHub App, pin the current default
   commit, inspect the contract, and select only a currently compatible and

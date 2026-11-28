@@ -3,9 +3,10 @@
 ## Source/release checkpoint — 2026-11-28
 
 - The current source candidate is PR #70 branch
-  `codex/owner-training-workloads`, latest head
+  `codex/owner-training-workloads`, latest implementation commit
   `27372e1e2b73d7ee1faff1bd3e398af4f04f4b9b`. PR #70 remains open and
-  unmerged. All seven exact-head GitHub Actions checks passed for this head.
+  unmerged. All seven GitHub Actions checks passed for that implementation
+  commit; later branch commits only refresh release/architecture records.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth

@@ -7,8 +7,8 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current code snapshot:** PR #70 head `27372e1e2b73d7ee1faff1bd3e398af4f04f4b9b`.
-All seven exact-head GitHub Actions checks pass at this commit. The previous
+**Current code snapshot:** PR #70 implementation commit `27372e1e2b73d7ee1faff1bd3e398af4f04f4b9b`.
+All seven GitHub Actions checks pass at this implementation commit. The previous
 full local Sites validation at `748ac11` passed 206 tests; its graph was
 acyclic across 76 runtime modules, and the Sites build and D1 forward
 migration replay passed. The current public error-contract change passes its
