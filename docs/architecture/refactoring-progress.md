@@ -2493,6 +2493,27 @@ the architecture graph remains acyclic across 69 modules, the registry check
 passes, and `git diff --check` passes. No Google runtime was created and no
 provider credentials or admission settings changed.
 
+## 2026-11-28 — A6: add the Colab operation journal schema
+
+**Finding:** the shared delegated plan table stores provider observations as a
+generic JSON response, which is unsuitable for Colab's runtime proxy URL/token
+and exact long-call recovery identities. The runtime token is short-lived and
+must not be persisted as ordinary provider output.
+
+**Change:** added forward migration `0037_colab_run_operations.sql`, keyed by
+the existing run ID and constrained by owner plus plan fingerprint. It stores
+the stable runtime request/execution identities, bounded lifecycle state,
+encrypted-connection fields, code digest, and bounded result field separately.
+Migration tests verify owner/fingerprint binding, allowed state values, and
+foreign-key integrity. No public Colab run operation reads or writes the table
+yet; execution remains unavailable.
+
+**Validation:** the D1 migration suite passes against the pre-existing schema;
+the complete Sites suite passes 188 Worker tests and two graph tests, the
+workload registry is current, and the Worker graph remains acyclic across 69
+modules. No live provider call, runtime allocation, secret, admission setting,
+or deployment changed.
+
 ## 2026-11-28 — A6: validate the Colab runtime proxy origin
 
 **Finding:** Colab's runtime response includes a URL and short-lived proxy

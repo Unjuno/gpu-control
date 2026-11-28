@@ -233,6 +233,15 @@ execution can take 600 seconds, so a caller's request timeout is not the run
 state: an owner-scoped durable coordinator or status-triggered exact-operation
 recovery is required before submit is exposed.
 
+The first schema slice adds `google_colab_run_operations`, linked by a
+composite owner/run/fingerprint foreign key to the existing delegated plan
+ledger. It constrains operation states and separates stable operation IDs,
+encrypted connection data, code digest, and bounded result storage. The table
+has no public caller yet; it is persistence scaffolding, not an enabled Colab
+run path. The next implementation slice must add an owner-checked storage
+module with authenticated encryption and compare-and-set state transitions,
+then exercise response-loss recovery before wiring any public submit action.
+
 ## References
 
 - [Official Colab API MCP tools and schemas](https://developers.google.com/colab/api/reference/mcp)
