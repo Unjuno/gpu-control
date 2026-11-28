@@ -2723,6 +2723,29 @@ current Colab provider guide, PR #70 source and release matrix. `git diff --chec
 passes. No runtime code, provider configuration, admission or live execution
 changed.
 
+## 2026-11-28 — A3: validate Colab deletion receipts before cleanup finalization
+
+**Finding:** the lifecycle treated any object returned by `delete_runtime` as
+proof of cleanup. Google's MCP method returns an empty protobuf message on
+success; an object such as `{ "deleted": false }` is outside that response
+contract and cannot establish that the runtime was removed. The cleanup retry
+path also had no end-to-end regression case.
+
+**Change:** added one validator for the empty successful deletion response and
+made terminal finalization require that exact shape. Extended the Colab
+lifecycle integration test to apply both migrations `0037` and `0038`, lose the
+first runtime-create response, return an invalid non-empty deletion response,
+and then return an empty success on retry. The test verifies cleanup remains
+pending between calls, the same runtime request is reused, and execution is
+not repeated. Updated the source status, provider contract, and A3 task record.
+
+**Validation:** all 205 Sites tests pass; the Worker graph remains acyclic
+across 76 runtime modules; build and D1 forward migration replay pass; the
+focused Colab tests pass; all seven exact-head GitHub Actions checks pass on
+`e391116`. No Colab runtime, provider setting, OAuth credential, or admission
+was used or changed. This fake-provider test does not prove Google's live
+deletion behavior or other providers' terminal-state conformance.
+
 ## 2026-11-28 — A3: exercise Colab lifecycle recovery after response loss
 
 **Finding:** Colab had unit coverage for its operation journal and MCP protocol,

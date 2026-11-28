@@ -4,7 +4,7 @@
 
 - The current source candidate is PR #70 branch
   `codex/owner-training-workloads`, source head
-  `2842bd9f9c01c22a5ad3977fb140d60ac75f117a`. PR #70 remains open and
+  `e391116d48ba322303979e671cbd582467bff1ed`. PR #70 remains open and
   unmerged. All seven exact-head GitHub Actions checks passed; mergeability
   alone does not establish release state.
 - The candidate implements owner-selected GitHub source selection, immutable
@@ -25,12 +25,13 @@
 - For module ownership, duplicated contracts, state authority and the next
   refactoring batches, see [the repository architecture map](architecture/repository-map.md)
   and [the prioritized backlog](architecture/refactoring-backlog.md).
-- Local Sites validation on `2842bd9` passed 204 tests; the Worker graph is
+- Local Sites validation on `e391116` passed 205 tests; the Worker graph is
   acyclic across 76 modules, build and D1 migration replay passed. The Colab
-  lifecycle integration test covers same-request-ID recovery after a lost
-  mocked runtime-create response, failure receipt, run-owned cleanup and
-  terminal persistence. It does not prove Google's live idempotency behavior
-  or real Colab execution. The earlier independent Security Review does not
+  lifecycle integration test covers same-request-ID recovery after lost
+  mocked runtime-create and cleanup responses. A non-empty deletion response
+  leaves cleanup pending; a later exact empty success response confirms
+  cleanup without replaying execution. It does not prove Google's live
+  idempotency behavior or real Colab execution. The earlier independent Security Review does not
   cover this latest source. The automated diff scanner could not start on the
   linked worktree; no independent scan result is claimed.
 

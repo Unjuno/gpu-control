@@ -226,6 +226,12 @@ authenticated data bound to owner, run ID and plan fingerprint. Runtime and
 session identities are immutable after first persistence. The public MCP
 dispatcher now uses these operations for submit and status recovery.
 
+The adapter treats runtime deletion as complete only when the hosted MCP
+returns Google's empty protobuf success response. A non-empty or malformed
+response leaves the operation in `cleanup_pending`; the next status call
+retries cleanup on the same run and does not replay execution. This matches the
+[Colab `delete_runtime` MCP output contract](https://developers.google.com/colab/api/reference/mcp/tools_list/delete_runtime).
+
 `google_colab_execution_code.js` now generates a deterministic credential-free
 Python runner for an immutable public source and reviewed manifest. It enforces
 hash-locked dependency installation, a 360-second execution ceiling, a
