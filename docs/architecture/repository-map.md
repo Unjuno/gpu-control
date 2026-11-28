@@ -7,13 +7,14 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** implementation head `ad4af125d54b202267998b489de4c1f12c505768` on PR #70. The
+**Current source snapshot:** implementation head `2adfab9c38bcf1ecdef3ec9901d5ab25f4c9e7b3` on PR #70. The
 Sites Worker suite passes 187 tests, its graph is acyclic across 67 runtime
 modules, and two dependency-graph script tests pass. The root Python suite
-passes 619 tests, one skipped, and five subtests. All seven exact-head CI
-checks pass on this head; the current Sites build copies all 67 reachable
-Worker modules. These measurements describe this source candidate only and do
-not prove hosted release.
+passes 624 tests, one skipped, and five subtests. All seven exact-head CI
+checks pass on this head; the Sites CI also enforces append-only migration
+history. The current Sites build copies all 67 reachable Worker modules.
+These measurements describe this source candidate only and do not prove
+hosted release.
 `worker/index.js` is 147 lines,
 while `worker/index.test.js` is 1,920 lines and remains the largest integration
 fixture. Dedicated integration tests cover ChatGPT authorization (125 lines),
@@ -284,6 +285,9 @@ These are investigation targets, not automatic deletion instructions.
   while retaining provider-specific cleanup and evidence semantics.
 - Only explicitly generated files may be derived. Every other duplicated
   business rule needs an owner, a parity check, or a documented reason.
+- D1 migration files are append-only. CI compares committed migrations to the
+  event base revision, while the populated-schema replay test verifies forward
+  compatibility; neither check substitutes for reviewing schema semantics.
 
 ## Reproduction commands for structural inventory
 

@@ -2268,5 +2268,8 @@ and insertion cases.
 
 **Local validation:** all five focused Python tests pass; the guard sees 22
 base migrations and 15 branch additions against `origin/main`. The full Python
-suite passes, the Sites suite passes (2 graph and 187 Worker tests), and the
-Sites build copies all 67 reachable Worker modules. Hosted CI is pending.
+suite passes 624 tests, one skipped and five subtests; the Sites suite passes
+(2 graph and 187 Worker tests), and the Sites build copies all 67 reachable
+Worker modules. The workflow YAML parses, and all seven exact-head CI checks
+pass on `2adfab9c38bcf1ecdef3ec9901d5ab25f4c9e7b3`. No migration was added or
+edited by this change.
