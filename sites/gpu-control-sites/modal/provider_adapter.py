@@ -1,11 +1,12 @@
 """Authenticated Modal adapter for registered external and Modal GPU work.
 
-This is infrastructure for two of the four compute providers, not another
-provider or a general Gateway.  It has no PostgreSQL dependency and no API for
-arbitrary code, commands, images, URLs, repositories, or credentials.
+This is infrastructure for the registered providers plus the fixed, reviewed
+MAP-44M training lane. It has no API for arbitrary public provider operations,
+commands, images, or credentials.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -21,6 +22,8 @@ from typing import Any
 import modal
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from canonical_json import canonical_json_bytes
+from custom_training_tool_args import uses_custom_training_lane
 
 
 APP_NAME = "gpu-control-provider-adapter"
@@ -28,7 +31,7 @@ SOURCE_SHA = "44a1b806160ab5bc721a370d034a6dfcb28f27a8"
 MAX_BODY_BYTES = 64 * 1024
 MAX_CLOCK_SKEW_SECONDS = 60
 MAX_LIFETIME_SECONDS = 120
-TOOLS = re.compile(r"^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request)$")
+TOOLS = re.compile(r"^(?:experiment_(?:capabilities|prepare|submit|status|result|artifact|cancel|list)|runpod_queue_request|training_(?:submit|status|cancel|checkpoint|artifact))$")
 OWNER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$")
 NONCE = re.compile(r"^[0-9a-f]{32}$")
 RUNPOD_ENDPOINT_ID = "wwlos460xbfw5q"
@@ -41,6 +44,8 @@ MODAL_ROOT = REPOSITORY_ROOT / "sites" / "gpu-control-sites" / "modal"
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name("gpu-control-provider-adapter-data", create_if_missing=True)
+custom_source_volume = modal.Volume.from_name("gpu-control-owner-training-source", create_if_missing=True)
+custom_checkpoint_volume = modal.Volume.from_name("gpu-control-owner-training-checkpoints", create_if_missing=True)
 nonce_store = modal.Dict.from_name("gpu-control-provider-adapter-nonces", create_if_missing=True)
 submission_store = modal.Dict.from_name("gpu-control-provider-adapter-submissions", create_if_missing=True)
 provider_secret = modal.Secret.from_name("gpu-control-worker")
@@ -86,11 +91,6 @@ def _error(code: str, status: int) -> JSONResponse:
     return JSONResponse({"code": code}, status_code=status)
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-                      allow_nan=False).encode("utf-8")
-
-
 def _auth_key() -> tuple[str, bytes]:
     key_id = os.environ.get("PROVIDER_ADAPTER_KEY_ID", "")
     encoded = os.environ.get("PROVIDER_ADAPTER_HMAC_KEY_B64", "")
@@ -112,7 +112,7 @@ def _verify(raw: bytes, signature: str | None, expected_tool: str) -> tuple[str,
         payload = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid_delegation") from exc
-    if not isinstance(payload, dict) or _canonical(payload) != raw or set(payload) != {
+    if not isinstance(payload, dict) or canonical_json_bytes(payload) != raw or set(payload) != {
         "version", "key_id", "owner", "tool", "arguments", "nonce", "issued_at", "expires_at"
     }:
         raise ValueError("invalid_delegation")
@@ -147,6 +147,8 @@ def _service():
     from provider_runtime.kaggle_backend import KaggleBackend
     from provider_runtime.settings import ProviderSettings
     from workload_registry import WORKLOADS
+    from custom_training_plan import (owner_training_admission_enabled,
+                                      owner_training_profile_settings, owner_training_profile_status)
 
     kaggle_token = os.environ.get("KAGGLE_API_TOKEN", "")
     hf_write = os.environ.get("HF_ARTIFACT_WRITE_TOKEN", "")
@@ -165,9 +167,116 @@ def _service():
     artifact_store = HuggingFaceArtifactStore(settings) if hf_write else None
     kaggle = KaggleBackend(settings, artifact_store=artifact_store) if kaggle_token else None
     huggingface = HuggingFaceSpaceBackend(settings) if hf_read else None
+    owner_training_config = owner_training_profile_settings(os.environ)
+    owner_training = owner_training_profile_status(owner_training_config,
+        admission_enabled=owner_training_admission_enabled(os.environ))
     return ProviderAdapter(kaggle, huggingface,
                            ModalGpuBackend(submission_store=submission_store),
-                           artifact_store=artifact_store)
+                           artifact_store=artifact_store, owner_training=owner_training)
+
+
+def _custom_training_backend():
+    """Build the owner-selected lane only from control-plane-pinned runtime config."""
+    image_id = os.environ.get("OWNER_TRAINING_RUNTIME_IMAGE_ID", "")
+    image = modal.Image.from_id(image_id) if re.fullmatch(r"im-[A-Za-z0-9]{8,128}", image_id) else None
+    if not Path("/source-store").is_dir() or not Path("/checkpoint-store").is_dir():
+        raise ValueError("custom_training_source_volume_unavailable")
+    from custom_training_backend import CustomTrainingBackend
+    from custom_training_stage import stage_to_volumes
+
+    def stage(repository, commit, run_id, *, source_token=None):
+        return stage_to_volumes(repository, commit, run_id,
+            source_volume=custom_source_volume, checkpoint_volume=custom_checkpoint_volume,
+            source_token=source_token)
+
+    def cleanup_source(run_id):
+        if re.fullmatch(r"[a-f0-9]{32}", run_id or "") is None:
+            return False
+        root = Path("/source-store")
+        target = root / run_id
+        if target.is_symlink():
+            return False
+        if target.exists():
+            if not target.is_dir() or not target.resolve().is_relative_to(root.resolve()):
+                return False
+            import shutil
+            shutil.rmtree(target)
+            custom_source_volume.commit()
+        return True
+
+    def cleanup_checkpoint(run_id):
+        if re.fullmatch(r"[a-f0-9]{32}", run_id or "") is None:
+            return False
+        root = Path("/checkpoint-store")
+        target = root / run_id
+        if target.is_symlink():
+            return False
+        if target.exists():
+            if not target.is_dir() or not target.resolve().is_relative_to(root.resolve()):
+                return False
+            import shutil
+            shutil.rmtree(target)
+            custom_checkpoint_volume.commit()
+        return True
+
+    def lookup(name):
+        try:
+            return modal.Sandbox.from_name(APP_NAME, name, include_terminated=True)
+        except modal.exception.NotFoundError:
+            return None
+
+    def create(*args, **kwargs):
+        try:
+            return modal.Sandbox.create(*args, **kwargs)
+        except modal.exception.AlreadyExistsError:
+            existing = lookup(kwargs.get("name", ""))
+            if existing is None:
+                raise
+            return existing
+
+    return CustomTrainingBackend(
+        app=app, image=image, stage_image=adapter_image,
+        source_volume=custom_source_volume, checkpoint_volume=custom_checkpoint_volume,
+        create=create, lookup=lookup,
+        stage=stage, cleanup_source=cleanup_source,
+        cleanup_checkpoint=cleanup_checkpoint,
+        commit_source=custom_source_volume.commit,
+        commit_output=custom_checkpoint_volume.commit, reload_output=custom_checkpoint_volume.reload,
+        checkpoint_root="/checkpoint-store",
+    )
+
+
+def _dispatch_custom_training(owner, tool, arguments):
+    from custom_training_lifecycle import dispatch
+    from custom_training_plan import (owner_training_admission_enabled,
+                                      owner_training_profile_settings, validate_custom_plan)
+
+    run_id = arguments.get("run_id")
+    record = submission_store.get(f"custom-training:{run_id}") if isinstance(run_id, str) else None
+    plan = (arguments.get("plan") if tool == "training_submit" else
+            record.get("plan") if isinstance(record, dict) else arguments.get("approved_plan"))
+    if not isinstance(plan, dict):
+        raise ValueError("custom_training_plan_missing")
+
+    def validate(plan_owner, fingerprint, candidate):
+        profile = owner_training_profile_settings(os.environ)
+        if candidate.get("execution_kind") != "owner_selected_python":
+            raise ValueError("custom_training_execution_kind_invalid")
+        validate_custom_plan(candidate, image_id=profile["image_id"],
+            hourly_microusd=profile["hourly_microusd"],
+            quote_expires_at=profile["quote_expires_at"], gpu=candidate.get("gpu"),
+            manifest=candidate.get("manifest"), lock_sha256=candidate.get("lock_sha256"),
+            staging_hourly_microusd=profile["staging_hourly_microusd"],
+            max_runtime_seconds=profile["max_runtime_seconds"],
+            max_cost_ceiling_microusd=profile["max_cost_microusd"],
+            monthly_microusd=profile["monthly_microusd"],
+            control_plane_sha=profile["control_plane_sha"])
+
+    from custom_training_tool_args import lifecycle_arguments
+    custom_args = lifecycle_arguments(tool, arguments, plan=plan)
+    admission = owner_training_admission_enabled(os.environ)
+    return dispatch(submission_store, _custom_training_backend(), owner, tool.removeprefix("training_"),
+                    custom_args, validate=validate, admission_enabled=admission)
 
 
 def _submission_binding(owner: str) -> str:
@@ -494,7 +603,7 @@ def _runpod_relay(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
             status, body, _headers = relay(
                 "POST", upstream_path(RUNPOD_ENDPOINT_ID, "run", None),
-                f"Bearer {_runpod_key()}", _canonical(request_body))
+                f"Bearer {_runpod_key()}", canonical_json_bytes(request_body))
             value = json.loads(body)
             response = {"status": status, "body": value}
             job_id = value.get("id") if 200 <= status < 300 and isinstance(value, dict) else None
@@ -542,6 +651,24 @@ async def invoke(tool: str, request: Request):
             raw, request.headers.get("x-gpu-control-sites-signature"), tool)
         if verified_tool == "runpod_queue_request":
             result = _runpod_relay(owner, arguments)
+        elif verified_tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint", "training_artifact"}:
+            if "/root/site-modal" not in sys.path:
+                sys.path.insert(0, "/root/site-modal")
+            custom_run_id = arguments.get("run_id")
+            existing_custom = (submission_store.get(f"custom-training:{custom_run_id}")
+                               if isinstance(custom_run_id, str) else None)
+            if uses_custom_training_lane(verified_tool, arguments, existing_custom):
+                # The adapter is single-container and this synchronous lane
+                # serializes status/cancel around the staging-to-GPU handoff.
+                result = _dispatch_custom_training(owner, verified_tool, arguments)
+            else:
+                if verified_tool == "training_artifact":
+                    raise ValueError("artifact_not_available_for_registered_workload")
+                from map_training_backend import MapTrainingBackend, dispatch_training_tool
+                result = await asyncio.to_thread(
+                    dispatch_training_tool, submission_store, MapTrainingBackend(), owner, verified_tool, arguments,
+                    admission_enabled=os.environ.get("MAP_TRAINING_ADMISSION_ENABLED") == "true",
+                )
         elif verified_tool == "experiment_submit":
             result = _async_submit(owner, arguments)
         elif verified_tool in {"experiment_status", "experiment_result", "experiment_cancel"}:
@@ -550,9 +677,10 @@ async def invoke(tool: str, request: Request):
                 result = _service().invoke(owner, verified_tool, arguments)
         else:
             result = _service().invoke(owner, verified_tool, arguments)
-        if len(_canonical(result)) > MAX_BODY_BYTES:
+        if len(canonical_json_bytes(result)) > MAX_BODY_BYTES:
             return _error("response_too_large", 502)
-        data_volume.commit()
+        if not verified_tool.startswith("training_"):
+            data_volume.commit()
         return result
     except PermissionError:
         return _error("invalid_delegation", 401)
@@ -564,12 +692,26 @@ async def invoke(tool: str, request: Request):
         from provider_adapter_core import AdapterError
         if isinstance(exc, AdapterError):
             return _error(exc.code, exc.status)
+        if tool in {"training_submit", "training_status", "training_cancel", "training_checkpoint", "training_artifact"}:
+            print(f"MAP adapter failure in {tool}: {type(exc).__module__}.{type(exc).__name__}")
         return _error("provider_operation_failed", 503)
 
 
 @app.function(
     image=adapter_image, secrets=[provider_secret, adapter_auth_secret],
-    volumes={"/data": data_volume}, timeout=120, cpu=1, memory=1024,
+    env={key: os.environ[key] for key in (
+        "MAP_TRAINING_SOURCE_SHA", "MAP_TRAINING_MODAL_IMAGE_ID", "MAP_TRAINING_IMAGE_DIGEST",
+        "MAP_TRAINING_RUNTIME_SECONDS", "MAP_TRAINING_HOURLY_MICROUSD",
+        "MAP_TRAINING_QUOTE_EXPIRES_AT", "MAP_TRAINING_ADMISSION_ENABLED",
+        "MAP_TRAINING_CONTROL_PLANE_SHA", "OWNER_TRAINING_RUNTIME_IMAGE_ID",
+        "OWNER_TRAINING_HOURLY_MICROUSD", "OWNER_TRAINING_QUOTE_EXPIRES_AT",
+        "OWNER_TRAINING_STAGING_HOURLY_MICROUSD",
+        "OWNER_TRAINING_MAX_RUNTIME_SECONDS", "OWNER_TRAINING_MAX_COST_MICROUSD",
+        "OWNER_TRAINING_MONTHLY_MICROUSD",
+        "OWNER_TRAINING_ADMISSION_ENABLED",
+    ) if key in os.environ},
+    volumes={"/data": data_volume, "/source-store": custom_source_volume,
+             "/checkpoint-store": custom_checkpoint_volume}, timeout=120, cpu=1, memory=1024,
     max_containers=1,
 )
 @modal.asgi_app(requires_proxy_auth=True)

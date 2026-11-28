@@ -25,6 +25,17 @@ source and image, and finished with confirmed cleanup.
 The reviewed plan estimated a worst-window cost of `$0.049139` and enforced a
 `$1.00` per-run ceiling.
 
+### Cost wording correction (2026-11-29)
+
+The wording above records what the earlier Sites plan displayed; it is not
+evidence of a RunPod-enforced billing cap. The `$1.00` value was GPU Control's
+internal reservation ceiling. RunPod bills initialization and may retry queue
+jobs, so the earlier displayed estimate did not bound every possible provider
+charge. The dashboard's zero balance change for this canary is a separate
+observation and does not prove that future attempts are capped. Current source
+plans display an estimate with its initialization/TTL/idle assumptions and
+explicitly mark `provider_charge_hard_capped: false`.
+
 After completion, the authenticated RunPod endpoint page showed `0` running,
 `0` idle and `0` initializing workers, with `0` jobs in progress and `0` queued.
 The endpoint's past-hour summary showed one total request, one completed, zero

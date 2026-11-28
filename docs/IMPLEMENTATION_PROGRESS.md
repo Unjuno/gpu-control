@@ -4425,3 +4425,386 @@ branch and refs remain unchanged.
   external issuer. No production OAuth state is shared with the local test. No
   tunnel, OAuth grant, server, or provider action was used; keep the acceptance
   NOT RUN and `mode: parked`.
+### Architecture entropy reduction — 2026-11-28
+
+- Reconciled the product objective with current source: ordinary ChatGPT/Work
+  conversation should route an owner-authorized repository experiment to an
+  external GPU and return verified results. Fixed provider workloads and the
+  owner-selected Modal candidate are separate capabilities.
+- Added `docs/architecture/repository-map.md` with runtime/module ownership,
+  state authority, provider route matrix, technology inventory, measured large
+  files, duplicated implementation inventory, and explicit source-vs-release
+  evidence convention. Added `docs/architecture/refactoring-backlog.md` with
+  ordered completion and architecture work, decision queue, and batch record
+  template; indexed both from `docs/architecture/README.md`.
+- Corrected the selected-repository design doc and Sites README: PR #70 source
+  includes GitHub App selection, immutable pinning, strict manifest/lock
+  validation, isolated Modal staging/execution, bounded outputs and cleanup
+  tracking. It remains unmerged/unreleased, owner admission is off, and custom
+  execution is not available through RunPod/Kaggle/Hugging Face/Colab.
+- Marked prior hosted-state snapshots as historical and added the current PR #70
+  / parked-policy checkpoint to `docs/STATUS.md` and `docs/RELEASE_MATRIX.md`.
+- Fixed `training_inspect` guidance: inspection is read-only; a valid manifest
+  does not itself establish runtime availability. Its next action now points to
+  `training_preview`, which checks the current runtime/quote/admission path.
+- Security Review found one P2: an unavailable dependency lock was described
+  as verified. The response now claims lock verification only when both lock
+  presence and exact-version/hash checks pass; missing/invalid lock yields the
+  manifest/lock blocker. The integrated fixture now uses a valid SHA-256-pinned
+  lock, and the same flow separately exercises a 404 lock response.
+- Follow-up Security Review found no remaining actionable findings in the
+  owner-selected training path. This source review is separate from GitHub's
+  mandatory PR approval.
+- Validation: `npm test` passed 108/108 Worker tests and checked the generated
+  workload registry; modified Markdown local links and `git diff --check`
+  passed. These are local source checks only; the PR head must rerun exact-head
+  CI. No provider API, experiment submit, credential, admission flag,
+  deployment, or hosted migration was touched.
+
+### Gateway ownership clarification — 2026-11-28
+
+- Inspected Gateway README, app entrypoint, CI workflow, Project Checks imports,
+  provider-runtime wrapper imports, deployment templates and the production
+  setup docs. The former README described an un-deployed FastAPI/PostgreSQL
+  service as maintained provider runtime, while current product docs correctly
+  keep Sites as the only ChatGPT control plane.
+- Rewrote `gateway/README.md` to separate the legacy FastAPI/PostgreSQL service,
+  GitHub Issue bridge helper, and Sites-owned Kaggle/HF provider-runtime
+  compatibility imports. Clarified that current `gateway-ci.yml` tests only
+  the provider runtime and wrappers, not the Gateway service deployment.
+- Updated the repository map and A4 backlog: Gateway is not a production
+  deployment; its service code is a staged retirement/isolation candidate, but
+  the Issue bridge and provider-runtime imports have identified callers and
+  must be migrated or preserved before deletion.
+- Validation: inspected direct imports and workflow scope; documentation
+  relative links and `git diff --check` passed. No service, deployment,
+  database, provider, or GitHub Actions configuration was changed.
+
+### Legacy Gateway retirement call-graph audit — 2026-11-28
+
+- Enumerated the current `gateway/` tree, package entrypoints, Docker/Compose
+  and systemd commands, provider compatibility imports, CI workflows, and
+  direct callers. Current provider CI only runs Sites-owned provider runtime
+  tests and compatibility imports. The separate Project Checks workflow uses
+  `project_control/runner.py`; it does not call the legacy Gateway service.
+- Found the `gateway/scripts/comment_bridge.py` CLI importing
+  `gpu_gateway.ci_bridge`, while the workflow path declared by that module's
+  policy is absent from this checkout. This is a local source dependency, not
+  evidence of a currently deployed user-facing Gateway.
+- Did not delete the FastAPI/PostgreSQL package or deployment files: an external
+  operator contract cannot be disproved by repository-local import search.
+  Recorded that exact retirement decision in A4 and kept Sites as the only
+  intended product control plane.
+- Read-only source inventory only; no external service, database, secret, or
+  deployment was contacted or changed.
+
+### Sites Worker dependency guard — 2026-11-28
+
+- Added `scripts/check-worker-architecture.mjs` to the normal Sites `npm test`
+  command. It inventories runtime modules, rejects dynamic imports and imports
+  outside the runtime inventory, prevents domain-to-entrypoint dependencies,
+  and detects dependency cycles with a path in the error.
+- The checker currently passes for 16 Worker runtime modules and requires no
+  third-party parser or new runtime dependency. It enforces only the explicit
+  dependency rules already established for the Worker; it does not claim to
+  validate Python/Gateway boundaries or cross-runtime schema parity.
+- Validation: `npm test` passed 108/108 Worker tests and the new architecture
+  guard; artifact build and validation passed; `git diff --check` passed. No
+  provider, credential, admission, deployment or hosted database state changed.
+
+### Sites source-inspection module extraction — 2026-11-28
+
+- Moved owner-selected `training_inspect` behavior from the Sites transport
+  router into `worker/training_inspection.js`. The module now owns owner-scoped
+  source lookup, selected-repository token use, manifest/lock reads, stable
+  inspection errors, truthful lock verification wording and next actions.
+- Centralized the MAP-44M repository slug as
+  `MAP_TRAINING_REPOSITORY` in `training_source.js` and migrated registration,
+  plan, validation and inspection callers. Removed the duplicate literal and
+  source-inspection contract import from `index.js`.
+- This changes module boundaries and internal ownership only; MCP names,
+  arguments and output fields remain compatible. The existing integration test
+  still exercises the full Worker route, including token scope, missing lock,
+  owner selection and fail-closed behavior.
+- Security Review of this batch found no actionable findings; owner scoping,
+  exact-repository token scope and fail-closed errors remain intact.
+- Validation: `npm test` passed 108/108 Sites Worker tests and checked the
+  generated workload registry; `git diff --check` passed. No provider calls or
+  experiments were started.
+
+### Sites training tool boundary — 2026-11-28
+
+- Moved training registration, preview/prepare, submit, status/cancel,
+  checkpoint and artifact routing out of `worker/index.js` into the cohesive
+  `worker/training_tools.js` domain module. The transport router now supplies
+  explicit delegation, admission and owner-scoped repository-token ports.
+- Updated the build artifact list and validator to include the extracted
+  module. The first exact-head CI run exposed a missing packaging entry for
+  `training_inspection.js`; that was fixed in a separate commit and the Sites
+  contract check then passed.
+- Kept MCP tool names, schemas and response contracts compatible. Custom
+  repository registration now recommends direct inspection with its returned
+  internal ID, so the agent does not need a list round trip or user-supplied ID.
+- Validation: build and artifact validation passed; `npm test` passed 108/108;
+  `modal/test_custom_training_lifecycle.py` passed 7/7. PR exact-head CI passed
+  7/7 on `e35f60d`. No provider execution, admission,
+  credential, deployment or live state was changed.
+
+### Agent entry-point guidance — 2026-11-28
+
+- Expanded the operator Skill trigger to cover user-selected GitHub repository
+  experiments, not only already-registered workloads. Clarified that provider
+  capability discovery does not make arbitrary source executable; the agent
+  must verify the source contract and route through `training_inspect` and
+  `training_preview`.
+- The Skill now directs the agent to pass the registration ID straight from
+  `training_register` to inspection and use `training_list` only for recovery.
+  This follows the MCP tool contract and avoids asking the user for internal
+  IDs or making an unnecessary list call.
+- No runtime contract changed. `git diff --check` passed; the preceding code
+  batch had 108/108 Worker tests, artifact validation, and 7/7 custom lifecycle
+  tests pass. No provider execution or account setting changed.
+
+### Chat-first owner training discoverability — 2026-11-28
+
+- Added `owner_selected_training` to read-only `experiment_capabilities`,
+  separate from the fixed provider/workload inventory. It reports the required
+  owner-selected GitHub connection, immutable source manifest and hash-lock
+  requirements, Modal GPU route, current adapter/admission gates, no paid
+  fallback, and that registration IDs are carried internally by the agent.
+- Added current next actions based on GitHub App configuration and connection.
+  `training_preview` remains authoritative for source-specific runtime, quote,
+  and budget readiness; capabilities do not probe provider health or start a
+  GPU experiment. The authenticated Modal adapter control-function call may be
+  billed separately.
+- Extended the adapter capability response with owner-selected runtime profile
+  and admission readiness. Sites now requires both Sites and adapter profile,
+  admission, and authenticated repository connection before advertising the
+  lane as ready to prepare. Sites and the adapter compare a canonical runtime,
+  quote and control-plane fingerprint. The fingerprint is stripped from the
+  ChatGPT-facing response; profile IDs, rates, and credentials do not cross to
+  the agent.
+- Tightened prepare/status so `training_submit` is advertised only when both
+  the applicable admission switch and provider adapter configuration are
+  present. A parked or unconfigured path now returns a concrete blocker rather
+  than implying that submit is ready.
+- Centralized owner-selected runtime/quote environment projection and passed it
+  to both inspection and preview. A valid manifest/lock with a configured
+  runtime now reports inspection ready; missing runtime stays an explicit
+  blocker instead of an unconditional stale message.
+- Independent Security Review found that adapter drift could consume an
+  authorization and reserve monthly budget before the adapter rejected submit.
+  Owner-selected submit now performs a read-only adapter capability preflight
+  and exact profile parity check before authorization consumption and
+  reservation; regression cases verify closed admission and mismatched profile
+  leave both untouched. This control call may incur its own function charge
+  but starts no GPU workload. Follow-up review found no remaining actionable
+  finding in the changed slice.
+- Updated the architecture map/backlog to record this as a chat-first product
+  contract and keep release state separate. No provider, credential, admission,
+  deployment, or hosted database state was changed.
+- Validation: Sites Worker architecture check passed (16 modules), all 109
+  Worker tests passed, the targeted Modal custom-plan/adapter tests passed,
+  artifact build and validation passed, and `git diff --check` passed. Shared
+  profile conformance cases cover both JavaScript and Python bounds. Tests cover
+  connected-owner discovery, ready custom source inspection, and a prepared
+  plan that withholds submit when the adapter is missing.
+
+### Deployed ChatGPT capability observation — 2026-11-28
+
+- Read the connected GPU Control ChatGPT MCP `experiment_capabilities` tool.
+  It reports Modal CPU enabled, RunPod's fixed canary enabled, and Kaggle plus
+  Hugging Face ZeroGPU enabled. Modal GPU canary is configured but disabled;
+  RunPod explicitly reports `registered_workload_only`; `paid_execution` is
+  `parked`. The deployed response has no `machine_state.owner_selected_training`
+  readiness projection.
+- The connected plugin exposes `training_*` tool definitions, but that alone
+  does not establish the newer PR #70 owner-selected path. A fresh capability
+  call did not show custom repository routing, so ordinary ChatGPT cannot yet
+  be claimed to run arbitrary owner-selected code through GPU Control. Its
+  current `training_register` description still requests an exact commit;
+  PR #70 source permits repository-only registration and pins the default
+  branch commit server-side.
+- This was a read-only capabilities call. It did not request provider health,
+  prepare or submit a run, enable admission, or start GPU work. The control
+  function itself may be billed separately. PR #70 remains open and the latest
+  source head is not the deployed Site.
+
+### Provider budget capability projection — 2026-11-28
+
+- Fixed a stale capability report that said Modal CPU had a $1 monthly ceiling
+  while the D1 reservation policy was $30/month. Added
+  `worker/provider_budget_policy.js` as the read-only projection over the same
+  D1 policy tables used by provider budget reservation.
+- Capabilities now reports separate Modal CPU, Modal GPU, RunPod, Kaggle and
+  Hugging Face limits from D1, and refuses to advertise a route as runnable
+  when its policy ledger is missing or contradictory. Modal GPU requires both
+  the existing environment admission switch and the D1 policy admission bit.
+  The internal adapter's nested budget projection is replaced with the Sites
+  authoritative view so a stale downstream copy is not surfaced to ChatGPT.
+- Security Review identified that owner-selected `training_submit` could bypass
+  this capability check. It now reads the D1 Modal GPU policy before authorization
+  consumption or dispatch, and stops if the policy is missing or admission is
+  disabled. Regression cases verify no training claim or authorization is
+  created in either state.
+- Follow-up review found a check-to-claim race. The owner-selected dispatch
+  `UPDATE` now includes the D1 admission row as an atomic SQL predicate, and a
+  regression case disables the policy during adapter preflight to verify the
+  dispatch claim and authorization consumption both remain absent.
+- Capabilities separately labels owner-selected training's configured monthly
+  and per-run limits as its own dispatch ledger. It does not claim this ledger
+  is a shared provider-wide spend ceiling with the fixed Modal GPU canary; A5
+  records that design decision as open rather than merging budgets implicitly.
+- A failed reservation response no longer repeats a stale monthly number.
+  Provider account configuration, admission and actual ledger state were not
+  changed; no health, prepare, submit or GPU operation was performed.
+- Follow-up independent Security Review confirmed both the D1 preflight and
+  atomic claim gates; no actionable findings remain in this changed slice.
+- Validation: `npm test` passed 112/112 Worker tests; Sites build and artifact
+  validation passed; forward migration tests passed; architecture DAG check
+  covers 17 runtime modules; `git diff --check` passed. PR #70 head
+  `e225a66d9c30d974ab8a0b32707dcad87181c89e` passed all 7 exact-head CI checks.
+  PR #70 is still open, review-required and merge-blocked; no deployment or
+  live ChatGPT acceptance was performed. Related backlog: A5.
+
+
+## 2026-11-28 architecture batch — run artifact boundary
+
+Moved immutable R2 result storage, owner-scoped retrieval and checksum-verified
+chunk reads from the Sites Worker entrypoint into `worker/run_artifacts.js`.
+The module owns D1 finalization and cleanup when cancellation wins the race; a
+static architecture rule prevents other Worker modules from issuing R2 object
+operations. Existing stored artifact IDs continue to resolve. The entrypoint
+now measures 2,119 lines.
+
+Validation: 142 Worker tests pass; D1 forward-migration tests pass; build
+packages all 35 reachable runtime modules; Site artifact validation and
+`git diff --check` pass. This is source-only; no live migration, deployment, or
+provider run occurred.
+
+
+## 2026-11-28 architecture batch — registered workload plan resolution
+
+Moved fixed workload ID validation/default expansion and the owner-bound
+Kaggle artifact-reference resolution for ZeroGPU into
+`sites/gpu-control-sites/worker/registered_prepare.js`. `experiment_prepare`
+retains its public contract; the entrypoint still owns provider admission and
+plan persistence. This removes 97 lines from `worker/index.js` (2,119 to 2,022).
+
+Validation: 146 Worker tests pass, including new direct fixed-default tests; D1
+forward migrations pass; build packages all 36 reachable Worker modules; Site
+artifact validation and `git diff --check` pass. No live migration, deploy or
+provider execution occurred.
+
+
+## 2026-11-28 architecture batch — Modal health gate
+
+Unified the standalone `experiment_provider_health` and implicit submit health
+check behind `worker/provider_health_diagnostic.js`. Exact authorization,
+workspace cooldown, one-use plan reservation, probe and readiness persistence
+now share one implementation; submit reuses a previously successful health
+record and retains its established response contract.
+
+Validation: 146 Worker tests pass, including rate limiting, parallel submit,
+oversized provider response and ambiguous submit recovery; D1 forward migration
+tests pass; Worker build packages all 37 runtime modules; artifact validation
+and `git diff --check` pass. Entry point is 1,875 lines. No live provider call,
+deploy or migration occurred.
+
+
+## 2026-11-28 architecture batch — Modal CPU plan authority
+
+Moved registered Modal CPU plan validation, immutable fingerprint generation,
+owner/idempotency persistence, expiry and approved response projection into
+`sites/gpu-control-sites/worker/prepare_modal_cpu_plan.js`. Shared the 600-second
+human authorization TTL from `human_authorization_policy.js` between plan and
+confirmation flows. Entry point remains the provider dispatcher and is now
+1,854 lines.
+
+Validation: 146 Worker tests pass; D1 forward migration tests pass; build
+packages all 39 Worker modules; artifact validation and `git diff --check`
+pass. No provider, migration or deployment was run.
+
+
+## 2026-11-28 architecture batch — Worker SHA-256 authority
+
+Standardized production SHA-256 hashing in `sites/gpu-control-sites/worker/sha256.js`.
+String and byte callers share one digest implementation; OAuth PKCE reuses its
+raw digest bytes before base64url encoding. Migrated owner-token hashing, run
+artifact checksums, plan fingerprints, provider evidence and training contract
+hashes. Added canonical vector and invalid-input tests.
+
+Validation: 148 Worker tests pass; D1 forward migrations pass; build packages
+all 40 Worker modules; artifact validation and `git diff --check` pass. A scan
+confirms the shared utility is the only production Worker SHA-256 digest call.
+
+
+## 2026-11-28 architecture batch — Colab lifecycle journal-loss handling
+
+A submitted owner-bound Colab plan with a missing
+`google_colab_run_operations` row previously appeared as `prepared` during
+status reads. Status, cancellation, and repeated submit now return a stable
+`uncertain` result with provider allocation and cleanup unknown. They do not
+call Colab, create a replacement operation, or allocate another runtime. A
+plan still `prepared` with no submit attempt retains normal pre-run behavior.
+
+The SQLite-backed lifecycle integration test covers missing submitted journal
+records across status, cancel, and duplicate submit; it asserts the provider
+endpoint is not called. Local validation passed all 205 Sites Worker tests, the
+acyclic 76-module architecture check, Sites build, D1 forward migration replay,
+and `git diff --check`.
+
+Google's `google-colab-cli` documents headless/ADC and ephemeral `colab run`,
+but direct CLI jobs bypass GPU Control's shared owner, budget, run-history, and
+cleanup ledger. Current repository mode is `parked` and disallows CI provider
+credentials and GPU workflows. Ordinary CI remains offline; any future CI GPU
+path needs an explicit identity and shared-lifecycle design rather than a
+second control plane. No Colab API, runtime, OAuth credential, hosted Site,
+admission, or production migration was used or changed.
+
+
+## 2026-11-28 architecture batch — RunPod cancellation recovery
+
+RunPod `experiment_cancel` previously returned success while an ambiguous
+submit was still `running/uncertain`, and it discarded the cancellation intent
+before a provider job receipt could be recovered. Cancellation now persists
+the owner-bound run flag; a later status synchronization cancels the recovered
+exact job. The user-facing result stays pending until a terminal cleanup
+receipt is confirmed.
+
+Validation: focused cancellation and RunPod lifecycle suites pass 12/12; all
+206 Sites tests pass; Worker graph is acyclic across 76 modules; build and D1
+forward migration replay pass; `git diff --check` passes; seven exact-head CI
+checks pass at `748ac11`. No live RunPod call or account state was used.
+
+
+## 2026-11-29 architecture batch — Capability ordering authority
+
+Moved the stable public workload capability response order into the canonical
+`workloads/registry.json` as unique `capability_order` values. The Sites
+projection now sorts registry entries by that field and automatically includes
+new workloads without maintaining a parallel ordered-ID list. The registry
+generator rejects missing, duplicate, or invalid order values. The existing
+five-item response order and all route enablement rules remain unchanged.
+
+Validation: registry generation check, Sites Worker tests, build, migration
+replay, architecture graph, and `git diff --check`. No provider, credential,
+admission, deployment, or live compute state was used or changed.
+
+
+## 2026-11-29 architecture batch — Colab artifact ownership
+
+Moved Colab artifact download, D1 index persistence, and owner-scoped retrieval
+out of the run-state lifecycle into `google_colab_artifacts.js`. Raw R2
+read/write access remains in the established `run_artifacts.js` storage
+boundary, preserving the architecture guard. The common 24 KiB MCP artifact
+chunk maximum now has one owner in `artifact_transfer_policy.js`, consumed by
+the MCP schema, both argument validators, and Colab object reads. The Worker
+architecture check rejects duplicate literals. Run transitions and recovery
+semantics did not change.
+
+Validation: focused artifact and Colab lifecycle suites pass (10/10); full
+Sites `npm test` passes 221 tests and the Worker graph is acyclic across 84
+runtime modules. Worker build, artifact validation, D1 forward migration
+replay, and `git diff --check` pass. No provider API, credential, admission,
+deployment, or live compute state was used.

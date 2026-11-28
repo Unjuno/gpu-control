@@ -7,13 +7,13 @@ persists.  It deliberately has no database or arbitrary execution API.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from workload_registry import WORKLOADS, KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD
+from canonical_json import canonical_json_bytes
 
 
 MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00"
@@ -79,10 +79,7 @@ def uncertain_submission_response(run_id: str, provider: str) -> dict[str, Any]:
 
 def canonical(value: Any) -> bytes:
     try:
-        return json.dumps(
-            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
+        return canonical_json_bytes(value)
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise AdapterError("invalid_arguments") from exc
 
@@ -264,15 +261,21 @@ class ProviderAdapter:
     modal_gpu: Any = None
     clock: Any = time.time
     artifact_store: Any = None
+    owner_training: Mapping[str, Any] | None = None
 
     def capabilities(self) -> dict[str, Any]:
+        owner_training = dict(self.owner_training or {
+            "profile_configured": False, "admission_enabled": False,
+            "ready": False, "blocker": "OWNER_TRAINING_PROFILE_NOT_CONFIGURED",
+        })
         return _envelope(
             status="ok", summary="KaggleとHugging Faceの登録済み無料経路を確認しました。",
             state={"providers": [
                 {"id": "kaggle", "configured": self.kaggle is not None, "paid_fallback": False},
                 {"id": "huggingface_space", "configured": self.huggingface is not None, "paid_fallback": False},
                 {"id": "modal_gpu", "configured": self.modal_gpu is not None, "paid_fallback": False},
-            ], "workloads": [KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD]},
+            ], "workloads": [KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD],
+                "owner_selected_training": owner_training},
             next_actions=["experiment_prepare"],
         )
 

@@ -3,10 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, fields
 from decimal import Decimal
 from enum import Enum
-import hashlib
-import json
 import re
 
+from .canonical_json import sha256_fingerprint
 from .pricing import PricingVerificationError, parse_utc_timestamp
 from .workloads import AcceleratorKind, NetworkRequirement, ResultTransport, _json_value
 
@@ -399,6 +398,4 @@ class CapabilityEvidence:
         )
 
     def fingerprint(self) -> str:
-        canonical = json.dumps(self.to_dict(), ensure_ascii=True, sort_keys=True,
-                               separators=(",", ":"), allow_nan=False)
-        return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return sha256_fingerprint(self.to_dict())

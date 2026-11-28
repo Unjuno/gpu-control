@@ -57,6 +57,21 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
     }
     parked = state["while_parked"]
     assert all(value is False for value in parked.values())
+    owner_lane = state["owner_selected_gpu_training_lane"]
+    assert owner_lane["implementation_allowed_while_parked"] is True
+    assert owner_lane["live_admission_enabled"] is False
+    assert owner_lane["supported_control_plane"] == "chatgpt_sites"
+    assert owner_lane["source_authority"]["repository_must_be_selected_in_owner_github_app_installation"] is True
+    assert owner_lane["source_authority"]["commit_must_be_immutable_40_character_sha"] is True
+    assert owner_lane["source_authority"]["token_may_enter_training_sandbox_logs_or_artifacts"] is False
+    assert owner_lane["execution_contract"]["only_manifest_declared_python_entrypoint_allowed"] is True
+    assert owner_lane["execution_contract"]["arbitrary_shell_command_allowed"] is False
+    assert owner_lane["execution_contract"]["repository_dockerfile_allowed"] is False
+    assert owner_lane["sandbox"]["network_egress"] == "blocked"
+    assert owner_lane["sandbox"]["terminal_state_requires_verified_cleanup"] is True
+    assert owner_lane["accounting"]["provider_specific_monthly_reservation_required"] is True
+    assert owner_lane["accounting"]["paid_fallback_between_providers"] is False
+    assert owner_lane["release_gates"]["required_github_pr_reviews_must_pass"] is True
     cpu = state["modal_cpu_smoke_exception"]
     assert cpu["allowed_while_parked"] is True
     assert cpu["purpose"] == "one_authenticated_registered_cpu_inference"
@@ -140,6 +155,42 @@ def test_repository_is_explicitly_parked_with_active_workload_recorded() -> None
     assert free_gpu["authorization"]["configuration_does_not_authorize_execution"] is True
     assert free_gpu["credentials"]["worker_secret_reference_allowed_for_this_exception"] is True
     assert free_gpu["credentials"]["public_api_process_forbidden"] is True
+    map_training = state["map_training_acceptance_exception"]
+    assert map_training["allowed_while_parked"] is True
+    assert map_training["provider"] == "modal"
+    assert map_training["control_plane"] == "chatgpt_sites"
+    assert map_training["workload"] == {
+        "repository": "unjuno/model-as-a-paper",
+        "source_sha": "d32ae5ba1df27f2c93915b68e78ce67a60254c64",
+        "profile": "MAP-44M",
+        "provider_resource_id": "gpu-control-map-training/train_map",
+        "image_id": "im-5KQ7sh6bu1iVkkO3yxgitS",
+        "dataset": "papers",
+        "run_name": "map44m",
+        "max_steps": 100000,
+        "gpu": "L4",
+        "gpu_count": 1,
+    }
+    map_bounds = map_training["execution_bounds"]
+    assert map_bounds["max_runs_per_authorization"] == 1
+    assert map_bounds["max_runtime_seconds"] == 120
+    assert map_bounds["max_gpu_count"] == 1
+    assert map_bounds["network_egress"] == "blocked"
+    assert map_bounds["automatic_retry_after_ambiguous_submit"] is False
+    assert map_bounds["require_confirmed_cleanup_before_next_run"] is True
+    assert map_bounds["private_checkpoint_required"] is True
+    assert map_bounds["per_run_cost_ceiling_usd"] == "0.25"
+    assert map_bounds["monthly_project_cost_ceiling_usd"] == "1.00"
+    assert map_training["account_guard"]["require_current_modal_workspace_usage_limit_usd_at_most"] == "1.00"
+    assert map_training["authorization"]["authenticated_sites_owner_required"] is True
+    assert map_training["authorization"]["exact_plan_fingerprint_required"] is True
+    assert map_training["authorization"]["same_origin_sites_confirmation_page_required"] is True
+    assert map_training["authorization"]["configuration_does_not_authorize_execution"] is True
+    assert map_training["credentials"]["sites_secret_allowed"] is False
+    assert map_training["credentials"]["credentials_exposed_to_training_sandbox"] is False
+    assert map_training["release_gates"]["exact_head_ci_required"] is True
+    assert map_training["release_gates"]["independent_security_review_required"] is True
+    assert map_training["release_gates"]["d1_migration_applied_before_deploy"] is True
     assert state["authorization"]["activation_requires_explicit_human_request"] is True
 
 

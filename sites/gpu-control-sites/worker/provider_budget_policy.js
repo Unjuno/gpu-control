@@ -1,0 +1,181 @@
+import { FREE_PROVIDER_BUDGET_IDS, PROVIDER_BUDGET_IDS, PROVIDERS, PROVIDER_ROUTES } from "./provider_catalog.js";
+
+const BUDGET_PROVIDERS = PROVIDER_BUDGET_IDS;
+const MODAL_COMPUTE_RESERVATION_SOURCES = new Set([
+  "modal_cpu", "modal_gpu_canary", "map_training", "owner_selected_training",
+]);
+
+export function usdFromMicrousd(value) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new TypeError("invalid_provider_budget_policy");
+  const amount = BigInt(value);
+  const whole = amount / 1_000_000n;
+  const fractional = (amount % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return `${whole}.${fractional ? fractional.padEnd(2, "0") : "00"}`;
+}
+
+export function utcMonthKey(epochSeconds) {
+  if (!Number.isSafeInteger(epochSeconds) || epochSeconds < 0) throw new TypeError("invalid_budget_period");
+  const date = new Date(epochSeconds * 1000);
+  return `${date.getUTCFullYear().toString().padStart(4, "0")}-${(date.getUTCMonth() + 1).toString().padStart(2, "0")}`;
+}
+
+export async function reserveProviderBudget(env, { runId, provider, requestedMicrousd, now }) {
+  const periodKey = utcMonthKey(now);
+  const inserted = await env.DB.prepare(`INSERT INTO provider_budget_reservations
+      (run_id, provider, period_key, reserved_microusd, created_at)
+    SELECT ?, p.provider, ?, ?, ? FROM provider_budget_policies p
+    WHERE p.provider=? AND ?<=p.per_run_limit_microusd
+      AND (p.monthly_limit_microusd IS NULL OR
+        COALESCE((SELECT SUM(r.reserved_microusd) FROM provider_budget_reservations r
+          WHERE r.provider=p.provider AND r.period_key=?), 0) + ? <= p.monthly_limit_microusd)
+    ON CONFLICT(run_id) DO NOTHING`)
+    .bind(runId, periodKey, requestedMicrousd, now, provider, requestedMicrousd,
+      periodKey, requestedMicrousd).run();
+  const reservation = await env.DB.prepare(`SELECT provider, period_key, reserved_microusd
+    FROM provider_budget_reservations WHERE run_id=?`).bind(runId).first();
+  return inserted?.meta?.changes === 1 ||
+    (reservation?.provider === provider && reservation?.period_key === periodKey &&
+      reservation?.reserved_microusd === requestedMicrousd);
+}
+
+function unavailable() {
+  return { schema_version: 1, state: "unavailable", provider_budgets: BUDGET_PROVIDERS.map((provider) => ({
+    provider, policy_available: false, blocker: "PROVIDER_BUDGET_POLICY_UNAVAILABLE",
+  })) };
+}
+
+function rows(result) {
+  return Array.isArray(result?.results) ? result.results : null;
+}
+
+function indexByProvider(values, expected) {
+  if (!Array.isArray(values) || values.length !== expected.length) throw new TypeError("invalid_provider_budget_policy");
+  const indexed = new Map();
+  for (const value of values) {
+    if (!value || typeof value.provider !== "string" || indexed.has(value.provider)) {
+      throw new TypeError("invalid_provider_budget_policy");
+    }
+    indexed.set(value.provider, value);
+  }
+  if (expected.some((provider) => !indexed.has(provider))) throw new TypeError("invalid_provider_budget_policy");
+  return indexed;
+}
+
+function paidBudget(provider, row) {
+  if (!row || !Number.isSafeInteger(row.per_run_limit_microusd) || row.per_run_limit_microusd < 1 ||
+      !(row.monthly_limit_microusd === null ||
+        Number.isSafeInteger(row.monthly_limit_microusd) && row.monthly_limit_microusd > 0) ||
+      provider === "runpod_gpu" && row.monthly_limit_microusd !== null) {
+    throw new TypeError("invalid_provider_budget_policy");
+  }
+  if (provider === "modal" && (row.monthly_limit_microusd !== 30_000_000 ||
+      row.per_run_limit_microusd !== 1_000_000) ||
+      provider === "runpod_gpu" && row.per_run_limit_microusd !== 1_000_000) {
+    throw new TypeError("invalid_provider_budget_policy");
+  }
+  return { provider, policy_available: true,
+    scope: provider === "modal" ? "modal_compute_shared_across_routes" : "provider_reservation",
+    monthly_limit_usd: row.monthly_limit_microusd === null ? null : usdFromMicrousd(row.monthly_limit_microusd),
+    per_run_limit_usd: usdFromMicrousd(row.per_run_limit_microusd),
+    monthly_limit_microusd: row.monthly_limit_microusd,
+    per_run_limit_microusd: row.per_run_limit_microusd,
+    ...(provider === "modal" ? {
+      monthly_reserved_microusd: row.monthly_reserved_microusd,
+      monthly_reserved_usd: usdFromMicrousd(row.monthly_reserved_microusd),
+      monthly_remaining_microusd: Math.max(0, row.monthly_limit_microusd - row.monthly_reserved_microusd),
+      monthly_remaining_usd: usdFromMicrousd(Math.max(0, row.monthly_limit_microusd - row.monthly_reserved_microusd)),
+    } : {}) };
+}
+
+export async function readProviderBudgetPolicy(db) {
+  if (!db || typeof db.prepare !== "function") return unavailable();
+  try {
+    const currentPeriod = utcMonthKey(Math.floor(Date.now() / 1000));
+    const [runpod, modal, modalUsage, modalGpuAdmission, freeResult] = await Promise.all([
+      db.prepare(`SELECT provider, monthly_limit_microusd, per_run_limit_microusd
+        FROM provider_budget_policies WHERE provider='runpod_gpu'`).first(),
+      db.prepare(`SELECT monthly_limit_microusd, per_run_limit_microusd
+        FROM modal_compute_budget_policy WHERE scope='workspace'`).first(),
+      db.prepare(`SELECT COALESCE(SUM(reserved_microusd), 0) AS monthly_reserved_microusd
+        FROM modal_compute_budget_reservations WHERE period_key=?`).bind(currentPeriod).first(),
+      db.prepare(`SELECT admission_enabled FROM modal_gpu_admission_policy WHERE scope='workspace'`).first(),
+      db.prepare(`SELECT provider, max_cost_microusd, paid_fallback_allowed
+        FROM provider_free_policies`).all(),
+    ]);
+    const free = indexByProvider(rows(freeResult), FREE_PROVIDER_BUDGET_IDS);
+    if (!modalGpuAdmission || ![0, 1].includes(modalGpuAdmission.admission_enabled) ||
+        !modalUsage || !Number.isSafeInteger(modalUsage.monthly_reserved_microusd) || modalUsage.monthly_reserved_microusd < 0) {
+      throw new TypeError("invalid_provider_budget_policy");
+    }
+    const freeBudgets = FREE_PROVIDER_BUDGET_IDS.map((provider) => {
+      const row = free.get(provider);
+      if (!row || row.max_cost_microusd !== 0 || row.paid_fallback_allowed !== 0) {
+        throw new TypeError("invalid_provider_budget_policy");
+      }
+      return { provider, policy_available: true, scope: "registered_free_workload_policy", monthly_limit_usd: "0.00",
+        per_run_limit_usd: "0.00", paid_fallback_allowed: false };
+    });
+    return { schema_version: 1, state: "ready", provider_budgets: [
+      { ...paidBudget(PROVIDERS.modal.budget_provider, { ...modal, monthly_reserved_microusd: modalUsage.monthly_reserved_microusd }), routes: Object.values(PROVIDER_ROUTES).filter((route) => PROVIDERS[route.provider].budget_provider === PROVIDERS.modal.budget_provider).map((route) => route.id),
+        modal_gpu_admission_enabled: modalGpuAdmission.admission_enabled === 1 },
+      paidBudget(PROVIDERS.runpod_gpu.budget_provider, runpod),
+      ...freeBudgets,
+    ] };
+  } catch {
+    return unavailable();
+  }
+}
+
+/** Apply the shared Modal training gates to one current policy projection. */
+export function assessModalTrainingBudget(policy, {
+  maxCostMicrousd, monthlyLimitMicrousd, monthlyMaximumMicrousd,
+  requireRemaining = false, requireGpuAdmission = false,
+} = {}) {
+  const modal = policy?.provider_budgets?.find((item) => item.provider === PROVIDERS.modal.budget_provider) || null;
+  const policyAvailable = policy?.state === "ready" && modal?.policy_available === true &&
+    Number.isSafeInteger(modal.per_run_limit_microusd) && modal.per_run_limit_microusd > 0 &&
+    Number.isSafeInteger(modal.monthly_limit_microusd) && modal.monthly_limit_microusd > 0 &&
+    Number.isSafeInteger(modal.monthly_remaining_microusd) && modal.monthly_remaining_microusd >= 0;
+  const gpuAdmissionEnabled = modal?.modal_gpu_admission_enabled === true;
+  const runLimitSatisfied = maxCostMicrousd === undefined ||
+    Number.isSafeInteger(maxCostMicrousd) && maxCostMicrousd > 0 && maxCostMicrousd <= (modal?.per_run_limit_microusd ?? 0);
+  const monthlyLimitSatisfied = monthlyLimitMicrousd === undefined ||
+    Number.isSafeInteger(monthlyLimitMicrousd) && monthlyLimitMicrousd > 0 &&
+      monthlyLimitMicrousd <= (modal?.monthly_limit_microusd ?? 0) &&
+      (monthlyMaximumMicrousd === undefined || monthlyLimitMicrousd <= monthlyMaximumMicrousd);
+  const monthlyRemainingPositive = Number.isSafeInteger(modal?.monthly_remaining_microusd) &&
+    modal.monthly_remaining_microusd > 0;
+  const remainingSatisfied = !requireRemaining ||
+    Number.isSafeInteger(maxCostMicrousd) && maxCostMicrousd <= (modal?.monthly_remaining_microusd ?? -1);
+  const limitsSatisfied = runLimitSatisfied && monthlyLimitSatisfied && remainingSatisfied;
+  const ready = policyAvailable && limitsSatisfied && (!requireGpuAdmission || gpuAdmissionEnabled);
+  const blocker = !policyAvailable ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
+    : requireGpuAdmission && !gpuAdmissionEnabled ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
+    : !limitsSatisfied ? "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY" : null;
+  return { providerBudget: modal, policyAvailable, gpuAdmissionEnabled,
+    monthlyRemainingPositive, runLimitSatisfied, monthlyLimitSatisfied,
+    remainingSatisfied, limitsSatisfied, ready, blocker };
+}
+
+export function prepareModalComputeBudgetReservation(db, {
+  runId, source, fingerprint, periodKey, requestedMicrousd, now, requireGpuAdmission = false,
+}) {
+  if (!db || typeof db.prepare !== "function" || !/^[0-9a-f]{32}$/.test(runId || "") ||
+      !MODAL_COMPUTE_RESERVATION_SOURCES.has(source) || !/^[0-9a-f]{64}$/.test(fingerprint || "") ||
+      !/^\d{4}-\d{2}$/.test(periodKey || "") || !Number.isSafeInteger(requestedMicrousd) ||
+      requestedMicrousd < 1 || !Number.isSafeInteger(now) || now < 0) {
+    throw new TypeError("invalid_modal_compute_budget_reservation");
+  }
+  const gpuAdmissionClause = requireGpuAdmission
+    ? `AND EXISTS (SELECT 1 FROM modal_gpu_admission_policy a
+        WHERE a.scope='workspace' AND a.admission_enabled=1)` : "";
+  return db.prepare(`INSERT OR IGNORE INTO modal_compute_budget_reservations
+      (run_id, source, plan_fingerprint, period_key, reserved_microusd, created_at)
+    SELECT ?, ?, ?, ?, ?, ? FROM modal_compute_budget_policy p
+    WHERE p.scope='workspace' AND ?<=p.per_run_limit_microusd
+      AND COALESCE((SELECT SUM(r.reserved_microusd) FROM modal_compute_budget_reservations r
+        WHERE r.period_key=?), 0) + ? <= p.monthly_limit_microusd
+      ${gpuAdmissionClause}`)
+    .bind(runId, source, fingerprint, periodKey, requestedMicrousd, now,
+      requestedMicrousd, periodKey, requestedMicrousd);
+}

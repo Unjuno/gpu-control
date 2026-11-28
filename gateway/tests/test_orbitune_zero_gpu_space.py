@@ -2,10 +2,12 @@ from pathlib import Path
 
 
 def test_zero_gpu_space_source_has_fixed_gpu_and_private_artifact_contract():
-    workload = Path(__file__).parents[1] / "workloads" / "orbitune-zero-gpu-eval"
+    workload = (Path(__file__).parents[2] / "sites" / "gpu-control-sites" / "modal"
+                / "provider_runtime" / "workloads" / "orbitune-zero-gpu-eval")
     source = (workload / "app.py").read_text()
     readme = (workload / "README.md").read_text()
-    requirements = (workload / "requirements.txt").read_text().splitlines()
+    requirements = [line for line in
+                    (workload / "requirements.txt").read_text().splitlines() if line]
 
     assert '@spaces.GPU(duration=60, size="large")' in source
     assert 'api_name="evaluate"' in source

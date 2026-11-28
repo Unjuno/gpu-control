@@ -1,6 +1,6 @@
 # gpu-control
 
-`gpu-control` is a public, local-first control plane for reproducible containerized GPU experiments.
+`gpu-control` is a public, agent-operated control plane for reproducible GPU experiments. Its product target is that an owner can describe an experiment in ordinary ChatGPT conversation and the agent can choose an authorized, compatible external compute route, run it within policy, and return verifiable results.
 
 It is built around one central idea: **validate and constrain an experiment locally first, then escalate to paid GPU infrastructure only when the current question actually requires it.**
 
@@ -19,13 +19,24 @@ objective
 
 ## Current status
 
-The production control plane is the authenticated ChatGPT Sites MCP endpoint at
+**Current source and hosted release status must be read separately.** This
+checkout is on the PR #70 candidate branch, which is open and blocked on
+required review. The owner-selected GitHub repository to
+Modal GPU lane is implemented in this source candidate, but its admission is
+off under `policies/repository-state.yaml` and it is not accepted as a live
+ChatGPT capability. Historical fixed-workload GPU acceptances below apply to
+their recorded source/deployment revisions only. See the
+[architecture map](docs/architecture/repository-map.md) and
+[refactoring backlog](docs/architecture/refactoring-backlog.md).
+
+The last recorded fixed-workload production snapshot used the authenticated ChatGPT Sites MCP endpoint at
 `https://gpu-control-sites.unjuno.chatgpt.site`. It exposes registered workloads
 for exactly four compute providers: Modal, RunPod, Kaggle and Hugging Face.
 Vercel, Neon, Railway, an external PostgreSQL database and the retired macOS
 Keychain Runner are not runtime dependencies.
 
-Real GPU execution is accepted for all four providers. RunPod run
+Historical bounded GPU execution was accepted for all four fixed-workload
+providers. RunPod run
 `a4284e1e…e31d71` returned one RTX 2000 Ada; Modal run `d9df87e1…82be`
 returned one Tesla T4; Kaggle run `87d37302…de87` completed the fixed 100-step
 training workload on a Tesla T4 and published its immutable private artifact;
@@ -33,7 +44,9 @@ and Hugging Face run `58ca7f86…117a` evaluated that exact artifact on a ZeroGP
 RTX PRO 6000 Blackwell MIG slice. Every run returned `gpu_used=true` and
 confirmed cleanup. Kaggle and Hugging Face prohibit paid fallback.
 
-Modal execution is usage-billed. The observed Workspace usage limit is `$30`,
+The following provider prices and limits are historical snapshots, not live
+account configuration. Modal execution is usage-billed. The previously
+observed Workspace usage limit was `$30`,
 while GPU Control independently enforces a stricter `$1` monthly project ledger
 and `$0.01` per Modal GPU run. RunPod has a `$1` per-run ceiling. Kaggle and
 Hugging Face plans are fixed at `$0` with paid fallback prohibited. Credits are
@@ -71,7 +84,11 @@ separate-account denial remains a live acceptance item. PR #68 remains an open
 Draft until the final exact-head review and normal ChatGPT-chat acceptance are
 complete.
 
-See [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the ChatGPT integration,
+See [docs/architecture/README.md](docs/architecture/README.md) for source
+ownership, current boundaries and ordered architecture work. See
+[docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the ChatGPT integration,
+[docs/GOOGLE_COLAB_CLI.md](docs/GOOGLE_COLAB_CLI.md) for Colab CLI vs.
+GPU Control and CI usage,
 [docs/RELEASE_MATRIX.md](docs/RELEASE_MATRIX.md) for current acceptance gates,
 [docs/STATUS.md](docs/STATUS.md) for current capability blockers, and
 [docs/SITES_MODAL_RUNPOD_DELIVERY.md](docs/SITES_MODAL_RUNPOD_DELIVERY.md) for
@@ -162,7 +179,7 @@ completion       gpu-control-hmac-sha256-v3
 
 The workload's source CI, authenticated completion envelope, offline result parser, and result-side canary acceptance are implemented and tested.
 
-That is **not** the same as a live provider-finalized success path. The repository remains parked and all paid calls remain disabled.
+That is **not** the same as a live provider-finalized success path. The repository remains parked: generic paid execution is disabled, with only the exact owner-confirmed acceptance lanes recorded in `policies/repository-state.yaml` eligible after their release and account gates pass.
 
 ## Why live RunPod execution is not enabled yet
 

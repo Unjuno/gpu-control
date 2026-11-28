@@ -11,7 +11,7 @@ const IMAGE = `ghcr.io/unjuno/gpu-control-runpod-canary@sha256:${"a".repeat(64)}
 const KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => i)).toString("base64");
 
 class D1 {
-  constructor(raw) { this.raw = raw; }
+  constructor(raw) { this.raw = raw; this.failNextLeaseTransition = false; }
   prepare(sql) {
     let parameters = []; const raw = this.raw;
     const statement = { sql, get parameters() { return parameters; },
@@ -22,6 +22,11 @@ class D1 {
     return statement;
   }
   batch(statements) {
+    if (this.failNextLeaseTransition && statements.some((statement) =>
+      statement.sql.includes("UPDATE provider_account_leases SET state=?"))) {
+      this.failNextLeaseTransition = false;
+      throw new Error("injected account lease transition failure");
+    }
     this.raw.exec("BEGIN IMMEDIATE");
     try {
       const result = statements.map((statement) => ({ results: this.raw.prepare(statement.sql).all(...statement.parameters) }));
@@ -86,9 +91,11 @@ test("an ambiguous relay response recovers the one claimed provider job without 
     const args = { run_id: prepared.run_id, plan_fingerprint: prepared.plan_fingerprint,
       provider_approved_plan: prepared.provider_approved_plan };
     await submitRunpodExperiment(env, "site-owner", args, { client, now: 101, reserveBudget: async () => true });
+    raw.prepare("UPDATE runs SET cancel_requested=1 WHERE id=?").run(prepared.run_id);
     receiptReady = true;
-    const recovered = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client });
+    const recovered = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client, now: 102 });
     assert.equal(recovered.provider_job_id, client.jobId);
+    assert.equal(recovered.state, "cancelled");
     assert.equal(recovered.provider_phase, "terminal");
     assert.equal(recovered.cleanup_state, "confirmed");
     assert.equal(client.creates, 1);
@@ -206,5 +213,61 @@ test("an unavailable relay receipt cannot strand an ambiguous run after provider
     assert.equal(reconciled.failure_code, "RUNPOD_AMBIGUOUS_SUBMIT_TTL_ELAPSED");
     assert.equal(client.creates, 1);
     assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "released");
+  } finally { raw.close(); }
+});
+
+test("terminal TTL evidence resumes an uncertain account lease after a partial cleanup write", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  client.submitJob = async () => { client.creates += 1; throw new Error("lost response"); };
+  client.getJob = async () => { throw new Error("terminal recovery must not query the provider"); };
+  try {
+    const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-ttl-cleanup-resume" }, { client, now: 100 });
+    await submitRunpodExperiment(env, "site-owner", { run_id: prepared.run_id,
+      plan_fingerprint: prepared.plan_fingerprint, provider_approved_plan: prepared.provider_approved_plan },
+    { client, now: 101, reserveBudget: async () => true });
+
+    env.DB.failNextLeaseTransition = true;
+    await assert.rejects(synchronizeRunpodExperiment(env, "site-owner", prepared.run_id,
+      { client, now: 402 }), /injected account lease transition failure/);
+    const partial = raw.prepare(`SELECT state, cleanup_state, cleanup_receipt_json FROM runs WHERE id=?`)
+      .get(prepared.run_id);
+    assert.equal(partial.state, "failed");
+    assert.equal(partial.cleanup_state, "confirmed");
+    assert.equal(JSON.parse(partial.cleanup_receipt_json).termination, "job_ttl_elapsed_after_ambiguous_submit");
+    assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "uncertain");
+
+    const recovered = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client, now: 403 });
+    assert.equal(recovered.state, "failed");
+    assert.equal(recovered.cleanup_state, "confirmed");
+    assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "released");
+    assert.equal(client.creates, 1, "recovery must not allocate another job");
+  } finally { raw.close(); }
+});
+
+test("confirmed cancellation resumes an active account lease without repeating cancellation", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  try {
+    const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-cancel-cleanup-resume" }, { client, now: 100 });
+    await submitRunpodExperiment(env, "site-owner", { run_id: prepared.run_id,
+      plan_fingerprint: prepared.plan_fingerprint, provider_approved_plan: prepared.provider_approved_plan },
+    { client, now: 101, reserveBudget: async () => true });
+
+    env.DB.failNextLeaseTransition = true;
+    await assert.rejects(synchronizeRunpodExperiment(env, "site-owner", prepared.run_id,
+      { client, cancel: true, now: 102 }), /injected account lease transition failure/);
+    assert.equal(raw.prepare("SELECT state, cleanup_state FROM runs WHERE id=?").get(prepared.run_id).cleanup_state,
+      "confirmed");
+    assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "active");
+    assert.equal(client.terminated, 1);
+
+    client.cancelJob = async () => { throw new Error("confirmed terminal cleanup must not cancel again"); };
+    const recovered = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client, now: 103 });
+    assert.equal(recovered.state, "cancelled");
+    assert.equal(raw.prepare("SELECT state FROM provider_account_leases").get().state, "released");
+    assert.equal(client.terminated, 1);
   } finally { raw.close(); }
 });

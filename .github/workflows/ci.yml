@@ -72,10 +72,19 @@ jobs:
       - name: Test
         run: uv run --locked pytest
 
+      - name: Test MAP training provider state and dispatch
+        if: matrix.python-version == '3.12'
+        working-directory: sites/gpu-control-sites/modal
+        run: >-
+          uv run --no-project --python 3.12 --with modal==1.6.4 --with pytest==9.0.2
+          python -m pytest -q test_map_training_backend.py
+
   sites-worker:
     name: Sites Worker and D1 contract
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      MIGRATION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
     defaults:
       run:
         working-directory: sites/gpu-control-sites
@@ -84,6 +93,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -92,6 +102,8 @@ jobs:
         run: npm run build
       - name: Validate Site bindings and migrations
         run: npm run validate
+      - name: Enforce append-only D1 migrations
+        run: python3 scripts/check_migrations_append_only.py "$MIGRATION_BASE_SHA"
       - name: Exercise populated forward D1 migration
         run: npm run test:migrations
       - name: Test Worker owner, lifecycle, and artifact boundaries

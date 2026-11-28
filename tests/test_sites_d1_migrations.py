@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 
 MIGRATIONS = (
     Path(__file__).parents[1]
@@ -16,7 +18,11 @@ MIGRATIONS = (
 
 def _insert_plan(db: sqlite3.Connection, plan_id: str, created_at: int = 1) -> None:
     db.execute(
-        """INSERT INTO plans VALUES
+        """INSERT INTO plans (
+            id, owner_id, idempotency_key, fingerprint, workload, repository,
+            source_sha, image_digest, parameters_json, runtime_seconds,
+            max_cost_usd, state, created_at, expires_at
+        ) VALUES
         (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             plan_id,
@@ -39,30 +45,9 @@ def _insert_plan(db: sqlite3.Connection, plan_id: str, created_at: int = 1) -> N
 
 def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     migrations = sorted(MIGRATIONS.glob("*.sql"))
-    assert [path.name for path in migrations] == [
-        "0000_control_plane.sql",
-        "0001_result_artifacts.sql",
-        "0002_cancellation.sql",
-        "0003_runner_cancellation_protocol.sql",
-        "0004_sandbox_cost_ceiling.sql",
-        "0005_human_plan_authorization.sql",
-        "0006_runpod_account_leases.sql",
-        "0007_modal_health_check_limit.sql",
-        "0008_modal_plan_health_authorization.sql",
-        "0009_modal_health_readiness.sql",
-        "0010_modal_status_check_budget.sql",
-        "0011_chatgpt_tool_authorization.sql",
-        "0012_provider_runtime_state.sql",
-        "0013_provider_budgets.sql",
-        "0014_gateway_delegation.sql",
-        "0015_modal_starter_budget.sql",
-        "0016_provider_adapter_state.sql",
-        "0017_free_provider_policies.sql",
-        "0018_provider_cost_ceiling.sql",
-        "0019_runpod_reconciliation_heartbeat.sql",
-        "0020_modal_gpu_budget.sql",
-        "0021_reliable_run_history.sql",
-    ]
+    assert migrations, "the D1 migration directory must not be empty"
+    migration_versions = [path.name.split("_", 1)[0] for path in migrations]
+    assert migration_versions == [f"{version:04d}" for version in range(len(migrations))]
 
     db = sqlite3.connect(":memory:")
     db.execute("PRAGMA foreign_keys = ON")
@@ -102,8 +87,38 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     original_heartbeat = db.execute("SELECT * FROM runner_heartbeats").fetchone()
 
     for migration in migrations[1:]:
+        if migration.name == "0033_github_installation_user_authorization.sql":
+            db.execute(
+                """INSERT INTO github_installation_states
+                (state_hash, owner_id, created_at, expires_at)
+                VALUES (?, ?, ?, ?)""",
+                ("d" * 64, "owner-1", 4, 300),
+            )
+            db.execute(
+                """INSERT INTO github_app_installations
+                (owner_id, installation_id, account_login, repository_selection, connected_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                ("owner-1", "installation-1", "owner-login", "selected", 4),
+            )
         db.executescript(migration.read_text())
-        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+    assert {row[1] for row in db.execute("PRAGMA table_info(github_installation_states)")} == {
+        "state_hash", "owner_id", "created_at", "expires_at", "consumed_at",
+        "oauth_state_hash", "pending_installation_id", "pending_account_login",
+        "completion_nonce",
+    }
+    assert {row[1] for row in db.execute("PRAGMA table_info(github_app_installations)")} == {
+        "owner_id", "installation_id", "account_login", "repository_selection",
+        "user_authorized_repositories_json", "access_token_ciphertext", "access_token_iv",
+        "refresh_token_ciphertext", "refresh_token_iv", "access_token_expires_at",
+        "refresh_token_expires_at", "connected_at",
+    }
+    assert "cleanup_confirmed_at" in {
+        row[1] for row in db.execute("PRAGMA table_info(training_plans)")
+    }
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert db.execute("SELECT COUNT(*) FROM github_installation_states").fetchone() == (0,)
+    assert db.execute("SELECT COUNT(*) FROM github_app_installations").fetchone() == (0,)
 
     assert db.execute(
         "SELECT id, owner_id, idempotency_key, fingerprint, max_cost_usd FROM plans"
@@ -117,23 +132,41 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     ).fetchone()
     assert migrated_run[:13] == original_run
     assert migrated_run[13:] == (None, None, None, 0)
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("UPDATE runs SET cancel_requested = 2 WHERE id = ?", ("run-existing",))
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("UPDATE plans SET max_cost_usd = '0.02' WHERE id = ?", ("plan-existing",))
     assert db.execute(
         """SELECT runner_id, last_seen_at, image_digest, source_sha,
             cancellation_protocol FROM runner_heartbeats"""
     ).fetchall() == [
         ("retired-runner", 3, "sha256:" + "c" * 64, "b" * 40, 0)
     ]
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            "UPDATE runner_heartbeats SET cancellation_protocol = 2 WHERE runner_id = ?",
+            ("retired-runner",),
+        )
     assert original_plan[0] == "plan-existing"
     assert original_heartbeat[0] == "retired-runner"
     assert db.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='modal_health_check_limits'"
-    ).fetchone()[0].find("scope TEXT PRIMARY KEY CHECK (scope = 'workspace')") >= 0
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='modal_authorized_health_checks_owner_checked'"
+    ).fetchone() == ("modal_authorized_health_checks_owner_checked",)
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            "INSERT INTO modal_health_check_limits (scope, last_checked_at) VALUES (?, ?)",
+            ("other", 11),
+        )
 
     tables = {
         row[0]
         for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
     assert {"authorization_challenges", "human_authorizations", "provider_account_leases", "provider_account_lease_events", "modal_authorized_health_checks", "modal_status_check_limits", "provider_free_policies", "provider_free_run_authorizations"} <= tables
+    lease_columns = {
+        row[1] for row in db.execute("PRAGMA table_info(provider_account_leases)")
+    }
+    assert "lease_expires_at" not in lease_columns
     assert db.execute(
         """SELECT provider, max_cost_microusd, paid_fallback_allowed
         FROM provider_free_policies ORDER BY provider"""
@@ -147,6 +180,10 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     assert {"provider_handle_json", "provider_state", "provider_response_json", "updated_at"} <= delegated_columns
     assert db.execute("SELECT provider, provider_plan_json FROM plans WHERE id=?", ("plan-existing",)).fetchone() == ("modal_cpu", None)
     assert db.execute("SELECT provider_job_id, provider_phase, provider_nonce, completion_key_ciphertext_b64 FROM runs WHERE id=?", ("run-existing",)).fetchone() == (None, "not_started", None, None)
+    assert db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' "
+        "AND name='runs_provider_job_id_unique'"
+    ).fetchone() == ("runs_provider_job_id_unique",)
     db.execute(
         """INSERT INTO modal_authorized_health_checks
         (plan_id, owner_id, fingerprint, checked_at)
@@ -192,6 +229,16 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "SELECT authorization_source FROM human_authorizations WHERE id = ?",
         ("authorization-1",),
     ).fetchone() == ("site_confirmation",)
+    _insert_plan(db, "plan-expiry-check")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            """INSERT INTO human_authorizations
+            (id, owner_id, plan_id, fingerprint, authorization_reference,
+                authorized_at, expires_at, consumed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("authorization-too-long", "owner-1", "plan-expiry-check", "a" * 64,
+             "ref-too-long", 5, 906, None),
+        )
     db.execute(
         "UPDATE human_authorizations SET authorization_source = ? WHERE id = ?",
         ("chatgpt_mcp_write_confirmation", "authorization-1"),
@@ -205,5 +252,15 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         pass
     else:
         raise AssertionError("authorization source must reject unrecognized values")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            """INSERT INTO provider_account_leases
+            (provider, account_scope_sha256, generation, revision, lease_token,
+                run_id, owner_id, plan_fingerprint, authorization_id,
+                challenge_sha256, state, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("runpod", "a" * 64, 1, 1, "b" * 64, "run-existing", "owner-1",
+             "c" * 64, "authorization-1", "d" * 64, "active", 10, 10),
+        )
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     db.close()

@@ -1,8 +1,15 @@
 # ChatGPT Sites setup and operations
 
+> **Historical release note:** the hosted-state section below is a snapshot
+> from the Sites v72 release, not a current live check. For the current source
+> candidate and unverified release gates, see
+> [the release matrix](RELEASE_MATRIX.md) and
+> [architecture map](architecture/repository-map.md). Do not infer that the
+> latest Git branch is deployed.
+
 ## Supported production architecture
 
-The only ChatGPT-facing control plane is the authenticated MCP endpoint at:
+The primary conversational control plane is the authenticated MCP endpoint at:
 
 `https://gpu-control-sites.unjuno.chatgpt.site/mcp`
 
@@ -58,9 +65,12 @@ enabled provider.
 
 ## ChatGPT connection
 
-Publishing a Site with the `mcp` capability creates its ChatGPT plugin. No
-local MCP process, `codex mcp add`, Vercel app, or separate OAuth server is
-needed.
+Publishing a Site with the `mcp` capability creates its ChatGPT plugin. ChatGPT
+continues to use its trusted Sites owner identity. Other MCP clients are
+intended to use the same endpoint through the owner-bound OAuth flow described
+in [`MCP_CLIENTS.md`](MCP_CLIENTS.md); they do not get a separate run ledger.
+At this repository snapshot that OAuth flow is source-only in open PR #70, so
+it is not yet a verified live connection path.
 
 1. In ChatGPT, open Plugins and select the personal plugin created by
    **GPU Control — ChatGPT実験管理**.
@@ -70,8 +80,10 @@ needed.
 
 The public Site and execution authority are separate boundaries. Anonymous
 visitors may view the Site, but every stateful MCP tool requires the Sites
-authenticated user ID and the server-side `GPU_CONTROL_ALLOWED_USER_IDS`
-allowlist. D1 reads and writes are owner-scoped.
+authenticated user ID or a valid resource-bound OAuth bearer token. ChatGPT
+identities are restricted by `GPU_CONTROL_ALLOWED_USER_IDS`; OAuth owners are
+resolved through the immutable GitHub subject linked to that Sites owner. D1
+reads and writes are owner-scoped.
 
 ## First verification prompt
 
@@ -79,19 +91,32 @@ Use this prompt after all intended provider credentials have been connected:
 
 ```text
 GPU Controlのexperiment_capabilitiesを呼び出して、Modal、RunPod、Kaggle、
-Hugging Faceの4プロバイダーについて、configured、enabled、blocker、予算、
-利用可能な登録済みworkloadを表にしてください。
+Hugging Face、Google Colabについて、configured、enabled、blocker、予算・
+quotaの見える範囲、利用可能な登録済みworkloadを表にしてください。
+Google Colabについてはcolab_capabilitiesも呼び出して、接続状態、subscription
+tier、eligible GPU、実行lifecycleのready状態を区別してください。さらに
+owner_selected_trainingのready_to_prepareとblockerを報告してください。
+ソース実装の有無と現在のMCP release/admission状態を混同しないでください。
 
-まだ実験は開始しないでください。秘密値を表示せず、Railway、Vercel、
-Neon、外部PostgreSQLが実行経路に含まれていないことも確認してください。
+まだ実験は開始しないでください。秘密値を表示せず、各ルートの最新応答だけを
+根拠にしてください。Railway、Vercel、Neon、外部PostgreSQLを実行経路として
+推測で追加しないでください。
 ```
 
-For a real run, name one registered workload and tell ChatGPT to execute it.
-When that instruction already authorizes execution, it covers one complete
+For a real run, name a registered workload or, when the current capabilities
+advertise `owner_selected_training.ready_to_prepare=true`, give ChatGPT the
+GitHub repository to use. The agent should keep registration/run IDs and retry
+keys internally. See the client-neutral [conversation prompt and connection
+guide](MCP_CLIENTS.md#use-it-from-a-conversation) for a copyable repository
+request that also works in another authenticated compatible MCP client.
+
+When the instruction already requests execution, it covers one complete
 `prepare -> submit -> status/log polling -> result -> cleanup` lifecycle. The
 assistant must not split that lifecycle into repeated conversational questions.
-The server still binds the write to one exact owner-bound, short-lived plan and
-enforces provider budgets, replay prevention and cleanup before replacement.
+The current advertised capabilities still decide whether the requested route
+is available; source code or an open PR is not release evidence. The server
+binds the write to one exact owner-bound, short-lived plan and enforces provider
+budgets, replay prevention and cleanup before replacement.
 
 Repository-aware ChatGPT/Codex agents should load the shared project skill at
 `.cursor/skills/gpu-control-operator/SKILL.md`. It provides the canonical
@@ -283,11 +308,144 @@ key proves only that layer. It does not prove an end-to-end provider route.
 When the owner says to execute a registered workload, that one instruction
 authorizes the bounded lifecycle for the prepared plan that matches it:
 `prepare -> submit -> monitor -> result -> cleanup`. Do not ask the owner to
-repeat "run this plan once" after `prepare`. The ChatGPT client may still show
-its native write-action approval UI; that is distinct from an additional
-conversational confirmation.
+repeat "run this plan once" after `prepare`. The connected MCP client may still
+show its own native write-action approval UI; that is distinct from an
+additional conversational confirmation.
 
 Provider credentials are long-lived, least-privilege runtime configuration and
 are reused across runs. Do not create or rotate them per experiment. Credential
 rotation, deletion, privilege expansion, or a budget increase is a separate
 administrative action and still requires immediate notice before it is done.
+
+## Owner training with MAP-44M
+
+Attach **GPU Control — ChatGPT実験管理** to a new ChatGPT conversation.
+In Chat, use the plugin page's **Try in chat** button. In Work, use the
+composer's **Plugins** menu. Start with a read-only `training_list` call. An
+owner-scoped response confirms the ChatGPT Sites identity. Do not ask for a
+Modal login for ordinary runs: provider credentials are held by the server-side
+adapter and are separate from the Sites owner session. If the tool is
+unavailable or reports an authentication error, diagnose that exact MCP
+connection before changing provider credentials.
+
+Register with `training_register` using only
+`{"repository":"unjuno/model-as-a-paper"}`. The server supplies its
+configured, reviewed commit. For this repository, the server defaults to
+dataset `papers`, run name `map44m`, and a maximum of 100,000 steps; optional
+`dataset`, `run_name`, and `steps` values can be supplied at registration.
+The server fixes the reviewed source/image, Modal L4 profile, and private
+Volumes. Registration does not start training. Preview or prepare using only
+the returned `registration_id`; the server supplies the fixed 120-second
+runtime, $0.25 per-run ceiling, and prepare idempotency key. If `training_list`
+shows multiple execution profiles, include the selected `execution_spec_id`.
+The explicit commit, runtime, budget, and idempotency-key inputs remain
+available for compatibility. The plan exposes the resolved GPU, dataset, run
+name, step ceiling, runtime, and estimated cost. When the user requests
+execution, submit that exact plan.
+`training_submit` is the one billable write action. For MAP-44M and
+owner-selected GitHub training, call it with the exact plan after the user has
+requested execution. The connected MCP client's native write confirmation is
+the per-run checkpoint; do not add a separate Site authorization page or ask
+the user to repeat the request. The Worker records short-lived evidence against
+the authenticated owner, exact plan fingerprint, current control-plane commit,
+source/image, Modal function, runtime, and budget, then consumes it with the
+dispatch reservation. Each compatible client's policy must permit the write
+tool. Authentication grants access to the shared control plane but is not
+itself a spend approval. Continue monitoring the same run after submission;
+do not resubmit after an ambiguous response.
+
+After submission, preserve the run ID. Use it to check status or request
+cancellation. If the submit response is interrupted, check that run before
+starting another. After success, retrieve and verify the checkpoint with an
+authenticated client that can assemble the ranges and compare SHA-256.
+
+## Connecting an owner-selected GitHub repository
+
+The authenticated Sites owner can connect a GitHub App once and select only
+the repositories GPU Control may read. The App must be configured with
+Contents: read, Metadata: read, selected-repository installation, Setup URL
+https://gpu-control-sites.unjuno.chatgpt.site/github/setup, and OAuth Callback
+URL https://gpu-control-sites.unjuno.chatgpt.site/github/oauth/callback.
+The Sites Worker needs GITHUB_APP_ID, GITHUB_APP_SLUG,
+GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET,
+GITHUB_APP_OAUTH_CALLBACK_URL, the private key, and a random 32-byte
+`GITHUB_APP_TOKEN_ENCRYPTION_KEY` in server-side secret storage. The install
+callback alone does not prove who initiated the install: the owner completes a
+GitHub user authorization step, and the Worker verifies access to the exact
+installation. The short-lived user token and rotating refresh token are
+encrypted at rest with owner-and-identity-bound AES-GCM; each repository list
+and source-token request rechecks the current GitHub user and repository IDs.
+If GitHub access is revoked, the source is no longer selectable. Applying
+migration 0042 clears earlier installation bindings; reconnect once after that
+migration. Never put any GitHub token, private key, or installation token in
+ChatGPT, a training container, repository files, or logs.
+
+In ChatGPT, call `github_connection_status`. If it is disconnected, call
+github_connection_start and open its one-time link; install the App with the
+specific repository selected, then authorize GPU Control on GitHub to prove
+your account can access that installation. Then call github_repositories to
+verify the selection and training_register with the repository name. The server pins
+the current default-branch commit and creates the registration ID; the user
+does not need to find a commit or create an ID. For a run request, continue
+directly to `training_prepare`, which validates `.gpu-control/experiment.json`,
+its lockfile, and the current runtime, GPU, quote, and budget in one call. Use
+`training_inspect` only for a detailed diagnostic or when the user asks to
+inspect without running. A per-request token is limited to that single
+repository and is not returned to the client.
+
+Example manifest:
+
+```json
+{
+  "schema_version": 1,
+  "task": "train",
+  "entrypoint": "src/train.py",
+  "python_version": "3.12",
+  "dependencies_lock": "requirements.lock",
+  "gpu_profiles": ["T4"],
+  "outputs": ["checkpoints", "metrics.json"]
+}
+```
+
+For custom training, write a JSON object of scalar metrics to
+`$GPU_CONTROL_CHECKPOINT_DIR/metrics.json`. Declare `metrics.json` in
+`outputs`; after completion the bounded values and SHA-256 are returned with
+`training_status`. Keep the checkpoint at
+`$GPU_CONTROL_CHECKPOINT_DIR/checkpoint.pt`; retrieve it through
+`training_checkpoint` in verified chunks. Additional files are exposed only
+when listed as an exact relative path under
+`artifacts/` (for example, `artifacts/eval/predictions.json`). The completed
+status returns each artifact's ID, path, size, and SHA-256; call
+`training_artifact` with that ID to retrieve bounded chunks and verify the
+assembled file hash. Each declared artifact is limited to 256 MiB and all
+declared artifacts together to 512 MiB.
+
+The separate trusted CPU source stager is the only component that receives a
+short-lived, selected-repository read token. Its outbound TLS destinations are
+limited to `github.com`, `pypi.org`, and `files.pythonhosted.org` for commit and
+hash-pinned wheel retrieval. It does not execute repository code. The Modal
+domain allowlist is a beta control: DNS itself is unrestricted, and SNI-based
+domain filtering does not prevent domain fronting. The training GPU Sandbox
+has all network egress blocked and never receives the GitHub token.
+
+At this stage, `training_inspect` validates the manifest and returns structured
+compatibility checks. The current branch contains a gated Modal prototype for
+fixed CPU source staging followed by a network-blocked GPU Sandbox. It is not
+released: admission remains disabled until the runtime image, separate staging
+and GPU quotes, budget reservations, checkpoint and metrics verification, cleanup,
+security review, and exact-head release gates pass. RunPod custom-repository
+execution is not implemented by the fixed RunPod canary. For owner-selected
+training, the Worker keeps an owner-scoped dispatch lease until a terminal
+provider status explicitly confirms cleanup. A lost submit response,
+`uncertain` result, or pending cleanup keeps that lease; the agent must recover
+the same run with `training_status` before another run can start.
+
+When the route is released, a user who explicitly asks to run may use ordinary
+chat language such as “Run one small GPU experiment from my
+`owner/repository` source and show me the result.” The agent prepares the
+owner-bound registration with server defaults, then submits the exact returned
+plan. The connected client's native write confirmation binds the selected
+commit, GPU, runtime, and cost ceiling once; there is no per-run Modal login or
+separate browser confirmation. The agent then polls the same run and verifies
+cleanup and artifacts. Until the route reports ready and admission is enabled,
+do not claim that prompt can start compute.

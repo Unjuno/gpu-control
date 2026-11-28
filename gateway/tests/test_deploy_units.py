@@ -208,7 +208,8 @@ def test_worker_image_contains_exact_source_verifier_and_provider_clients():
     requirements = (DEPLOY.parent / "requirements-worker.txt").read_text(encoding="utf-8")
     assert "apt-get install -y --no-install-recommends git" in dockerfile
     assert "rm -rf /var/lib/apt/lists/*" in dockerfile
-    assert "COPY gateway/workloads ./workloads" in dockerfile
+    assert "COPY sites/gpu-control-sites/modal/provider_runtime ./provider_runtime" in dockerfile
+    assert "COPY gateway/workloads ./workloads" not in dockerfile
     assert "kaggle==" in requirements
     assert "six==" in requirements
     assert "huggingface_hub==" in requirements

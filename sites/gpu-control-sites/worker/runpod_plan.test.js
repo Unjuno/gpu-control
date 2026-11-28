@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareRunpodExperiment, validRunpodPrepare } from "./runpod_plan.js";
+import { prepareRunpodExperiment, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
+import { RUNPOD_DEFAULT_INITIALIZATION_SECONDS, RUNPOD_ESTIMATED_BILLABLE_SECONDS, RUNPOD_EXECUTION_TIMEOUT_SECONDS,
+  RUNPOD_JOB_TTL_SECONDS, RUNPOD_WORKER_IDLE_TIMEOUT_SECONDS } from "./runpod_execution_policy.js";
+
+test("RunPod estimate uses the same execution policy as provider submission", () => {
+  assert.equal(RUNPOD_ESTIMATED_BILLABLE_SECONDS,
+    RUNPOD_DEFAULT_INITIALIZATION_SECONDS + RUNPOD_JOB_TTL_SECONDS + RUNPOD_WORKER_IDLE_TIMEOUT_SECONDS);
+  assert.equal(RUNPOD_EXECUTION_TIMEOUT_SECONDS, 30);
+});
 
 function environment() {
   const rows = new Map();
@@ -12,6 +20,8 @@ function environment() {
     RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "0.240000",
     RUNPOD_SERVERLESS_GPU_POOL_ID: "ADA_24",
     RUNPOD_WORKLOAD_SOURCE_SHA: "b".repeat(40),
+    RUNPOD_WORKLOAD_ADMISSION_ENABLED: "true",
+    RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED: "true",
     DB: { prepare(sql) { return { bind(...values) { return {
       async run() {
         if (sql.includes("INSERT OR IGNORE INTO plans") && !rows.has(values[2])) {
@@ -39,7 +49,15 @@ test("prepares one immutable owner-bound Runpod price plan without allocating", 
   assert.equal(validRunpodPrepare(args(), env), true);
   const result = await prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 });
   assert.equal(offers, 1);
-  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.020334");
+  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.048334");
+  assert.equal(result.provider_approved_plan.estimated_initialization_seconds, 420);
+  assert.equal(result.provider_approved_plan.estimated_execution_seconds, 300);
+  assert.equal(result.provider_approved_plan.estimated_idle_seconds, 5);
+  assert.equal(result.provider_approved_plan.provider_charge_hard_capped, false);
+  assert.equal(validRunpodApprovedPlan({ ...result.provider_approved_plan, schema_version: 1 }), false,
+    "a stale plan using the former undercounted estimate must not submit");
+  assert.equal(validRunpodApprovedPlan({ ...result.provider_approved_plan, max_cost_usd: "0.99" }), false,
+    "plan validation must use the registry-owned reservation ceiling");
   assert.equal(result.provider_approved_plan.max_cost_usd, "1.00");
   assert.equal(result.provider_approved_plan.image_digest, `sha256:${"a".repeat(64)}`);
   assert.equal(result.machine_state.state, "prepared");
@@ -59,11 +77,12 @@ test("default prepare uses the pinned maximum without management API access", as
   }, { now: 1000 });
   assert.equal(result.provider_approved_plan.hourly_price_usd, "0.240000");
   assert.equal(result.provider_approved_plan.pricing_source, "sites-operator-pinned-serverless-maximum");
-  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.020334");
+  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.048334");
   assert.equal(result.provider_approved_plan.pricing_valid_until, 1600);
   assert.equal(result.expires_at, 1600);
   assert.equal(result.authorization_validity_seconds, 600);
   assert.match(result.human_summary, /承認窓は10分/);
+  assert.match(result.human_summary, /RunPod側の請求上限ではありません/);
 });
 
 test("rejects floating images, wrong source, and estimates above the ceiling", async () => {
@@ -75,4 +94,21 @@ test("rejects floating images, wrong source, and estimates above the ceiling", a
     validForSeconds: 300, source: "runpod-serverless-endpoint-config" }; } };
   await assert.rejects(prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 }),
     /RUNPOD_ESTIMATED_COST_OUT_OF_BOUNDS/);
+});
+
+test("provider plan enforces the same admission gates without dispatcher mediation", async () => {
+  for (const [setting, value, expected] of [
+    ["RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED", "false", "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED"],
+    ["RUNPOD_WORKLOAD_ADMISSION_ENABLED", "false", "RUNPOD_ADMISSION_DISABLED"],
+  ]) {
+    const env = environment();
+    env[setting] = value;
+    env.DB.prepare = () => { throw new Error("blocked plans must not access D1"); };
+    const client = { async getVerifiedOffer() { throw new Error("blocked plans must not query RunPod"); } };
+    const result = await prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blocking_reason, expected);
+    assert.equal(result.machine_state.plan_prepared, false);
+    assert.equal(result.machine_state.job_submitted, false);
+  }
 });

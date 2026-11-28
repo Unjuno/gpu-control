@@ -2,11 +2,11 @@
 
 ## Architecture decision
 
-Keep ChatGPT Sites MCP and D1 as the product boundary and owner scoped record. ChatGPT and Codex choose a registered workload from ordinary language; they do not construct provider credentials, source pins, runtime limits, or provider-specific request bodies. Sites resolves those values from the versioned workload registry and persists the exact plan before any external submit.
+Keep the authenticated Sites MCP and D1 as the product boundary and owner-scoped record. ChatGPT, Codex, and other compatible MCP clients choose a registered workload from ordinary language; they do not construct provider credentials, source pins, runtime limits, or provider-specific request bodies. Sites resolves those values from the versioned workload registry and persists the exact plan before any external submit.
 
 ```mermaid
 flowchart LR
-  U[User request] --> C[ChatGPT or Codex]
+  U[User request] --> C[ChatGPT, Codex, or compatible MCP client]
   C --> M[Authenticated Sites MCP]
   M --> R[Versioned workload registry]
   M --> D[(D1 owner scoped plans and runs)]
@@ -35,19 +35,30 @@ flowchart LR
 - **Provider adapters:** provider-specific authentication and API calls. They receive only an exact, owner-bound approved plan; they return bounded observations and evidence. They never become a second user-facing orchestrator.
 - **Artifact stores:** keep large bytes outside D1. Plans retain the immutable parent run, repo, revision, path, size, and digest needed to re-read and verify the exact artifact.
 
+The previous D1 ownership statement describes the fixed Sites provider routes.
+The PR #70 owner-selected Modal adapter uses a Modal Dict as a short-lived
+atomic create journal. Sites D1 owns the owner-facing plan, reservation,
+bounded terminal result metadata, and cleanup confirmation. The run-scoped
+Modal Volume holds checkpoint/artifact bytes and a fixed-runner result receipt.
+If the Dict expires, the signed adapter request carries the same owner-bound D1
+plan; the adapter inspects only the deterministic Sandbox or Volume receipt
+and never starts a replacement. Compatible MCP clients therefore read the
+same terminal result from the shared ledger. Release and live acceptance are
+still separate from this source-level behavior.
+
 ## Lifecycle contract
 
 `experiment_list` is read-only and owner-scoped; it supports workload/provider/state filters and cursor pages. It reports preparation, submission uncertainty, running/terminal state, result availability, cleanup state, last observation, and immutable parent reference without returning raw logs or cleanup receipts.
 
 `experiment_prepare` resolves a workload name or ID to a plan. The short workload ID is system metadata, not something a user must create or remember. The agent creates an opaque idempotency key per distinct user intent and retains it for recovery; it never asks the user to provide or remember the key. A repeated prepare with the same owner and key returns the same plan, including a RunPod price plan, before refreshing volatile quotes. If the response is completely lost and the key was omitted, a later independent call cannot be proven to represent the same intent. Existing explicit inputs remain supported for compatibility. ZeroGPU preparation records the selected Kaggle parent and immutable artifact reference; later status polling cannot change which completed run is considered newest.
 
-`experiment_submit` checks that the live user request and exact stored plan agree. It durably records submission intent before calling a provider. A response loss becomes `uncertain`/recoverable, not a false claim that no provider resource exists. Provider adapters use a durable per-run claim so recovery observes or returns the same run. A new run requires a distinct intent. Native ChatGPT write confirmation remains available.
+`experiment_submit` checks that the live user request and exact stored plan agree. It durably records submission intent before calling a provider. A response loss becomes `uncertain`/recoverable, not a false claim that no provider resource exists. Provider adapters use a durable per-run claim so recovery observes or returns the same run. A new run requires a distinct intent. MCP clients may display their own native write confirmation; the server-side owner, plan, budget, and one-use authorization checks are shared.
 
-Cancellation has two contracts: a prepared plan is cancelled by a guarded D1 marker without creating a resource; an accepted provider run is cancelled through its provider adapter and remains pending until terminal state and cleanup evidence are observed. A provider without a reliable cancel operation reports that limitation and continues bounded observation.
+Cancellation has two contracts: a prepared plan is cancelled by a guarded D1 marker without creating a resource; an accepted provider run is cancelled through its provider adapter and remains pending until terminal state and cleanup evidence are observed. A provider without a reliable cancel operation reports that limitation and continues bounded observation. MCP clients may apply their own native confirmation UI to destructive tool calls; those UI policies do not change the shared server-side owner and plan checks.
 
 ## Provider and cost policy
 
-RunPod, Modal CPU, Modal GPU, Kaggle, and Hugging Face each keep separate availability and budget policy. Free-first workloads never silently fall back to paid providers. A per-run estimate is not a provider account cap; the system checks both the configured provider limit and its own reservation before submit. Chat never receives provider secrets. Read-only listing avoids provider calls; explicit status/reconcile may make bounded provider calls under the corresponding policy.
+Modal CPU and Modal GPU remain separate execution routes but share one Sites D1 compute reservation ceiling: $30 per UTC month and $1 per run. MAP and owner-selected lanes may apply lower additional limits. RunPod has an independent $1 per-run reservation and no Sites monthly cap. Kaggle and Hugging Face remain free-first with paid fallback disabled. Modal control-function fees used to host adapters, external-provider charges, and compute outside this Sites D1 are excluded from its Modal reservation sum; it is not a provider billing stop. Chat never receives provider secrets. Read-only listing avoids provider calls; explicit status/reconcile may make bounded provider calls under the corresponding policy. See [ADR 0005](decisions/0005-shared-modal-compute-budget.md).
 
 ## Change and retirement path
 
@@ -63,4 +74,47 @@ Adding a provider requires an adapter contract, a registry entry, owner-scoped d
 6. Prepared-plan cancellation is persisted under the deployed D1 schema. Running cancellation is not called complete until provider terminal state and cleanup are observed.
 7. Cross-owner reads return no metadata; tool logs/artifacts cannot trigger another action; CPU evidence is never presented as GPU evidence.
 
-The release check must distinguish code merged to the GitHub PR, the Sites version published, D1 migrations applied, and the tool contract visible in both a new ChatGPT chat and Codex. A successful build or preview alone does not prove the chat tool contract is current. This change does not publish the Site or start an experiment.
+The release check must distinguish code merged to the GitHub PR, the Sites version published, D1 migrations applied, and the tool contract visible in a new ChatGPT chat and at least one compatible external MCP client. A successful build or preview alone does not prove the chat tool contract is current. This change does not publish the Site or start an experiment.
+
+## Owner-selected repository lifecycle
+
+The fixed workload lifecycle above is not the only user path. For a user-owned
+repository, the current candidate exposes a separate sequence:
+
+1. Use owner readiness already returned by `experiment_capabilities`. If the
+   GitHub App is not connected, start the one-time connection flow. If the user
+   named a repository, register it directly; list repositories only when the
+   requested repository is unclear or registration reports it is not selected.
+2. Registration pins the current default-branch commit when the user did not
+   supply one. The user never has to invent a registration ID; the agent keeps
+   the returned ID internally.
+3. For a run request, call `training_prepare` directly. It validates the
+   commit's `.gpu-control/experiment.json`, hash-locked dependencies, current
+   provider route, runtime image, GPU, quote and budget while saving the exact
+   bounded plan. `training_inspect` and `training_preview` remain available for
+   detailed diagnostics and inspect/plan-only requests; do not call them first
+   and repeat the same checks before prepare.
+4. Invoke the destructive `training_submit`
+   with the returned plan. The current user request supplies intent; the
+   connected MCP client's native write confirmation remains a distinct UI boundary.
+5. Recover or monitor the same run, retrieve bounded result/artifact data and
+   verify provider terminal state and cleanup before declaring completion.
+
+PR #70 also adds Google Colab owner-selected execution through the same
+`experiment_prepare` / `experiment_submit` / status / result / artifact / cancel
+contract. It uses Google's hosted Colab MCP, an owner-scoped Google OAuth
+connection, and a D1 operation journal; it is not a direct local CLI dispatch.
+Colab admission defaults closed, and submit requires an exact-call attestation
+that positive Compute Units are available because the hosted API cannot expose
+their balance or a dollar cap. Colab-managed runtime egress is unrestricted.
+
+The Modal `training_*` route and Colab `experiment_*` route remain separate
+provider implementations behind shared MCP ownership and run history; they do
+not share a misleading generic provider command. Both are source-only in the
+open, unmerged PR #70 and remain unavailable under parked admission until
+release gates pass. Direct `google-colab-cli` jobs are a separate local/CI
+workflow and do not appear in the shared ledger. Fixed RunPod/Kaggle/Hugging
+Face routes remain limited to their registered workloads. See [the
+selected-repository design](chatgpt-selected-repository-experiments.md), [Colab
+provider design](google-colab-provider.md), and [current source
+map](repository-map.md).

@@ -1,19 +1,49 @@
-# Sites four-provider control plane
+# GPU Control provider control plane
 
 ## Decision
 
-The production ChatGPT path has exactly four compute providers:
+The authenticated GPU Control API/MCP is the single product control plane.
+ChatGPT chat/Work and any compatible MCP client use the same interface when
+connected and owner-authenticated. Client choice must not create a second plan,
+budget, or run-history system. Historical live acceptances below were made
+through ChatGPT/Sites and do not prove the external OAuth client handshake.
+
+This document describes the fixed-workload provider design as previously
+verified; its provider rows are not a fresh live check. The current PR #70
+source candidate additionally implements owner-selected repository lanes for
+Modal GPU and Google Colab. The Colab route uses Google's hosted API MCP behind
+Sites and the shared owner-bound run lifecycle; it is a fifth compute provider
+in source, not a direct parallel MCP or CLI control plane. Both lanes remain
+unmerged and undispatched under parked policy. See [the selected-repository
+architecture](chatgpt-selected-repository-experiments.md) and [Colab provider
+design](google-colab-provider.md).
+
+The last verified production ChatGPT/Sites path had four compute providers:
 
 1. Modal
 2. RunPod
 3. Kaggle
 4. Hugging Face
 
+Google Colab is a fifth provider implemented in the current source candidate,
+not a separate control plane or a deployed capability. Google
+offers a hosted MCP endpoint at `https://colaboratory.googleapis.com/mcp`.
+Sites uses a separate owner-scoped Google OAuth grant. PR #70 source implements
+that connection and the shared lifecycle; the route remains unavailable on the
+deployed Site until deployment/configuration and live acceptance. The hosted API
+exposes neither remaining Compute Units nor an exact per-run quote. Submit
+therefore requires a fresh owner attestation of positive CU, discloses unknown
+actual consumption, forbids top-up/fallback, and keeps admission disabled by
+default. Colab runtime egress is unrestricted, so the route forbids private
+data and credentials. Direct `google-colab-cli` or local Colab MCP sessions are
+separate and do not satisfy GPU Control run acceptance.
+
 Railway, Vercel, Neon, and a separately hosted PostgreSQL Gateway are not part
 of the production execution path.
 
 ```text
-ChatGPT (authenticated user)
+Authenticated GPU Control client (ChatGPT chat/Work first; other MCP clients
+when connected)
   -> ChatGPT Sites MCP
      -> D1: plans, one-use authorization, budgets, run state, provider handles
      -> Modal control API: fixed Modal CPU workload
@@ -21,6 +51,7 @@ ChatGPT (authenticated user)
      -> Modal provider adapter
         -> Kaggle: fixed private GPU workload
         -> Hugging Face: fixed private ZeroGPU Space
+     -> Google hosted Colab MCP: owner-selected public repository
 ```
 
 The Modal provider adapter is infrastructure for the Kaggle and Hugging Face
@@ -37,12 +68,21 @@ Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
 ## Trust and persistence boundaries
 
 - Sites authenticates the ChatGPT user and enforces the owner allowlist.
-- D1 is the durable source of truth for plans, one-use confirmations, budgets,
-  run state, and opaque provider handles.
+- D1 owns the Sites-facing plan, one-use confirmation, budget reservation,
+  owner-visible run state and cleanup evidence for the fixed provider routes.
+- Colab's encrypted Google refresh credential is owner-scoped in D1. Its
+  provider-specific operation journal binds runtime/session/execution identity
+  and recovery to the shared plan; verified artifacts are copied to private R2
+  before deleting only the run-owned runtime.
 - Modal endpoints require Modal proxy authentication plus a separate
   Sites-to-adapter HMAC with a short expiry and nonce.
-- Modal storage may be used for bounded staging or reconciliation journals, but
-  never as the authoritative run database.
+- The PR #70 owner-selected Modal path additionally keeps an atomic dispatch
+  claim and execution journal in Modal Dict, with source/checkpoint data in
+  Volumes. That journal is required for adapter-side idempotency/recovery but
+  is a second durable state store. D1 remains the owner-facing plan, budget and
+  cleanup ledger; the exact transition/reconciliation authority when the two
+  disagree remains a release-critical contract to finish and test. Do not
+  flatten this distinction into “D1 is the only run-state store.”
 - Provider credentials are separated by route and are never returned to Sites,
   ChatGPT, logs, artifacts, or model-visible responses.
 - Paid execution remains closed unless the exact plan, provider-specific budget,
@@ -52,10 +92,16 @@ Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
 
 | Provider | Control path | Credential location | Cost policy |
 | --- | --- | --- | --- |
-| Modal | Sites -> authenticated Modal control API | Modal proxy token in Sites | provider-specific monthly and per-run cap |
-| RunPod | Sites -> RunPod REST v2 | Sites secret | per-run cap; exact Pod termination required |
+| Modal | Sites -> authenticated Modal control API | Modal proxy token in Sites | shared Sites reservation ceiling of $30/month and $1/run for Modal CPU/GPU compute; not a Modal billing stop |
+| RunPod | Sites -> RunPod REST v2 | Sites secret | independent $1/run reservation; no Sites monthly cap; exact Pod termination required |
 | Kaggle | Sites -> Modal adapter -> Kaggle | Modal secret | free-first; no paid fallback |
 | Hugging Face | Sites -> Modal adapter -> private ZeroGPU Space | Modal secrets and Space secret | free ZeroGPU only; no paid fallback |
+| Google Colab owner-selected source (implemented in PR #70; not deployed) | Authenticated MCP client -> Sites D1 plan/operation journal -> owner-scoped Google OAuth -> hosted Colab API MCP | GPU Control Google connection, server-side only | bounded runtime/resource; exact dollar/CU cap unavailable; admission closed by default |
+
+The Modal reservation sum covers only Modal CPU/GPU workload compute. It does
+not count Modal control-function hosting charges for the Kaggle/Hugging Face
+adapters, external-provider costs, unrelated Modal workloads, or actual account
+usage outside Sites D1. See [ADR 0005](decisions/0005-shared-modal-compute-budget.md).
 
 ## Compatibility rule
 
@@ -68,7 +114,14 @@ configuration uses only `PROVIDER_ADAPTER_URL`, `PROVIDER_ADAPTER_KEY_ID`, and
 ## Activation acceptance
 
 - No Railway resource or PostgreSQL service is required.
-- Sites reports all four registered providers and the real blocker for each.
+- Google Colab's source path now includes its owner-scoped Sites connection,
+  bounded plans, same-operation recovery, status, cancellation, results and
+  cleanup. It remains unavailable in the deployed product until OAuth/config
+  and migration are released, independent security review completes, and a
+  bounded live GPU run verifies artifacts and cleanup. Direct Google MCP app
+  calls remain outside the Sites ledger and are not product acceptance.
+- The last verified production Site reported four fixed-workload providers.
+  Refresh live capability state before making a current deployment claim.
 - Kaggle and Hugging Face calls work through the authenticated Modal adapter.
 - RunPod cannot start without an exact price-bound plan and one-use confirmation.
 - RunPod also remains disabled until the authenticated completion transport has

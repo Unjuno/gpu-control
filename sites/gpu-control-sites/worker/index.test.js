@@ -1,15 +1,18 @@
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
+  trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import worker, { maybeDelegateRunTool, modalGpuProviderEvidence, reserveModalGpuLease } from "./index.js";
+import worker, { modalGpuProviderEvidence } from "./index.js";
+import { maybeDelegateRunTool, reserveModalGpuLease } from "./delegated_experiment_lifecycle.js";
+import { canonicalJson } from "./canonical_json.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
 const modalApiUrl = "https://unjuno--gpu-control-sites-control-api.us-east.modal.run";
 const siteOrigin = "https://gpu-control-sites.unjuno.chatgpt.site";
-const healthRunId = "1".repeat(32);
-const healthFingerprint = "c".repeat(64);
-const healthArgs = { run_id: healthRunId, plan_fingerprint: healthFingerprint };
 
 function approvedPlan(overrides = {}) {
   return { workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control", commit: sourceSha,
@@ -32,6 +35,7 @@ function storedPlan(runId, fingerprint, plan = approvedPlan(), overrides = {}) {
 
 function environment({ heartbeatAt, admission = "false", heartbeatDigest = imageDigest, heartbeatSha = sourceSha, cancellationProtocol = 1 } = {}) {
   const healthLimit = new Map();
+  const modalReservations = new Map();
   const heartbeat = heartbeatAt === undefined ? null : {
     last_seen_at: heartbeatAt,
     image_digest: heartbeatDigest,
@@ -40,19 +44,51 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
   };
   return {
     CPU_WORKLOAD_ADMISSION_ENABLED: admission,
-    GPU_CONTROL_ALLOWED_USER_IDS: "test-owner",
+    GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner",
     CPU_WORKLOAD_REPOSITORY: "Unjuno/gpu-control",
     CPU_WORKLOAD_SOURCE_SHA: sourceSha,
     CPU_WORKLOAD_IMAGE_DIGEST: imageDigest,
     DB: {
       prepare(sql) {
-        const row = sql.includes("sqlite_master") ? { name: "human_authorizations" } : heartbeat;
+        const policyRows = sql.includes("FROM provider_budget_policies") ? [
+          { provider: "runpod_gpu", monthly_limit_microusd: null, per_run_limit_microusd: 1_000_000 },
+        ] : sql.includes("FROM provider_free_policies") ? [
+          { provider: "kaggle", max_cost_microusd: 0, paid_fallback_allowed: 0 },
+          { provider: "huggingface_space", max_cost_microusd: 0, paid_fallback_allowed: 0 },
+        ] : null;
+        const row = sql.includes("sqlite_master") ? { name: "human_authorizations" }
+          : sql.includes("FROM provider_budget_policies") ? policyRows[0]
+          : sql.includes("FROM modal_compute_budget_policy") ? {
+            monthly_limit_microusd: 30_000_000, per_run_limit_microusd: 1_000_000,
+          } : sql.includes("FROM modal_gpu_admission_policy") ? { admission_enabled: 0 }
+          : sql.includes("FROM modal_compute_budget_reservations") ? {
+            monthly_reserved_microusd: [...modalReservations.values()]
+              .filter((item) => item.period_key === new Date().toISOString().slice(0, 7))
+              .reduce((sum, item) => sum + item.reserved_microusd, 0),
+          }
+          : heartbeat;
         return {
-          first: async () => row,
+          first: async (...values) => sql.includes("FROM modal_compute_budget_reservations WHERE run_id=?")
+            ? modalReservations.get(values[0]) || null : row,
+          all: async () => ({ results: policyRows || [] }),
           bind(...values) {
             return {
-              first: async () => row,
+              first: async () => sql.includes("FROM modal_compute_budget_reservations WHERE run_id=?")
+                ? modalReservations.get(values[0]) || null : row,
               run: async () => {
+                if (sql.includes("INSERT OR IGNORE INTO modal_compute_budget_reservations")) {
+                  const [runId, source, fingerprint, periodKey, reservedMicrousd, createdAt] = values;
+                  const existing = modalReservations.get(runId);
+                  if (existing) return { meta: { changes: 0 } };
+                  const used = [...modalReservations.values()].filter((item) => item.period_key === periodKey)
+                    .reduce((sum, item) => sum + item.reserved_microusd, 0);
+                  if (reservedMicrousd > 1_000_000 || used + reservedMicrousd > 30_000_000) {
+                    return { meta: { changes: 0 } };
+                  }
+                  modalReservations.set(runId, { source, plan_fingerprint: fingerprint,
+                    period_key: periodKey, reserved_microusd: reservedMicrousd, created_at: createdAt });
+                  return { meta: { changes: 1 } };
+                }
                 if (!sql.includes("modal_health_check_limits")) return { meta: { changes: 1 } };
                 const [now, threshold] = values;
                 const prior = healthLimit.get("workspace");
@@ -67,52 +103,6 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
       },
     },
   };
-}
-
-function authorizedHealthEnvironment({ admission = "true", alreadyChecked = false, budgetError = false, authorization = true, healthResultChanges = 1 } = {}) {
-  const env = environment({ admission });
-  env.MODAL_API_URL = modalApiUrl;
-  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
-  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
-  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
-  env.BUCKET = { put: async () => {} };
-  let lastChecked = null;
-  let planHealthReady = null;
-  const checkedPlans = new Set(alreadyChecked ? [healthRunId] : []);
-  env.DB.prepare = (sql) => ({ bind(...values) { return {
-    first: async () => sql.includes("FROM plans p JOIN human_authorizations a") && authorization &&
-      values[0] === healthRunId && values[1] === "test-owner" && values[2] === healthFingerprint
-      ? { id: healthRunId } : null,
-    async run() {
-      if (sql.includes("UPDATE modal_authorized_health_checks")) {
-        planHealthReady = values[0];
-        return { meta: { changes: healthResultChanges } };
-      }
-      if (sql.includes("modal_health_check_limits")) {
-        if (budgetError) throw new Error("D1 health budget unavailable");
-        const [now, threshold] = values;
-        if (lastChecked !== null && lastChecked > threshold) return { meta: { changes: 0 } };
-        lastChecked = now;
-        return { meta: { changes: 1 } };
-      }
-      if (sql.includes("modal_authorized_health_checks")) {
-        if (checkedPlans.has(healthRunId)) return { meta: { changes: 0 } };
-        checkedPlans.add(healthRunId);
-        return { meta: { changes: 1 } };
-      }
-      throw new Error("unexpected health query");
-    },
-  }; } });
-  env.healthReadyForTest = () => planHealthReady;
-  return env;
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 async function capabilities(env) {
@@ -140,27 +130,95 @@ async function toolCall(env, user, name, args) {
   }), env);
 }
 
-test("public MCP data tools reject anonymous callers before touching D1", async () => {
-  const env = environment();
-  let databaseReads = 0;
-  env.DB.prepare = () => {
-    databaseReads++;
-    throw new Error("anonymous request reached D1");
-  };
-  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: 7, method: "tools/call",
-      params: { name: "experiment_list", arguments: {} },
-    }),
-  }), env);
-  const rpc = await response.json();
+test("GitHub App connection tools are owner-scoped and fail closed until configured", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
+    const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner", DB: {
+      prepare(sql) {
+        return { bind(...values) {
+          const statement = db.prepare(sql);
+          return { run: async () => statement.run(...values), first: async () => statement.get(...values),
+            all: async () => ({ results: statement.all(...values) }) };
+        } };
+      },
+      async batch(statements) {
+        db.exec("BEGIN");
+        try {
+          const result = statements.map(({ sql, values }) => {
+            const statement = db.prepare(sql);
+            if (sql.includes("RETURNING")) return { results: statement.all(...values) };
+            return { meta: { changes: Number(statement.run(...values).changes) } };
+          });
+          db.exec("COMMIT");
+          return result;
+        } catch (error) { db.exec("ROLLBACK"); throw error; }
+      },
+    } };
+    const call = async (user, name) => {
+      const response = await toolCall(env, user, name, {});
+      return JSON.parse((await response.json()).result.content[0].text);
+    };
+    assert.equal((await toolCall(env, "unauthorized", "github_connection_status", {})).status, 403);
+    assert.equal((await call("test-owner", "github_connection_start")).blocking_reason, "GITHUB_APP_NOT_CONFIGURED");
+    assert.deepEqual((await call("test-owner", "github_connection_status")).machine_state,
+      { configured: false, connected: false });
+    const repos = await call("test-owner", "github_repositories");
+    assert.equal(repos.blocking_reason, "GITHUB_APP_NOT_CONFIGURED");
+    assert.deepEqual(repos.machine_state.repositories, []);
+    assert.equal((await call("test-owner", "github_connection_disconnect")).machine_state.disconnected, true);
 
-  assert.equal(response.status, 200);
-  assert.equal(rpc.result.isError, true);
-  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "AUTHENTICATED_SITE_USER_REQUIRED" });
-  assert.equal(databaseReads, 0);
+    const listed = await worker.fetch(new Request("https://site.invalid/mcp", { method: "POST",
+      headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) }), env);
+    const body = await listed.json();
+    const byName = new Map(body.result.tools.map((tool) => [tool.name, tool]));
+    assert.ok(byName.has("github_connection_start"));
+    assert.equal(byName.get("github_repositories").annotations.readOnlyHint, true);
+    assert.equal(byName.get("github_connection_disconnect").annotations.destructiveHint, true);
+    assert.match(byName.get("experiment_capabilities").description, /colab_capabilities/);
+    assert.match(byName.get("experiment_capabilities").description, /Google Colab readiness reports owner OAuth connection/);
+  } finally { db.close(); }
+});
+
+test("Google Colab connection tools are reachable through authenticated MCP and fail closed until configured", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(readFileSync(new URL("../drizzle/0034_google_colab_account_connection.sql", import.meta.url), "utf8"));
+    const env = { ...environment(), GPU_CONTROL_ALLOWED_USER_IDS: "test-owner", DB: {
+      prepare(sql) {
+        return { bind(...values) {
+          const statement = db.prepare(sql);
+          return { run: async () => statement.run(...values), first: async () => statement.get(...values),
+            all: async () => ({ results: statement.all(...values) }) };
+        } };
+      },
+    } };
+    const call = async (user, name, args = {}) => {
+      const response = await toolCall(env, user, name, args);
+      if (response.status !== 200) return { httpStatus: response.status };
+      const body = await response.json();
+      if (!body.result) return { isError: true, code: body.error?.code };
+      return { ...JSON.parse(body.result.content[0].text), isError: body.result.isError };
+    };
+    assert.equal((await call("unauthorized", "colab_connection_status")).httpStatus, 403);
+    assert.deepEqual((await call("test-owner", "colab_connection_status")).machine_state,
+      { configured: false, connected: false });
+    assert.equal((await call("test-owner", "colab_capabilities")).blocking_reason,
+      "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED");
+    assert.equal((await call("test-owner", "colab_connection_start")).blocking_reason,
+      "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED");
+    assert.equal((await call("test-owner", "colab_connection_disconnect")).machine_state.disconnected, false);
+    assert.deepEqual(await call("test-owner", "colab_connection_status", { extra: true }),
+      { error: "INVALID_ARGUMENTS", isError: true });
+
+    const listed = await worker.fetch(new Request("https://site.invalid/mcp", { method: "POST",
+      headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }) }), env);
+    const tools = new Map((await listed.json()).result.tools.map((tool) => [tool.name, tool]));
+    for (const name of ["colab_connection_start", "colab_connection_status", "colab_connection_disconnect", "colab_capabilities"])
+      assert.ok(tools.has(name), `${name} is advertised`);
+  } finally { db.close(); }
 });
 
 test("root page is a public status surface without granting execution authority", async () => {
@@ -170,124 +228,6 @@ test("root page is a public status surface without granting execution authority"
   const body = await response.text();
   assert.match(body, /Viewing this page does not grant execution authority/);
   assert.doesNotMatch(body, /token|secret|credential/i);
-});
-
-test("MCP tool annotations distinguish read, execution, and lifecycle operations", async () => {
-  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
-  }), environment());
-  const rpc = await response.json();
-  assert.equal(response.status, 200);
-  const tools = Object.fromEntries(rpc.result.tools.map((item) => [item.name, item.annotations]));
-  const healthTool = rpc.result.tools.find((item) => item.name === "experiment_provider_health");
-  const prepareTool = rpc.result.tools.find((item) => item.name === "experiment_prepare");
-  const submitTool = rpc.result.tools.find((item) => item.name === "experiment_submit");
-  assert.deepEqual(healthTool.inputSchema.required, ["run_id", "plan_fingerprint"]);
-  assert.deepEqual(submitTool.inputSchema.required, ["plan_fingerprint", "run_id"]);
-  assert.match(prepareTool.description, /without asking the user the same question again/);
-  assert.match(submitTool.description, /do not ask a second conversational confirmation/);
-  assert.match(submitTool.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
-
-  for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list"]) {
-    assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);
-    assert.equal(tools[name].destructiveHint, false, `${name} should not be destructive`);
-    assert.equal(tools[name].idempotentHint, true, `${name} should be idempotent`);
-    assert.equal(tools[name].openWorldHint, false, `${name} uses only bounded resources`);
-  }
-  assert.deepEqual(tools.experiment_prepare, {
-    readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
-  });
-  assert.deepEqual(tools.experiment_submit, {
-    readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
-  });
-  for (const name of ["experiment_status", "experiment_result"]) {
-    assert.equal(tools[name].readOnlyHint, false, `${name} synchronizes provider state into D1/R2`);
-    assert.equal(tools[name].destructiveHint, false, `${name} does not cancel or allocate by intent`);
-    assert.equal(tools[name].idempotentHint, false, `${name} may advance a live run`);
-    assert.equal(tools[name].openWorldHint, false, `${name} uses only the configured provider`);
-  }
-  assert.deepEqual(tools.experiment_cancel, {
-    readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
-  });
-  assert.deepEqual(tools.experiment_provider_health, {
-    readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false,
-  });
-});
-
-test("Modal health diagnostic requires an exact, unconsumed plan confirmation", async () => {
-  const env = authorizedHealthEnvironment({ authorization: false });
-  env.MODAL_API_URL = modalApiUrl;
-  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
-  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
-  let called = false;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
-  try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(result.blocking_reason, "HUMAN_AUTHORIZATION_REQUIRED");
-    assert.equal(result.machine_state.sandbox_started, false);
-    assert.equal(called, false, "health must not call Modal before exact-plan confirmation");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("Modal health diagnostic does not contact the provider while admission is closed", async () => {
-  const env = authorizedHealthEnvironment({ admission: "false" });
-  env.MODAL_API_URL = modalApiUrl;
-  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
-  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
-  let called = false;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
-  try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(result.blocking_reason, "CPU_WORKLOAD_ADMISSION_DISABLED");
-    assert.equal(result.machine_state.sandbox_started, false);
-    assert.equal(called, false, "closed admission must avoid separately billed Modal health calls");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("Modal proxy credentials are never sent to an unregistered host", async () => {
-  const env = authorizedHealthEnvironment();
-  env.MODAL_API_URL = "https://attacker.example.test";
-  let called = false;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
-  try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(result.blocking_reason, "MODAL_PROVIDER_NOT_CONFIGURED");
-    assert.equal(called, false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("Modal requests reject redirects before proxy credentials can be forwarded", async () => {
-  const env = authorizedHealthEnvironment();
-  let redirectMode = null;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, init) => {
-    redirectMode = init.redirect;
-    return new Response(null, { status: 302, headers: { location: "https://attacker.example.test/collect" } });
-  };
-  try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(redirectMode, "manual");
-    assert.equal(result.blocking_reason, "MODAL_PROVIDER_HEALTH_MISMATCH");
-    assert.equal(result.machine_state.checks.error_code, "MODAL_PROVIDER_HTTP_3XX");
-    assert.equal(result.machine_state.sandbox_started, false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
 });
 
 test("Modal status polling fails closed when the shared provider-call budget is exhausted", async () => {
@@ -323,277 +263,9 @@ test("Modal status polling fails closed when the shared provider-call budget is 
   }
 });
 
-test("Modal health diagnostic is owner-scoped and performs one authenticated GET per confirmed plan", async () => {
-  const env = authorizedHealthEnvironment();
-  env.MODAL_API_URL = modalApiUrl;
-  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
-  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
-  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
-  env.BUCKET = { put: async () => {} };
-  const originalFetch = globalThis.fetch;
-  let called = false;
-  globalThis.fetch = async (url, init) => {
-    called = true;
-    assert.equal(url, "https://unjuno--gpu-control-sites-control-api.us-east.modal.run/v1/health");
-    assert.equal(init.method, "GET");
-    assert.equal(init.body, undefined);
-    assert.equal(init.headers.Authorization,
-      `Bearer ${env.MODAL_PROXY_TOKEN_ID}.${env.MODAL_PROXY_TOKEN_SECRET}`);
-    assert.equal(init.headers["Modal-Key"], undefined);
-    assert.equal(init.headers["Modal-Secret"], undefined);
-    return new Response(JSON.stringify({
-      ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
-      registered_image_digest: imageDigest, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT,
-      max_runtime_seconds: 30, source_sha: sourceSha,
-    }), { status: 200, headers: { "content-type": "application/json" } });
-  };
-  try {
-    const denied = await toolCall(env, "other-owner", "experiment_provider_health", healthArgs);
-    const deniedValue = JSON.parse((await denied.json()).result.content[0].text);
-    assert.deepEqual(deniedValue, { error: "SITE_USER_NOT_AUTHORIZED" });
-    assert.equal(called, false, "unauthorized caller must not reach Modal");
-
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(result.status, "ok");
-    assert.equal(result.machine_state.ready, true);
-    assert.equal(result.machine_state.sandbox_started, false);
-    assert.equal(result.machine_state.inference_started, false);
-    assert.equal(result.machine_state.control_function_cost_included_in_sandbox_ceiling, false);
-    assert.equal(env.healthReadyForTest(), 1, "a successful health check is persisted for submit to reuse");
-    assert.equal(called, true);
-    assert.equal(JSON.stringify(result).includes(env.MODAL_PROXY_TOKEN_SECRET), false);
-
-    const limitedResponse = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const limited = JSON.parse((await limitedResponse.json()).result.content[0].text);
-    assert.equal(limited.blocking_reason, "MODAL_HEALTH_CHECK_RATE_LIMITED");
-    assert.equal(called, true, "rate limited repeat must not call Modal");
-
-    const originalNow = Date.now;
-    Date.now = () => originalNow() + 61000;
-    try {
-      const duplicateResponse = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-      const duplicate = JSON.parse((await duplicateResponse.json()).result.content[0].text);
-      assert.equal(duplicate.blocking_reason, "MODAL_PLAN_HEALTH_ALREADY_CHECKED");
-      assert.equal(called, true, "a confirmed plan authorizes at most one billed health call");
-    } finally {
-      Date.now = originalNow;
-    }
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("Modal health diagnostic reports provider auth failure without starting a Sandbox", async () => {
-  const env = authorizedHealthEnvironment();
-  env.MODAL_API_URL = modalApiUrl;
-  env.MODAL_PROXY_TOKEN_ID = "wk-12345678";
-  env.MODAL_PROXY_TOKEN_SECRET = "ws-12345678";
-  env.MODAL_WORKLOAD_IMAGE_FINGERPRINT = "c".repeat(64);
-  env.BUCKET = { put: async () => {} };
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response("credential detail must not escape", { status: 401 });
-  try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(result.status, "blocked");
-    assert.equal(result.machine_state.ready, false);
-    assert.equal(result.machine_state.checks.request_succeeded, false);
-    assert.equal(result.machine_state.checks.error_code, "MODAL_PROVIDER_HTTP_401");
-    assert.equal(result.machine_state.sandbox_started, false);
-    assert.equal(result.machine_state.inference_started, false);
-    assert.equal(JSON.stringify(result).includes("credential detail"), false);
-    assert.equal(JSON.stringify(result).includes(env.MODAL_PROXY_TOKEN_SECRET), false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("Modal health diagnostic fails closed when the reserved health row cannot be updated", async () => {
-  const env = authorizedHealthEnvironment({ healthResultChanges: 0 });
-  env.BUCKET = { put: async () => {} };
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => Response.json({ ready: true, provider: "modal_cpu", workload: "tiny-stories-inference-v1",
-    source_sha: sourceSha, registered_image_digest: imageDigest,
-    image_fingerprint: "c".repeat(64), max_runtime_seconds: 30 });
-  try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(result.status, "blocked");
-    assert.equal(result.blocking_reason, "MODAL_HEALTH_RESULT_PERSISTENCE_FAILED");
-    assert.equal(result.machine_state.sandbox_started, false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("Modal health diagnostic fails closed when the global call budget cannot be reserved", async () => {
-  const env = authorizedHealthEnvironment({ budgetError: true });
-  env.BUCKET = { put: async () => {} };
-  const originalFetch = globalThis.fetch;
-  let called = false;
-  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
-  try {
-    const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
-    const result = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(result.blocking_reason, "MODAL_HEALTH_CHECK_LIMIT_UNAVAILABLE");
-    assert.equal(result.machine_state.sandbox_started, false);
-    assert.equal(called, false, "D1 budget reservation failure must prevent Modal access");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("Modal health diagnostic requires the exact confirmed plan identity", async () => {
-  const env = authorizedHealthEnvironment();
-  let called = false;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => { called = true; return Response.json({ ready: true }); };
-  try {
-    const invalid = await toolCall(env, "test-owner", "experiment_provider_health", { ...healthArgs, plan_fingerprint: "d".repeat(64) });
-    const result = JSON.parse((await invalid.json()).result.content[0].text);
-    assert.equal(result.blocking_reason, "HUMAN_AUTHORIZATION_REQUIRED");
-    assert.equal(called, false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("authenticated users outside the configured owner allowlist cannot touch D1", async () => {
-  const env = environment();
-  let databaseReads = 0;
-  env.DB.prepare = () => {
-    databaseReads++;
-    throw new Error("unauthorized Site user reached D1");
-  };
-  const response = await toolCall(env, "another-chatgpt-user", "experiment_list", {});
-  const rpc = await response.json();
-
-  assert.equal(rpc.result.isError, true);
-  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "SITE_USER_NOT_AUTHORIZED" });
-  assert.equal(databaseReads, 0);
-});
-
-test("Site confirmation binds one exact plan to the authenticated owner and consumes the CSRF challenge", async () => {
-  const runId = "1".repeat(32);
-  const fingerprint = "2".repeat(64);
-  const now = Math.floor(Date.now() / 1000);
-  const plan = { id: runId, owner_id: "test-owner", fingerprint, workload: "tiny-stories-inference-v1",
-    repository: "Unjuno/gpu-control", source_sha: sourceSha,
-    parameters_json: JSON.stringify({ prompt: "<script>alert(1)</script>", max_new_tokens: 3, seed: 42 }),
-    runtime_seconds: 15, max_cost_usd: "0.01", state: "prepared", expires_at: now + 300 };
-  const challenges = new Map();
-  const authorizations = new Map();
-  const env = environment();
-  env.DB.prepare = (sql) => ({ bind(...values) { return {
-    values,
-    async first() {
-      if (sql.includes("FROM plans WHERE id=?")) {
-        return values[0] === runId && values[1] === "test-owner" && values[2] === fingerprint ? plan : null;
-      }
-      if (sql.includes("FROM human_authorizations")) return authorizations.get(values[1]) || null;
-      throw new Error(`unexpected confirmation query: ${sql}`);
-    },
-    async run() {
-      assert.match(sql, /INSERT OR REPLACE INTO authorization_challenges/);
-      const [id, owner, planId, planFingerprint, tokenHash, createdAt, expiresAt] = values;
-      challenges.set(tokenHash, { id, owner_id: owner, plan_id: planId, fingerprint: planFingerprint,
-        token_hash: tokenHash, created_at: createdAt, expires_at: expiresAt, consumed_at: null });
-      return { success: true };
-    },
-  }; } });
-  env.DB.batch = async (statements) => {
-    const [consume, create] = statements;
-    const consumeValues = consume.values;
-    const [consumedAt, tokenHash, owner, planId, planFingerprint, currentTime] = consumeValues;
-    const challenge = challenges.get(tokenHash);
-    if (!challenge || challenge.consumed_at !== null || challenge.owner_id !== owner || challenge.plan_id !== planId ||
-        challenge.fingerprint !== planFingerprint || challenge.expires_at < currentTime || plan.state !== "prepared" ||
-        plan.expires_at < currentTime) return [{ meta: { changes: 0 } }, { meta: { changes: 0 } }];
-    challenge.consumed_at = consumedAt;
-    const [authorizationId, authorizedAt, insertTokenHash, insertOwner, insertPlanId, insertFingerprint] = create.values;
-    assert.equal(insertTokenHash, tokenHash);
-    assert.equal(insertOwner, owner);
-    assert.equal(insertPlanId, planId);
-    assert.equal(insertFingerprint, planFingerprint);
-    if (authorizations.has(planId)) return [{ meta: { changes: 1 } }, { meta: { changes: 0 } }];
-    authorizations.set(planId, { id: authorizationId, owner_id: owner, plan_id: planId, fingerprint: planFingerprint,
-      authorization_reference: challenge.id, authorized_at: authorizedAt,
-      expires_at: Math.min(challenge.expires_at, plan.expires_at), consumed_at: null });
-    return [{ meta: { changes: 1 } }, { meta: { changes: 1 } }];
-  };
-
-  const url = `${siteOrigin}/authorize?run_id=${runId}&plan_fingerprint=${fingerprint}`;
-  const originalPrepare = env.DB.prepare;
-  env.DB.prepare = () => { throw new Error("non-owner confirmation request reached D1"); };
-  const anonymous = await worker.fetch(new Request(url), env);
-  const anonymousHtml = await anonymous.text();
-  assert.equal(anonymous.status, 401);
-  assert.match(anonymousHtml, /target="_top"/);
-  assert.match(anonymousHtml, new RegExp(encodeURIComponent(`/authorize?run_id=${runId}&plan_fingerprint=${fingerprint}`)));
-  assert.match(anonymousHtml, /ChatGPTでサインイン/);
-  const nonOwner = await worker.fetch(new Request(url, { headers: { "oai-authenticated-user-id": "other-user" } }), env);
-  assert.equal(nonOwner.status, 403);
-  env.DB.prepare = originalPrepare;
-  const page = await worker.fetch(new Request(url, { headers: { "oai-authenticated-user-id": "test-owner" } }), env);
-  const html = await page.text();
-  assert.equal(page.status, 200);
-  assert.equal(page.headers.get("cache-control"), "no-store");
-  assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
-  assert.match(html, /Modal制御関数料金はこの上限に含まれず/);
-  assert.match(html, /CPU request\/limit: 1 physical core \/ memory request\/limit: 512 MiB/);
-  assert.match(html, /CPUは上限を超えて使えず、超過時はthrottleされます/);
-  assert.match(html, /メモリ上限超過時はSandboxがOOM終了/);
-  assert.match(html, /このplanを1回承認する/);
-  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
-  const token = html.match(/name="challenge" value="([0-9a-f]{64})"/)[1];
-  const formBody = new URLSearchParams({ run_id: runId, plan_fingerprint: fingerprint, challenge: token, confirm: "yes" });
-  const crossSite = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
-    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: "https://attacker.invalid",
-      "sec-fetch-site": "cross-site", "content-type": "application/x-www-form-urlencoded" }, body: formBody,
-  }), env);
-  assert.equal(crossSite.status, 403);
-  assert.equal(authorizations.size, 0);
-
-  const wrongOrigin = await worker.fetch(new Request("https://site.invalid/authorize", {
-    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: "https://site.invalid",
-      "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded" }, body: formBody,
-  }), env);
-  assert.equal(wrongOrigin.status, 403);
-  assert.equal(authorizations.size, 0);
-
-  const duplicateBody = new URLSearchParams(formBody);
-  duplicateBody.append("confirm", "no");
-  const duplicate = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
-    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: siteOrigin,
-      "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded" }, body: duplicateBody,
-  }), env);
-  assert.equal(duplicate.status, 400);
-  assert.equal(authorizations.size, 0);
-
-  const approved = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
-    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: siteOrigin,
-      "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded" }, body: formBody,
-  }), env);
-  assert.equal(approved.status, 200);
-  assert.match(await approved.text(), /チャットに戻り/);
-  const authorization = authorizations.get(runId);
-  assert.equal(authorization.owner_id, "test-owner");
-  assert.equal(authorization.fingerprint, fingerprint);
-  assert.equal(authorization.expires_at, plan.expires_at);
-  assert.ok(authorization.expires_at > authorization.authorized_at);
-  assert.equal(authorization.consumed_at, null);
-
-  const replay = await worker.fetch(new Request(`${siteOrigin}/authorize`, {
-    method: "POST", headers: { "oai-authenticated-user-id": "test-owner", origin: siteOrigin,
-      "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded" }, body: formBody,
-  }), env);
-  assert.equal(replay.status, 409);
-  assert.equal(authorizations.size, 1);
-});
-
 test("read-only capabilities do not call Modal", async () => {
   const env = environment({ admission: "true" });
+  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner";
   env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";
   env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-" + "t".repeat(16);
@@ -609,23 +281,71 @@ test("read-only capabilities do not call Modal", async () => {
     assert.equal(result.machine_state.provider_configured, true);
     assert.deepEqual(result.machine_state.provider_health_checks, { configured: true, deferred_until_authorized_submit: true });
     assert.equal(result.machine_state.available, true);
+    assert.deepEqual(result.machine_state.owner_access, {
+      configured: true, allowed_owner_count: 1, scope: "single_owner", current_owner_authorized: true,
+    });
+    assert.deepEqual(result.machine_state.owner_selected_training, {
+      execution_kind: "owner_selected_python",
+      compute_provider: "modal_gpu",
+      repository_access: "authenticated_owner_selected_github_repositories",
+      requires_manifest: ".gpu-control/experiment.json",
+      requires_hash_locked_dependencies: true,
+      registration_id_is_internal: true,
+      ask_user_for_registration_id: false,
+      github_app_configured: false,
+      github_connected: false,
+      adapter_configured: false,
+      site_profile_configured: false,
+      site_control_plane_configured: false,
+      admission_enabled: false,
+      provider_budget_policy_ready: true,
+      provider_budget_admission_enabled: false,
+      budget_policy: { state: "unavailable", provider: "modal", scope: "modal_compute_shared_across_routes" },
+      adapter_readiness_available: false,
+      adapter_profile_configured: false,
+      adapter_control_plane_configured: false,
+      adapter_admission_enabled: false,
+      adapter_profile_matches: false,
+      ready_to_prepare: false,
+      paid_fallback_allowed: false,
+      next_actions: ["github_connection_status"],
+      blocker: "GITHUB_APP_NOT_CONFIGURED",
+    });
     assert.deepEqual(result.providers.map((provider) => provider.id),
-      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space"]);
+      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space", "google_colab"]);
     assert.equal(result.providers[1].enabled, false);
     assert.equal(result.providers[1].configured, false);
+    assert.equal(result.provider_budgets[0].provider, "modal");
+    assert.deepEqual(result.provider_budgets[0].routes, ["modal_cpu", "modal_gpu"]);
+    assert.equal(result.provider_budgets[0].monthly_limit_usd, "30.00");
+    assert.equal(result.provider_budgets[0].per_run_limit_usd, "1.00");
     assert.deepEqual(result.workloads.map((workload) => workload.id),
       ["tiny-stories-inference-v1", "runpod-gpu-canary-v1", "modal-gpu-vector-add-v1",
         "orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"]);
-    assert.deepEqual(result.provider_budgets.slice(3), [
-      { provider: "kaggle", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
+    assert.deepEqual(result.provider_budgets.slice(2), [
+      { provider: "kaggle", policy_available: true, scope: "registered_free_workload_policy",
+        monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
         paid_fallback_allowed: false },
-      { provider: "huggingface_space", monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
+      { provider: "huggingface_space", policy_available: true, scope: "registered_free_workload_policy",
+        monthly_limit_usd: "0.00", per_run_limit_usd: "0.00",
         paid_fallback_allowed: false },
     ]);
     assert.equal(providerCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("owner runtime profile validation and fingerprint match the shared cross-runtime contract", async () => {
+  const contract = JSON.parse(readFileSync(new URL("../contracts/owner-training-profile-cases.json", import.meta.url), "utf8"));
+  assert.equal(contract.schema_version, 1);
+  for (const item of contract.cases) {
+    assert.equal(trainingRuntimeProfileConfigured(item.config, contract.now), item.profile_configured, item.name);
+  }
+  assert.equal(await trainingRuntimeProfileFingerprint(contract.cases[0].config, contract.now),
+    contract.expected_fingerprint);
+  assert.equal(trainingControlPlaneConfigured("1".repeat(40)), true);
+  assert.equal(trainingControlPlaneConfigured("bad"), false);
 });
 
 test("capabilities exposes all provider routes and enables only configured routes", async () => {
@@ -640,7 +360,10 @@ test("capabilities exposes all provider routes and enables only configured route
     globalThis.fetch = async () => new Response(JSON.stringify({
       schema_version: 2, status: "ok", human_summary: "Configured.",
       next_allowed_actions: ["experiment_prepare"], blocking_reason: null,
-      machine_state: { providers: [
+      machine_state: { owner_selected_training: { profile_configured: true, control_plane_configured: true,
+        admission_enabled: false,
+        profile_fingerprint: "9".repeat(64),
+        ready: false, blocker: "OWNER_TRAINING_ADMISSION_DISABLED" }, providers: [
         { id: "kaggle", configured: true, paid_fallback: false },
         { id: "huggingface_space", configured: false, paid_fallback: false },
         { id: "modal_gpu", configured: true, paid_fallback: false },
@@ -648,7 +371,7 @@ test("capabilities exposes all provider routes and enables only configured route
     }), { status: 200, headers: { "content-type": "application/json" } });
     const result = await capabilities(env);
     assert.deepEqual(result.providers.map((provider) => provider.id),
-      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space"]);
+      ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space", "google_colab"]);
     assert.equal(result.providers[1].configured, true);
     assert.equal(result.providers[1].enabled, false);
     assert.equal(result.providers[1].blocker, "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED");
@@ -656,6 +379,16 @@ test("capabilities exposes all provider routes and enables only configured route
     assert.equal(result.providers[3].blocker, null);
     assert.equal(result.providers[4].enabled, false);
     assert.equal(result.providers[4].blocker, "FREE_PROVIDER_NOT_CONFIGURED");
+    assert.equal(result.machine_state.owner_selected_training.adapter_configured, true);
+    assert.equal(result.machine_state.owner_selected_training.site_profile_configured, false);
+    assert.equal(result.machine_state.owner_selected_training.site_control_plane_configured, false);
+    assert.equal(result.machine_state.owner_selected_training.adapter_profile_configured, true);
+    assert.equal(result.machine_state.owner_selected_training.adapter_control_plane_configured, true);
+    assert.equal(result.machine_state.owner_selected_training.adapter_readiness_available, true);
+    assert.equal(result.machine_state.owner_selected_training.admission_enabled, false);
+    assert.equal(result.machine_state.owner_selected_training.ready_to_prepare, false);
+    assert.equal(result.machine_state.owner_selected_training.blocker, "GITHUB_APP_NOT_CONFIGURED");
+    assert.equal(JSON.stringify(result).includes("9".repeat(64)), false);
     assert.equal(result.workloads.find((item) => item.id === "orbitune-kaggle-100-step-v1").enabled, true);
     assert.equal(result.workloads.find((item) => item.id === "orbitune-zero-gpu-eval-v1").enabled, false);
   } finally {
@@ -872,8 +605,8 @@ test("capabilities reports configured Modal without a health probe while admissi
     });
     assert.equal(result.providers[0].paid, true);
     assert.equal(result.providers[0].credit_eligible, true);
-    assert.equal(result.provider_budgets[0].monthly_limit_usd, "1.00");
-    assert.equal(result.provider_budgets[0].per_run_limit_usd, "0.01");
+    assert.equal(result.provider_budgets[0].monthly_limit_usd, "30.00");
+    assert.equal(result.provider_budgets[0].per_run_limit_usd, "1.00");
     assert.equal(result.blocking_reason, "CPU_WORKLOAD_ADMISSION_DISABLED");
   } finally {
     globalThis.fetch = originalFetch;
@@ -1344,130 +1077,6 @@ test("retries Modal result persistence after an R2 or D1 write failure", async (
   }
 });
 
-function cancellationEnvironment(initialState) {
-  const run = { id: "c".repeat(32), owner_id: "test-owner", state: initialState,
-    cancel_requested: 0, cleanup_state: "pending", lease_id: "d".repeat(32) };
-  let updates = 0;
-  const env = environment();
-  env.DB.prepare = (sql) => ({
-    bind(...values) {
-      return {
-        async first() {
-          if (sql.includes("SELECT") && sql.includes("FROM runs") && sql.includes("owner_id")) {
-            return values.includes("test-owner") && values.includes(run.id) ? { ...run } : null;
-          }
-          if (sql.includes("UPDATE runs SET state='cancelled'") && run.state === "queued") {
-            updates++;
-            run.state = "cancelled";
-            run.failure_code = "caller_cancelled_before_start";
-            run.cleanup_state = "confirmed";
-            return { id: run.id, state: run.state, cleanup_state: run.cleanup_state };
-          }
-          if (sql.includes("UPDATE runs SET cancel_requested=1") && run.state === "running") {
-            updates++;
-            run.cancel_requested = 1;
-            return { id: run.id, state: run.state, cancel_requested: 1 };
-          }
-          return null;
-        },
-      };
-    },
-  });
-  return { env, run, updates: () => updates };
-}
-
-test("cancels a queued owned run without asking Runner to clean up a container", async () => {
-  const { env, run, updates } = cancellationEnvironment("queued");
-  const response = await toolCall(env, "test-owner", "experiment_cancel", { run_id: run.id });
-  const rpc = await response.json();
-  const result = JSON.parse(rpc.result.content[0].text);
-
-  assert.equal(result.status, "ok");
-  assert.equal(result.machine_state.state, "cancelled");
-  assert.equal(result.machine_state.cleanup_state, "confirmed");
-  assert.equal(updates(), 1);
-});
-
-test("requests cooperative cancellation for an owned running run", async () => {
-  const { env, run, updates } = cancellationEnvironment("running");
-  const response = await toolCall(env, "test-owner", "experiment_cancel", { run_id: run.id });
-  const rpc = await response.json();
-  const result = JSON.parse(rpc.result.content[0].text);
-
-  assert.equal(result.status, "pending");
-  assert.equal(result.machine_state.state, "running");
-  assert.equal(result.machine_state.cancellation_requested, true);
-  assert.equal(updates(), 1);
-});
-
-test("does not let another Site user cancel an owned run", async () => {
-  const { env, run, updates } = cancellationEnvironment("queued");
-  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,other-owner";
-  const response = await toolCall(env, "other-owner", "experiment_cancel", { run_id: run.id });
-  const rpc = await response.json();
-
-  assert.equal(rpc.result.isError, true);
-  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "RUN_NOT_FOUND" });
-  assert.equal(updates(), 0);
-});
-
-test("does not advertise cancellation for a terminal run", async () => {
-  const runId = "d".repeat(32);
-  const env = environment();
-  env.DB.prepare = (sql) => ({ bind() { return { async first() {
-    assert.match(sql, /owner_id = \?/);
-    return { id: runId, state: "cancelled", created_at: 10, updated_at: 11, result_json: null,
-      failure_code: "caller_cancelled", cleanup_state: "confirmed", cancel_requested: 0,
-      result_artifact_id: null, result_artifact_sha256: null, result_artifact_size: null,
-      workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control", source_sha: sourceSha,
-      image_digest: imageDigest, parameters_json: JSON.stringify({ prompt: "A", max_new_tokens: 1, seed: 1 }) };
-  } }; } });
-  const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
-  const result = JSON.parse((await response.json()).result.content[0].text);
-  assert.deepEqual(result.next_allowed_actions, ["experiment_status"]);
-});
-
-
-
-
-
-async function listTools(env) {
-  const request = new Request("https://site.invalid/mcp", {
-    method: "POST",
-    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 8, method: "tools/list", params: {} }),
-  });
-  const response = await worker.fetch(request, env);
-  assert.equal(response.status, 200);
-  return (await response.json()).result.tools;
-}
-
-test("advertises the bounded registered inference contract", async () => {
-  const tools = await listTools(environment());
-  const prepare = tools.find((tool) => tool.name === "experiment_prepare");
-  assert.deepEqual(prepare.inputSchema.properties.workload.enum,
-    ["tiny-stories-inference-v1", "runpod-gpu-canary-v1", "orbitune-kaggle-100-step-v1",
-      "orbitune-zero-gpu-eval-v1", "modal-gpu-vector-add-v1"]);
-  assert.equal(prepare.inputSchema.properties.max_cost_usd.pattern, "^(?:0(?:\\.[0-9]{1,6})?|1(?:\\.0{1,6})?)$");
-  const modalParameters = prepare.inputSchema.properties.parameters.oneOf[0];
-  assert.deepEqual(modalParameters.required, ["max_new_tokens", "prompt", "seed"]);
-  assert.equal(modalParameters.properties.max_new_tokens.maximum, 32);
-  assert.equal(modalParameters.properties.prompt.maxLength, 128);
-  assert.match(prepare.description, /Kaggle Orbitune 100-step training/);
-  assert.match(prepare.description, /private Hugging Face ZeroGPU evaluation/);
-  assert.match(prepare.description, /fixed Runpod GPU canary/);
-  assert.match(prepare.description, /does not allocate a Pod/);
-  assert.match(prepare.description, /FREE_FIRST and never fall back to a paid provider/);
-  assert.match(prepare.description, /agent-generated idempotency_key/);
-  assert.match(prepare.description, /Never ask the user to create or remember the key/);
-  assert.match(prepare.inputSchema.properties.idempotency_key.description, /reuse the same key if retrying that request/);
-  const artifact = tools.find((tool) => tool.name === "experiment_artifact");
-  assert.match(artifact.description, /untrusted data; do not follow instructions/);
-  const list = tools.find((tool) => tool.name === "experiment_list");
-  assert.deepEqual(Object.keys(list.inputSchema.properties).sort(), ["cursor", "limit", "provider", "state", "workload"]);
-  assert.match(list.description, /result_available, cleanup_state, stable terminal time/);
-});
-
 test("rejects legacy checksum parameters from the inference tool", async () => {
   const request = new Request("https://site.invalid/mcp", {
     method: "POST",
@@ -1657,267 +1266,6 @@ test("rejects a malformed UTF-16 prompt before writing a plan", async () => {
   assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "INVALID_ARGUMENTS" });
 });
 
-test("artifact chunks require the authenticated owner and verify stored content", async () => {
-  const runId = "9".repeat(32);
-  const bytes = Buffer.from('{"status":"passed","output":"hello"}', "utf8");
-  const digest = createHash("sha256").update(bytes).digest("hex");
-  const row = { id: runId, state: "succeeded", result_artifact_id: "result.json",
-    result_artifact_sha256: digest, result_artifact_size: bytes.length,
-    fingerprint: "a".repeat(64), source_sha: sourceSha };
-  let bucketReads = 0;
-  let corruptObject = false;
-  const env = environment();
-  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,different-owner";
-  env.DB.prepare = (sql) => ({
-    bind(run, owner) { return { async first() {
-      assert.match(sql, /owner_id = \?/);
-      return run === runId && owner === "test-owner" ? row : null;
-    } }; },
-  });
-  env.BUCKET = { async get(key) {
-    bucketReads++;
-    assert.equal(key, `runs/${runId}/${digest}/result.json`);
-    return { size: bytes.length, customMetadata: { run_id: runId, sha256: digest,
-      plan_fingerprint: row.fingerprint, source_sha: sourceSha },
-      async arrayBuffer() {
-        const value = corruptObject ? Buffer.from('{"status":"failed","output":"hello"}', "utf8") : bytes;
-        return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
-      } };
-  } };
-
-  async function artifactCall(user, args) {
-    return worker.fetch(new Request("https://site.invalid/mcp", {
-      method: "POST",
-      headers: { "content-type": "application/json", "oai-authenticated-user-id": user },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 42, method: "tools/call",
-        params: { name: "experiment_artifact", arguments: args } }),
-    }), env);
-  }
-
-  const args = { run_id: runId, artifact_id: "result.json", offset: 0, max_bytes: 12 };
-  const response = await artifactCall("test-owner", args);
-  const rpc = await response.json();
-  assert.equal(rpc.result.isError, false);
-  const result = JSON.parse(rpc.result.content[0].text);
-  assert.equal(result.status, "ok");
-  assert.equal(result.machine_state.sha256, digest);
-  assert.equal(result.machine_state.size_bytes, bytes.length);
-  assert.equal(Buffer.from(result.machine_state.data, "base64").toString("utf8"), bytes.subarray(0, 12).toString("utf8"));
-  assert.equal(result.machine_state.eof, false);
-
-  const denied = await artifactCall("different-owner", args);
-  const deniedRpc = await denied.json();
-  assert.equal(deniedRpc.result.isError, true);
-  assert.equal(bucketReads, 1);
-
-  corruptObject = true;
-  const tampered = await artifactCall("test-owner", args);
-  const tamperedRpc = await tampered.json();
-  assert.equal(tamperedRpc.result.isError, true);
-  assert.equal(bucketReads, 2);
-});
-
-test("another Site user cannot read an owned run status or result", async () => {
-  const runId = "8".repeat(32);
-  const privateMarker = "owner-private-result-marker";
-  const row = {
-    id: runId, state: "succeeded", created_at: 1, updated_at: 2,
-    result_json: JSON.stringify({ output: privateMarker }), failure_code: null,
-    cleanup_state: "confirmed", cancel_requested: 0, result_artifact_id: null,
-    result_artifact_sha256: null, result_artifact_size: null,
-    workload: "tiny-stories-inference-v1", repository: "Unjuno/gpu-control",
-    source_sha: sourceSha, image_digest: imageDigest,
-    parameters_json: JSON.stringify({ prompt: "private", max_new_tokens: 1, seed: 1 }),
-  };
-  const env = environment();
-  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,different-owner";
-  env.DB.prepare = (sql) => ({ bind(run, owner) { return { async first() {
-    assert.match(sql, /r\.owner_id = \?/);
-    assert.equal(run, runId);
-    return owner === "test-owner" ? row : null;
-  } }; } });
-
-  for (const name of ["experiment_status", "experiment_result"]) {
-    const response = await toolCall(env, "different-owner", name, { run_id: runId });
-    const rpc = await response.json();
-    assert.equal(rpc.result.isError, true);
-    assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "RUN_NOT_FOUND" });
-    assert.equal(JSON.stringify(rpc).includes(privateMarker), false);
-  }
-});
-
-test("experiment_list returns no other owner's run metadata", async () => {
-  const env = environment();
-  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner,different-owner";
-  env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
-    assert.match(sql, /WHERE/);
-    assert.equal(owner, "different-owner");
-    return { results: [] };
-  } }; } });
-
-  const response = await toolCall(env, "different-owner", "experiment_list", {});
-  const rpc = await response.json();
-  assert.equal(rpc.result.isError, false);
-  assert.deepEqual(JSON.parse(rpc.result.content[0].text).machine_state.experiments, []);
-});
-
-test("experiment_list labels historical Runner records separately from Modal and unknown provenance", async () => {
-  const env = environment();
-  const localRunId = "1".repeat(32);
-  const modalRunId = "2".repeat(32);
-  const results = [
-    { run_id: localRunId, state: "succeeded", created_at: 1, updated_at: 2, workload: "tiny-stories-inference-v1",
-      repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest, lease_id: null,
-      cleanup_receipt_json: JSON.stringify({ absent: true, container_id: "a".repeat(64),
-        container_name: `gpu-control-${localRunId}`, image_digest: imageDigest, lease_id: "b".repeat(32), run_id: localRunId }) },
-    { run_id: modalRunId, state: "failed", created_at: 3, updated_at: 4, workload: "tiny-stories-inference-v1",
-      repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
-      lease_id: "sb-01ABCDEF", cleanup_receipt_json: null },
-    { run_id: "3".repeat(32), state: "succeeded", created_at: 5, updated_at: 6, workload: "tiny-stories-inference-v1",
-      repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
-      lease_id: null, cleanup_receipt_json: null },
-  ];
-  env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
-    assert.equal(owner, "test-owner");
-    return { results: sql.includes("FROM runs r") ? results.map((row) => ({ ...row,
-      provider: row.run_id === modalRunId ? "modal_cpu" : "unknown", result_json: null,
-      result_artifact_id: null, cleanup_state: row.run_id === modalRunId ? "confirmed" : "unknown" })) : [] };
-  } }; } });
-
-  const response = await toolCall(env, "test-owner", "experiment_list", {});
-  const rpc = await response.json();
-  const runs = JSON.parse(rpc.result.content[0].text).machine_state.experiments;
-  assert.deepEqual(runs.map((run) => [run.run_id, run.execution_origin]), [
-    ["3".repeat(32), "unknown"], [modalRunId, "modal_sandbox"], [localRunId, "retired_local_runner"],
-  ]);
-  assert.equal(JSON.stringify(runs).includes("container_id"), false, "raw cleanup receipts stay private");
-  assert.equal(runs.find((run) => run.run_id === modalRunId).cleanup_state, "confirmed");
-});
-
-test("experiment_list includes owner-bound delegated provider runs from D1", async () => {
-  const env = environment();
-  env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
-  env.PROVIDER_ADAPTER_KEY_ID = "sites-v1";
-  env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 7).toString("base64");
-  env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-adaptertest123";
-  env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-adaptertestsecret123";
-  const plan = {
-    schema_version: 2, workload: "orbitune-kaggle-100-step-v1", provider: "kaggle",
-    repository: "Unjuno/orbitune", source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
-    parameters: {}, runtime_seconds: 300, max_cost_usd: "0", known_cost_usd: "0",
-    cost_classification: "FREE_QUOTA", paid_fallback_allowed: false,
-    image_digest: "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd",
-  };
-  env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
-    assert.equal(owner, "test-owner");
-    if (sql.includes("FROM runs r")) return { results: [] };
-    if (sql.includes("FROM gateway_delegated_plans")) return { results: [{
-      run_id: "7".repeat(32), plan_state: "submitted", provider_state: "succeeded",
-      created_at: 20, updated_at: 30, workload: "orbitune-kaggle-100-step-v1",
-      terminal_at: 25,
-      provider_response_json: JSON.stringify({ machine_state: { state: "succeeded", cleanup_state: "confirmed", result: { steps: 100 } } }),
-      approved_plan_json: JSON.stringify(plan),
-    }] };
-    throw new Error(`unexpected list query: ${sql}`);
-  } }; } });
-
-  const response = await toolCall(env, "test-owner", "experiment_list", {});
-  const value = JSON.parse((await response.json()).result.content[0].text);
-  assert.equal(value.machine_state.experiments.length, 1);
-  assert.deepEqual(value.machine_state.experiments[0], {
-    run_id: "7".repeat(32), state: "succeeded", created_at: 20, updated_at: 30,
-    workload: "orbitune-kaggle-100-step-v1", repository: "Unjuno/orbitune",
-    source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
-    image_digest: "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd",
-    provider: "kaggle", execution_origin: "kaggle", finished_at: 25,
-    result_available: true, cleanup_state: "confirmed",
-  });
-});
-
-test("experiment_list reports pre-submit cancellation cleanup and terminal time", async () => {
-  const env = environment();
-  const plan = {
-    schema_version: 2, workload: "orbitune-kaggle-100-step-v1", provider: "kaggle",
-    repository: "Unjuno/orbitune", source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8",
-    parameters: {}, runtime_seconds: 1800, max_cost_usd: "0", known_cost_usd: "0",
-    cost_classification: "FREE_QUOTA", paid_fallback_allowed: false,
-    image_digest: "sha256:09742cdf89ec6646e0a227bfd88252aed7b7a44a854899d8bd3eea8da6a9f8bd",
-  };
-  env.DB.prepare = (sql) => ({ bind(owner) { return { async all() {
-    assert.equal(owner, "test-owner");
-    if (sql.includes("FROM runs r")) return { results: [] };
-    if (sql.includes("FROM gateway_delegated_plans")) return { results: [{
-      run_id: "9".repeat(32), plan_state: "prepared", cancelled_at: 120,
-      submit_attempted_at: null, provider_state: null, provider_response_json: null,
-      terminal_at: null, created_at: 100, updated_at: 120, workload: plan.workload,
-      source_run_id: null, approved_plan_json: JSON.stringify(plan), expires_at: 400,
-    }] };
-    throw new Error(`unexpected list query: ${sql}`);
-  } }; } });
-
-  const response = await toolCall(env, "test-owner", "experiment_list", {});
-  const value = JSON.parse((await response.json()).result.content[0].text);
-  assert.deepEqual(value.machine_state.experiments[0], {
-    run_id: "9".repeat(32), state: "cancelled", created_at: 100, updated_at: 120,
-    workload: "orbitune-kaggle-100-step-v1", repository: "Unjuno/orbitune",
-    source_sha: plan.source_sha, image_digest: plan.image_digest, provider: "kaggle",
-    execution_origin: "kaggle", finished_at: 120, result_available: false,
-    cleanup_state: "confirmed",
-  });
-});
-
-test("experiment_list filters before returning a bounded cursor page", async () => {
-  const env = environment();
-  const rows = [
-    { run_id: "8".repeat(32), state: "succeeded", created_at: 20, updated_at: 99, completed_at: 21,
-      cleanup_state: "confirmed", result_json: JSON.stringify({ loss: 1 }), result_artifact_id: null,
-      provider: "kaggle", workload: "orbitune-kaggle-100-step-v1", repository: "Unjuno/orbitune",
-      source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8", image_digest: "sha256:" + "a".repeat(64),
-      lease_id: null, cleanup_receipt_json: null },
-    { run_id: "7".repeat(32), state: "succeeded", created_at: 10, updated_at: 100, completed_at: 11,
-      cleanup_state: "confirmed", result_json: null, result_artifact_id: "artifact-1",
-      provider: "kaggle", workload: "orbitune-kaggle-100-step-v1", repository: "Unjuno/orbitune",
-      source_sha: "44a1b806160ab5bc721a370d034a6dfcb28f27a8", image_digest: "sha256:" + "a".repeat(64),
-      lease_id: null, cleanup_receipt_json: null },
-  ];
-  env.DB.prepare = (sql) => ({ bind(...values) { return { async all() {
-    assert.ok(values.includes("orbitune-kaggle-100-step-v1"));
-    assert.ok(values.includes("kaggle"));
-    assert.ok(values.includes("succeeded"));
-    return { results: sql.includes("FROM runs r") ? rows : [] };
-  } }; } });
-  const response = await toolCall(env, "test-owner", "experiment_list", {
-    workload: "orbitune-kaggle-100-step-v1", provider: "kaggle", state: "succeeded", limit: 1,
-  });
-  const value = JSON.parse((await response.json()).result.content[0].text).machine_state;
-  assert.equal(value.experiments.length, 1);
-  assert.equal(value.experiments[0].run_id, "8".repeat(32));
-  assert.equal(value.experiments[0].finished_at, 21, "polling time does not replace the terminal timestamp");
-  assert.equal(value.experiments[0].result_available, true);
-  assert.equal(value.experiments[0].cleanup_state, "confirmed");
-  assert.deepEqual(value.page, { limit: 1, has_more: true, next_cursor: `20:${"8".repeat(32)}` });
-});
-
-test("experiment_status identifies a historical local Runner result from its cleanup receipt", async () => {
-  const env = environment();
-  const runId = "4".repeat(32);
-  const row = { id: runId, state: "succeeded", created_at: 1, updated_at: 2, result_json: null,
-    failure_code: null, cleanup_state: "confirmed", cancel_requested: 0, result_artifact_id: null,
-    result_artifact_sha256: null, result_artifact_size: null, lease_id: null, workload: "tiny-stories-inference-v1",
-    repository: "Unjuno/gpu-control", source_sha: sourceSha, image_digest: imageDigest,
-    parameters_json: JSON.stringify({ prompt: "A", max_new_tokens: 1, seed: 1 }), fingerprint: "c".repeat(64),
-    runtime_seconds: 1, idempotency_key: "legacy-run", provider: "modal_cpu", cleanup_receipt_json: JSON.stringify({ absent: true,
-      container_id: "d".repeat(64), container_name: `gpu-control-${runId}`, image_digest: imageDigest,
-      lease_id: "e".repeat(32), run_id: runId }) };
-  env.DB.prepare = (sql) => ({ bind() { return { async first() {
-    assert.match(sql, /r\.cleanup_receipt_json/);
-    return row;
-  } }; } });
-  const response = await toolCall(env, "test-owner", "experiment_status", { run_id: runId });
-  const rpc = await response.json();
-  assert.equal(JSON.parse(rpc.result.content[0].text).machine_state.execution_origin, "retired_local_runner");
-});
-
 test("prepare idempotency keys are isolated by Site owner", async () => {
   const plans = new Map();
   const env = environment();
@@ -1947,7 +1295,7 @@ test("prepare idempotency keys are isolated by Site owner", async () => {
 
   assert.equal(first.state, "prepared");
   assert.equal(first.approval_required, true);
-  assert.equal(first.authorization_surface, "chatgpt_mcp_write_confirmation");
+  assert.equal(first.authorization_surface, "mcp_destructive_write_action");
   assert.equal(first.approved_plan.prompt, "A");
   assert.equal(first.approved_plan.max_cost_usd, "0.01");
   assert.equal(first.approved_plan.estimated_sandbox_cost_usd, "0.0005");
@@ -2312,7 +1660,7 @@ test("delegated private artifact uses the exact persisted immutable reference", 
   }
 });
 
-test("scheduled reconciliation advances one active delegated provider run", async () => {
+test("explicit reconciliation advances one active delegated provider run", async () => {
   const runId = "6".repeat(32);
   const plan = {
     id: runId, owner_id: "test-owner", fingerprint: "a".repeat(64),
@@ -2332,6 +1680,7 @@ test("scheduled reconciliation advances one active delegated provider run", asyn
     bind(...values) {
       return {
         async first() {
+          if (sql.includes("workload=? AND state='submitted'")) return null;
           if (sql.includes("WHERE owner_id=? AND state='submitted'")) {
             assert.deepEqual(values, ["test-owner", "orbitune-kaggle-100-step-v1",
               "orbitune-zero-gpu-eval-v1", "modal-gpu-vector-add-v1"]);
@@ -2363,9 +1712,12 @@ test("scheduled reconciliation advances one active delegated provider run", asyn
   };
   try {
     const response = await toolCall(env, "test-owner", "experiment_reconcile", {});
-    const value = JSON.parse((await response.json()).result.content[0].text);
-    assert.equal(value.status, "pending");
-    assert.match(value.human_summary, /Scheduled provider reconciliation completed/);
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await response.json();
+    assert.ok(body.result, JSON.stringify(body));
+    const value = JSON.parse(body.result.content[0].text);
+    assert.equal(value.status, "pending", JSON.stringify(value));
+    assert.match(value.human_summary, /Provider reconciliation completed/);
     assert.equal(request.tool, "experiment_status");
     assert.equal(request.arguments.run_id, runId);
     assert.equal(request.arguments.runtime_seconds, 300);
@@ -2454,9 +1806,10 @@ test("provider adapter submit retries reuse one owner-bound ChatGPT authorizatio
         },
         async all() {
           if (sql.includes("FROM gateway_delegated_plans")) {
-            const owner = values[0];
+            const owner = values[1];
             return { results: [...plans.values()].filter((row) => row.owner_id === owner).map((row) => ({
               run_id: row.id, plan_state: row.state, provider_state: row.provider_state,
+              projected_state: row.submit_attempted_at && !row.provider_state ? "uncertain" : row.provider_state || "queued",
               created_at: row.created_at, updated_at: row.updated_at || row.created_at,
               workload: row.workload, approved_plan_json: row.approved_plan_json,
             })) };

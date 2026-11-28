@@ -1,4 +1,11 @@
-import { delegateGatewayTool, gatewayDelegationConfigured } from "./gateway_delegation.js";
+import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
+import { readRunpodApiKey, readRunpodConfiguration } from "./runpod_configuration.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
+import {
+  RUNPOD_EXECUTION_TIMEOUT_SECONDS,
+  RUNPOD_JOB_TTL_SECONDS,
+  RUNPOD_WORKER_IDLE_TIMEOUT_SECONDS,
+} from "./runpod_execution_policy.js";
 
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
@@ -9,8 +16,6 @@ const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_JSON_BYTES = 1024 * 1024;
 const JOB_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
-const ENDPOINT_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
-const IMAGE_DIGEST_RE = /^[a-z0-9][a-z0-9._/-]{0,199}@sha256:[0-9a-f]{64}$/;
 
 export class RunpodProviderError extends Error {
   constructor(code, status = null, retryAfterSeconds = null) {
@@ -20,18 +25,7 @@ export class RunpodProviderError extends Error {
 }
 
 export function runpodConfigured(env) {
-  const directKey = typeof env?.RUNPOD_API_KEY === "string" && env.RUNPOD_API_KEY.length >= 20 && env.RUNPOD_API_KEY.length <= 512 &&
-    !/[\s\x00-\x1f\x7f]/.test(env.RUNPOD_API_KEY);
-  const relay = env?.RUNPOD_USE_PROVIDER_ADAPTER === "true" &&
-    typeof env?.PROVIDER_ADAPTER_URL === "string" && typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID === "string" &&
-    typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET === "string";
-  return (directKey || relay) && typeof env?.RUNPOD_WORKLOAD_IMAGE === "string" &&
-    IMAGE_DIGEST_RE.test(env.RUNPOD_WORKLOAD_IMAGE) && typeof env?.RUNPOD_SERVERLESS_ENDPOINT_ID === "string" &&
-    ENDPOINT_ID_RE.test(env.RUNPOD_SERVERLESS_ENDPOINT_ID) && typeof env?.RUNPOD_GPU_ID === "string" &&
-    /^[A-Za-z0-9 ._()+-]{3,128}$/.test(env.RUNPOD_GPU_ID) && typeof env?.RUNPOD_SERVERLESS_HOURLY_PRICE_USD === "string" &&
-    /^(?:0|[1-9][0-9]?)\.[0-9]{6}$/.test(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD) && Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD) > 0 &&
-    typeof env?.RUNPOD_SERVERLESS_GPU_POOL_ID === "string" && /^[A-Z0-9_]{3,64}$/.test(env.RUNPOD_SERVERLESS_GPU_POOL_ID) &&
-    typeof env?.RUNPOD_WORKLOAD_SOURCE_SHA === "string" && /^[0-9a-f]{40}$/.test(env.RUNPOD_WORKLOAD_SOURCE_SHA);
+  return readRunpodConfiguration(env) !== null;
 }
 
 function jobTransport(env) {
@@ -40,7 +34,7 @@ function jobTransport(env) {
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_ID !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_ID ||
       typeof env?.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET !== "string" || !env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET)
     throw new RunpodProviderError("RUNPOD_RELAY_NOT_CONFIGURED");
-  if (!gatewayDelegationConfigured(env)) throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
+  if (!providerAdapterConfigured(env)) throw new RunpodProviderError("RUNPOD_RELAY_INVALID");
   return { origin: RUNPOD_JOB_ORIGIN, relay: true, headers: {} };
 }
 
@@ -49,29 +43,21 @@ function boundedRetryAfter(response) {
   return Number.isSafeInteger(value) && value >= 1 && value <= 300 ? value : null;
 }
 async function readBoundedJson(response, signal = null) {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_JSON_BYTES) throw new RunpodProviderError("RUNPOD_RESPONSE_TOO_LARGE", response.status);
-  if (!response.body) throw new RunpodProviderError("RUNPOD_INVALID_RESPONSE", response.status);
-  const reader = response.body.getReader(); const chunks = []; let size = 0;
+  let bytes;
   try {
-    for (;;) {
-      let onAbort;
-      const read = reader.read();
-      const next = signal === null ? read : Promise.race([read, new Promise((_, reject) => {
-        onAbort = () => reject(new DOMException("The operation was aborted", "AbortError"));
-        if (signal.aborted) onAbort(); else signal.addEventListener("abort", onAbort, { once: true });
-      })]);
-      let chunk;
-      try { chunk = await next; } finally { if (onAbort) signal.removeEventListener("abort", onAbort); }
-      const { done, value } = chunk; if (done) break; size += value.byteLength;
-      if (size > MAX_JSON_BYTES) { await reader.cancel(); throw new RunpodProviderError("RUNPOD_RESPONSE_TOO_LARGE", response.status); }
-      chunks.push(value); }
+    bytes = await readBoundedResponseBytes(response, {
+      maxBytes: MAX_JSON_BYTES,
+      tooLargeCode: "RUNPOD_RESPONSE_TOO_LARGE",
+      missingBodyCode: "RUNPOD_INVALID_RESPONSE",
+      signal,
+    });
   } catch (error) {
-    if (error?.name === "AbortError") { try { await reader.cancel(); } catch {} }
+    if (error?.name === "AbortError") throw error;
+    if (["RUNPOD_RESPONSE_TOO_LARGE", "RUNPOD_INVALID_RESPONSE"].includes(error?.message)) {
+      throw new RunpodProviderError(error.message, response.status);
+    }
     throw error;
-  } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(size); let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  }
   try { const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("shape"); return value;
   } catch { throw new RunpodProviderError("RUNPOD_INVALID_RESPONSE", response.status); }
@@ -92,12 +78,13 @@ export class RunpodV2Client {
   constructor(env, { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS, owner = null } = {}) {
     if (!runpodConfigured(env)) throw new RunpodProviderError("RUNPOD_PROVIDER_NOT_CONFIGURED");
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30_000) throw new RunpodProviderError("RUNPOD_INVALID_TIMEOUT");
-    this.apiKey = env.RUNPOD_API_KEY || ""; this.image = env.RUNPOD_WORKLOAD_IMAGE; this.gpuId = env.RUNPOD_GPU_ID;
-    this.endpointId = env.RUNPOD_SERVERLESS_ENDPOINT_ID;
+    const configuration = readRunpodConfiguration(env);
+    this.apiKey = readRunpodApiKey(env); this.image = configuration.image; this.gpuId = configuration.gpuId;
+    this.endpointId = configuration.endpointId;
     // This configuration value is a fail-closed maximum, not current price
     // evidence. Current Serverless list price comes from REST v2 Catalog.
-    this.maximumHourlyPriceUsd = Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD);
-    this.gpuPoolId = env.RUNPOD_SERVERLESS_GPU_POOL_ID; this.sourceSha = env.RUNPOD_WORKLOAD_SOURCE_SHA;
+    this.maximumHourlyPriceUsd = configuration.maximumHourlyPriceUsd;
+    this.gpuPoolId = configuration.gpuPoolId; this.sourceSha = configuration.sourceSha;
     const transport = jobTransport(env); this.jobOrigin = transport.origin; this.jobHeaders = transport.headers; this.jobRelay = transport.relay;
     if (this.jobRelay && (typeof owner !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$/.test(owner)))
       throw new RunpodProviderError("RUNPOD_RELAY_OWNER_REQUIRED");
@@ -105,7 +92,7 @@ export class RunpodV2Client {
   }
   async relayRequest(argumentsValue, expectedStatus = 200) {
     let envelope;
-    try { envelope = await delegateGatewayTool(this.env, this.owner, "runpod_queue_request", argumentsValue, this.fetchImpl); }
+    try { envelope = await callProviderAdapterTool(this.env, this.owner, "runpod_queue_request", argumentsValue, this.fetchImpl); }
     catch (error) {
       const message = typeof error?.message === "string" ? error.message : "";
       if (message === "GATEWAY_DELEGATION_TIMEOUT") throw new RunpodProviderError("RUNPOD_PROVIDER_TIMEOUT");
@@ -171,7 +158,7 @@ export class RunpodV2Client {
     if (endpoint.id !== this.endpointId || endpoint.type !== "QUEUE" || endpoint.image !== this.image ||
         endpoint.gpu?.count !== 1 || !Array.isArray(endpoint.gpu?.pools) || endpoint.gpu.pools.length !== 1 ||
         endpoint.gpu.pools[0] !== this.gpuPoolId || endpoint.workers?.min !== 0 || endpoint.workers?.max !== 1 ||
-        endpoint.workers?.idleTimeout !== 5 ||
+        endpoint.workers?.idleTimeout !== RUNPOD_WORKER_IDLE_TIMEOUT_SECONDS ||
         !Number.isSafeInteger(endpoint.timeout) || endpoint.timeout < 5000 || endpoint.timeout > 30_000 ||
         !Array.isArray(endpoint.ports) || endpoint.ports.length !== 0 || !noMounts || !["", null, undefined].includes(endpoint.args) ||
         endpoint.env?.GPU_CONTROL_SOURCE_SHA !== this.sourceSha ||
@@ -197,7 +184,8 @@ export class RunpodV2Client {
     return this.request(`/v2/${this.endpointId}/run`, { method: "POST", binding: { runId, planFingerprint }, body: { input: { schema_version: 1, run_id: runId,
       plan_fingerprint: planFingerprint, nonce, completion_key_b64: completionKeyB64, completion_key_id: completionKeyId,
       source_sha: sourceSha, image_digest: this.image.slice(this.image.indexOf("@") + 1), execution_name: `gpu-control-${runId.slice(0, 12)}` },
-      policy: { executionTimeout: 30_000, ttl: 300_000 } } });
+      policy: { executionTimeout: RUNPOD_EXECUTION_TIMEOUT_SECONDS * 1000,
+        ttl: RUNPOD_JOB_TTL_SECONDS * 1000 } } });
   }
   async getSubmissionReceipt({ runId, planFingerprint }) {
     if (!this.jobRelay) return null;

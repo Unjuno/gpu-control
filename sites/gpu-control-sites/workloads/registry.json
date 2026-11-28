@@ -2,6 +2,7 @@
   "schema_version": 1,
   "workloads": {
     "tiny_stories": {
+      "capability_order": 10,
       "id": "tiny-stories-inference-v1",
       "display_name": "TinyStories bounded CPU inference",
       "provider": "modal_cpu",
@@ -14,6 +15,7 @@
       "adapter_manifest": null
     },
     "runpod_canary": {
+      "capability_order": 20,
       "id": "runpod-gpu-canary-v1",
       "display_name": "RunPod Serverless GPU canary",
       "provider": "runpod_gpu",
@@ -26,6 +28,7 @@
       "adapter_manifest": null
     },
     "kaggle_training": {
+      "capability_order": 40,
       "id": "orbitune-kaggle-100-step-v1",
       "display_name": "Orbitune 100-step Kaggle GPU training",
       "provider": "kaggle",
@@ -46,6 +49,7 @@
       }
     },
     "huggingface_evaluation": {
+      "capability_order": 50,
       "id": "orbitune-zero-gpu-eval-v1",
       "display_name": "Orbitune private-artifact Hugging Face ZeroGPU evaluation",
       "provider": "huggingface_space",
@@ -68,6 +72,7 @@
       }
     },
     "modal_gpu_canary": {
+      "capability_order": 30,
       "id": "modal-gpu-vector-add-v1",
       "display_name": "Modal bounded T4 vector-add canary",
       "provider": "modal_gpu",

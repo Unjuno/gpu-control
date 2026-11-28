@@ -1,14 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { verifyRunpodCompletion } from "./runpod_completion.js";
+import { canonicalJson } from "./canonical_json.js";
 
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  return JSON.stringify(value);
-}
 function hex(bytes) { return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join(""); }
-function marker(name, value) { return `${name}${Buffer.from(canonical(value)).toString("base64")}`; }
+function marker(name, value) { return `${name}${Buffer.from(canonicalJson(value)).toString("base64")}`; }
 
 test("authenticates one exact Runpod GPU canary result", async () => {
   const key = new Uint8Array(32).fill(7);
@@ -19,7 +15,7 @@ test("authenticates one exact Runpod GPU canary result", async () => {
     compute_capability: "8.9", total_vram_bytes: 100, free_vram_bytes: 50, provider: "runpod_gpu",
     source_sha: expected.sourceSha, image_digest: expected.imageDigest, execution_name: expected.executionName,
     elapsed_wall_seconds: 1.25 };
-  const resultBytes = new TextEncoder().encode(canonical(result));
+  const resultBytes = new TextEncoder().encode(canonicalJson(result));
   const resultSha256 = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", resultBytes)));
   const unsigned = { schema_version: 3, key_id: expected.keyId, nonce: expected.nonce,
     plan_fingerprint: expected.planFingerprint, execution_name: expected.executionName,
@@ -27,7 +23,7 @@ test("authenticates one exact Runpod GPU canary result", async () => {
     result_sha256: resultSha256, process_exit_code: 0 };
   const hmacKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const mac_sha256 = hex(new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey,
-    new TextEncoder().encode(canonical(unsigned)))));
+    new TextEncoder().encode(canonicalJson(unsigned)))));
   const lines = [marker("GPU_CONTROL_RESULT_JSON_V1:", result),
     marker("GPU_CONTROL_COMPLETION_JSON_V3:", { ...unsigned, mac_sha256 })];
   const verified = await verifyRunpodCompletion(lines, key, expected);

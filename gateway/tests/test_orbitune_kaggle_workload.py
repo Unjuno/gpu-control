@@ -85,6 +85,31 @@ def test_deploy_registry_is_runnable_and_pins_live_private_resources():
     )
 
 
+def test_legacy_gateway_provider_pins_match_sites_workload_authority():
+    """Keep shared immutable identity aligned without merging runtime policies."""
+    root = Path(__file__).parents[2]
+    sites_path = root / "sites/gpu-control-sites/workloads/registry.json"
+    sites_registry = json.loads(sites_path.read_text(encoding="utf-8"))["workloads"]
+    sites_by_id = {item["id"]: item for item in sites_registry.values()}
+
+    gateway_path = root / "gateway/deploy/workloads.json"
+    gateway_registry = json.loads(gateway_path.read_text(encoding="utf-8"))
+    for workload_id in ("orbitune-kaggle-100-step-v1", "orbitune-zero-gpu-eval-v1"):
+        sites = sites_by_id[workload_id]
+        gateway = gateway_registry[workload_id]
+        manifest = sites["adapter_manifest"]
+        assert gateway["provider"] == sites["provider"] == manifest["provider"]
+        assert gateway["source_repository"] == sites["repository"] == manifest["source_repository"]
+        assert gateway["source_sha"] == manifest["source_sha"]
+        assert gateway["image_digest"] == manifest["image_digest"]
+        assert gateway["provider_resource_id"] == manifest["provider_resource_id"]
+        assert gateway["gpu"] == manifest["gpu"]
+        if "gpu_count" in manifest:
+            assert gateway["gpu_count"] == manifest["gpu_count"]
+        if "source_revision" in manifest:
+            assert gateway["source_revision"] == manifest["source_revision"] == sites["source_revision"]
+
+
 def test_stage_builder_copies_only_exact_clean_orbitune_package_and_registered_entrypoint(tmp_path):
     checkout, sha = fake_checkout(tmp_path)
     stage = tmp_path / "stage"

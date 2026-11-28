@@ -47,6 +47,66 @@ while_parked:
   scheduled_paid_execution_allowed: false
   repository_dispatch_paid_execution_allowed: false
 
+# Product direction for owner-selected experiments. This defines the intended
+# bounded execution lane while keeping it dormant until implementation,
+# review, and exact-head verification are complete. It is distinct from
+# generic arbitrary external-container execution.
+owner_selected_gpu_training_lane:
+  purpose: run_owner_selected_github_training_and_evaluation_from_chatgpt
+  implementation_allowed_while_parked: true
+  live_admission_enabled: false
+  supported_control_plane: chatgpt_sites
+  source_authority:
+    repository_must_be_selected_in_owner_github_app_installation: true
+    commit_must_be_immutable_40_character_sha: true
+    source_and_manifest_must_be_rechecked_at_prepare_and_submit: true
+    installation_token_may_be_used_only_by_trusted_source_stager: true
+    token_may_enter_training_sandbox_logs_or_artifacts: false
+  execution_contract:
+    require_control_plane_owned_runtime_image: true
+    require_strict_manifest_and_locked_dependencies: true
+    only_manifest_declared_python_entrypoint_allowed: true
+    arbitrary_shell_command_allowed: false
+    repository_dockerfile_allowed: false
+    caller_selected_image_allowed: false
+    repository_instructions_may_expand_authority_or_resources: false
+  sandbox:
+    one_gpu_per_run: true
+    network_egress: blocked
+    provider_credentials_exposed: false
+    source_mount_read_only: true
+    run_scoped_checkpoint_storage: true
+    bounded_runtime_and_memory_required: true
+    bounded_output_and_artifact_sizes_required: true
+    terminal_state_requires_verified_cleanup: true
+  source_staging:
+    fixed_control_plane_code_only: true
+    repository_code_execution: false
+    github_installation_token_scope: selected_repository_read_only
+    outbound_tls_domains:
+      - github.com
+      - pypi.org
+      - files.pythonhosted.org
+    other_outbound_domains: blocked
+    non_tls_outbound: blocked
+    modal_domain_allowlist_beta_limitations_acknowledged: true
+    domain_allowlist_does_not_prevent_domain_fronting: true
+    repository_content_may_not_modify_egress_policy: true
+  accounting:
+    provider_specific_quotes_required: true
+    provider_specific_per_run_ceiling_required: true
+    provider_specific_monthly_reservation_required: true
+    paid_fallback_between_providers: false
+    ambiguous_submit_may_be_retried: false
+  release_gates:
+    exact_head_ci_required: true
+    required_github_pr_reviews_must_pass: true
+    security_review_required: true
+    security_findings_must_be_resolved_or_explicitly_accepted: true
+    end_to_end_lifecycle_contract_required: true
+    live_provider_test_requires_current_exact_plan_authorization: true
+    admission_enablement_is_a_separate_reviewed_change: true
+
 # Credential provisioning is separated from execution activation. This narrow
 # exception permits one least-privilege key to be stored at the trusted Modal
 # adapter boundary so the final deployment can be reviewed without ever
@@ -277,6 +337,67 @@ modal_gpu_canary_exception:
     deploy_command_must_target_environment: main
     revoke_deploy_token_immediately_after_deploy: true
     credentials_exposed_to_gpu_function: false
+
+# Narrow paid Modal acceptance lane for the first owner-registered MAP-44M
+# training run. This does not enable arbitrary repositories, commands, images,
+# providers, or unattended training. It is usable only after exact-head CI,
+# independent review, matching production deployment, and live account guards.
+map_training_acceptance_exception:
+  allowed_while_parked: true
+  purpose: one_authenticated_map44m_gpu_training_run
+  provider: modal
+  control_plane: chatgpt_sites
+  environment: main
+  workload:
+    repository: unjuno/model-as-a-paper
+    source_sha: d32ae5ba1df27f2c93915b68e78ce67a60254c64
+    profile: MAP-44M
+    provider_resource_id: gpu-control-map-training/train_map
+    image_id: im-5KQ7sh6bu1iVkkO3yxgitS
+    dataset: papers
+    run_name: map44m
+    max_steps: 100000
+    gpu: L4
+    gpu_count: 1
+  execution_bounds:
+    max_runs_per_authorization: 1
+    max_runtime_seconds: 120
+    max_gpu_count: 1
+    network_egress: blocked
+    single_use_container: true
+    automatic_retry_after_ambiguous_submit: false
+    require_confirmed_cleanup_before_next_run: true
+    private_checkpoint_required: true
+    per_run_cost_ceiling_usd: "0.25"
+    monthly_project_cost_ceiling_usd: "1.00"
+    cost_is_usage_billed: true
+  account_guard:
+    require_current_modal_workspace_usage_limit_usd_at_most: "1.00"
+    require_usage_and_charge_state_rechecked_before_run: true
+    exact_plan_must_bind_provider_evidence: true
+    payment_method_change_is_separate_human_action: true
+  authorization:
+    explicit_current_human_request_required: true
+    authenticated_sites_owner_required: true
+    exact_plan_fingerprint_required: true
+    exact_source_sha_required: true
+    exact_image_id_required: true
+    same_origin_sites_confirmation_page_required: true
+    confirmation_validity_seconds_at_most: 600
+    authorization_consumed_atomically_with_run_reservation: true
+    max_runs_per_authorization: 1
+    configuration_does_not_authorize_execution: true
+  credentials:
+    provider_credentials_stay_in_modal_adapter_secret: true
+    sites_secret_allowed: false
+    mcp_or_workload_secret_access_allowed: false
+    credentials_exposed_to_training_sandbox: false
+  release_gates:
+    exact_head_ci_required: true
+    independent_security_review_required: true
+    d1_migration_applied_before_deploy: true
+    modal_and_sites_control_plane_sha_must_match: true
+    cleanup_transport_verified_before_submit: true
 
 # Narrow free-provider acceptance lane for the Kaggle/Hugging Face integration.
 # This leaves the repository parked and never authorizes a paid fallback. Each

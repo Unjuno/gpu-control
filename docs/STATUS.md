@@ -1,5 +1,69 @@
 # Project status
 
+## Source/release checkpoint — 2026-11-29
+
+- The current source candidate is [PR #70](https://github.com/Unjuno/gpu-control/pull/70),
+  branch `codex/owner-training-workloads`. GitHub is the live authority for PR
+  head, review and exact-head CI; architecture documents record only fixed
+  source checkpoints. At source head `78a2a17a7493c1d48143ec427728402d7f130d22`,
+  the 222-test Sites suite, 85-module acyclic Worker graph, Worker
+  build/artifact validation, and D1 forward migration replay pass locally.
+  All three exact-head GitHub Actions workflows passed (CI run `46170711441`,
+  Project bridge tests `46170711445`, Sites provider runtime offline tests
+  `46170711444`).
+- The candidate implements owner-selected GitHub source selection, immutable
+  commit planning and strict `.gpu-control/experiment.json`/lock checks for
+  Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
+  connection, D1 operation journal, verified R2 artifacts and run-owned
+  cleanup. RunPod/Kaggle/Hugging Face custom-repository execution is not
+  implied by their fixed-workload routes. MAP-44M and owner-selected training
+  share the exact-plan MCP submit authorization across compatible clients;
+  current run guides no longer direct MAP users to its legacy authorization
+  URL. Colab's direct CLI remains a separate local/CI route outside the shared
+  run ledger. `experiment_reconcile` is a manual MCP operation; no background
+  schedule is configured. Modal custom-training dispatch journals use Modal
+  Dict, whose entries expire after seven idle days; see A3 in the architecture
+  backlog for the recovery-retention gap.
+- `policies/repository-state.yaml` remains `mode: parked` and explicitly keeps
+  owner-selected GPU admission disabled. No current claim is made that PR #70
+  has been merged, deployed, migrated in hosted D1, or accepted in a new
+  ordinary ChatGPT run.
+- GitHub currently reports the PR open and mergeable, with review required.
+  The current source head has not received an independent security review.
+- The D1 source tree includes migrations through `0039_colab_positive_cu_attestation.sql`;
+  the deployed D1 migration level has not been re-verified. Colab admission
+  defaults closed and the exact-submit positive-CU attestation is persisted;
+  its account-level cost is still unknown and runtime egress is unrestricted.
+- For module ownership, duplicated contracts, state authority and the next
+  refactoring batches, see [the repository architecture map](architecture/repository-map.md)
+  and [the prioritized backlog](architecture/refactoring-backlog.md).
+- Focused tests for RunPod public errors and custom-training journal loss
+  pass 5/5 across their two suites. Current RunPod plan/provider/MCP contract
+  tests pass 28/28, including the shared execution-cost policy and rejection
+  of stale undercounted plans. Exact-head CI and review state are visible on
+  [PR #70](https://github.com/Unjuno/gpu-control/pull/70).
+  The Colab
+  lifecycle integration test covers same-request-ID recovery after lost
+  mocked runtime-create and cleanup responses on both status and cancellation.
+  A non-empty deletion response leaves cleanup pending; a later exact empty
+  success response confirms cleanup without replaying execution. It does not
+  prove Google's live idempotency behavior or real Colab execution. The earlier
+  independent Security Review does not cover the current PR head. The automated
+  diff scanner could not start on the linked worktree; no independent scan
+  result is claimed for the current candidate.
+- The `31bc183` follow-up also fails closed when a submitted Colab plan has lost
+  its operation journal: status, cancel and repeated submit report uncertainty
+  without contacting Colab. The `748ac11` RunPod follow-up preserves an
+  ambiguous cancellation request and completes cancellation when the same
+  receipt is recovered, while returning pending until cleanup is confirmed.
+  Commits `27372e1` and `5b4410a` expose fixed recovery state/errors to MCP
+  clients and correct the Colab CLI guide; they do not change provider
+  execution or admission.
+
+The dated entries below are historical snapshots. Their deployment versions,
+provider configuration, costs and readiness must not be treated as current
+without a fresh live check.
+
 ## Sites v46 four-provider control plane — 2026-11-21
 
 - Production Sites v46 deployed successfully at

@@ -1,14 +1,31 @@
-# Current release matrix — ChatGPT Sites + D1
+# Release matrix — ChatGPT Sites + D1
 
-Live state last refreshed 2026-11-22. The product path has exactly four compute
-providers: Modal, RunPod, Kaggle and Hugging Face. Railway, Vercel, Neon, an
+Live state in the table below was last refreshed 2026-11-23. It is historical
+and does not describe current deployment state. The current source candidate
+and its release boundary are recorded separately in
+[Project status](STATUS.md). The last verified production source had four
+compute providers: Modal, RunPod, Kaggle and Hugging
+Face. PR #70 source adds Google Colab as a fifth candidate compute provider;
+it is not yet a production route. Railway, Vercel, Neon, an
 external PostgreSQL database and a separately hosted Gateway are not runtime
 dependencies.
 
 Passing tests or publishing a Site proves only that layer. Provider acceptance
 requires an owner-confirmed real run, terminal result validation and cleanup.
 
-| Gate | Current state | Evidence and remaining work |
+## Current-state authority
+
+`docs/STATUS.md` is the single current-state record for PR head, review, CI,
+local validation, deployment, policy, and provider acceptance. Refresh it from
+GitHub and the deployed Site before making a release claim. The dated
+production acceptance record below is historical and is not a second mutable
+source-candidate snapshot.
+
+The architecture map lives in [docs/architecture/repository-map.md](architecture/repository-map.md).
+
+## Historical production acceptance — 2026-11-23
+
+| Gate | Historical state | Evidence and remaining work |
 | --- | --- | --- |
 | ChatGPT Sites MCP | DEPLOYED; RUNPOD AND MODAL LIVE GPU ACCEPTED | The authenticated ChatGPT connector returned schema v2 capabilities with all four providers and five registered workloads, then completed the accepted RunPod and Modal T4 canaries below. Site visibility does not grant execution authority. |
 | Source provenance | PASS for v72 | Site source commit `fbd59498c33e49c5aea8b3b6713555ac270241a7` was saved as version 72 and deployed with `has_mcp=true`. The common one-use plan confirmation window is ten minutes; provider execution bounds are unchanged. |
