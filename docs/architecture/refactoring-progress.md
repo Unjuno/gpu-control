@@ -2594,3 +2594,17 @@ Sites suite passes 196 Worker tests, D1 migration validation passes, and the
 Worker graph is acyclic across 72 modules. This does not yet persist bytes to
 R2 or expose them through the shared artifact MCP tool; no live Colab runtime
 was used.
+
+## 2026-11-28 — A6: bind Colab results to the prepared execution
+
+**Change:** added a bounded parser for one machine receipt, binding run ID,
+repository, commit, selected T4/L4 GPU, declared outputs, artifact sizes and
+SHA-256 values. Arbitrary stdout is not interpreted as control data. A
+successful result requires CUDA evidence, exit code zero and metrics output.
+The runner now requires declared metrics and checkpoint outputs and caps the
+metrics file at 8 KiB.
+
+**Validation:** focused Colab tests pass; the full Sites suite passes 198
+Worker tests, migration checks pass, and the import graph is acyclic across
+73 modules. This parser is not yet connected to public MCP execution tools;
+Colab is not yet a usable experiment route and no live runtime was started.

@@ -12,7 +12,8 @@ export function buildGoogleColabExecutionCode({ runId, repository, commit, visib
   if (!validRunId(runId) || !Number.isSafeInteger(runtimeSeconds) || runtimeSeconds < 1 ||
       runtimeSeconds > MAX_RUNTIME_SECONDS || !validateTrainingManifest(manifest) ||
       visibility !== "public" || !["T4", "L4"].includes(accelerator) ||
-      !manifest.gpu_profiles.includes(accelerator)) {
+      !manifest.gpu_profiles.includes(accelerator) || !manifest.outputs.includes("metrics.json") ||
+      !manifest.outputs.some((path) => /(^|\/)(checkpoint|checkpoints)(\/|$)/i.test(path))) {
     throw new Error("GOOGLE_COLAB_EXECUTION_PLAN_INVALID");
   }
   const source = parseTrainingSource(repository, commit);
@@ -70,7 +71,7 @@ else:
         outcome['exit_code'] = process.returncode
         outcome['state'] = 'succeeded' if process.returncode == 0 else 'failed'
         metrics_path = ROOT / 'metrics.json'
-        if metrics_path.is_file() and not metrics_path.is_symlink() and metrics_path.stat().st_size <= 65536:
+        if metrics_path.is_file() and not metrics_path.is_symlink() and metrics_path.stat().st_size <= 8192:
             try:
                 metrics = json.loads(metrics_path.read_text(encoding='utf-8'))
                 if isinstance(metrics, dict): outcome['metrics'] = metrics

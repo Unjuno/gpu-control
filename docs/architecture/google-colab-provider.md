@@ -265,6 +265,15 @@ redirects, enforce the API's 50 MiB per-file limit, and independently verify
 the receipt's exact size and SHA-256. It does not yet stream into R2 or expose
 the artifact through the shared chunked `experiment_artifact` tool.
 
+`google_colab_result.js` parses exactly one bounded `GPU_CONTROL_RECEIPT`
+record and binds it to the prepared run, public repository, immutable commit,
+selected T4/L4 profile, declared output paths, artifact sizes and checksums.
+Ordinary stdout is not control data. A successful result requires explicit
+CUDA/GPU evidence, exit code zero, and a metrics artifact; malformed or
+duplicate receipts fail closed. This parser is contract-tested but remains
+unreachable from MCP until the Colab lifecycle is wired into the shared run
+ledger.
+
 ## References
 
 - [Official Colab API MCP tools and schemas](https://developers.google.com/colab/api/reference/mcp)
