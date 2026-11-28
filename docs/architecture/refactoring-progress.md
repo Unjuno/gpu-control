@@ -2433,3 +2433,24 @@ provider behavior are unchanged.
 is acyclic across 69 runtime modules; the Sites suite passes 2 dependency-graph
 tests, the generated-registry check, and all 188 Worker tests. No D1 migration,
 provider, credential, deployment, or admission state changed.
+
+## 2026-11-28 — A6: prioritize Colab on the shared run lifecycle
+
+**Finding:** the current Colab surface only connects a Google account and
+reads subscription/runtime eligibility. It explicitly reports
+`COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED`; it cannot prepare, submit, recover,
+or clean up an experiment. The official `google-colab-cli` can run locally or
+in a credentialed CI environment, but those calls do not use the Sites owner
+ledger and cannot be launched from a Sites Worker.
+
+**Decision:** make hosted Colab MCP the next owner-selected provider to join
+the existing Sites lifecycle. Keep `google-colab-cli` as a local/CI client,
+not a second server-side provider adapter. Keep ordinary PR CI offline. The
+backlog now orders the work accordingly and names the hard requirements:
+unknown provider quota, open egress, durable long-call recovery, and run-owned
+runtime cleanup.
+
+**Validation:** checked the current public tool descriptions and implementation
+for the explicit lifecycle blocker, reviewed Google's current official CLI
+commands/authentication docs, and ran `git diff --check`. This records scope
+and ordering; it does not implement Colab execution or enable a provider.

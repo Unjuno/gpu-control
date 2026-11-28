@@ -111,12 +111,19 @@ acceptance.
   workload. Every client uses the same owner, plan, budget, run, artifact, and
   cleanup contract. A local/container-only result does not satisfy this
   requirement.
-- **Provider sequence:** the first owner-selected implementation is Modal GPU.
-  The same owner-bound plan and lifecycle must then support RunPod GPU for the
-  same repository contract. Kaggle and Hugging Face remain eligible only for
+- **Provider sequence:** Modal GPU is the first owner-selected implementation.
+  The next addition is Google Colab through Google's hosted Colab MCP, using
+  the existing owner-bound Google connection and the same Sites plan/run
+  ledger. Colab's unknown account-level compute-unit balance, unrestricted
+  runtime egress, long-call recovery, and destructive runtime cleanup must be
+  represented in its exact plan and durable lifecycle before execution is
+  advertised. The official `google-colab-cli` remains a local/CI client for
+  compatible authenticated agents; direct CLI jobs do not form a second Sites
+  provider route or run ledger. Ordinary PR CI stays offline and does not
+  allocate a Colab runtime. After Colab, the same repository contract should
+  be proven on RunPod. Kaggle and Hugging Face remain eligible only for
   workloads their current platform adapters can execute; their fixed-workload
-  routes do not count as arbitrary-repository support. Colab is tracked under
-  A6 and must join the same lifecycle before it is advertised as integrated.
+  routes do not count as arbitrary-repository support.
 - **RunPod implementation constraint (2026-11-28):** its fixed Serverless
   endpoint executes a deployed custom worker image; queue endpoints document
   retry-on-failure behavior. The per-job policy exposes execution timeout and
