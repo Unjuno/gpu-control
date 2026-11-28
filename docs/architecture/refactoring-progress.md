@@ -44,6 +44,12 @@ worktree with a resolvable HEAD`; `git rev-parse --verify HEAD` succeeded for
 both. A local source review was performed, but it is not independent review
 evidence and must not be reported as such.
 
+**Follow-up evidence (2026-11-29):** the batch was cherry-picked to PR #70 as
+`2ce8c4f843df72eba3080e204a0d96275df5f063`; all seven exact-head GitHub checks
+passed. The PR remains open, review-required and blocked. The failed independent
+diff scan, deployed D1 migration, and live Modal recovery acceptance remain
+open; this follow-up does not change those release boundaries.
+
 ## 2026-11-28 — A13: make cross-client onboarding actionable
 
 **Finding:** the shared OAuth and run-ledger contract existed in source, but
