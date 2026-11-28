@@ -644,6 +644,8 @@ artifact. Schema behavior belongs to the SQLite migration replay tests, which
 exercise persisted rows, constraints, provider budget transitions, and
 forward compatibility. The complete source history remains protected by the
 append-only CI guard above.
+The validator also compares the packaged hosting manifest byte-for-byte with
+`.openai/hosting.json`, leaving project ID and binding names with one owner.
 
 ## Decision queue
 

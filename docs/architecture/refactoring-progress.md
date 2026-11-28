@@ -2292,4 +2292,6 @@ inserts named columns instead of relying on the table's evolving column order.
 **Validation:** full Python suite passes 624 tests, one skipped, and five
 subtests. Sites build, artifact validation, populated migration replay,
 dependency graph checks, generated registry check, and all 187 Worker tests
-pass locally. Hosted validation is pending.
+pass locally. The package validator also confirms the deployed hosting
+manifest exactly matches `.openai/hosting.json`; seven exact-head checks pass
+on `9ae223dea50f14748b8d627e73e224bfbe4edb78`.
