@@ -1002,3 +1002,21 @@ and Modal status synchronization, delegated plan handling, bounded logs and
 result readiness; D1 forward migration tests pass; the Worker graph remains
 acyclic across 42 reachable runtime modules; build, Site artifact validation,
 and `git diff --check` pass. No deployment or provider operation was performed.
+
+
+## 2026-11-28 — A7: centralize execution-origin evidence
+
+**Problem:** the shared list and status read models both need to distinguish
+current Modal Sandbox records from historical local Runner records. Keeping
+the validation inside the list module made status depend on an unrelated
+reader and left provenance without an explicit authority.
+
+**Change:** moved receipt/lease validation into `worker/execution_origin.js`.
+Both the list and status projections import the same function; it still
+requires a valid run-bound cleanup receipt before identifying a retired local
+Runner and otherwise reports `unknown`.
+
+**Validation:** all 148 Worker tests pass, including valid, unknown and
+historical execution-origin cases; Worker build packages 43 reachable modules;
+Site artifact validation and `git diff --check` pass. No provider call or
+deployment was performed.

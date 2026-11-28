@@ -1,4 +1,4 @@
-import { executionOrigin } from "./experiment_list.js";
+import { executionOrigin } from "./execution_origin.js";
 
 const RUN_STATUS_QUERY = `SELECT r.id, r.state, r.created_at, r.updated_at, r.result_json,
     r.failure_code, r.cleanup_state, r.cleanup_receipt_json, r.cancel_requested,

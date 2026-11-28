@@ -474,3 +474,9 @@ sync callbacks for the common Sites ledger. Delegated plans retain their
 existing adapter lifecycle and take precedence before this local path. The
 Worker dispatcher shrank from 1,752 to 1,707 lines; all 148 Worker tests and
 the 42-module acyclic import-graph check pass.
+
+**Progress (2026-11-28):** execution-origin classification now has one
+authority in `worker/execution_origin.js`, shared by the run-list and
+status/result read models. It accepts only a run-bound cleanup receipt for the
+retired local Runner classification. All 148 Worker tests pass and packaging
+includes the 43-module acyclic Worker graph.
