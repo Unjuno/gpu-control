@@ -5,6 +5,7 @@ import time
 
 import modal
 
+from map_training_configuration import map_training_profile_settings
 from map_training_job import validate_map_plan
 
 
@@ -63,14 +64,12 @@ class MapTrainingBackend:
         self._call_lookup = call_lookup or modal.FunctionCall.from_id
 
     def validate(self, plan):
+        profile = map_training_profile_settings()
         validate_map_plan(
-            plan, source_sha=os.environ.get("MAP_TRAINING_SOURCE_SHA"),
-            image_digest=(os.environ.get("MAP_TRAINING_MODAL_IMAGE_ID")
-                          or os.environ.get("MAP_TRAINING_IMAGE_DIGEST")),
-            hourly_microusd=int(os.environ.get("MAP_TRAINING_HOURLY_MICROUSD", "0")),
-            quote_expires_at=int(os.environ.get("MAP_TRAINING_QUOTE_EXPIRES_AT", "0")),
+            plan, source_sha=profile["source_sha"], image_digest=profile["image_digest"],
+            hourly_microusd=profile["hourly_microusd"], quote_expires_at=profile["quote_expires_at"],
         )
-        if plan["runtime_seconds"] != int(os.environ.get("MAP_TRAINING_RUNTIME_SECONDS", "0")):
+        if plan["runtime_seconds"] != profile["runtime_seconds"]:
             raise ValueError("training_runtime_mismatch")
 
     def start(self, plan):

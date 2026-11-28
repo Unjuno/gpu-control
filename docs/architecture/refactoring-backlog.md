@@ -714,8 +714,10 @@ modules; the exact pushed head and CI are recorded in the progress log.
   now owned by `provider_health_policy.js`, and its lifecycle test derives the
   elapsed time from that owner. In the Modal adapter, owner-selected
   admission is also parsed through one literal-true configuration function
-  shared by capability status and dispatch. Other provider configuration
-  still needs the wider inventory.
+  shared by capability status and dispatch. MAP's Modal function entrypoint
+  and submit backend now share one parser for the pinned source, image, runtime,
+  price, and quote-expiry profile. Other provider configuration still needs
+  the wider inventory.
 
 ### A12. Add architecture checks only after rules have an owner
 

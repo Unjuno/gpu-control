@@ -18,7 +18,27 @@ authority used by dispatch. Regression assertions cover malformed HMAC,
 malformed proxy secret, and untrusted adapter host; valid relay and direct
 RunPod-key configurations remain accepted.
 
-**Validation:** pending focused and complete Sites validation. No provider,
+**Validation:** the focused RunPod tests pass (11), the full Sites suite
+passes (214), the Worker graph remains acyclic across 78 modules, and
+`git diff --check` passes. No provider, credential, admission, deployment, or
+billing state was touched.
+
+## 2026-11-29 — A11: share MAP Modal profile parsing
+
+**Finding:** the MAP function entrypoint validated source, image, and runtime
+configuration at module load, while the submit backend independently read the
+same source, image, price, quote expiry, and runtime values before spawn. These
+two interpretations could drift and capability/dispatch validation did not
+have one Modal-side configuration authority.
+
+**Change:** added `map_training_configuration.py` as the Modal-side profile
+reader. The entrypoint uses its validated values and explicit runtime
+environment projection; the backend validates plans against the same parsed
+profile. Tests cover fixed image/source/runtime and missing or mutable values.
+
+**Validation:** focused MAP/packaging tests pass (18), the full Modal Python
+suite passes (105), the full Sites suite passes (214), the Worker graph
+remains acyclic across 78 modules, and `git diff --check` passes. No provider,
 credential, admission, deployment, or billing state was touched.
 
 ## 2026-11-29 — A11: normalize owner-training admission in Modal
@@ -48,7 +68,8 @@ of sync.
 the diagnostic and its integration test consume the same named policy value.
 No cooldown duration or database behavior changed.
 
-**Validation:** pending focused and complete Sites validation. No provider,
+**Validation:** focused health/RunPod tests pass (20) and the full Sites suite
+passes (214). The Worker graph is acyclic across 78 modules. No provider,
 credential, admission, deployment, or billing state was touched.
 
 ## 2026-11-29 — A10: make signing fixtures share the canonical JSON authority

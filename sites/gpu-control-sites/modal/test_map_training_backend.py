@@ -5,6 +5,7 @@ import modal
 import pytest
 
 from map_training_backend import MapTrainingBackend, dispatch_training_tool
+from map_training_configuration import map_training_profile_settings
 
 
 class Store(dict):
@@ -236,4 +237,27 @@ def test_modal_app_passes_volume_root_for_selected_dataset():
 
     source = Path(__file__).with_name("map_training_app.py").read_text(encoding="utf-8")
     assert 'corpus_dir=Path("/corpus")' in source
-    assert "if RUNTIME_LIMIT != 120:" in source
+    assert "map_training_profile_settings()" in source
+
+
+def test_map_training_profile_is_shared_and_rejects_invalid_settings():
+    profile = {
+        "MAP_TRAINING_SOURCE_SHA": "a" * 40,
+        "MAP_TRAINING_IMAGE_DIGEST": "sha256:" + "b" * 64,
+        "MAP_TRAINING_RUNTIME_SECONDS": "120",
+        "MAP_TRAINING_HOURLY_MICROUSD": "400000",
+        "MAP_TRAINING_QUOTE_EXPIRES_AT": "1800000000",
+    }
+    assert map_training_profile_settings(profile) == {
+        "source_sha": "a" * 40, "image_id": None, "image_digest": "sha256:" + "b" * 64,
+        "runtime_seconds": 120, "hourly_microusd": 400000, "quote_expires_at": 1800000000,
+        "runtime_environment": profile,
+    }
+    for invalid in (
+        {**profile, "MAP_TRAINING_RUNTIME_SECONDS": "121"},
+        {**profile, "MAP_TRAINING_SOURCE_SHA": "latest"},
+        {**profile, "MAP_TRAINING_IMAGE_DIGEST": "mutable:tag"},
+        {key: value for key, value in profile.items() if key != "MAP_TRAINING_HOURLY_MICROUSD"},
+    ):
+        with pytest.raises(ValueError, match="map_training_profile_invalid"):
+            map_training_profile_settings(invalid)

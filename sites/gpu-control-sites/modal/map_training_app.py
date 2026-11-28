@@ -1,32 +1,22 @@
 """Private Modal entry point for the reviewed MAP training image."""
 import json
 import os
-import re
 from pathlib import Path
 
 import modal
+from map_training_configuration import map_training_profile_settings
 
-SOURCE_SHA = os.environ["MAP_TRAINING_SOURCE_SHA"]
-MODAL_IMAGE_ID = os.environ.get("MAP_TRAINING_MODAL_IMAGE_ID")
-IMAGE_DIGEST = MODAL_IMAGE_ID or os.environ["MAP_TRAINING_IMAGE_DIGEST"]
-RUNTIME_LIMIT = int(os.environ["MAP_TRAINING_RUNTIME_SECONDS"])
-HOURLY_MICROUSD = int(os.environ["MAP_TRAINING_HOURLY_MICROUSD"])
-QUOTE_EXPIRES_AT = int(os.environ["MAP_TRAINING_QUOTE_EXPIRES_AT"])
-if not re.fullmatch(r"[0-9a-f]{40}", SOURCE_SHA):
-    raise ValueError("invalid MAP source commit")
-image_pattern = r"im-[A-Za-z0-9]{8,128}" if MODAL_IMAGE_ID else r"sha256:[0-9a-f]{64}"
-if not re.fullmatch(image_pattern, IMAGE_DIGEST):
-    raise ValueError("invalid MAP image digest")
-if RUNTIME_LIMIT != 120:
-    raise ValueError("invalid MAP runtime")
+_PROFILE = map_training_profile_settings()
+SOURCE_SHA = _PROFILE["source_sha"]
+MODAL_IMAGE_ID = _PROFILE["image_id"]
+IMAGE_DIGEST = _PROFILE["image_digest"]
+RUNTIME_LIMIT = _PROFILE["runtime_seconds"]
+HOURLY_MICROUSD = _PROFILE["hourly_microusd"]
+QUOTE_EXPIRES_AT = _PROFILE["quote_expires_at"]
 
 # Modal imports this module in both function containers. Forward only the
 # non-secret settings required for that import and the runtime checks.
-deployment_env = {key: os.environ[key] for key in (
-    "MAP_TRAINING_SOURCE_SHA", "MAP_TRAINING_MODAL_IMAGE_ID", "MAP_TRAINING_IMAGE_DIGEST",
-    "MAP_TRAINING_RUNTIME_SECONDS", "MAP_TRAINING_HOURLY_MICROUSD",
-    "MAP_TRAINING_QUOTE_EXPIRES_AT",
-) if key in os.environ}
+deployment_env = _PROFILE["runtime_environment"]
 
 app = modal.App("gpu-control-map-training")
 base_image = (modal.Image.from_id(MODAL_IMAGE_ID) if MODAL_IMAGE_ID else
@@ -37,7 +27,8 @@ checkpoints = modal.Volume.from_name("gpu-control-map-checkpoints", create_if_mi
 
 
 @app.function(
-    image=image, env=deployment_env, gpu="L4", cpu=2, memory=8192, block_network=True,
+    image=image.add_local_python_source("map_training_configuration"), env=deployment_env,
+    gpu="L4", cpu=2, memory=8192, block_network=True,
     volumes={"/corpus": corpus.with_mount_options(read_only=True), "/checkpoints": checkpoints},
     timeout=RUNTIME_LIMIT, startup_timeout=600, retries=0, max_containers=1,
     single_use_containers=True,
