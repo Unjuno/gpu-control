@@ -3498,3 +3498,18 @@ whether a route can be used.
 **Validation:** `git diff --check` passes. This documentation-only change does
 not enable new routes or claim that PR #70 is deployed; the MCP release and
 live capability response remain authoritative.
+
+## 2026-11-29 — A1: align the ChatGPT setup guide with the client contract
+
+**Finding:** the ChatGPT guide instructed users to name only a registered
+workload even though the intended agent path also accepts an owner-selected
+repository when current capabilities report it ready. That wording could lead
+users to search for internal workload IDs or assume the PR source was live.
+
+**Change:** the guide now accepts either a registered workload or a GitHub
+repository only when current capabilities advertise owner-selected readiness.
+It links to the common copyable prompt and reiterates that deployed capability,
+not an open PR, is authoritative.
+
+**Validation:** `git diff --check` passes. Documentation only; no runtime,
+provider, authorization or deployment state changed.

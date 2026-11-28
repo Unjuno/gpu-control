@@ -103,12 +103,20 @@ owner_selected_trainingのready_to_prepareとblockerを報告してください�
 推測で追加しないでください。
 ```
 
-For a real run, name one registered workload and tell ChatGPT to execute it.
-When that instruction already authorizes execution, it covers one complete
+For a real run, name a registered workload or, when the current capabilities
+advertise `owner_selected_training.ready_to_prepare=true`, give ChatGPT the
+GitHub repository to use. The agent should keep registration/run IDs and retry
+keys internally. See the client-neutral [conversation prompt and connection
+guide](MCP_CLIENTS.md#use-it-from-a-conversation) for a copyable repository
+request that also works in another authenticated compatible MCP client.
+
+When the instruction already requests execution, it covers one complete
 `prepare -> submit -> status/log polling -> result -> cleanup` lifecycle. The
 assistant must not split that lifecycle into repeated conversational questions.
-The server still binds the write to one exact owner-bound, short-lived plan and
-enforces provider budgets, replay prevention and cleanup before replacement.
+The current advertised capabilities still decide whether the requested route
+is available; source code or an open PR is not release evidence. The server
+binds the write to one exact owner-bound, short-lived plan and enforces provider
+budgets, replay prevention and cleanup before replacement.
 
 Repository-aware ChatGPT/Codex agents should load the shared project skill at
 `.cursor/skills/gpu-control-operator/SKILL.md`. It provides the canonical
