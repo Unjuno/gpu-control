@@ -475,6 +475,15 @@ collapse. Unknown exceptions return only `INTERNAL_ERROR`. All 172 Sites tests
 pass; the Worker graph is acyclic across 62 modules. Independent security
 review found no actionable issues. Public error strings remain compatible.
 
+**Progress (2026-11-28):** bounded byte collection for external HTTP response
+bodies now has one implementation in `worker/http_response_body.js`. GitHub,
+Google OAuth/Colab MCP, the source-contract reader, Modal and RunPod clients
+retain their own status handling, parsing and public error codes. The shared
+reader owns declared/streamed size enforcement, body cancellation and optional
+abort handling. The Worker architecture check rejects raw response-stream
+readers outside this module. Sites passes 186 tests across 67 acyclic runtime
+modules; the exact pushed head and CI are recorded in the progress log.
+
 ### A8. Split test fixtures by contract and reuse domain builders
 
 - **Evidence:** Sites `index.test.js` measured 3,444 lines at source candidate

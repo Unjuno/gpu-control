@@ -1976,3 +1976,30 @@ allowlisted owners, one persisted run row, and the bounded R2 object behavior.
 suite passes all 182 tests. `index.test.js` is now 1,918 lines. Owner denial,
 chunk boundaries, immutable metadata and tamper detection assertions are
 preserved. No provider, deployment, or experiment action occurred.
+
+## 2026-11-28 — A7/A12: centralize bounded external response reads
+
+**Baseline:** exact source head `996cd4b4d1d0c00c3b4956a28b9a727144acc271`
+was open on PR #70 and all seven hosted checks had passed. Repository mode
+remains `parked`; no provider, account, production, or admission operation was
+performed.
+
+**Change:** added `worker/http_response_body.js` as the only bounded external
+response byte reader. Migrated GitHub App, Google OAuth, Colab MCP, training
+source/manifest, Modal, RunPod and signed adapter responses. Caller-specific
+HTTP status mapping, JSON/text decoding, missing-body behavior, public error
+codes, and RunPod abort mapping remain at each provider/domain boundary. Added
+direct cases for chunking, declared and streamed limits, optional empty bodies,
+stream cancellation and abort. The architecture checker now rejects other raw
+response-stream readers.
+
+**Local validation:** `npm test` passes all 186 Sites Worker tests; the graph is
+acyclic across 67 runtime modules; generated registry validation and the
+architecture guard pass. `git diff --check` passes. The change is committed as
+`fec62dd1e1578145bb0b0e904150382f8ad09058` and pushed to PR #70.
+
+**Hosted validation:** GitHub reports all seven exact-head checks successful
+for `fec62dd`: Python 3.11/3.12/3.13, Sites Worker and D1 contract, trusted
+reference container, Gateway provider-runtime, and Project bridge. No
+production deployment, D1 migration, provider setting, credential, admission
+flag or experiment changed.
