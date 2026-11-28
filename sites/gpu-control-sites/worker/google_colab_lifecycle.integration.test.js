@@ -11,6 +11,8 @@ const runId = "a".repeat(32);
 const fingerprint = "b".repeat(64);
 const cancelRunId = "f".repeat(32);
 const cancelFingerprint = "1".repeat(64);
+const lateCancelRunId = "9".repeat(32);
+const lateCancelFingerprint = "8".repeat(64);
 const missingRunId = "e".repeat(32);
 const missingFingerprint = "2".repeat(64);
 const runtimeRequestId = "12345678-1234-4234-8234-123456789abc";
@@ -140,9 +142,10 @@ test("Colab recovers create and cleanup response loss without rerunning or confi
           stderr: "", result: "", outputTruncated: false });
       }
       if (name === "delete_runtime") {
-        if (args.name === `runtimes/gpu-control-${cancelRunId.slice(0, 24)}`) {
+        if (args.name === `runtimes/gpu-control-${cancelRunId.slice(0, 24)}` ||
+            args.name === `runtimes/gpu-control-${lateCancelRunId.slice(0, 24)}`) {
           cancelDeleteCalls += 1;
-          return mcpResponse(request.id, cancelDeleteCalls === 1 ? { deleted: false } : {});
+          return mcpResponse(request.id, cancelDeleteCalls % 2 === 1 ? { deleted: false } : {});
         }
         deleteCalls += 1;
         return mcpResponse(request.id, deleteCalls === 1 ? { deleted: false } : {});
@@ -195,14 +198,40 @@ test("Colab recovers create and cleanup response loss without rerunning or confi
     assert.equal(cancelPending.machine_state.cleanup_state, "unknown");
     assert.equal((await readGoogleColabOperation(db, owner, cancelRunId, cancelFingerprint)).state, "cleanup_pending");
     assert.equal(cancelDeleteCalls, 1);
+    assert.equal((await sqlite.prepare("SELECT cancelled_at FROM gateway_delegated_plans WHERE owner_id=? AND id=?")
+      .get(owner, cancelRunId)).cancelled_at, 105, "cancel intent is durable before provider cleanup succeeds");
 
-    const cancelled = await googleColabRunTool(env, owner, "experiment_cancel", cancelRunId,
+    const cancelled = await googleColabRunTool(env, owner, "experiment_status", cancelRunId,
       { fetchImpl, now: 106 });
     assert.equal(cancelled.machine_state.state, "cancelled");
     assert.equal(cancelled.machine_state.cleanup_state, "confirmed");
     assert.equal(cancelled.machine_state.runtime_deleted, true);
     assert.equal(cancelDeleteCalls, 2);
     assert.equal((await readGoogleColabOperation(db, owner, cancelRunId, cancelFingerprint)).state, "terminal");
+    assert.equal(executionCalls, 1, "status after cancellation retries cleanup and never resumes code execution");
+
+    await sqlite.prepare(`INSERT INTO gateway_delegated_plans
+      (id,owner_id,fingerprint,workload,approved_plan_json,state,expires_at,submit_attempted_at,provider_state)
+      VALUES (?,?,?,?,?,'prepared',5000,NULL,'running')`)
+      .run(lateCancelRunId, owner, lateCancelFingerprint, plan.workload, canonicalJson(plan));
+    await createGoogleColabOperation(db, { owner, runId: lateCancelRunId, fingerprint: lateCancelFingerprint,
+      runtimeRequestId: "32345678-1234-4234-8234-123456789abc", now: 107 });
+    await sqlite.prepare("UPDATE gateway_delegated_plans SET state='submitted', submit_attempted_at=107 WHERE owner_id=? AND id=?")
+      .run(owner, lateCancelRunId);
+    await sqlite.prepare(`UPDATE google_colab_run_operations SET state='execution_pending', runtime_name=?,
+      session_name=?, execution_id=?, execution_code_sha256=? WHERE run_id=?`)
+      .run(`runtimes/gpu-control-${lateCancelRunId.slice(0, 24)}`,
+        `runtimes/gpu-control-${lateCancelRunId.slice(0, 24)}/sessions/gpu-control-${lateCancelRunId.slice(0, 24)}`,
+        "42345678-1234-4234-8234-123456789abc", "a".repeat(64), lateCancelRunId);
+    const lateCancelPending = await googleColabRunTool(env, owner, "experiment_cancel", lateCancelRunId,
+      { fetchImpl, now: 108 });
+    assert.equal(lateCancelPending.machine_state.state, "cancelling");
+    assert.equal((await readGoogleColabOperation(db, owner, lateCancelRunId, lateCancelFingerprint)).state,
+      "cleanup_pending");
+    const lateCancelled = await googleColabRunTool(env, owner, "experiment_status", lateCancelRunId,
+      { fetchImpl, now: 109 });
+    assert.equal(lateCancelled.machine_state.state, "cancelled");
+    assert.equal(executionCalls, 1, "execution_pending cancellation retry only deletes the runtime");
 
     await sqlite.prepare(`INSERT INTO gateway_delegated_plans
       (id,owner_id,fingerprint,workload,approved_plan_json,state,expires_at,submit_attempted_at,provider_state)

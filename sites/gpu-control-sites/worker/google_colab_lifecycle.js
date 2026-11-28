@@ -299,6 +299,14 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
       return result("pending", "Colab submitとcancelが同時に進行しました。状態を照合してください。", runId,
         "uncertain", "unknown", ["experiment_status", "experiment_cancel"], "COLAB_RUN_OUTCOME_UNCONFIRMED");
     }
+    const cancelAt = options.now ?? Math.floor(Date.now() / 1000);
+    await env.DB.prepare(`UPDATE gateway_delegated_plans SET cancelled_at=COALESCE(cancelled_at, ?), updated_at=?
+      WHERE owner_id=? AND id=? AND fingerprint=?`).bind(cancelAt, cancelAt, owner, runId, row.fingerprint).run();
+    if (operation.state !== "cleanup_pending" && operation.state !== "terminal") {
+      await transitionGoogleColabOperation(env.DB, { owner, runId, fingerprint: row.fingerprint,
+        fromState: operation.state, toState: "cleanup_pending", now: cancelAt });
+      operation = await readGoogleColabOperation(env.DB, owner, runId, row.fingerprint);
+    }
     if (!operation.runtime_name) {
       try {
         const listing = await call(env, owner, "list_runtimes", {}, { fetchImpl: options.fetchImpl || fetch });
@@ -306,9 +314,9 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
           ? listing.runtimes.find((runtime) => runtime?.name === `runtimes/${runtimeId(runId)}`) : null;
         if (!found) return result("pending", "Colabのruntime作成応答はまだ確定していません。作成要求と同じrunで再確認します。",
           runId, "uncertain", "unknown", ["experiment_status", "experiment_cancel"], "COLAB_RUNTIME_ID_UNKNOWN");
-        if (operation.state === "runtime_create_pending") {
+        if (operation.state === "runtime_create_pending" || operation.state === "cleanup_pending") {
           await transitionGoogleColabOperation(env.DB, { owner, runId, fingerprint: row.fingerprint,
-            fromState: "runtime_create_pending", toState: "cleanup_pending",
+            fromState: operation.state, toState: "cleanup_pending",
             now: options.now ?? Math.floor(Date.now() / 1000), patch: { runtime_name: found.name } });
           operation = await readGoogleColabOperation(env.DB, owner, runId, row.fingerprint);
         }
@@ -361,6 +369,7 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
         ["experiment_submit", "experiment_cancel"], null, { expires_at: row.expires_at, runtime_allocated: false });
       return missingOperationRecord(runId);
     }
+    if (row.cancelled_at) return googleColabRunTool(env, owner, "experiment_cancel", runId, options);
     if (operation.state !== "terminal") return advanceGoogleColabRun(env, owner, row, plan, operation, {
       ...options, now: options.now ?? Math.floor(Date.now() / 1000),
     });

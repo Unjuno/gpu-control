@@ -8,7 +8,7 @@ const TRANSITIONS = {
   session_create_pending: new Set(["execution_pending", "cleanup_pending"]),
   execution_pending: new Set(["execution_pending", "execution_complete", "cleanup_pending"]),
   execution_complete: new Set(["execution_pending", "cleanup_pending"]),
-  cleanup_pending: new Set(["terminal"]),
+  cleanup_pending: new Set(["cleanup_pending", "terminal"]),
   terminal: new Set(),
 };
 
