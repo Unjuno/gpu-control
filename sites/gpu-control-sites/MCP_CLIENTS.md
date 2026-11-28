@@ -32,6 +32,40 @@ Dynamic Client Registration (public clients without a client secret). A client
 that cannot complete this flow is not compatible; do not work around that by
 copying a bearer token into a prompt or using a provider key as a substitute.
 
+## Connect and verify
+
+1. Add the remote MCP endpoint shown below to the client's MCP settings. Choose
+   OAuth or "sign in" when prompted; do not configure a provider API key.
+2. Complete the GPU Control authorization page. Sign in with the GitHub account
+   already linked to the GPU Control owner and grant the scopes the client
+   needs. Use `experiments:read` to inspect providers and existing runs. Add
+   `experiments:execute` only when the client is meant to prepare and submit
+   experiments.
+3. In a new client conversation, ask it to list current provider capabilities
+   and existing runs without starting an experiment. The agent should call
+   `experiment_capabilities` and `experiment_list`; this confirms OAuth, tool
+   discovery, and owner scoping without allocating compute.
+4. For an execution request, tell the agent the repository or workload and the
+   intended provider/cost constraint in ordinary language. The agent resolves
+   current capabilities, prepares the exact plan, and uses the shared ledger;
+   provider IDs and retry keys are server-managed. Client-side write
+   confirmations and exact-plan authorization still apply.
+
+ChatGPT's existing GPU Control Sites connection uses ChatGPT's authenticated
+Sites identity. It does not need the separate OAuth registration described
+here. Codex or another compatible MCP client uses the external OAuth flow and
+the same owner-scoped tools and records. Whether an agent can invoke a write
+tool also depends on that client's account, workspace, and tool-permission
+settings; connecting successfully does not guarantee write access. OpenAI's
+[current custom-MCP guidance](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
+limits personal Pro connections to read/fetch, while full MCP write support is
+available on Business, Enterprise, and Edu. Verify the permissions offered by
+the actual ChatGPT connection rather than assuming an external-client grant
+changes them. [Codex's MCP setup guide](https://developers.openai.com/learn/docs-mcp)
+documents adding a remote HTTP MCP endpoint and reuses the same MCP config
+between Codex CLI and the IDE extension; authentication is completed by the
+selected MCP server/client flow.
+
 The endpoint is:
 
 `https://gpu-control-sites.unjuno.chatgpt.site/mcp`
