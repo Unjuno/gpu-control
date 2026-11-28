@@ -1946,3 +1946,18 @@ all 182 tests; the Worker graph remains acyclic across 66 runtime modules.
 checks for unauthorized, unconfigured, admission-closed, redirected and
 budget-store-failure paths. No real provider request, account change,
 deployment or execution occurred.
+
+
+## 2026-11-28 — A8: isolate local cancellation route integration tests
+
+**Problem:** four owner-scoped cancellation/status integration cases were
+embedded in the broad Worker test and reused its general environment builder.
+
+**Change:** moved queued cancellation, cooperative running cancellation,
+cross-owner denial, and terminal-run next-action coverage to
+`worker/local_run_cancellation.integration.test.js`. The new fixture models
+only run ownership/state transitions and needs no Runner or provider.
+
+**Validation:** all four focused cases pass and all 182 Sites tests pass.
+`index.test.js` is now 1,978 lines. No production contract, provider state,
+deployment, or experiment behavior changed.
