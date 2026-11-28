@@ -1645,3 +1645,10 @@ checks had completed successfully at `c13c962`, and review remained required.
 The local refactor is committed as `68a69be`; exact-head CI and review must be
 refreshed after push. This does not establish merge, deployment, or Colab
 execution support.
+
+**Agent usability correction:** `docs/CHATGPT_SETUP.md` now distinguishes the
+legacy MAP-44M Site confirmation from the owner-selected route's native
+ChatGPT MCP write confirmation. External MCP clients must use their native
+confirmation policy when available; OAuth authentication does not authorize
+spending. This removes instructions that could send owner-selected users
+through a redundant browser step while preserving the legacy contract.
