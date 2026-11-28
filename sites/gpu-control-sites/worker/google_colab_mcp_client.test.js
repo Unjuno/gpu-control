@@ -85,7 +85,8 @@ test("Colab capability projection reports eligible GPUs without exposing runtime
             { key: { variant: "VARIANT_GPU", accelerator: "T4", shape: "SHAPE_STANDARD" }, eligible: true },
             { key: { variant: "VARIANT_GPU", accelerator: "A100", shape: "SHAPE_STANDARD" }, eligible: false },
           ] }
-          : { runtimes: [{ name: "runtimes/owned", runtimeSpec: { key: { variant: "VARIANT_GPU" } },
+          : { runtimes: [{ name: "runtimes/owned", runtimeSpec: { key: { variant: "VARIANT_GPU",
+            accelerator: "T4", shape: "SHAPE_STANDARD" } },
             connectionInfo: { token: "secret-runtime-token", url: "https://private-runtime.example" } }] };
         return response({ jsonrpc: "2.0", id: request.id, result: { structuredContent: output } });
       },
@@ -100,6 +101,28 @@ test("Colab capability projection reports eligible GPUs without exposing runtime
     assert.equal(result.machine_state.execution_lifecycle_enabled, false);
     assert.equal(JSON.stringify(result).includes("secret-runtime-token"), false);
     assert.equal(JSON.stringify(result).includes("private-runtime.example"), false);
+  } finally { db.close(); }
+});
+
+test("Colab capability projection rejects malformed runtime identities and incomplete runtime specs", async () => {
+  const db = database();
+  try {
+    await connect(db, "invalid-capability-owner");
+    await assert.rejects(handleGoogleColabTool("colab_capabilities", { ...env, DB: db }, "invalid-capability-owner", {
+      fetchImpl: async (url, init) => {
+        if (String(url) === "https://oauth2.googleapis.com/token") {
+          return response({ access_token: "short-lived-access", scope: colabScope, expires_in: 3600 });
+        }
+        const request = JSON.parse(init.body);
+        const output = request.params.name === "get_subscription" ? { tier: "SUBSCRIPTION_TIER_PRO" }
+          : request.params.name === "list_runtime_specs" ? { runtimeSpecs: [
+            { key: { variant: "VARIANT_GPU", accelerator: "T4", shape: "SHAPE_STANDARD" }, eligible: true },
+          ] }
+          : { runtimes: [{ name: "https://attacker.example/runtimes/x",
+            runtimeSpec: { key: { variant: "VARIANT_GPU", accelerator: "T4", shape: "SHAPE_STANDARD" } } }] };
+        return response({ jsonrpc: "2.0", id: request.id, result: { structuredContent: output } });
+      },
+    }), { message: "GOOGLE_COLAB_RESPONSE_INVALID" });
   } finally { db.close(); }
 });
 

@@ -5,6 +5,29 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A6: validate Colab capability responses at the provider boundary
+
+**Problem:** the hosted Colab client bounded and parsed responses, but the
+capability projection accepted loosely shaped runtime/spec arrays. These are
+external provider facts used to choose a later execution plan, so malformed
+resource identities should not be silently counted as current capacity.
+
+**Change:** the Colab capability module now validates subscription tier,
+runtime variant, accelerator, shape, eligibility and runtime resource name
+before projecting GPU eligibility or active runtime counts. Runtime names,
+proxy URLs and short-lived credentials remain outside the agent response.
+Malformed or incomplete provider records fail closed with a stable error.
+
+**Validation:** 128 Sites Worker tests pass; the Worker module graph remains
+acyclic across 31 modules; migration-forward tests, Worker build and artifact
+validation pass; `git diff --check` passes. No Google request, OAuth setup,
+runtime creation, provider configuration or deployment occurred.
+
+**Limit:** this is a stricter read-only capability boundary. Colab still does
+not have an exact plan, shared owner-run ledger lifecycle, execution, result
+and artifact verification, cancellation or cleanup integration. It is not
+yet an executable ChatGPT route.
+
 ## 2026-11-28 — A6: start the hosted Colab provider foundation
 
 **Problem:** Colab was requested as a ChatGPT-accessible compute resource, but

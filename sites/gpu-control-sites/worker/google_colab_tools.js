@@ -5,6 +5,34 @@ import { callGoogleColabMcpTool, googleColabStructuredResult } from "./google_co
 const COLAB_TOOLS = new Set([
   "colab_connection_start", "colab_connection_status", "colab_connection_disconnect", "colab_capabilities",
 ]);
+const COLAB_SUBSCRIPTION_TIERS = new Set([
+  "SUBSCRIPTION_TIER_FREE", "SUBSCRIPTION_TIER_PRO", "SUBSCRIPTION_TIER_PRO_PLUS",
+]);
+const COLAB_RUNTIME_VARIANTS = new Set(["VARIANT_CPU", "VARIANT_GPU", "VARIANT_TPU"]);
+const COLAB_RUNTIME_SHAPES = new Set(["SHAPE_STANDARD", "SHAPE_HIGHMEM"]);
+
+function validRuntimeKey(value) {
+  return value && typeof value === "object" && !Array.isArray(value) &&
+    COLAB_RUNTIME_VARIANTS.has(value.variant) &&
+    typeof value.accelerator === "string" && /^[A-Za-z0-9._-]{1,32}$/.test(value.accelerator) &&
+    COLAB_RUNTIME_SHAPES.has(value.shape);
+}
+
+function validatedCapabilities(subscription, specData, runtimeData) {
+  const { runtimeSpecs } = specData;
+  const { runtimes } = runtimeData;
+  if (!COLAB_SUBSCRIPTION_TIERS.has(subscription.tier) ||
+      !Array.isArray(runtimeSpecs) || runtimeSpecs.length > 200 ||
+      !Array.isArray(runtimes) || runtimes.length > 1_000 ||
+      runtimeSpecs.some((item) => !item || typeof item !== "object" || Array.isArray(item) ||
+        !validRuntimeKey(item.key) || typeof item.eligible !== "boolean") ||
+      runtimes.some((runtime) => !runtime || typeof runtime !== "object" || Array.isArray(runtime) ||
+        typeof runtime.name !== "string" || !/^runtimes\/[A-Za-z0-9-]{1,128}$/.test(runtime.name) ||
+        !validRuntimeKey(runtime.runtimeSpec?.key))) {
+    throw new Error("GOOGLE_COLAB_RESPONSE_INVALID");
+  }
+  return { tier: subscription.tier, runtimeSpecs, runtimes };
+}
 
 export function isGoogleColabTool(name) { return COLAB_TOOLS.has(name); }
 
@@ -26,13 +54,7 @@ export async function handleGoogleColabTool(name, env, owner, options = {}) {
     const subscription = googleColabStructuredResult(subscriptionResponse);
     const specData = googleColabStructuredResult(specResponse);
     const runtimeData = googleColabStructuredResult(runtimeResponse);
-    const tier = subscription.tier;
-    const runtimeSpecs = specData.runtimeSpecs;
-    const runtimes = runtimeData.runtimes;
-    if (!new Set(["SUBSCRIPTION_TIER_FREE", "SUBSCRIPTION_TIER_PRO", "SUBSCRIPTION_TIER_PRO_PLUS"]).has(tier) ||
-        !Array.isArray(runtimeSpecs) || runtimeSpecs.length > 200 || !Array.isArray(runtimes) || runtimes.length > 1_000) {
-      throw new Error("GOOGLE_COLAB_RESPONSE_INVALID");
-    }
+    const { tier, runtimeSpecs, runtimes } = validatedCapabilities(subscription, specData, runtimeData);
     const gpuSpecs = runtimeSpecs.filter((item) => item?.key?.variant === "VARIANT_GPU" &&
       typeof item.key.accelerator === "string" && /^[A-Za-z0-9._-]{1,32}$/.test(item.key.accelerator) &&
       new Set(["SHAPE_STANDARD", "SHAPE_HIGHMEM"]).has(item.key.shape) && typeof item.eligible === "boolean")
