@@ -227,8 +227,16 @@ export async function googleColabAccessToken(db, env, owner, options = {}) {
       client_secret: env.GOOGLE_COLAB_OAUTH_CLIENT_SECRET, refresh_token: refreshToken, grant_type: "refresh_token" }) });
   const value = await googleJson(response);
   if (!validText(value.access_token, 8, 4096) ||
+      (value.refresh_token !== undefined && !validText(value.refresh_token, 8, 4096)) ||
       (value.scope !== undefined && (typeof value.scope !== "string" || !value.scope.split(/\s+/).includes(COLAB_SCOPE)))) {
     throw new Error("GOOGLE_COLAB_OAUTH_SCOPE_INVALID");
+  }
+  if (value.refresh_token && value.refresh_token !== refreshToken) {
+    const rotated = await encryptRefreshToken(env, value.refresh_token);
+    await db.prepare(`UPDATE google_colab_accounts SET refresh_token_ciphertext=?, refresh_token_iv=?, updated_at=?
+      WHERE owner_id=? AND refresh_token_ciphertext=? AND refresh_token_iv=?`)
+      .bind(rotated.ciphertext, rotated.iv, Math.floor(Date.now() / 1000), owner,
+        row.refresh_token_ciphertext, row.refresh_token_iv).run();
   }
   return { access_token: value.access_token, expires_in: Number.isSafeInteger(value.expires_in) ? value.expires_in : null,
     google_subject_id: row.google_subject_id };

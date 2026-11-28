@@ -93,16 +93,22 @@ test("connection proves Google identity, encrypts the refresh token, refreshes a
       assert.equal(String(url), "https://oauth2.googleapis.com/token");
       const body = new URLSearchParams(init.body);
       assert.equal(body.get("refresh_token"), rawRefreshToken);
-      return response({ access_token: "fresh-short-lived-access-token", expires_in: 3600, scope: colabScope });
+      return response({ access_token: "fresh-short-lived-access-token", refresh_token: "rotated-refresh-token-123",
+        expires_in: 3600, scope: colabScope });
     } });
     assert.equal(access.access_token, "fresh-short-lived-access-token");
     assert.equal(access.google_subject_id, "google-subject-1");
+    await googleColabAccessToken(db, env, "chat-owner", { fetchImpl: async (url, init) => {
+      const body = new URLSearchParams(init.body);
+      assert.equal(body.get("refresh_token"), "rotated-refresh-token-123");
+      return response({ access_token: "fresh-after-rotation", expires_in: 3600, scope: colabScope });
+    } });
 
     await assert.rejects(googleColabAccessToken(db, env, "other-owner"), { message: "GOOGLE_COLAB_CONNECTION_REQUIRED" });
     const disconnected = await disconnectGoogleColab(db, env, "chat-owner", {
       fetchImpl: async (url, init) => {
         assert.equal(String(url), "https://oauth2.googleapis.com/revoke");
-        assert.equal(new URLSearchParams(init.body).get("token"), rawRefreshToken);
+        assert.equal(new URLSearchParams(init.body).get("token"), "rotated-refresh-token-123");
         return new Response(null, { status: 200 });
       },
     });
