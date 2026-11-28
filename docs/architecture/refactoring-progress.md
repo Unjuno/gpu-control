@@ -2661,3 +2661,24 @@ passes. Code batch is commit `89dc396`. This is source evidence only. PR #70
 remains unmerged, hosted migration/configuration and live Colab acceptance are
 unverified, and the official diff scanner did not initialize on this linked
 worktree. The scanner's failure is not a security review result.
+
+## 2026-11-28 — A3: distinguish the product ledger from provider recovery records
+
+**Finding:** ADR 0002 described the owner-selected Modal journal boundary as if
+it covered all routes. Current source has distinct coordination records for
+RunPod account-scoped dispatch, Colab runtime operations, the fixed Modal GPU
+lease, and custom-training Sandbox recovery. Their transitions and recovery
+identities are provider-specific; merging them into one state machine would
+hide rather than remove those differences.
+
+**Change:** updated ADR 0002, the repository state-ownership map, and A3's
+backlog evidence to name each record and keep the Sites D1 run ledger separate
+from provider coordination and provider observations. The ADR now marks
+cross-route failure/retention conformance as open instead of implying a
+completed universal contract.
+
+**Validation:** checked each named table and operation store against the
+migrations and current Worker modules; Markdown links resolve and
+`git diff --check` passes. This documentation-only batch changes no runtime behavior,
+provider settings, or admission state. Route-by-route response-loss, terminal,
+cleanup, and record-loss acceptance remains open.

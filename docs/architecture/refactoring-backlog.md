@@ -170,12 +170,15 @@ acceptance.
 ### A3. Enforce lifecycle authority across D1, adapter journal and provider
 
 - **Evidence:** Sites D1 stores owner-visible plans and cleanup evidence;
-  Modal Dict stores adapter dispatch/idempotency claim; Volumes stage source,
+  route-specific recovery records exist for RunPod account leases, Colab
+  runtime operations, and Modal GPU admission; the Modal custom-training
+  adapter also stores dispatch recovery in Modal Dict. Volumes stage source,
   checkpoints and artifacts.
 - **Current ownership:** ADR 0002 defines D1 as product authority for owner,
   immutable plan, one-time reservation, authorization, budget and verified
-  cleanup; Modal Dict as the custom adapter's atomic dispatch/recovery journal;
-  and provider inspection as execution evidence. Missing or conflicting
+  cleanup; provider-specific records as bounded operation/recovery state; and
+  provider inspection as execution evidence. RunPod, Colab and Modal use
+  different recovery identities and transitions. Missing or conflicting
   observations stay uncertain and never authorize a replacement allocation.
 - **Work:** verify this rule across fixed Modal, RunPod, Kaggle, Hugging Face and
   owner-selected routes; define journal retention and recovery after adapter
@@ -184,6 +187,13 @@ acceptance.
   cover response loss, duplicate delivery, provider terminal mismatch and
   cleanup pending without duplicate allocation, and journal retention cannot
   strand a run or erase the only recovery evidence.
+- **Current source inventory (2026-11-28):** `provider_account_leases` and its
+  event table fence RunPod account-scoped dispatch; `google_colab_run_operations`
+  binds the Sites run to Colab runtime/session/execution recovery; the D1
+  `modal_gpu_active_lease` coordinates the fixed Modal GPU lane; and Modal Dict
+  fences custom-training Sandbox creation. This inventory documents distinct
+  responsibilities; it does not yet prove every route's response-loss,
+  terminal-state, cleanup, or durable-record-loss behavior.
 
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 

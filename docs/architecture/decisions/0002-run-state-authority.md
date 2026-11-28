@@ -1,37 +1,45 @@
 # ADR 0002: Run state authority across Sites and provider adapters
 
-- **Status:** accepted for the current Sites-owned training lifecycle; other
-  provider routes still require conformance review.
+- **Status:** accepted for Sites product-ledger ownership. Provider-specific
+  coordination records are inventoried below; route-by-route failure and
+  retention conformance remains open.
 - **Date:** 2026-11-28
-- **Scope:** owner-selected training implemented in PR #70 and its Sites to
-  Modal adapter path.
+- **Scope:** Sites product-ledger ownership and provider-specific recovery
+  records in the PR #70 source candidate. This decision does not imply
+  deployment or provider-route acceptance.
 
 ## Context
 
 One experiment crosses multiple durable systems. Sites D1 owns the user,
-immutable plan, authorization, budget reservation and product run history. The
-Modal adapter needs an atomic claim to prevent two requests from creating two
-Sandboxes after a lost response. The provider and Sandbox report execution and
-cleanup evidence. Treating these records as interchangeable replicas would
-make retries and terminal claims ambiguous.
+immutable plan, authorization, budget reservation and product run history.
+Provider-specific records coordinate external work: RunPod serializes use of
+an account scope; Colab persists the identity and recovery state for its
+runtime operations in D1; the Modal custom-training adapter uses a Modal Dict
+for atomic Sandbox dispatch recovery. Providers report execution and cleanup
+evidence. Treating any of these records as interchangeable replicas would make
+retries and terminal claims ambiguous.
 
 ## Decision
 
 1. **Sites D1 is authoritative for product intent and accounting:** owner,
    immutable plan and fingerprint, one-time authorization, dispatch reservation,
    rejection, and the fact that required cleanup has been verified.
-2. **The adapter journal is authoritative for adapter dispatch recovery:**
-   owner/run/fingerprint binding, its atomic create claim, deterministic
-   resource handle, and the latest adapter receipt. It is not an independent
-   user-facing run ledger and cannot change the plan or authorization.
-3. **Provider/Sandbox inspection is authoritative evidence of current
+2. **Provider-specific coordination records own only their bounded workflow
+   facts:** RunPod's `provider_account_leases` and event table fence one
+   account-scoped create/recovery sequence; Colab's
+   `google_colab_run_operations` binds a run to its runtime request, session,
+   execution and recovery state; the Modal custom-training adapter's Modal
+   Dict owns its atomic create claim, deterministic Sandbox handle and latest
+   adapter receipt. None is a second user-facing run ledger, and none can
+   change the immutable plan or authorization.
+3. **Provider/runtime inspection is authoritative evidence of current
    execution and cleanup.** The adapter validates that evidence, records its
    receipt, and Sites persists only the confirmed cleanup fact in D1.
-4. **Reconcile by the same immutable run identity.** After response loss,
-   status reads the existing adapter journal and reconciles its recorded
-   provider handle. A missing or stale record/handle remains uncertain unless
-   provider inspection proves the outcome. Never create a replacement run to
-   resolve uncertainty.
+4. **Reconcile by the same immutable run identity and provider operation
+   identity.** After response loss, status reads the route's existing
+   coordination record and inspects the recorded provider resource. A missing
+   or stale record/handle remains uncertain unless provider inspection proves
+   the outcome. Never create a replacement run to resolve uncertainty.
 5. **Terminal execution is not terminal product completion until cleanup is
    confirmed.** Do not expose checkpoints/artifacts as complete before the
    adapter proves the allowed terminal state and required cleanup.
@@ -43,18 +51,28 @@ make retries and terminal claims ambiguous.
 
 ## Evidence and limits
 
-- Sites reservation and cleanup receipt: `worker/training_plan.js`.
-- Sites same-run status reconciliation: `worker/index.js`.
-- Modal custom dispatch, recovery and cleanup checks:
-  `modal/custom_training_lifecycle.py`.
+- Sites plan authorization and budget reservation: `worker/training_submit.js`,
+  `worker/provider_budget_policy.js`, `worker/training_dispatch_claim.js`, and
+  the D1 lifecycle tables.
+- RunPod account lease state machine: `worker/provider_account_lease.js` and
+  `worker/runpod_lifecycle.js`.
+- Colab run-operation journal: `worker/google_colab_operation_store.js` and
+  `worker/google_colab_lifecycle.js`.
+- Modal fixed-GPU lease and owner-training adapter recovery:
+  `worker/delegated_experiment_lifecycle.js`,
+  `modal/custom_training_lifecycle.py`, and the adapter's Modal Dict.
+- Shared owner-visible status and reconciliation:
+  `worker/experiment_status.js`, `worker/run_reconciliation.js`, and the
+  provider lifecycle modules.
 - Existing adapter tests cover one start under duplicate submit, uncertain
   start without retry, cleanup-pending behavior, and cancellation to confirmed
   cleanup: `modal/test_custom_training_lifecycle.py`.
 
-This contract has not yet been proven by a deployed integration test. It is
-specific to the owner-selected Modal-backed training route. Other providers,
-adapter journal retention, and recovery after durable journal loss still need
-conformance tests before extending this decision to them.
+This contract has not yet been proven by a deployed integration test. The
+provider-specific records above are implemented in source, but response-loss,
+duplicate delivery, terminal-state mismatch, cleanup and durable-record-loss
+conformance must be verified independently for each route. The Modal custom
+training journal-retention guarantee also remains unverified.
 
 ## Consequences
 
@@ -65,5 +83,7 @@ conformance tests before extending this decision to them.
 - A durable journal's retention period must exceed the maximum provider
   lifetime plus the recovery horizon. If it does not, admission must remain
   closed until an alternate provider-side recovery path is proven.
-- Future providers implement this lifecycle contract behind the same
-  owner-bound interface, with provider-specific evidence adapters.
+- Future providers use the same owner-bound product lifecycle while keeping
+  only the provider-specific recovery state their API requires. Do not add a
+  second run ledger or force incompatible provider operations into one
+  artificial state machine.

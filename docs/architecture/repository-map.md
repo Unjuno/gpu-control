@@ -183,8 +183,9 @@ Sites Worker.
 | Selected GitHub installation/repositories | Sites D1 GitHub App tables plus server-side GitHub App configuration | GitHub installation is external authority for repository access | Connector login alone is not the Worker credential. Installation token is short-lived and repo-scoped. |
 | Registration, exact source SHA and execution spec | Sites D1 | `training_register`/`training_list` tool responses | Registration is not by itself proof of executable runtime/admission. |
 | Plan, idempotency, authorization, budget reservation, owner-visible run identity and cleanup evidence | Sites D1 | MCP response and provider observations | D1 is the product ledger. For owner-selected training it records the immutable plan, one-time dispatch reservation, rejection and verified cleanup; it does not mirror every transient provider state. |
-| Provider/Sandbox execution and resource cleanup | Provider resource inspected by the adapter | Modal `modal.Dict` keeps the adapter's handle, claim and last accepted terminal receipt; Sites D1 stores verified cleanup evidence | Provider observations can be newer than either ledger. A timeout or missing handle is `uncertain`, never proof of failure or permission to create a replacement. |
-| Custom adapter dispatch claim and run journal | Modal `modal.Dict` store in the PR #70 custom adapter | D1 reservation; Modal Volumes hold staged source/checkpoints/artifacts | Atomic claim prevents duplicate Sandbox creation. On response loss, query the same run and recover the deterministic handle; do not submit again. The journal is not the owner-facing product ledger. |
+| Provider operation and recovery identity | Provider-specific coordination record bound to one D1 run/plan | RunPod `provider_account_leases` and lease events; Colab `google_colab_run_operations`; D1 `modal_gpu_active_lease`; Modal custom-training `modal.Dict` journal | These records fence provider-specific work and are not alternate product ledgers. Their identities/state machines intentionally differ; response loss or missing records remain uncertain until the same operation is reconciled. |
+| Provider/Sandbox execution and resource cleanup | Provider resource inspected by its lifecycle adapter | RunPod API job; Colab runtime/session; Modal GPU function or custom Sandbox; Sites D1 stores owner-visible cleanup evidence | Provider observations can be newer than the ledger or coordination record. A timeout or missing handle is `uncertain`, never proof of failure or permission to create a replacement. |
+| Custom adapter dispatch claim and run journal | Modal `modal.Dict` store in the PR #70 custom-training adapter | D1 reservation; Modal Volumes hold staged source/checkpoints/artifacts | Atomic claim prevents duplicate Sandbox creation. On response loss, query the same run and recover the deterministic handle; do not submit again. This journal is specific to custom training, not a universal provider journal. |
 | Artifact bytes | Sites R2 or explicitly configured private external artifact store | D1 stores immutable owner/run/path/revision/size/digest reference | Metadata match does not prove bytes; independently retrieve and hash when acceptance requires it. |
 | Provider credentials | Provider-specific Sites secret or Modal secret | Configuration names only in source/docs; never values | Must remain outside tool schemas, D1, artifacts, logs, and workload processes. |
 | Provider pricing and quota | Provider account evidence plus provider-specific policy/quote | Saved plan snapshot | Historical prices/credits expire; internal budget is not account billing control. |
@@ -228,12 +229,13 @@ These are investigation targets, not automatic deletion instructions.
    user-facing contract independently in JavaScript. Some overlap is required
    by separate runtimes, but there is no single generated cross-runtime schema
    for plan/lifecycle/error semantics.
-3. **Run state across D1 and Modal Dict:** the intended boundary is now
-   recorded in [ADR 0002](decisions/0002-run-state-authority.md): D1 owns
-   authorization, budget and product history; the adapter journal owns
-   idempotent provider dispatch recovery; provider inspection owns current
-   execution evidence. Cross-layer contract tests and retention behavior still
-   need review before this can be considered settled for all provider routes.
+3. **Run state across D1 and provider-specific journals:** [ADR 0002](decisions/0002-run-state-authority.md)
+   now inventories the RunPod lease/event tables, Colab operation journal,
+   Modal GPU active lease and Modal custom-training Dict journal. D1 remains
+   the owner-visible product ledger; provider inspection remains execution
+   evidence. These different coordination records are not duplicates, but
+   route-by-route response-loss, terminal-state, cleanup, retention and
+   journal-loss behavior still needs conformance review.
 4. **Provider implementation wrappers:** `gateway/gpu_gateway` has modules
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
