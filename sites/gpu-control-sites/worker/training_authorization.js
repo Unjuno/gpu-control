@@ -113,3 +113,12 @@ export async function getTrainingAuthorization(db, owner, runId, fingerprint) {
     FROM training_authorizations WHERE plan_id=? AND owner_id=? AND fingerprint=?`)
     .bind(runId, owner, fingerprint).first();
 }
+
+const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
+
+export function trainingAuthorizationUrl(runId, fingerprint) {
+  const url = new URL("/authorize-training", SITE_PUBLIC_ORIGIN);
+  url.searchParams.set("run_id", runId);
+  url.searchParams.set("plan_fingerprint", fingerprint);
+  return url.toString();
+}

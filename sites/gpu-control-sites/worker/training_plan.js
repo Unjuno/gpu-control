@@ -1,10 +1,11 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource, MAP_TRAINING_REPOSITORY } from "./training_source.js";
-import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./training_authorization.js";
+import { authorizeTrainingChatSubmit, getTrainingAuthorization, trainingAuthorizationUrl } from "./training_authorization.js";
 import { trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { previewModalOwnerTrainingPlan } from "./modal_owner_training_plan.js";
 import { previewMapTrainingPlan } from "./map_training_plan.js";
 import { readProviderBudgetPolicy } from "./provider_budget_policy.js";
 import { claimTrainingDispatch } from "./training_dispatch_claim.js";
+import { trainingPlanState } from "./training_plan_state.js";
 import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
 import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_MONTHLY_MICROUSD,
   MAP_TRAINING_MAX_RUNTIME_SECONDS, MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD,
@@ -14,16 +15,6 @@ import { mapTrainingConfiguration } from "./map_training_configuration.js";
 import { trainingControlPlaneSha } from "./training_security_configuration.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
 import { sha256Hex } from "./sha256.js";
-
-const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
-
-function trainingAuthorizationUrl(runId, fingerprint) {
-  const url = new URL("/authorize-training", SITE_PUBLIC_ORIGIN);
-  url.searchParams.set("run_id", runId);
-  url.searchParams.set("plan_fingerprint", fingerprint);
-  return url.toString();
-}
-
 
 export async function previewTrainingPlan(env, owner, args, getSourceToken = async () => null) {
   const ownerConfig = ownerTrainingExecutionConfig(env);
@@ -136,79 +127,6 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
       authorization_state: !admission || !gpuBudgetReady ? "unavailable" : authorized ? "authorized" : "required",
       ...(admission && gpuBudgetReady && providerConfigured && !authorized && state === "prepared" && !ownerSelected
         ? { authorization_url: trainingAuthorizationUrl(existing.id, fingerprint) } : {}) } };
-}
-
-export async function trainingPlanState(env, owner, runId, cancel = false, isConfigured = () => true) {
-  const db = env.DB;
-  const mapConfig = mapTrainingConfiguration(env);
-  const now = Math.floor(Date.now() / 1000);
-  if (cancel) {
-    await db.prepare(`UPDATE training_plans SET cancelled_at=?
-      WHERE owner_id=? AND id=? AND cancelled_at IS NULL AND dispatch_claimed_at IS NULL AND expires_at>?`)
-      .bind(now, owner, runId, now).run();
-  }
-  const row = await db.prepare(`SELECT fingerprint, plan_json, expires_at, cancelled_at, dispatch_claimed_at, dispatch_rejection,
-      cleanup_confirmed_at
-    FROM training_plans WHERE owner_id=? AND id=?`).bind(owner, runId).first();
-  if (!row) throw new Error("RUN_NOT_FOUND");
-  const authorization = await getTrainingAuthorization(db, owner, runId, row.fingerprint);
-  const state = row.cancelled_at !== null ? "cancelled"
-    : row.dispatch_rejection ? "blocked"
-    : row.dispatch_claimed_at !== null ? "dispatching" : row.expires_at <= now ? "expired" : "prepared";
-  const authorized = state === "prepared" && authorization?.authorized_at !== null &&
-    authorization?.authorized_at !== undefined && authorization?.expires_at > now &&
-    authorization?.consumed_at === null;
-  let plan = {};
-  try { plan = JSON.parse(row.plan_json); } catch {}
-  const ownerSelected = plan.execution_kind === "owner_selected_python";
-  const admission = ownerSelected ? ownerTrainingAdmissionEnabled(env) : mapConfig.admission_enabled;
-  const providerConfigured = isConfigured(env);
-  const siteConfirmationRequired = !ownerSelected;
-  const budgetPolicy = state === "prepared" ? await readProviderBudgetPolicy(db) : null;
-  const modalBudget = budgetPolicy?.provider_budgets.find((item) => item.provider === "modal");
-  const monthlyLimit = ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd;
-  const modalPolicyReady = budgetPolicy?.state === "ready" && modalBudget;
-  const gpuAdmissionReady = modalBudget?.modal_gpu_admission_enabled === true;
-  const budgetWithinPolicy = modalPolicyReady && Number.isSafeInteger(plan.max_cost_microusd) &&
-    plan.max_cost_microusd <= modalBudget.per_run_limit_microusd && Number.isSafeInteger(monthlyLimit) &&
-    monthlyLimit <= modalBudget.monthly_limit_microusd &&
-    plan.max_cost_microusd <= modalBudget.monthly_remaining_microusd;
-  const submitAdmissionReady = admission && gpuAdmissionReady && budgetWithinPolicy;
-  const readinessBlocker = state !== "prepared" ? null
-    : !modalPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
-    : !gpuAdmissionReady ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
-    : !budgetWithinPolicy ? "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY"
-    : !admission ? (ownerSelected ? "OWNER_TRAINING_ADMISSION_DISABLED" : "MAP_TRAINING_ADMISSION_DISABLED")
-    : !providerConfigured ? "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED" : null;
-  return { schema_version: 2, status: "ok",
-    human_summary: readinessBlocker === "OWNER_TRAINING_ADMISSION_DISABLED"
-      ? "保存済み計画は確認できましたが、owner-selected GPUの受付は停止中です。"
-      : readinessBlocker === "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
-      ? "Modal GPUの共通受付ポリシーが停止中です。"
-      : readinessBlocker === "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
-      ? "Modal計算ルート共通の予算ポリシーを確認できません。"
-      : readinessBlocker === "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED"
-      ? "保存済み計画は確認できましたが、実行アダプターが設定されていません。"
-      : "保存済みの学習計画の状態です。",
-    machine_state: { run_id: runId, state, plan_fingerprint: row.fingerprint,
-      expires_at: row.expires_at, cancelled_at: row.cancelled_at,
-      cleanup_state: row.dispatch_claimed_at === null ? "not_required"
-        : row.cleanup_confirmed_at !== null ? "confirmed" : "unknown",
-      authorization_state: state !== "prepared" ? "none" : !submitAdmissionReady ? "unavailable" : authorized ? "authorized" : "required",
-      ...(siteConfirmationRequired && submitAdmissionReady && providerConfigured && !authorized && state === "prepared"
-        ? { authorization_url: trainingAuthorizationUrl(runId, row.fingerprint) } : {}),
-      ...(row.dispatch_rejection ? { reason: row.dispatch_rejection } : {}) },
-    next_allowed_actions: state === "prepared"
-      ? [...(submitAdmissionReady && providerConfigured && (authorized || ownerSelected) ? ["training_submit"] : []), "training_cancel"] : [],
-    blocking_reason: readinessBlocker };
-}
-
-export async function confirmTrainingCleanup(db, owner, runId, fingerprint, state, cleanup, now) {
-  if (!["succeeded", "failed", "cancelled"].includes(state) || cleanup !== "confirmed") return false;
-  const result = await db.prepare(`UPDATE training_plans SET cleanup_confirmed_at=COALESCE(cleanup_confirmed_at, ?)
-    WHERE owner_id=? AND id=? AND fingerprint=? AND dispatch_claimed_at IS NOT NULL`)
-    .bind(now, owner, runId, fingerprint).run();
-  return (result?.meta?.changes ?? result?.changes ?? 0) > 0;
 }
 
 export async function submitTrainingPlan(env, owner, args, delegate, isConfigured, getSourceToken = async () => null) {
