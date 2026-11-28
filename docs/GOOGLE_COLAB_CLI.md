@@ -25,18 +25,16 @@ colab download -s gpu-control-check checkpoints/model.bin ./model.bin
 colab stop -s gpu-control-check
 ```
 
-Check `colab --help` for the installed release's exact flags. The CLI's
-noninteractive execution commands can run in a CI script once the runner has
-an authenticated Colab identity. The current CLI stores OAuth credentials in
-the operating system's native keyring; local session metadata and history are
-under `~/.config/colab-cli/`. Its documented ADC mode can use credentials
-provided through `GOOGLE_APPLICATION_CREDENTIALS` or the normal `gcloud` ADC
-chain, subject to Colab account entitlement and API support. A hosted CI
-runner does not inherit the user's Mac keyring, and a headless OAuth login may
-still require the owner to complete Google's authorization flow. Do not put a
-personal refresh token or copied local session file into an ordinary CI secret
-just to make a GPU job start. Colab quota, accelerator allocation, and any
-compute-unit use remain governed by the Google account.
+Check `colab --help` for the installed release's exact flags. The CLI supports
+OAuth2 and Application Default Credentials (`--auth=adc`). OAuth2 uses the
+operating system's native keyring when available; ADC follows Google's
+credential discovery chain and can use `gcloud` or an environment credential
+file. A CI runner can run the CLI only when it has a Colab identity and the
+required API scopes; installing the CLI alone does not provide that identity.
+A hosted CI runner does not inherit a developer's Mac keyring. Do not copy a
+personal refresh token or local session file into CI secrets just to start a
+GPU job. Colab quota, accelerator allocation, and compute-unit use remain
+governed by the Google account.
 
 ## Which route to use
 
@@ -50,9 +48,10 @@ The standalone CLI is useful for local development and a separately managed
 CI job. It does not call GPU Control's prepare/authorization/submit/status
 contract, so its runs, budget reservations, result digests, and cleanup are not
 written to the shared owner ledger. Adding a second CLI dispatch route to
-GPU Control would split run recovery and authorization. The chat route should
-therefore call Google's hosted Colab API MCP from the Sites provider adapter;
-the official CLI is not the Sites Worker runtime.
+GPU Control would split run recovery and authorization. The ChatGPT and
+compatible MCP-client route therefore calls Google's hosted Colab API MCP
+from the Sites provider adapter; the official CLI is not the Sites Worker
+runtime.
 
 ## Chat and other MCP clients
 
@@ -64,10 +63,13 @@ artifact verification, and cleanup. A compatible external MCP client should
 authenticate to the same GPU Control MCP and share the same owner ledger; it
 should not use its own Colab CLI identity as a bypass.
 
-In the current source candidate, Colab connection and read-only capability
-discovery exist, but Colab training prepare/submit/status/result/cleanup are
-not connected. `colab_capabilities` must not be interpreted as an executable
-route. The official Colab CLI can run independently, but that is not evidence
+The current source candidate includes owner-scoped Google OAuth, Colab
+prepare/submit/status/cancel/artifact handling, and a shared run ledger through
+the hosted Colab MCP. This source candidate is not a released capability:
+admission remains closed until independent security review, production
+OAuth/configuration and migration, and live GPU acceptance gates are complete.
+`colab_capabilities` reports readiness; it does not by itself mean execution
+is enabled. The official CLI can run independently, but that is not evidence
 that a ChatGPT request reached Colab through GPU Control. See the
 [Colab provider implementation gates](architecture/google-colab-provider.md)
 and [release status](STATUS.md) before relying on a deployed capability.
@@ -80,9 +82,8 @@ contracts, recovery logic, and cleanup behavior with fixtures. A live Colab
 acceptance workflow would need a separately secured owner identity, explicit
 manual dispatch, strict runtime/quota bounds, cleanup verification, and an
 artifact digest check. It must not run on ordinary pull requests or create a
-second experiment ledger. Until those controls and the shared provider
-lifecycle exist, do not add a workflow that submits GPU work directly through
-the CLI and calls it a GPU Control acceptance test.
+second experiment ledger. A direct `google-colab-cli` CI job can be useful for
+independent CLI validation, but it is not GPU Control provider acceptance.
 
 ## References
 

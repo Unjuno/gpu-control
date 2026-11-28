@@ -327,6 +327,26 @@ actionable issues and confirmed authorization and metadata validation precede
 dispatch. No provider call, experiment, deployment or admission change
 occurred.
 
+## 2026-11-28 — A7: align Colab client guide and expose RunPod recovery errors
+
+**Finding:** `docs/GOOGLE_COLAB_CLI.md` described the Colab execution lifecycle
+as not yet connected even though the PR #70 source candidate has the hosted
+Colab adapter and shared owner/run ledger. That stale passage blurred source
+readiness, release readiness, and admission. The guide also overgeneralized
+the CLI's CI credential path. Separately, missing RunPod account-lease and
+provider-job recovery errors were converted to generic `INTERNAL_ERROR`, so an
+agent could not tell that an existing run needed recovery rather than replay.
+
+**Change:** updated the guide to distinguish the shared Sites MCP route from
+standalone CLI/local MCP runs, and to state that Colab admission remains closed
+until release gates pass. The public MCP error contract now preserves the two
+bounded RunPod recovery codes while continuing to redact arbitrary provider
+messages.
+
+**Validation:** focused error-contract tests pass (3/3) and `git diff --check`
+passes. No Colab CLI job, provider call, experiment, credential, deployment,
+or admission change was made.
+
 
 ## 2026-11-28 — A7: centralize the MCP tool-result projection
 
