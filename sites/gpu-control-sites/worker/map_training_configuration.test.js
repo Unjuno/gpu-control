@@ -4,6 +4,7 @@ import { mapTrainingConfiguration } from "./map_training_configuration.js";
 
 test("MAP workload settings have one normalized execution configuration", () => {
   assert.deepEqual(mapTrainingConfiguration({
+    MAP_TRAINING_ADMISSION_ENABLED: "true",
     MAP_TRAINING_SOURCE_SHA: "a".repeat(40),
     MAP_TRAINING_MODAL_IMAGE_ID: "im-Abcdefgh1234",
     MAP_TRAINING_IMAGE_DIGEST: "sha256:" + "b".repeat(64),
@@ -12,6 +13,7 @@ test("MAP workload settings have one normalized execution configuration", () => 
     MAP_TRAINING_RUNTIME_SECONDS: "120",
     MAP_TRAINING_MONTHLY_MICROUSD: "1000000",
   }), {
+    admission_enabled: true,
     source_sha: "a".repeat(40),
     image_id: "im-Abcdefgh1234",
     image_digest: "sha256:" + "b".repeat(64),
@@ -24,6 +26,7 @@ test("MAP workload settings have one normalized execution configuration", () => 
 
 test("missing MAP workload settings remain invalid instead of receiving invented values", () => {
   const config = mapTrainingConfiguration({});
+  assert.equal(config.admission_enabled, false);
   assert.equal(config.source_sha, undefined);
   assert.equal(Number.isNaN(config.hourly_microusd), true);
   assert.equal(Number.isNaN(config.runtime_seconds), true);

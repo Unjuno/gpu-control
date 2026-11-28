@@ -393,8 +393,10 @@ duplicate source and provider reads in the ordinary run path.
   normalized object, and the architecture check forbids raw reads elsewhere.
   Focused validation covers configured and missing values. MAP-specific
   source, image, quote, runtime, and monthly settings now have the same
-  normalization boundary and guard. MAP admission/control-plane keys and other
-  provider configuration still need the wider inventory.
+  normalization boundary and guard. The MAP admission flag is parsed at that
+  boundary but remains a separate live gate from profile validity. Shared
+  control-plane signing and other provider configuration still need the wider
+  inventory.
 
 ### A12. Add architecture checks only after rules have an owner
 

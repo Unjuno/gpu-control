@@ -1268,6 +1268,26 @@ source/image pinning, quote validation, runtime limits, and budget checks are
 unchanged and malformed or missing settings still block execution.
 
 
+## 2026-11-28 — A11: centralize training admission flag interpretation
+
+**Problem:** owner-selected admission was interpreted separately in capability
+projection and training lifecycle code; the MAP admission flag had several
+independent reads in plan preparation, status, and submit paths.
+
+**Change:** the owner profile module and MAP configuration parser now each own
+their strict literal-`true` admission parser. Capabilities and training
+lifecycle paths consume those helpers. Admission remains an explicit live gate
+and is not conflated with profile validity or provider policy.
+
+**Validation:** tests verify only the exact string `true` opens the setting.
+All 162 Worker tests pass; the 51-module graph is acyclic; migration, build,
+artifact validation and diff checks pass. No provider operation or deployment
+occurred.
+
+**Independent review:** no actionable findings. Capability, prepare, status,
+and submit retain the same fail-closed literal-`true` admission behavior.
+
+
 ## 2026-11-28 — A13: exercise external MCP OAuth over Worker HTTP
 
 **Problem:** OAuth protocol functions had focused unit coverage, but no test

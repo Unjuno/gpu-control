@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { trainingRuntimeProfileConfigured } from "./training_contract.js";
-import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
+import { ownerTrainingAdmissionEnabled, ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 
 test("owner training profile is parsed through one normalized configuration", () => {
   const config = ownerTrainingExecutionConfig({
@@ -33,4 +33,10 @@ test("missing owner profile settings remain invalid instead of gaining a runtime
   assert.equal(Number.isNaN(config.hourly_microusd), true);
   assert.equal(Number.isNaN(config.max_runtime_seconds), true);
   assert.equal(trainingRuntimeProfileConfigured(config, 1000), false);
+});
+
+test("owner training admission accepts only the literal enabled value", () => {
+  assert.equal(ownerTrainingAdmissionEnabled({ OWNER_TRAINING_ADMISSION_ENABLED: "true" }), true);
+  assert.equal(ownerTrainingAdmissionEnabled({ OWNER_TRAINING_ADMISSION_ENABLED: "TRUE" }), false);
+  assert.equal(ownerTrainingAdmissionEnabled({}), false);
 });

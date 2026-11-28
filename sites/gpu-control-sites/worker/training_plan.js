@@ -6,7 +6,7 @@ import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
 import { DEFAULT_MAP_EXECUTION, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_MONTHLY_MICROUSD,
   MAP_TRAINING_MAX_RUNTIME_SECONDS, MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD,
   OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
-import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
+import { ownerTrainingAdmissionEnabled, ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { mapTrainingConfiguration } from "./map_training_configuration.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
 import { sha256Hex } from "./sha256.js";
@@ -269,9 +269,9 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
   const ownerSelected = plan.execution_kind === "owner_selected_python";
   const ownerConfig = ownerTrainingExecutionConfig(env);
   const admission = ownerSelected
-    ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true" &&
+    ? ownerTrainingAdmissionEnabled(env) &&
       ownerConfig.max_runtime_seconds >= plan.runtime_seconds
-    : env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
+    : mapConfig.admission_enabled &&
       mapConfig.runtime_seconds === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
   // Owner-selected plans are authorized by the exact destructive ChatGPT MCP
@@ -329,8 +329,7 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
   let plan = {};
   try { plan = JSON.parse(row.plan_json); } catch {}
   const ownerSelected = plan.execution_kind === "owner_selected_python";
-  const admission = ownerSelected ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true"
-    : env.MAP_TRAINING_ADMISSION_ENABLED === "true";
+  const admission = ownerSelected ? ownerTrainingAdmissionEnabled(env) : mapConfig.admission_enabled;
   const providerConfigured = isConfigured(env);
   const siteConfirmationRequired = !ownerSelected;
   const budgetPolicy = state === "prepared" ? await readProviderBudgetPolicy(db) : null;
@@ -498,8 +497,8 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       blocking_reason: "TRAINING_BUDGET_EXCEEDS_MODAL_PROVIDER_POLICY" };
   }
   const admissionEnabled = ownerSelected
-    ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true"
-    : env.MAP_TRAINING_ADMISSION_ENABLED === "true";
+    ? ownerTrainingAdmissionEnabled(env)
+    : mapConfig.admission_enabled;
   if (!admissionEnabled || !isConfigured(env)) {
     return { schema_version: 2, status: "blocked", human_summary: "学習の実行受付は停止中です。",
       machine_state: { run_id: runId }, next_allowed_actions: [], blocking_reason: "TRAINING_ADMISSION_DISABLED" };

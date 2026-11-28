@@ -2,7 +2,7 @@ import { githubAppConfigured, getOwnedGithubInstallation } from "./github_app_co
 import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
   trainingRuntimeProfileFingerprint } from "./training_contract.js";
-import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
+import { ownerTrainingAdmissionEnabled, ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
 import { PROVIDERS } from "./provider_catalog.js";
 
@@ -16,7 +16,7 @@ export async function getOwnerTrainingCapability(env, owner, budgetPolicy) {
     try { githubConnected = Boolean(await getOwnedGithubInstallation(env.DB, owner)); }
     catch { githubConnected = false; }
   }
-  const admissionEnabled = env.OWNER_TRAINING_ADMISSION_ENABLED === "true";
+  const admissionEnabled = ownerTrainingAdmissionEnabled(env);
   const adapterConfigured = providerAdapterConfigured(env);
   const runtimeConfig = ownerTrainingExecutionConfig(env);
   const siteProfileConfigured = trainingRuntimeProfileConfigured(runtimeConfig);

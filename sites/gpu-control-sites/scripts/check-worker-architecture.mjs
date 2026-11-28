@@ -18,23 +18,34 @@ const platformIdentitySources = workerFiles.filter((file) =>
 assert.deepEqual(platformIdentitySources, [],
   "ChatGPT platform identity and owner allowlist may only be interpreted by mcp_request_auth.js");
 
-// Owner-selected runtime profile values are normalized in one module. Admission
-// remains a separate live gate, but image, pricing, quote, runtime and budget
-// inputs must not be re-parsed by capabilities or lifecycle callers.
+// Owner-selected runtime profile values and its literal admission flag are
+// normalized in one module. The live gate stays semantically separate from
+// profile validity; callers must not re-parse either setting.
+function modulesReadingBindingsOutside(boundary, bindings) {
+  const directRead = new RegExp(`\\benv\\??\\.(?:${bindings.join("|")})\\b`);
+  return workerFiles.filter((file) =>
+    file !== boundary && directRead.test(readFileSync(file, "utf8")));
+}
+
 const trainingRuntimeProfileBoundary = join(workerRoot, "training_runtime_profile.js");
-const ownerRuntimeProfileSources = workerFiles.filter((file) =>
-  file !== trainingRuntimeProfileBoundary &&
-    /\benv\??\.(?:OWNER_TRAINING_RUNTIME_IMAGE_ID|OWNER_TRAINING_HOURLY_MICROUSD|OWNER_TRAINING_STAGING_HOURLY_MICROUSD|OWNER_TRAINING_QUOTE_EXPIRES_AT|OWNER_TRAINING_MAX_RUNTIME_SECONDS|OWNER_TRAINING_MAX_COST_MICROUSD|OWNER_TRAINING_MONTHLY_MICROUSD)\b/.test(readFileSync(file, "utf8")));
+const ownerRuntimeProfileBindings = ["OWNER_TRAINING_RUNTIME_IMAGE_ID", "OWNER_TRAINING_HOURLY_MICROUSD",
+  "OWNER_TRAINING_STAGING_HOURLY_MICROUSD", "OWNER_TRAINING_QUOTE_EXPIRES_AT",
+  "OWNER_TRAINING_MAX_RUNTIME_SECONDS", "OWNER_TRAINING_MAX_COST_MICROUSD",
+  "OWNER_TRAINING_MONTHLY_MICROUSD", "OWNER_TRAINING_ADMISSION_ENABLED"];
+const ownerRuntimeProfileSources = modulesReadingBindingsOutside(trainingRuntimeProfileBoundary,
+  ownerRuntimeProfileBindings);
 assert.deepEqual(ownerRuntimeProfileSources, [],
   "Owner training runtime profile values may only be read by training_runtime_profile.js");
 
-// The reviewed MAP workload profile has one environment parser as well. Keep
-// the shared control-plane signing key and live admission gate as separate
-// concerns, but never duplicate source/image/price/runtime parsing.
+// The reviewed MAP workload profile has one environment parser as well. The
+// live admission decision remains separate from profile validity, and the
+// shared control-plane signing key has its own identity/security concern.
 const mapTrainingConfigBoundary = join(workerRoot, "map_training_configuration.js");
-const mapTrainingConfigSources = workerFiles.filter((file) =>
-  file !== mapTrainingConfigBoundary &&
-    /\benv\??\.(?:MAP_TRAINING_SOURCE_SHA|MAP_TRAINING_MODAL_IMAGE_ID|MAP_TRAINING_IMAGE_DIGEST|MAP_TRAINING_HOURLY_MICROUSD|MAP_TRAINING_QUOTE_EXPIRES_AT|MAP_TRAINING_RUNTIME_SECONDS|MAP_TRAINING_MONTHLY_MICROUSD)\b/.test(readFileSync(file, "utf8")));
+const mapTrainingConfigBindings = ["MAP_TRAINING_SOURCE_SHA", "MAP_TRAINING_MODAL_IMAGE_ID",
+  "MAP_TRAINING_IMAGE_DIGEST", "MAP_TRAINING_HOURLY_MICROUSD", "MAP_TRAINING_QUOTE_EXPIRES_AT",
+  "MAP_TRAINING_RUNTIME_SECONDS", "MAP_TRAINING_MONTHLY_MICROUSD", "MAP_TRAINING_ADMISSION_ENABLED"];
+const mapTrainingConfigSources = modulesReadingBindingsOutside(mapTrainingConfigBoundary,
+  mapTrainingConfigBindings);
 assert.deepEqual(mapTrainingConfigSources, [],
   "MAP training source, image, quote and runtime settings may only be read by map_training_configuration.js");
 

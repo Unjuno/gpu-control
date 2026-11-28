@@ -11,3 +11,8 @@ export function ownerTrainingExecutionConfig(env) {
     control_plane_sha: env.MAP_TRAINING_CONTROL_PLANE_SHA,
   };
 }
+
+/** Resolve the independent live admission gate without treating other values as truthy. */
+export function ownerTrainingAdmissionEnabled(env) {
+  return env.OWNER_TRAINING_ADMISSION_ENABLED === "true";
+}
