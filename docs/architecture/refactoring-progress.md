@@ -26,6 +26,13 @@ D1 forward-migration replay and `git diff --check` pass. This is local source
 evidence only. No background recovery, provider action, admission change,
 deployment, or live run was performed.
 
+**Follow-up evidence:** Modal's current security guide sets seven days of
+inactivity retention for Dict entries. The custom-training adapter uses a Dict
+as its dispatch/result journal, while no scheduled refresher is configured in
+this repository. D1 remains `dispatching` until an adapter terminal result is
+observed. Indefinite recovery after an interrupted chat is therefore not
+established; durable journal retention is now an explicit A3 open item.
+
 ## 2026-11-28 — A1: synchronize operator guidance with current provider routes
 
 **Follow-up finding:** the Sites README, ChatGPT setup guide and public

@@ -3,9 +3,9 @@
 ## Source/release checkpoint — 2026-11-28
 
 - The current source candidate is [PR #70](https://github.com/Unjuno/gpu-control/pull/70),
-  branch `codex/owner-training-workloads`; latest implementation commit
-  `b509923`. GitHub is the live authority for PR head, review and exact-head
-  CI; these volatile values are not copied into architecture documents. The
+  branch `codex/owner-training-workloads`. GitHub is the live authority for PR
+  head, review and exact-head CI; these volatile values are not copied into
+  architecture documents. The
   211-test Sites suite, five root Skill/client checks, Worker
   build/artifact validation, and D1 forward migration replay pass locally.
 - The candidate implements owner-selected GitHub source selection, immutable
@@ -17,7 +17,10 @@
   share the exact-plan MCP submit authorization across compatible clients;
   current run guides no longer direct MAP users to its legacy authorization
   URL. Colab's direct CLI remains a separate local/CI route outside the shared
-  run ledger.
+  run ledger. `experiment_reconcile` is a manual MCP operation; no background
+  schedule is configured. Modal custom-training dispatch journals use Modal
+  Dict, whose entries expire after seven idle days; see A3 in the architecture
+  backlog for the recovery-retention gap.
 - `policies/repository-state.yaml` remains `mode: parked` and explicitly keeps
   owner-selected GPU admission disabled. No current claim is made that PR #70
   has been merged, deployed, migrated in hosted D1, or accepted in a new
@@ -40,9 +43,9 @@
   A non-empty deletion response leaves cleanup pending; a later exact empty
   success response confirms cleanup without replaying execution. It does not
   prove Google's live idempotency behavior or real Colab execution. The earlier
-  independent Security Review does not cover this latest source. The automated
+  independent Security Review does not cover the current PR head. The automated
   diff scanner could not start on the linked worktree; no independent scan
-  result is claimed for `b509923`.
+  result is claimed for the current candidate.
 - The `31bc183` follow-up also fails closed when a submitted Colab plan has lost
   its operation journal: status, cancel and repeated submit report uncertainty
   without contacting Colab. The `748ac11` RunPod follow-up preserves an

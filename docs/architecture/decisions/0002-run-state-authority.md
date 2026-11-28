@@ -78,7 +78,15 @@ This contract has not yet been proven by a deployed integration test. The
 provider-specific records above are implemented in source, but response-loss,
 duplicate delivery, terminal-state mismatch, cleanup and durable-record-loss
 conformance must be verified independently for each route. The Modal custom
-training journal-retention guarantee also remains unverified.
+training journal has a known retention bound: Modal documents that Dict entries
+expire after seven days without a read or write
+([security and data retention](https://modal.com/docs/guide/security#data-privacy)).
+The Sites repository configures no background refresher. Therefore the adapter
+journal is not permanent recovery storage; a custom-training run left untouched
+past that window can remain `dispatching` in D1 while its provider handle and
+terminal result are no longer recoverable through the current adapter. A
+durable recovery store or a verified, cost-bounded journal-refresh mechanism is
+required before claiming indefinite resume after an interrupted chat.
 
 ## Consequences
 

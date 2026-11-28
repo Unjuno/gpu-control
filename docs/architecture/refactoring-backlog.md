@@ -203,6 +203,16 @@ acceptance.
   fences custom-training Sandbox creation. This inventory documents distinct
   responsibilities; it does not yet prove every route's response-loss,
   terminal-state, cleanup, or durable-record-loss behavior.
+- **Modal journal retention gap (2026-11-28):** the custom-training
+  `submission_store` is a Modal Dict. [Modal's current security guide](https://modal.com/docs/guide/security#data-privacy)
+  says Dict entries expire after seven days without a read or write. The
+  custom-training route has no scheduled journal refresher, and D1 remains
+  `dispatching` until a terminal adapter observation is confirmed. If a run is
+  not polled or reconciled within that inactivity window, the adapter can lose
+  the only provider handle/result record; a later status call reports missing
+  state rather than recovering it. Bound the recovery horizon explicitly or
+  move authoritative recovery evidence to storage with a verified retention
+  contract before advertising long-term resumability.
 - **Colab lifecycle evidence (2026-11-28):**
   `worker/google_colab_lifecycle.integration.test.js` exercises the real Sites
   lifecycle and migration with a SQLite-backed D1 adapter and a deterministic
