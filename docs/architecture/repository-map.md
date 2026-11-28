@@ -7,12 +7,13 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** implementation head `129f002` on PR #70. The
-Sites Worker suite passes 187 tests and its graph is acyclic across 67 runtime
-modules. The root Python suite passes 619 tests, one skipped, and five
-subtests. All seven exact-head CI checks pass on `129f002`. This map refresh is
-documentation-only; it does not change that implementation snapshot or prove
-hosted release.
+**Current source snapshot:** implementation head `ad4af125d54b202267998b489de4c1f12c505768` on PR #70. The
+Sites Worker suite passes 187 tests, its graph is acyclic across 67 runtime
+modules, and two dependency-graph script tests pass. The root Python suite
+passes 619 tests, one skipped, and five subtests. All seven exact-head CI
+checks pass on this head; the current Sites build copies all 67 reachable
+Worker modules. These measurements describe this source candidate only and do
+not prove hosted release.
 `worker/index.js` is 147 lines,
 while `worker/index.test.js` is 1,920 lines and remains the largest integration
 fixture. Dedicated integration tests cover ChatGPT authorization (125 lines),

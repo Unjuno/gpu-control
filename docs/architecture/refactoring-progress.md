@@ -2235,3 +2235,20 @@ making arbitrary or owner-existing runtime deletion available.
 runtime was created or deleted, no credentials or admission settings changed,
 and Colab execution remains unavailable until the persisted shared lifecycle
 is implemented.
+
+## 2026-11-28 — A12: include re-exports in the Worker dependency graph
+
+**Finding:** the Worker package graph recognized static imports but omitted
+static ES module re-exports. A future module split could therefore hide a
+dependency edge from cycle checks and packaging reachability.
+
+**Change:** named and wildcard static re-exports now contribute dependency
+edges. Added graph fixtures for both forms and malformed semicolonless syntax;
+`npm test` runs these script tests before the architecture, registry, and
+Worker checks. Refreshed the repository architecture snapshot from the prior
+`129f002` head to current PR head `ad4af125d54b202267998b489de4c1f12c505768`.
+
+**Validation:** local Sites checks pass: 2 graph tests, 187 Worker tests,
+acyclic graph across 67 modules, generated registry check, and build copying
+all 67 reachable runtime modules. Exact-head hosted CI reports all seven
+checks successful. No provider execution or deployment occurred.
