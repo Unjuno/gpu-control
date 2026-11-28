@@ -1020,3 +1020,22 @@ Runner and otherwise reports `unknown`.
 historical execution-origin cases; Worker build packages 43 reachable modules;
 Site artifact validation and `git diff --check` pass. No provider call or
 deployment was performed.
+
+
+## 2026-11-28 — A7: isolate delegated-provider run persistence
+
+**Problem:** lookup of historical delegated plans, validation and persistence
+of adapter observations, and removal of internal provider handles from public
+responses were mixed with prepare/submit orchestration in `index.js`.
+
+**Change:** introduced `worker/provider_adapter_run_store.js` as the storage
+and exposure boundary for delegated run records. It owns supported-workload
+lookup, bounded state/handle/response persistence, and public handle redaction.
+Provider policy decisions, budget reservations, submit claims and adapter calls
+remain in their existing orchestration path.
+
+**Validation:** all 151 Worker tests pass, including three focused tests for
+owner-scoped lookup, bounded observation persistence and handle redaction;
+D1 forward migration tests pass; build packages 44 reachable runtime modules;
+Site artifact validation and `git diff --check` pass. No deployment or
+provider operation occurred.

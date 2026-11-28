@@ -25,6 +25,8 @@ import { prepareModalCpuPlan } from "./prepare_modal_cpu_plan.js";
 import { listExperiments } from "./experiment_list.js";
 import { executionOrigin } from "./execution_origin.js";
 import { readExperimentStatus } from "./experiment_status.js";
+import { readDelegatedPlan as delegatedPlan, persistProviderAdapterObservation,
+  publicProviderAdapterResponse } from "./provider_adapter_run_store.js";
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
 import { persistRunResultArtifact, readRunResultArtifact, runArtifactBytes, RUN_ARTIFACT_MAX_BYTES } from "./run_artifacts.js";
@@ -831,54 +833,6 @@ async function synchronizeModalRun(env, runId, ownerId, { submit = false, cancel
   }
   await persistRunResultArtifact(env, { runId, ownerId, sourceSha: row.source_sha,
     planFingerprint: row.fingerprint, resultJson, now });
-}
-
-async function delegatedPlan(env, owner, runId) {
-  try {
-    const row = await env.DB.prepare(`SELECT id, fingerprint, workload, approved_plan_json, state, created_at, expires_at,
-        provider_handle_json, provider_state, provider_response_json, updated_at, cancelled_at, terminal_at,
-        source_run_id, submit_attempted_at
-      FROM gateway_delegated_plans WHERE owner_id=? AND id=?`).bind(owner, runId).first();
-    return row && [KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD, MODAL_GPU_WORKLOAD].includes(row.workload) &&
-      typeof row.approved_plan_json === "string" ? row : null;
-  } catch {
-    return null;
-  }
-}
-
-function boundedProviderHandle(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const encoded = canonical(value);
-  return new TextEncoder().encode(encoded).byteLength <= 16 * 1024 ? encoded : null;
-}
-
-async function persistProviderAdapterObservation(env, owner, runId, response) {
-  const machine = response?.machine_state;
-  if (!machine || typeof machine !== "object" || Array.isArray(machine)) return;
-  const handleJson = machine.provider_handle === undefined ? null : boundedProviderHandle(machine.provider_handle);
-  if (machine.provider_handle !== undefined && handleJson === null) {
-    throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
-  }
-  const state = typeof machine.state === "string" && /^[a-z_]{1,32}$/.test(machine.state)
-    ? machine.state : null;
-  const responseJson = canonical(response);
-  if (new TextEncoder().encode(responseJson).byteLength > 64 * 1024) {
-    throw new Error("GATEWAY_DELEGATION_RESPONSE_TOO_LARGE");
-  }
-  const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare(`UPDATE gateway_delegated_plans
-    SET provider_handle_json=COALESCE(?, provider_handle_json), provider_state=COALESCE(?, provider_state),
-      provider_response_json=?, updated_at=? WHERE owner_id=? AND id=?`)
-    .bind(handleJson, state, responseJson, now, owner, runId).run();
-}
-
-function publicProviderAdapterResponse(response) {
-  if (!response?.machine_state || typeof response.machine_state !== "object" ||
-      Array.isArray(response.machine_state) || response.machine_state.provider_handle === undefined) {
-    return response;
-  }
-  const { provider_handle: _privateHandle, ...publicMachineState } = response.machine_state;
-  return { ...response, machine_state: publicMachineState };
 }
 
 async function prepareDelegatedExperiment(env, owner, args) {

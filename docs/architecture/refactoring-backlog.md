@@ -480,3 +480,9 @@ authority in `worker/execution_origin.js`, shared by the run-list and
 status/result read models. It accepts only a run-bound cleanup receipt for the
 retired local Runner classification. All 148 Worker tests pass and packaging
 includes the 43-module acyclic Worker graph.
+
+**Progress (2026-11-28):** `worker/provider_adapter_run_store.js` now owns
+owner-scoped delegated-plan lookup, bounded adapter-state persistence and
+redaction of private provider handles from MCP responses. Provider submission
+policy remains in the orchestrator. Focused storage tests and the complete 151
+Worker tests pass; the 44-module import graph is acyclic.
