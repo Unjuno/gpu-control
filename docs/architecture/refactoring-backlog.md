@@ -283,9 +283,9 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** `worker/index.js` is 2,175 lines at source candidate `615e039`
-  and remains a large transport
-  and composition root for authentication, owner identity, routing and provider
+- **Evidence:** at source head `5315da7`, `worker/index.js` is 816 lines and
+  remains the transport and composition root for authentication, owner identity,
+  routing and provider
   workflows. MCP schemas/descriptions, experiment input contracts, GitHub
   ownership, training lifecycle, budgets, RunPod lifecycle, fixed-route and
   owner-training capability projections, and the bounded Modal HTTP client now
@@ -302,9 +302,11 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 **Progress:** owner-selected source inspection/error projection now lives in
 `worker/training_inspection.js`; registration, plan, submit, status/cancel and
 bounded result routing live in `worker/training_tools.js`. The MAP repository
-slug is centralized in `training_source.js`. `index.js` was about 2.8k lines
-before the A7 contract extraction; it measured 2,333 lines at an earlier
-checkpoint and is 2,175 lines at source candidate `615e039`.
+slug is centralized in `training_source.js`. Historical checkpoints measured
+2,333 and 2,175 lines before later lifecycle and transport extractions; the
+current entrypoint is 816 lines. Remaining dispatch/composition work is about
+separating route registration from HTTP and MCP protocol handling, not reducing
+the file by line count alone.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
@@ -342,9 +344,11 @@ duplicate source and provider reads in the ordinary run path.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 
-- **Evidence:** Sites `index.test.js` is 3,444 lines at source candidate
-  `615e039` (2026-11-28); Gateway store/worker tests
-  are similarly large. The suite has valuable migration and runtime contracts.
+- **Evidence:** Sites `index.test.js` measured 3,444 lines at source candidate
+  `615e039`; at head `5315da7` it is 2,684 lines after contract and source
+  tests were extracted. It still combines route, capability, provider,
+  cancellation, artifact and run-list integration concerns. Gateway
+  store/worker tests are also large. The suite has valuable runtime contracts.
 - **Work:** partition tests by domain and lifecycle; extract only stable test
   builders. Preserve explicit failure cases and avoid generic fixture engines.
 - **Done when:** a contributor can run one domain's tests and understand its
@@ -353,9 +357,9 @@ duplicate source and provider reads in the ordinary run path.
   registration integration test out of `index.test.js` into
   `training_registration.integration.test.js`. The test keeps the SQLite/D1
   behavior and assertions; it now owns only the minimal worker environment it
-  needs. Full coverage remains at 156 tests. Further lifecycle groups and
-  repeated fixture shapes still need inventory before introducing shared
-  builders.
+  needs. It is 680 lines at current head. The full suite has grown to 163 tests
+  and the Worker graph to 52 modules. Further lifecycle groups and repeated
+  fixture shapes still need inventory before introducing shared builders.
 
 ### A9. Consolidate Python/Gateway provider runtime duplication by consumer
 
@@ -564,8 +568,9 @@ found no actionable findings.
 **Progress (2026-11-28):** moved public MCP schema/description assertions to
 `worker/mcp_tool_contract.test.js` and GitHub source pinning cases to
 `worker/training_source.test.js`. `worker/index.test.js` shrank from 3,445 to
-3,326 lines without dropping coverage; the full 156-test suite and 50-module
-acyclic graph pass.
+3,326 lines at that checkpoint without dropping coverage. At head `5315da7`,
+it is 2,684 lines; all 163 Worker tests pass locally and the graph is acyclic
+across 52 runtime modules. Exact-head GitHub checks are queued.
 
 **Progress (2026-11-28):** the shared `MAP_TRAINING_CONTROL_PLANE_SHA`
 authorization identity now has one Worker binding reader in
