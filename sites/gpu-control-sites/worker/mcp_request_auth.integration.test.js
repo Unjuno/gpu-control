@@ -41,6 +41,20 @@ test("public MCP data tools challenge anonymous callers before touching D1", asy
   assert.equal(databaseReads, 0);
 });
 
+test("ChatGPT users outside the owner allowlist are rejected before touching D1", async () => {
+  let databaseReads = 0;
+  const env = { GPU_CONTROL_ALLOWED_USER_IDS: "configured-owner", DB: { prepare() {
+    databaseReads++;
+    throw new Error("unauthorized Site user reached D1");
+  } } };
+  const response = await worker.fetch(rpcRequest({ jsonrpc: "2.0", id: 1,
+    method: "tools/call", params: { name: "experiment_list", arguments: {} } },
+  { "oai-authenticated-user-id": "another-chatgpt-user" }), env);
+
+  assert.equal(response.status, 403);
+  assert.equal(databaseReads, 0);
+});
+
 test("MCP bearer authentication binds audience and separates read and execute scopes", async () => {
   const token = `gpc_at_${"a".repeat(43)}`;
   const tokenHash = createHash("sha256").update(token).digest("hex");

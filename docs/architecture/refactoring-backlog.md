@@ -629,6 +629,11 @@ modules; the exact pushed head and CI are recorded in the progress log.
   suite pass. `index.test.js` shrank by 201 lines to 2,435 lines; the extracted
   file is 222 lines. Filtering, pagination, provider provenance, terminal
   cleanup state, and cross-owner privacy assertions remain intact.
+- **Progress (2026-11-29):** the ChatGPT identity-allowlist denial test now
+  lives in `worker/mcp_request_auth.integration.test.js`, beside anonymous,
+  OAuth scope/audience, and shared-owner transport cases. It proves rejection
+  happens before D1 access. Assertions and request contract are unchanged; the
+  general `index.test.js` no longer owns this authentication concern.
 
 ### A9. Consolidate Python/Gateway provider runtime duplication by consumer
 

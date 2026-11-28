@@ -223,18 +223,6 @@ test("Modal status polling fails closed when the shared provider-call budget is 
   }
 });
 
-test("authenticated users outside the configured owner allowlist cannot touch D1", async () => {
-  const env = environment();
-  let databaseReads = 0;
-  env.DB.prepare = () => {
-    databaseReads++;
-    throw new Error("unauthorized Site user reached D1");
-  };
-  const response = await toolCall(env, "another-chatgpt-user", "experiment_list", {});
-  assert.equal(response.status, 403);
-  assert.equal(databaseReads, 0);
-});
-
 test("read-only capabilities do not call Modal", async () => {
   const env = environment({ admission: "true" });
   env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";

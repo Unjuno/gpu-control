@@ -52,6 +52,18 @@ directory pytest suite passes, including the shared byte-vector and packaging
 checks. No provider, credential, admission, deployment, or billing state was
 touched.
 
+## 2026-11-29 — A8: keep owner-auth rejection in the auth integration suite
+
+**Change:** moved the HTTP-level regression proving that a ChatGPT identity
+outside `GPU_CONTROL_ALLOWED_USER_IDS` is rejected before D1 access from the
+general `index.test.js` into `mcp_request_auth.integration.test.js`. It now
+lives beside anonymous-challenge, OAuth bearer scope/audience, and cross-client
+owner-ledger tests; its assertions and request contract are unchanged.
+
+**Validation:** the focused `mcp_request_auth.integration.test.js` and
+`index.test.js` suites pass, followed by the complete Sites suite (214 passed).
+`git diff --check` passes. No runtime code or external contract changed.
+
 ## 2026-11-28 — A3: recover owner-training results after Modal Dict expiry
 
 **Finding:** Modal Dict entries can expire after seven days without access. The
