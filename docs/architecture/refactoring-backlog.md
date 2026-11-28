@@ -486,3 +486,9 @@ owner-scoped delegated-plan lookup, bounded adapter-state persistence and
 redaction of private provider handles from MCP responses. Provider submission
 policy remains in the orchestrator. Focused storage tests and the complete 151
 Worker tests pass; the 44-module import graph is acyclic.
+
+**Progress (2026-11-28):** `worker/local_run_cancellation.js` now owns local
+queued/running cancellation transitions and dispatches RunPod cancellation
+through its lifecycle adapter. Delegated cancellation remains adapter-owned;
+Modal CPU cancellation remains a persisted cooperative request. The shared
+151-test suite passes with an acyclic 45-module graph.

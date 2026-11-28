@@ -1039,3 +1039,22 @@ owner-scoped lookup, bounded observation persistence and handle redaction;
 D1 forward migration tests pass; build packages 44 reachable runtime modules;
 Site artifact validation and `git diff --check` pass. No deployment or
 provider operation occurred.
+
+
+## 2026-11-28 — A7: isolate local run cancellation
+
+**Problem:** `experiment_cancel` mixed owner-scoped local state transitions,
+RunPod cleanup dispatch, Modal cooperative cancellation, and response
+projection inside MCP dispatch while delegated cancellation had a separate
+adapter path.
+
+**Change:** moved local run lookup, queued cancellation, cooperative
+`cancel_requested` persistence, and RunPod synchronization into
+`worker/local_run_cancellation.js`. The entrypoint continues to route
+delegated runs first; provider cleanup semantics remain provider-owned.
+
+**Validation:** all 151 Worker tests pass, including owner-isolated cancel,
+queued terminal cleanup, Modal cooperative request, and delegated cancel;
+D1 forward migration tests pass; the Worker graph is acyclic across 45 runtime
+modules; build, Site artifact validation and `git diff --check` pass. No
+provider operation or deployment occurred.
