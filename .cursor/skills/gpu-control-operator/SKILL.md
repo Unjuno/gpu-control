@@ -10,8 +10,11 @@ client. ChatGPT Sites and compatible authenticated OAuth clients share the same
 owner-scoped control plane and run ledger after the OAuth route is deployed.
 The current external-client OAuth implementation is source-only in PR #70;
 check the release state before claiming that a non-ChatGPT client can connect.
-Do not recreate a Vercel, Neon, Railway, external PostgreSQL, local Keychain
-Runner, arbitrary shell, or direct provider route.
+In ChatGPT, this MCP app is named **GPU Control — ChatGPT実験管理**; another
+client connects to the same MCP endpoint when the deployed OAuth flow is
+available. Do not recreate a Vercel, Neon, Railway, external PostgreSQL, the
+retired local Keychain Runner, arbitrary shell, or direct provider route.
+When adding a client integration, do not recreate retired infrastructure.
 
 ## Start every session
 

@@ -105,6 +105,12 @@ OAuth source status, `training_prepare`/`training_submit` descriptions, and the
 Colab capability blocker. No credentials, provider settings, admission, or
 execution were changed.
 
+**CI correction:** the first exact-head CI run found that the Skill contract
+test also requires the ChatGPT app's discoverable product name and the retired
+Keychain Runner warning to remain explicit. Both statements are preserved
+without restoring a ChatGPT-only control flow. The focused Skill suite now
+passes all three tests; a new exact-head CI run is required for the correction.
+
 ## 2026-11-28 — Normalize the client-neutral MCP product boundary
 
 **Finding:** the owner-bound OAuth design, MCP client guide, and provider
