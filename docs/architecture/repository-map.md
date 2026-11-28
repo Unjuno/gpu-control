@@ -7,12 +7,12 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `c5c8fe5` on PR #70 plus the current
-uncommitted Colab OAuth route-boundary candidate. The full Python
-suite passes with one skip; the Sites Worker suite passes 166 tests and its
-graph is acyclic across 59 runtime modules. GitHub exact-head CI and review
+**Current source snapshot:** code head `3020e6c` on PR #70 plus the current
+uncommitted external MCP OAuth route-boundary candidate. The full Python
+suite passes with one skip; the Sites Worker suite passes 167 tests and its
+graph is acyclic across 60 runtime modules. GitHub exact-head CI and review
 state are recorded in `refactoring-progress.md`; local success is not release
-evidence. `worker/index.js` is 693 lines,
+evidence. `worker/index.js` is 545 lines,
 while `worker/index.test.js` is 2,435 lines and remains the largest integration
 fixture. The owner-training registration integration test is 682 lines, the
 experiment read-model route test is 222 lines, and the MCP request-auth route
@@ -64,12 +64,13 @@ capability discovery only; its execution lifecycle is not integrated. A direct
 external Colab MCP call bypasses the Sites owner, budget, run-history, and
 cleanup ledger.
 
-The Google Colab OAuth setup/callback HTTP handlers are composed by
-`worker/index.js` through `worker/google_colab_oauth_routes.js`. The route
-module owns the provider-specific PKCE cookie parsing/clearing and callback
-validation; the composition root injects the shared HTML renderer and escaping
-helper. This remains a connection and read-only capability boundary, not a
-Colab execution adapter.
+The Colab owner-connection setup/callback handlers are composed through
+`worker/google_colab_oauth_routes.js`. The independent OAuth surface for other
+MCP clients—discovery, dynamic client registration, consent, token exchange,
+and revocation—is composed through `worker/mcp_oauth_routes.js`. These route
+modules reuse the Worker's shared request-body parsers and HTML renderer. The
+GitHub callback still owns the shared GitHub identity proof and dispatches to
+the right connection flow; it remains in the HTTP composition root.
 
 ## Module dependency graph
 
@@ -127,7 +128,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Fixed workload definitions | IDs, provider route, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator validates provider route compatibility. |
 | Provider and route identity | Provider billing class, credit eligibility, canonical route IDs, GPU/adapter-host flags and fixed route metadata | `sites/gpu-control-sites/workloads/provider-catalog.json` | Generated into `worker/provider_catalog.js`; MCP filters, capability projection, budget route mapping and adapter-route selection consume this copy. D1/provider evidence still owns current readiness, limits and execution state. |
 | Owner-selected source identity | GitHub App installation proof, immutable GitHub user subject linked to one Sites owner, selected-repository-scoped installation tokens | `worker/github_app_connection.js`, `worker/github_tools.js`, `worker/training_source.js`, `drizzle/0035_github_owner_identity.sql` | `github_app_connection.js` verifies `/user` and exact installation access in the GitHub setup OAuth flow, stores only the numeric GitHub subject in `github_owner_identities`, and rejects cross-owner reuse or silent identity switches. `github_tools.js` owns Sites tool orchestration; `training_source.js` owns source registration and immutable commit resolution. User OAuth tokens are discarded; installation tokens are exact-repository read-only and trusted control-plane/stager input, never workload input. The immutable subject is also the external MCP login link. |
-| External MCP client authentication | DCR, consent, GitHub owner proof, PKCE, short-lived access/rotating refresh tokens, audience and scope checks | `worker/mcp_oauth.js`, `worker/mcp_request_auth.js`, `worker/index.js`, `worker/github_app_connection.js`, `drizzle/0036_mcp_oauth_clients.sql` | `mcp_oauth.js` owns OAuth metadata and token protocol; `mcp_request_auth.js` resolves ChatGPT/OAuth request identity and produces bearer challenges; `index.js` owns the MCP HTTP boundary and passes a resolved owner principal to existing tools. Both clients share the same D1 plans, provider policies, run ledger and artifacts; OAuth execute scope does not bypass plan authorization or provider admission. Source is not deployed until migration and external-client handshake are verified. |
+| External MCP client authentication | DCR, consent, GitHub owner proof, PKCE, short-lived access/rotating refresh tokens, audience and scope checks | `worker/mcp_oauth.js`, `worker/mcp_oauth_routes.js`, `worker/mcp_request_auth.js`, `worker/index.js`, `worker/github_app_connection.js`, `drizzle/0036_mcp_oauth_clients.sql` | `mcp_oauth.js` owns OAuth state/token protocol; `mcp_oauth_routes.js` owns discovery, registration, consent, token and revocation HTTP contracts; `mcp_request_auth.js` resolves ChatGPT/OAuth request identity and produces bearer challenges; `index.js` composes route dispatch and passes a resolved owner principal to existing tools. Clients share the same D1 plans, provider policies, run ledger and artifacts; OAuth execute scope does not bypass plan authorization or provider admission. Source is not deployed until migration and external-client handshake are verified. |
 | Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `readTrainingSourceContract` owns provider-neutral immutable manifest/lock verification; `readPublicTrainingContract` composes Modal readiness for compatibility. `.gpu-control/experiment.json` is required at the immutable commit; no repository Dockerfile or arbitrary shell command. |
 | Training policy, runtime profile, and authorization identity | Authoritative lane ceilings/defaults, normalized owner-selected runtime environment, and shared training control-plane identity | `worker/training_policy.js`, `worker/training_runtime_profile.js`, `worker/map_training_configuration.js`, `worker/training_security_configuration.js` | Input/MCP contracts consume policy constants; MAP runtime bindings are normalized by `map_training_configuration.js`; owner runtime bindings are normalized by `training_runtime_profile.js`; the shared control-plane SHA is read only by `training_security_configuration.js`. The architecture check enforces these raw-binding boundaries. These leaf modules do not depend on plan orchestration. |
 | Modal CPU workload policy | Fixed CPU resource limits, cost estimate and pricing provenance | `worker/modal_cpu_policy.js` | Capability reporting and execution use one fixed policy source; it does not configure provider account limits or enable GPU execution. |
@@ -227,8 +228,8 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (current source at `c5c8fe5`):**
-   `worker/index.js` 693 lines; `worker/mcp_tool_dispatch.js` 122 lines;
+5. **Large files (current worktree based on PR #70 head `3020e6c`):**
+   `worker/index.js` 545 lines; `worker/mcp_tool_dispatch.js` 122 lines;
    `worker/delegated_experiment_lifecycle.js` 391 lines;
    `worker/modal_cpu_lifecycle.js` 165 lines; Worker integration test
    `worker/index.test.js` 2,435 lines; owner-selected training registration

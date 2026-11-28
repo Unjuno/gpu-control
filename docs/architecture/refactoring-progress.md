@@ -1715,6 +1715,30 @@ an ownership boundary improvement, not proof of deployment or live provider
 availability.
 
 
+## 2026-11-28 — A7: isolate external MCP OAuth HTTP routes
+
+**Problem:** `worker/index.js` composed the OAuth discovery endpoints and
+public-client registration, consent, token, and revocation handlers alongside
+general MCP transport routing. That made the authentication entry point for
+non-ChatGPT MCP clients harder to inspect and change independently.
+
+**Change:** moved the OAuth HTTP contracts into
+`worker/mcp_oauth_routes.js`. The module delegates OAuth protocol/state rules
+to `mcp_oauth.js` and reuses the shared bounded body parsers and HTML renderer.
+The Worker entrypoint now performs route composition only. Invalid consent
+submissions also clear the one-time CSRF cookie; previously the call passed
+cookie headers to a three-argument HTML helper, so the header was silently
+discarded.
+
+**Validation:** `node --check` passes for the changed modules; the focused MCP
+OAuth suite passes all five tests, including the CSRF-cookie cleanup case. The
+full Sites suite passes all 167 tests and the Worker graph is acyclic across
+60 runtime modules. `git diff --check` passes. Independent read-only security
+review found no actionable findings and confirmed endpoint, size/media-type,
+response-header, consent, token, and revocation contracts. No provider call,
+experiment, live OAuth flow, deployment, or admission change occurred.
+
+
 ## 2026-11-28 — A7: isolate Google Colab OAuth HTTP routes
 
 **Problem:** `worker/index.js` still owned the Colab setup and OAuth callback

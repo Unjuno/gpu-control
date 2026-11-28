@@ -340,9 +340,12 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 bounded result routing live in `worker/training_tools.js`. The MAP repository
 slug is centralized in `training_source.js`. Historical checkpoints measured
 2,333 and 2,175 lines before later lifecycle and transport extractions; the
-entrypoint was 816 lines before the latest dispatch extraction. The current
-HTTP/auth composition root is 693 lines; remaining work is to separate route
-registration and OAuth page handlers without weakening their boundaries.
+entrypoint has since been reduced to 545 lines. Provider-specific Colab OAuth
+and the generic external-MCP OAuth HTTP contract now have dedicated route
+modules. The GitHub OAuth callback remains shared composition because it
+proves one GitHub identity for two owner-bound connection flows. Remaining A7
+work is to assess that callback boundary and further reduce the HTTP/MCP
+composition root without duplicating transport contracts.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
@@ -383,11 +386,12 @@ now lives in `worker/mcp_tool_dispatch.js`. `index.js` retains request parsing,
 MCP metadata/scope checks, HTTP routing and response envelopes, then passes the
 normalized call and bounded submission callbacks to the dispatch interface.
 Unused provider/workload imports and constants were removed from the entrypoint.
-The Worker graph remains acyclic and all 166 Sites contract tests pass;
-`index.js` is now 693 lines. Colab's provider-specific OAuth setup/callback
-handlers have been extracted to `worker/google_colab_oauth_routes.js`; shared
-HTML rendering and escaping remain injected by the composition root. Route
-registration and other OAuth page handlers remain to be assessed separately.
+The Worker graph remains acyclic and all 167 Sites contract tests pass;
+`index.js` is now 545 lines. Colab's provider-specific OAuth setup/callback
+handlers live in `worker/google_colab_oauth_routes.js`; external MCP discovery,
+registration, consent, token and revocation routes live in
+`worker/mcp_oauth_routes.js`. Both route modules reuse the shared HTTP
+composition safely. The GitHub callback still composes two connection flows.
 
 **Progress (2026-11-28):** Colab OAuth setup and callback handlers now live in
 `worker/google_colab_oauth_routes.js`; `index.js` supplies the shared HTML
@@ -396,6 +400,16 @@ state/code validation, response headers, and public messages are preserved.
 All 166 Sites tests pass and the runtime graph is acyclic across 59 modules.
 Independent security review found no actionable issues. No Google account,
 provider, run, credential, deployment, or admission state was touched.
+
+**Progress (2026-11-28):** external MCP OAuth discovery and HTTP flows now live
+in `worker/mcp_oauth_routes.js`; `index.js` retains only GitHub OAuth callback
+identity proof needed to bind both the GitHub App and MCP-client flows. OAuth
+business rules remain in `mcp_oauth.js`; request parsing is reused from the
+Worker. Invalid consent submissions now reliably clear their one-time CSRF
+cookie (the old four-argument `htmlPage` call silently ignored its cookie
+argument). The full 167-test suite passes and the 60-module graph is acyclic.
+Independent security review found no actionable issues. No live OAuth,
+provider, deployment, or admission action occurred.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 
