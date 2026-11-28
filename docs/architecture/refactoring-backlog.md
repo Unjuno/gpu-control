@@ -219,11 +219,14 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 - **Evidence (2026-11-28):** Google's official hosted Colab MCP exposes
   runtime discovery/allocation, code execution, session/runtime deletion, and
   subscription lookup. It supports Google OAuth/ADC but no dynamic client
-  registration. `google-colab-cli` supports pipeline/CI use but cannot be run
-  by a Cloudflare Worker and does not write results to Sites D1. The former
-  macOS Runner, Keychain bearer and `/runner/*` path are explicitly retired and
-  must not be restored. Colab's documented API does not provide a per-run
-  dollar quote or CU balance; the CLI's CU endpoint is undocumented.
+  registration. The current official CLI supports headless Linux/macOS
+  automation, ephemeral `colab run`, and `colab usage` account CU/balance
+  display. CLI credentials and session state live under the local
+  `~/.config/colab-cli/` directory and are separate from Sites D1; direct CLI
+  jobs do not create Sites run records. A Worker cannot launch the CLI. The
+  former macOS Runner, Keychain bearer and `/runner/*` path are explicitly
+  retired and must not be restored. Colab's documented hosted API does not
+  provide a per-run dollar quote or CU balance.
 - **Decision:** GPU Control's owner-bound API/MCP is the one product control
   plane; ChatGPT chat/Work is the primary client, not the only client. ChatGPT,
   Codex, and future local/CI clients should use the same plan authorization,
@@ -231,10 +234,12 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   hosted Colab MCP as a provider adapter with a one-time, owner-scoped Google
   OAuth connection. Encrypt refresh credentials in the Sites trust boundary
   and keep Google tokens away from the agent/workload. The official Colab CLI
-  may remain a standalone developer tool, but its runs are not GPU Control
-  runs; do not present that separate path as an integrated client or silently
-  fork the run ledger. Add another client only when it can call the shared
-  control-plane contract under the same owner identity and authorization.
+  can run standalone CI jobs, but direct CLI jobs are not GPU Control runs. A
+  CI execution host can join the product route only through the same
+  owner-bound job, lifecycle, artifact, and cleanup contract; it must not
+  create a second control plane or silently fork the ledger. Add another
+  client only when it can call the shared control-plane contract under the
+  same owner identity and authorization.
 - **Work:** implement owner-bound Google OAuth connect/disconnect, protected
   credential refresh, hosted MCP client, exact-plan creation, idempotent
   runtime/session lifecycle, bounded source/result transfer, cancellation and

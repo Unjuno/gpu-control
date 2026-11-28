@@ -13,12 +13,13 @@ creation, code execution, session/runtime deletion, and subscription lookup.
 It uses Google OAuth/ADC; Google's remote MCP does not support dynamic client
 registration.
 
-The Colab CLI is useful to local agents and CI, but embedding it in the Sites
-Worker is impossible because the Worker cannot launch processes or access an
-OS keyring. More importantly, the repository explicitly retired its former
-macOS Runner, Keychain bearer, and `/runner/*` routes. Restoring that path would
-conflict with accepted architecture and the user's earlier instruction to stop
-using it.
+The official Colab CLI supports headless Linux/macOS automation, including an
+ephemeral `colab run` job that retrieves outputs and tears down its runtime. It
+also exposes account CU usage/balance. Its OAuth/session state lives locally
+under `~/.config/colab-cli/`, separate from Sites D1. Embedding the CLI in a
+Sites Worker is impossible because a Worker cannot launch a local process.
+The repository explicitly retired its former macOS Runner, Keychain bearer,
+and `/runner/*` routes; that retired Runner must not return.
 
 ## Decision
 
@@ -41,7 +42,9 @@ Google OAuth token. Its own tool contract maps the provider lifecycle to the
 existing GPU Control plan/run records; it does not expose generic raw MCP calls
 to the agent. The direct standalone Colab MCP/CLI integrations remain available
 to the owner in other clients, but their runs are not counted as GPU Control
-acceptance evidence.
+acceptance evidence. A CI job that invokes the CLI directly is likewise outside
+the Sites run ledger. Do not expose CLI and hosted-MCP dispatch as two Colab
+provider routes; that would fork authorization, retries, history, and cleanup.
 
 ## Required controls
 
@@ -97,7 +100,9 @@ acceptance evidence.
 - Provider-side dollar spend cannot be stated as hard-bounded without a
   documented quote/quota mechanism. Product copy must disclose this clearly.
 - The Google Colab CLI remains usable from a user's local agent or CI for
-  independent workloads, but the retired Sites local Runner is not restored.
+  independent workloads. Its sessions do not appear in GPU Control's run
+  ledger. A future CI execution host must implement the same owner-bound job
+  protocol rather than act as a second control plane.
 
 ## Current implementation status (2026-11-28)
 

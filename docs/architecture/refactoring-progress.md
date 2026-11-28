@@ -5,6 +5,26 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A6: refresh Colab CLI boundary evidence
+
+**Finding:** the current official [`google-colab-cli` README](https://github.com/googlecolab/google-colab-cli)
+documents headless Linux/macOS use, ephemeral `colab run` with runtime
+teardown, `colab usage` CU/balance output, OAuth2/ADC, and local state under
+`~/.config/colab-cli/`. It does not describe storing OAuth credentials in the
+OS keyring. Direct CLI runs remain outside Sites D1 and the shared MCP run
+ledger.
+
+**Change:** corrected the superseded runner ADR's credential-storage claim,
+and clarified the current hosted-MCP ADR and backlog: CLI invocation in CI is
+possible as a standalone job, while an integrated execution host must use the
+same owner-bound Sites job and lifecycle contract. A parallel CLI dispatch
+route would duplicate Colab execution, retries, authorization, and cleanup.
+
+**Validation:** compared the current official README and CLI command reference
+with ADR 0010/0011, the provider specification, and A6 acceptance gates. No
+Google login, CLI install, runtime allocation, provider credential, D1 or
+admission change occurred.
+
 ## 2026-11-28 — A6: isolate Colab capability validation and projection
 
 **Problem:** `google_colab_tools.js` owned OAuth/tool routing, provider-response

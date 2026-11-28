@@ -21,10 +21,12 @@ authorization.
 Google's official `googlecolab/google-colab-cli` provides a usable execution
 primitive: fresh CPU/GPU/TPU runtime allocation, non-interactive script
 execution, file transfer, status/usage inspection, and a `colab run` command
-that attempts teardown. It supports OAuth2 or ADC and stores OAuth credentials
-in the local OS keyring. The documented timeout is an idle-output timeout, so
-it is not a wall-clock safety boundary. A Cloudflare Sites Worker cannot run a
-local CLI process or read the owner's keyring.
+that automatically tears down the runtime by default. The current official
+README documents headless Linux/macOS use, OAuth2 or ADC, `colab usage` for CU
+usage/balance, and session/settings files under `~/.config/colab-cli/`; it does
+not describe an OS-keyring credential store. These local CLI credentials and
+state are separate from Sites D1. A Cloudflare Sites Worker cannot run a local
+CLI process or read the owner's CLI state.
 
 ## Decision
 
