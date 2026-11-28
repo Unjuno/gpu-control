@@ -3,9 +3,10 @@ import { googleColabAccessToken } from "./google_colab_connection.js";
 const COLAB_MCP_ENDPOINT = "https://colaboratory.googleapis.com/mcp";
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;
-const MCP_TOOLS = new Set([
-  "create_runtime", "create_session", "delete_runtime", "delete_session", "execute_code",
-  "get_runtime", "get_subscription", "list_runtimes", "list_runtime_specs", "list_sessions",
+// The current product surface is read-only. Runtime creation and code
+// execution stay unreachable until the owner-bound run lifecycle is wired.
+const READ_ONLY_MCP_TOOLS = new Set([
+  "get_subscription", "list_runtimes", "list_runtime_specs",
 ]);
 
 async function readBoundedText(response) {
@@ -66,7 +67,7 @@ function parseMcpResponse(text, contentType, id) {
 
 /** Call only the fixed Google Colab hosted MCP endpoint and its fixed tool set. */
 export async function callGoogleColabMcpTool(env, owner, name, argumentsValue = {}, options = {}) {
-  if (!MCP_TOOLS.has(name) || !argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) {
+  if (!READ_ONLY_MCP_TOOLS.has(name) || !argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) {
     throw new Error("GOOGLE_COLAB_TOOL_INVALID");
   }
   const auth = await googleColabAccessToken(env.DB, env, owner, { fetchImpl: options.fetchImpl });

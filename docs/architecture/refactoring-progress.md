@@ -19,7 +19,10 @@ proxy URLs and short-lived credentials remain outside the agent response.
 Malformed or incomplete provider records fail closed with a stable error. The
 capability contract also states that per-run cost and remaining quota are
 unknown, and that no paid fallback is allowed; it cannot label an eligible GPU
-as guaranteed free compute.
+as guaranteed free compute. The internal hosted-MCP client now allowlists only
+the three read operations needed for capability discovery; runtime allocation,
+session mutation and code execution are rejected until the owner-bound run
+lifecycle exists.
 
 **Validation:** 128 Sites Worker tests pass; the Worker module graph remains
 acyclic across 31 modules; migration-forward tests, Worker build and artifact

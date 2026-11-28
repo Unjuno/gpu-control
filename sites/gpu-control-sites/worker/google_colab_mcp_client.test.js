@@ -62,6 +62,10 @@ test("Google Colab MCP client is pinned to the hosted endpoint, allowlists tool 
     assert.deepEqual(result, { content: [{ type: "text", text: "free" }] });
     await assert.rejects(callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "delete_everything", {}),
       { message: "GOOGLE_COLAB_TOOL_INVALID" });
+    await assert.rejects(callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "create_runtime", {}),
+      { message: "GOOGLE_COLAB_TOOL_INVALID" });
+    await assert.rejects(callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "execute_code", {}),
+      { message: "GOOGLE_COLAB_TOOL_INVALID" });
     await assert.rejects(callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "get_subscription", {}, {
       fetchImpl: async (url) => String(url) === "https://oauth2.googleapis.com/token"
         ? response({ access_token: "short-lived-access", scope: colabScope, expires_in: 3600 })
