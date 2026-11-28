@@ -982,3 +982,23 @@ experiment listing and cursor/filter behavior; D1 forward migration tests
 pass; build and artifact validation pass; the Worker graph remains acyclic
 across 41 reachable runtime modules. No deployment or provider operation was
 performed.
+
+
+## 2026-11-28 — A7: isolate the local run-status read path
+
+**Problem:** `experiment_status` and `experiment_result` duplicated row
+loading after RunPod synchronization, bounded log projection, cleanup/result
+metadata projection, and user-facing next actions inside MCP dispatch.
+
+**Change:** moved the owner-scoped local run query, provider-sync orchestration
+through explicit adapter callbacks, and common status/result response
+projection into `worker/experiment_status.js`. Delegated plans still route
+through `maybeDelegateRunTool` first; their authorization, provider polling,
+and persisted observation behavior are unchanged. Modal status rate limiting
+and the provider lifecycle implementations remain in their existing modules.
+
+**Validation:** all 148 Worker tests pass, including owner isolation, RunPod
+and Modal status synchronization, delegated plan handling, bounded logs and
+result readiness; D1 forward migration tests pass; the Worker graph remains
+acyclic across 42 reachable runtime modules; build, Site artifact validation,
+and `git diff --check` pass. No deployment or provider operation was performed.

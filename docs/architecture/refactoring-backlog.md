@@ -467,3 +467,10 @@ their lifecycle/cleanup evidence, and applies filters and cursors. The MCP
 contract and persisted state are unchanged; this reduces dispatch composition
 without creating a second provider lifecycle. All 148 Worker tests pass and
 the Worker import graph remains acyclic across 41 runtime modules.
+
+**Progress (2026-11-28):** `worker/experiment_status.js` now owns local
+owner-scoped run status/result reads, bounded output projection, and provider
+sync callbacks for the common Sites ledger. Delegated plans retain their
+existing adapter lifecycle and take precedence before this local path. The
+Worker dispatcher shrank from 1,752 to 1,707 lines; all 148 Worker tests and
+the 42-module acyclic import-graph check pass.
