@@ -1,2 +1,0 @@
-spaces==0.52.1
-huggingface_hub==2.4.0

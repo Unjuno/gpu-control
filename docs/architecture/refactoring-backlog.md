@@ -467,6 +467,14 @@ meanings and lifecycle differ; the two JSON files are not interchangeable
 runtime registries. Retiring or generating the legacy deployment contract is
 still gated by A4 and the external-operator decision.
 
+**Progress (2026-11-28):** the legacy Gateway worker image no longer copies a
+second Kaggle/ZeroGPU payload tree. The adapter's `provider_runtime` directory
+is the actual source consumed by its staging code; Gateway's duplicate payloads
+were only read by a stale source test. Tests now inspect the canonical payload,
+and Gateway CI runs those payload contracts plus its previously uninvoked
+systemd-template tests and syntax verifier. CPU smoke and tiny-LM assets remain
+separate because they have independent consumers.
+
 ## Decision queue
 
 1. Can the legacy Gateway package and Compose/systemd deployment contract be

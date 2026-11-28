@@ -43,6 +43,13 @@ jobs:
           gateway/tests/test_kaggle_backend.py
           gateway/tests/test_kaggle_bridge.py
           gateway/tests/test_orbitune_kaggle_workload.py
+          gateway/tests/test_orbitune_zero_gpu_space.py
           gateway/tests/test_provider_runtime_compat.py
+          gateway/tests/test_deploy_units.py
+      - name: Install systemd analyzer
+        run: sudo apt-get update && sudo apt-get install -y systemd
+      - name: Verify systemd unit syntax
+        working-directory: gateway
+        run: bash deploy/verify_systemd_units_ci.sh
       - name: Provider runtime compilation
         run: python -m compileall -q sites/gpu-control-sites/modal/provider_runtime
