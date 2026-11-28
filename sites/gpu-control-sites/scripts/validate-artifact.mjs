@@ -4,12 +4,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
+const sourceHostingManifest = fileURLToPath(new URL("../.openai/hosting.json", import.meta.url));
 const sourceMigrations = fileURLToPath(new URL("../drizzle/", import.meta.url));
-const manifest = JSON.parse(readFileSync(join(root, ".openai/hosting.json"), "utf8"));
-assert.equal(manifest.project_id, "appgprj_6af482670c2081919ffe27a6faa0f746");
-assert.equal(manifest.d1, "DB");
-assert.equal(manifest.r2, "BUCKET");
-assert.ok(manifest.capabilities.includes("mcp"));
+const artifactHostingManifest = join(root, ".openai/hosting.json");
+assert.deepEqual(
+  readFileSync(artifactHostingManifest),
+  readFileSync(sourceHostingManifest),
+  "built artifact hosting manifest must match its source bytes",
+);
+JSON.parse(readFileSync(artifactHostingManifest, "utf8"));
 assert.ok(statSync(join(root, "server/index.js")).size > 0);
 assert.ok(statSync(join(root, "server/provider_adapter_client.js")).size > 0);
 assert.ok(statSync(join(root, "server/github_app_connection.js")).size > 0);
