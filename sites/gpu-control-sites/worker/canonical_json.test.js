@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { canonicalJson } from "./canonical_json.js";
+
+const vectors = JSON.parse(readFileSync(new URL("../contracts/canonical-json-vectors.json", import.meta.url), "utf8"));
 
 test("canonical JSON sorts object keys at every depth and preserves array order", () => {
   assert.equal(canonicalJson({ z: 1, a: { y: 2, b: 3 }, list: [{ z: 4, a: 5 }] }),
@@ -10,4 +13,8 @@ test("canonical JSON sorts object keys at every depth and preserves array order"
 test("canonical JSON rejects non-finite numbers with the caller's domain error", () => {
   assert.throws(() => canonicalJson({ nested: [Number.POSITIVE_INFINITY] }, "PLAN_INVALID"),
     { message: "PLAN_INVALID" });
+});
+
+test("Worker canonical JSON matches the shared cross-runtime byte vectors", () => {
+  for (const vector of vectors) assert.equal(canonicalJson(vector.value), vector.canonical, vector.name);
 });

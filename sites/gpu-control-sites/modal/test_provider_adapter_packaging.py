@@ -53,6 +53,13 @@ def test_packaged_modules_do_not_import_gateway_services_or_databases() -> None:
         assert imported.isdisjoint(forbidden), f"{name} imports a legacy service module"
 
 
+def test_modal_signed_payloads_share_one_canonical_byte_encoder() -> None:
+    assert ADAPTER.with_name("canonical_json.py").is_file()
+    for name in ("provider_adapter.py", "provider_adapter_core.py", "app.py"):
+        source = ADAPTER.with_name(name).read_text(encoding="utf-8")
+        assert "allow_nan=False" not in source, f"{name} duplicates the canonical JSON encoding policy"
+
+
 def test_legacy_gateway_compatibility_uses_a_private_fixed_package() -> None:
     repository_root = ADAPTER.parents[3]
     helper = (repository_root / "gateway" / "gpu_gateway" / "_sites_provider_runtime.py").read_text(

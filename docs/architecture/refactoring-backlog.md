@@ -682,9 +682,11 @@ modules; the exact pushed head and CI are recorded in the progress log.
   Worker signing/fingerprint test fixtures now import the runtime-owned
   `worker/canonical_json.js`; four local serializer copies were removed. The
   Worker architecture check prevents those fixture-local copies from
-  returning. This aligns test evidence with the Worker contract but does not
-  yet establish JavaScript/Python byte parity for persisted cross-runtime
-  schemas; that remains the next A10 contract-validation task.
+  returning. A shared byte-vector corpus now exercises the actual Worker and
+  Modal adapter encoders for their signed HTTP request contract; the Modal
+  runtime's duplicate canonical encoders were consolidated behind
+  `modal/canonical_json.py`. Other persisted cross-runtime contracts still
+  require their own conformance fixtures.
 
 ### A11. Inventory and normalize configuration
 

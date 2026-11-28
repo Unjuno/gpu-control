@@ -7,13 +7,13 @@ persists.  It deliberately has no database or arbitrary execution API.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from workload_registry import WORKLOADS, KAGGLE_WORKLOAD, HF_WORKLOAD, MODAL_GPU_WORKLOAD
+from canonical_json import canonical_json_bytes
 
 
 MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00"
@@ -79,10 +79,7 @@ def uncertain_submission_response(run_id: str, provider: str) -> dict[str, Any]:
 
 def canonical(value: Any) -> bytes:
     try:
-        return json.dumps(
-            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
+        return canonical_json_bytes(value)
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise AdapterError("invalid_arguments") from exc
 

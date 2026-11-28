@@ -17,6 +17,7 @@ import modal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from gpu_control_modal_bootstrap import normalize_exit_code, parse_workload_result, preflight_exit_code_map, sandbox_entrypoint
+from canonical_json import canonical_json_bytes
 
 APP_NAME = "gpu-control-sites"
 REPOSITORY = "Unjuno/gpu-control"
@@ -65,11 +66,6 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-                      allow_nan=False).encode("utf-8")
-
-
 def workload_image_fingerprint() -> str:
     """Fingerprint all mutable local build inputs and the pinned model assets."""
     manifest = {
@@ -96,7 +92,7 @@ def workload_image_fingerprint() -> str:
             "max_runtime_seconds": MAX_RUNTIME_SECONDS,
         },
     }
-    return _sha256(_canonical(manifest))
+    return _sha256(canonical_json_bytes(manifest))
 
 
 WORKLOAD_IMAGE_FINGERPRINT = workload_image_fingerprint()

@@ -30,6 +30,28 @@ linked worktree and a regular clone (`Review changes requires a non-bare Git
 worktree with a resolvable HEAD`). That tool result is not independent review
 evidence; this batch received direct source/diff review only.
 
+## 2026-11-29 — A10: pin shared Worker/Modal canonical bytes
+
+**Finding:** Worker delegated requests and the Modal verifier both use sorted,
+compact UTF-8 JSON for HMAC authentication, but Python duplicated its encoder
+in `provider_adapter.py`, `provider_adapter_core.py`, and the fixed Modal CPU
+`app.py`. A key-order, Unicode, or escaping change could silently split the
+wire contract.
+
+**Change:** introduced one Modal `canonical_json_bytes` implementation and
+reused it in those three runtime modules. Added one shared JSON vector corpus
+consumed by the Worker and Modal adapter tests; it covers recursive key order,
+array order, BMP/supplementary Unicode, and JSON string escaping. Packaging
+tests ensure the Modal modules do not reintroduce the byte policy locally.
+Request authentication and serialized bytes remain unchanged for the vectors.
+
+**Validation:** the full Sites suite passes (214), the Worker graph remains
+acyclic across 77 runtime modules, registry freshness, Worker build/artifact
+validation, D1 migration replay, and `git diff --check` pass. The complete Modal
+directory pytest suite passes, including the shared byte-vector and packaging
+checks. No provider, credential, admission, deployment, or billing state was
+touched.
+
 ## 2026-11-28 — A3: recover owner-training results after Modal Dict expiry
 
 **Finding:** Modal Dict entries can expire after seven days without access. The

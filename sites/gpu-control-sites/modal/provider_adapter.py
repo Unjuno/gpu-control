@@ -22,6 +22,7 @@ from typing import Any
 import modal
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from canonical_json import canonical_json_bytes
 
 
 APP_NAME = "gpu-control-provider-adapter"
@@ -89,11 +90,6 @@ def _error(code: str, status: int) -> JSONResponse:
     return JSONResponse({"code": code}, status_code=status)
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-                      allow_nan=False).encode("utf-8")
-
-
 def _auth_key() -> tuple[str, bytes]:
     key_id = os.environ.get("PROVIDER_ADAPTER_KEY_ID", "")
     encoded = os.environ.get("PROVIDER_ADAPTER_HMAC_KEY_B64", "")
@@ -115,7 +111,7 @@ def _verify(raw: bytes, signature: str | None, expected_tool: str) -> tuple[str,
         payload = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid_delegation") from exc
-    if not isinstance(payload, dict) or _canonical(payload) != raw or set(payload) != {
+    if not isinstance(payload, dict) or canonical_json_bytes(payload) != raw or set(payload) != {
         "version", "key_id", "owner", "tool", "arguments", "nonce", "issued_at", "expires_at"
     }:
         raise ValueError("invalid_delegation")
@@ -604,7 +600,7 @@ def _runpod_relay(owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
             status, body, _headers = relay(
                 "POST", upstream_path(RUNPOD_ENDPOINT_ID, "run", None),
-                f"Bearer {_runpod_key()}", _canonical(request_body))
+                f"Bearer {_runpod_key()}", canonical_json_bytes(request_body))
             value = json.loads(body)
             response = {"status": status, "body": value}
             job_id = value.get("id") if 200 <= status < 300 and isinstance(value, dict) else None
@@ -680,7 +676,7 @@ async def invoke(tool: str, request: Request):
                 result = _service().invoke(owner, verified_tool, arguments)
         else:
             result = _service().invoke(owner, verified_tool, arguments)
-        if len(_canonical(result)) > MAX_BODY_BYTES:
+        if len(canonical_json_bytes(result)) > MAX_BODY_BYTES:
             return _error("response_too_large", 502)
         if not verified_tool.startswith("training_"):
             data_volume.commit()

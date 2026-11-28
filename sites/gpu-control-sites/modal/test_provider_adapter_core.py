@@ -3,18 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 
 from provider_adapter_core import (
-    AdapterError, GPU_CONTROL_REPOSITORY, HF_WORKLOAD, KAGGLE_WORKLOAD,
+    AdapterError, GPU_CONTROL_REPOSITORY, HF_WORKLOAD, KAGGLE_WORKLOAD, canonical,
     MODAL_GPU_IMAGE_DIGEST, MODAL_GPU_SOURCE_SHA, MODAL_GPU_WORKLOAD, ProviderAdapter, REPOSITORY,
     SOURCE_SHA, prepare, provider_submission_failure_state,
 )
-
-
-def canonical(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
 def provider_evidence():
@@ -29,6 +26,13 @@ def provider_evidence_at_usage(credits_used_usd: str):
     value = {key: item for key, item in provider_evidence().items() if key != "evidence_id"}
     value["credits_used_usd"] = credits_used_usd
     return {**value, "evidence_id": hashlib.sha256(canonical(value)).hexdigest()}
+
+
+def test_modal_canonical_json_matches_shared_cross_runtime_byte_vectors():
+    vectors_path = Path(__file__).parents[1] / "contracts" / "canonical-json-vectors.json"
+    vectors = json.loads(vectors_path.read_text(encoding="utf-8"))
+    for vector in vectors:
+        assert canonical(vector["value"]).decode("utf-8") == vector["canonical"], vector["name"]
 
 
 class FakeBackend:

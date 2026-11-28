@@ -1,0 +1,29 @@
+[
+  {
+    "name": "nested-object-keys-and-array-order",
+    "value": {
+      "z": [
+        {
+          "b": 3,
+          "a": 2
+        }
+      ],
+      "a": "plain-ascii"
+    },
+    "canonical": "{\"a\":\"plain-ascii\",\"z\":[{\"a\":2,\"b\":3}]}"
+  },
+  {
+    "name": "unicode-bmp-and-supplementary",
+    "value": {
+      "text": "Colab 日本語 🧪"
+    },
+    "canonical": "{\"text\":\"Colab 日本語 🧪\"}"
+  },
+  {
+    "name": "json-string-escaping",
+    "value": {
+      "text": "quote: \" slash: / backslash: \\\\ line\nbreak"
+    },
+    "canonical": "{\"text\":\"quote: \\\" slash: / backslash: \\\\\\\\ line\\nbreak\"}"
+  }
+]
