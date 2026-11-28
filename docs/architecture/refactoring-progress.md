@@ -1195,3 +1195,27 @@ HTTP routing and D1-backed behavior without owning these module contracts.
 
 **Validation:** all 156 Worker tests pass; the graph remains acyclic across 50
 runtime modules. No contract coverage was removed; only test ownership changed.
+
+
+## 2026-11-28 — A8: isolate owner-selected training registration coverage
+
+**Problem:** the 631-line test for GitHub source registration, owner isolation,
+immutable commit checks, plan readiness, and repeatable registration lived in
+the same `index.test.js` as MCP transport, provider health, and other lifecycle
+contracts.
+
+**Change:** moved that complete test into
+`worker/training_registration.integration.test.js`. Its SQLite/D1 adapter,
+assertions, and test inputs are preserved. The extracted test uses a small
+local environment fixture because it replaces the generic worker test
+database, which previously gave it an unrelated shared mock D1 implementation.
+The `worker/index.test.js` remains the integration-suite entry for remaining
+transport and cross-domain behavior.
+
+**Validation:** all 156 Sites Worker tests pass and the dependency graph is
+acyclic across 50 runtime modules. No provider operation or deployment occurred.
+
+**Client portability:** clarified that other chats/agents connect through the
+same owner-bound MCP OAuth contract only after PR #70's migration and routes
+are deployed and a fresh no-compute handshake passes. This is not yet a live
+claim or an anonymous public API.

@@ -5,6 +5,12 @@ primary client. A compatible remote MCP client can connect to the same MCP URL
 using OAuth; it shares the same plans, provider policies, run history, results,
 artifacts, and cleanup records. It does not receive provider credentials.
 
+“Use it from another chat or agent” means connecting that client to this remote
+MCP endpoint and signing in as the already linked owner. It does not mean an
+anonymous public API or a separate provider-specific integration. Each client
+has its own revocable OAuth grant, while the owner identity, authorization,
+budget checks, and run ledger remain shared.
+
 ## Release status
 
 The repository source implements this flow in PR #70. It is not available on a
@@ -16,7 +22,9 @@ trying to connect. Source tests are not proof of a live handshake.
 
 The client must support remote MCP over Streamable HTTP, OAuth authorization
 code with PKCE S256, protected-resource and authorization-server metadata, and
-Dynamic Client Registration (public clients without a client secret).
+Dynamic Client Registration (public clients without a client secret). A client
+that cannot complete this flow is not compatible; do not work around that by
+copying a bearer token into a prompt or using a provider key as a substitute.
 
 The endpoint is:
 
@@ -28,6 +36,11 @@ your GPU Control owner, review the requested scopes, and authorize the client.
 If the GitHub account has not been linked, first complete the existing
 `github_connection_start` flow in ChatGPT, then restart the external client's
 connection.
+
+This OAuth implementation is source-only in PR #70 at the current repository
+snapshot. It becomes usable from another client only after the migration and
+OAuth routes are deployed and a fresh no-compute handshake succeeds. The
+release status above takes precedence over this setup procedure.
 
 ## Scopes
 

@@ -343,6 +343,13 @@ duplicate source and provider reads in the ordinary run path.
   builders. Preserve explicit failure cases and avoid generic fixture engines.
 - **Done when:** a contributor can run one domain's tests and understand its
   setup; full CI still covers public schemas, migrations, replay and cleanup.
+- **Progress (2026-11-28):** moved the 631-line owner-selected training
+  registration integration test out of `index.test.js` into
+  `training_registration.integration.test.js`. The test keeps the SQLite/D1
+  behavior and assertions; it now owns only the minimal worker environment it
+  needs. Full coverage remains at 156 tests. Further lifecycle groups and
+  repeated fixture shapes still need inventory before introducing shared
+  builders.
 
 ### A9. Consolidate Python/Gateway provider runtime duplication by consumer
 

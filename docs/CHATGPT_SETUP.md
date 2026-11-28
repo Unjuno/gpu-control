@@ -66,9 +66,11 @@ enabled provider.
 ## ChatGPT connection
 
 Publishing a Site with the `mcp` capability creates its ChatGPT plugin. ChatGPT
-continues to use its trusted Sites owner identity. Other MCP clients can use
-the same endpoint through the owner-bound OAuth flow described in
-[`MCP_CLIENTS.md`](MCP_CLIENTS.md); they do not get a separate run ledger.
+continues to use its trusted Sites owner identity. Other MCP clients are
+intended to use the same endpoint through the owner-bound OAuth flow described
+in [`MCP_CLIENTS.md`](MCP_CLIENTS.md); they do not get a separate run ledger.
+At this repository snapshot that OAuth flow is source-only in open PR #70, so
+it is not yet a verified live connection path.
 
 1. In ChatGPT, open Plugins and select the personal plugin created by
    **GPU Control — ChatGPT実験管理**.
