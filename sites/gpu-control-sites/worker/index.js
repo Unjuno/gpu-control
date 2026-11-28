@@ -1,38 +1,14 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { sha256Hex as sha256 } from "./sha256.js";
 import { isMcpToolReadOnly, listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
-import { normalizeTrainingArguments, safeJson, validGatewayApprovedPlan, validGatewayPrepare,
-  validProviderApprovedPlan, validToolArguments } from "./experiment_input_contract.js";
-import { handleGithubTool, isGithubTool } from "./github_tools.js";
+import { normalizeTrainingArguments, validToolArguments } from "./experiment_input_contract.js";
 import { completeGoogleColabOAuth, beginGoogleColabOAuth, googleColabOAuthConfigured } from "./google_colab_connection.js";
-import { handleGoogleColabTool, isGoogleColabTool } from "./google_colab_tools.js";
-import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
-import { beginGithubInstallationOAuth, completeGithubInstallationOAuth, createOwnedRepositoryReadToken,
+import { beginGithubInstallationOAuth, completeGithubInstallationOAuth,
   exchangeGithubOAuthCode, githubAppOAuthConfigured,
   verifyGithubInstallation } from "./github_app_connection.js";
-import { prepareRunpodExperiment, RUNPOD_WORKLOAD, validRunpodPrepare } from "./runpod_plan.js";
-import { submitRunpodExperiment, synchronizeRunpodExperiment } from "./runpod_lifecycle.js";
-import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
-import { registeredPrepareArguments, resolveZeroGpuPrepare } from "./registered_prepare.js";
-import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
-import { readProviderBudgetPolicy, reserveProviderBudget, usdFromMicrousd } from "./provider_budget_policy.js";
 import { MODAL_PRICING_CHECKED_AT, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
-import { getExperimentCapabilities } from "./provider_capabilities.js";
-import { modalConfigured } from "./modal_http_client.js";
-import { reserveModalStatusCheck, synchronizeModalRun } from "./modal_cpu_lifecycle.js";
-import { maybeDelegateRunTool, prepareDelegatedExperiment, submitDelegatedExperiment } from "./delegated_experiment_lifecycle.js";
-import { providerHealthDiagnostic, providerHealthDiagnosticForAuthorizedSubmit } from "./provider_health_diagnostic.js";
-import { prepareModalCpuPlan } from "./prepare_modal_cpu_plan.js";
-import { listExperiments } from "./experiment_list.js";
 import { executionOrigin } from "./execution_origin.js";
-import { readExperimentStatus } from "./experiment_status.js";
-import { cancelLocalRun } from "./local_run_cancellation.js";
-import { reconcileProviderRuns } from "./run_reconciliation.js";
-import { submitModalCpuRun } from "./modal_cpu_submission.js";
-import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
-import { canonicalJson as canonical } from "./canonical_json.js";
-import { readRunResultArtifact } from "./run_artifacts.js";
 import { beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
   createMcpOAuthConsent, exchangeMcpOAuthToken, isMcpOAuthGitHubState, mcpAuthorizationServerMetadata,
   mcpOAuthError, mcpProtectedResourceMetadata, registerMcpOAuthClient, revokeMcpOAuthToken,
@@ -40,23 +16,13 @@ import { beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
 import { authenticateMcpPrincipal, mcpAuthorizationChallenge, sitesOwnerFromRequest,
   sitesPlatformIdentityPresent } from "./mcp_request_auth.js";
 import { trainingControlPlaneSha } from "./training_security_configuration.js";
+import { dispatchMcpTool, modalGpuProviderEvidence } from "./mcp_tool_dispatch.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
 const MCP_VERSIONS = [...LEGACY_VERSIONS, MCP_VERSION];
 const META_PREFIX = "io.modelcontextprotocol/";
 const MAX_BODY_BYTES = 16 * 1024;
-const WORKLOAD = WORKLOADS.tiny_stories.id;
-const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
-const ZERO_GPU_WORKLOAD = WORKLOADS.huggingface_evaluation.id;
-const MODAL_GPU_WORKLOAD = WORKLOADS.modal_gpu_canary.id;
-const MODAL_GPU_PROVIDER_USAGE_LIMIT_USD = "30.00";
-const ORBITUNE_REPOSITORY = WORKLOADS.kaggle_training.repository;
-const ORBITUNE_SOURCE_SHA = WORKLOADS.kaggle_training.source_sha;
-const GPU_CONTROL_REPOSITORY = WORKLOADS.modal_gpu_canary.repository;
-const MODAL_GPU_SOURCE_SHA = WORKLOADS.modal_gpu_canary.source_sha;
-const MODAL_GPU_IMAGE_DIGEST = WORKLOADS.modal_gpu_canary.adapter_manifest.image_digest;
-const RUNPOD_PER_RUN_BUDGET_USD = WORKLOADS.runpod_canary.cost_ceiling_usd;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 function json(data, status = 200, headers = {}) {
@@ -546,10 +512,6 @@ async function handleMcpOAuthRevoke(request, env) {
   catch { return oauthJson({ error: "server_error" }, 500); }
 }
 
-async function modalGpuProviderEvidence(env, now) {
-  return readModalGpuAccountEvidence(env, { gpu: "T4", usageLimitUsd: MODAL_GPU_PROVIDER_USAGE_LIMIT_USD, now });
-}
-
 async function readJson(request, limit = MAX_BODY_BYTES) {
   const declared = Number(request.headers.get("content-length") || 0);
   if (declared > limit) throw new Error("BODY_TOO_LARGE");
@@ -604,93 +566,6 @@ async function readUrlEncodedForm(request, limit = 4096) {
   return new URLSearchParams(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 }
 
-async function callTool(name, args, request, env, context = null, principal = null) {
-  const owner = principal?.owner_id;
-  if (!owner) throw new Error(principal?.denied === "forbidden" ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
-  if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
-  if (isGoogleColabTool(name)) return handleGoogleColabTool(name, env, owner);
-  if (isGithubTool(name)) return handleGithubTool(name, env, owner);
-  if (isTrainingTool(name)) return handleTrainingTool(name, args, { env, owner,
-    delegate: callProviderAdapterTool, isConfigured: providerAdapterConfigured,
-    getSourceToken: async (repository) => (await createOwnedRepositoryReadToken(env, env.DB, owner, repository)).token });
-  if (name === "experiment_provider_health") return providerHealthDiagnostic(env, owner, args.run_id, args.plan_fingerprint);
-  if (name === "experiment_capabilities") return getExperimentCapabilities(env, owner, { modalConfigured });
-  if (name === "experiment_prepare") {
-    let prepareArgs = args;
-    if (args.workload_id === ZERO_GPU_WORKLOAD) {
-      prepareArgs = await resolveZeroGpuPrepare(env, owner, args);
-      if (!prepareArgs) return { schema_version: 2, status: "blocked",
-        human_summary: "指定された所有者のKaggle実行から、cleanup済みの固定artifact参照を解決できませんでした。Kaggle run IDを確認してください。",
-        machine_state: { workload: ZERO_GPU_WORKLOAD, source_run_id: args.source_run_id },
-        next_allowed_actions: ["experiment_list"], blocking_reason: "KAGGLE_ARTIFACT_REFERENCE_UNAVAILABLE" };
-    } else if (args.workload_id) {
-      prepareArgs = registeredPrepareArguments(args, env);
-      if (!prepareArgs) throw new Error("REGISTERED_WORKLOAD_DEFAULTS_UNAVAILABLE");
-    }
-    if (prepareArgs.workload === RUNPOD_WORKLOAD) {
-      if (!validRunpodPrepare(prepareArgs, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");
-      if (env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED !== "true") return {
-        schema_version: 2, status: "blocked",
-        human_summary: "Runpod completion transport is not verified; no plan was prepared and no Serverless job was submitted.",
-        machine_state: { plan_prepared: false, job_submitted: false }, next_allowed_actions: [],
-        blocking_reason: "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED",
-      };
-      if (env.RUNPOD_WORKLOAD_ADMISSION_ENABLED !== "true") return {
-        schema_version: 2, status: "blocked",
-        human_summary: "Runpod admission is disabled; no plan was prepared and no Serverless job was submitted.",
-        machine_state: { plan_prepared: false, job_submitted: false }, next_allowed_actions: [],
-        blocking_reason: "RUNPOD_ADMISSION_DISABLED",
-      };
-      return prepareRunpodExperiment(env, owner, prepareArgs);
-    }
-    if (validGatewayPrepare(prepareArgs)) return prepareDelegatedExperiment(env, owner, prepareArgs, {
-      modalGpuProviderEvidence,
-    });
-    return prepareModalCpuPlan(env, owner, prepareArgs);
-  }
-  if (name === "experiment_submit") {
-    if (!validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
-    if (args.provider_approved_plan?.provider === "runpod_gpu") {
-      return submitRunpodExperiment(env, owner, args, {
-        reserveBudget: (input) => reserveProviderBudget(env, input),
-        context,
-      });
-    }
-    if (args.provider_approved_plan !== undefined) return submitDelegatedExperiment(env, owner, args, {
-      modalGpuProviderEvidence, randomHex,
-    });
-    return submitModalCpuRun(env, owner, args, request, {
-      randomHex, authorizationUrl, submitSummary, synchronizeModalRun,
-    });
-  }
-  if (name === "experiment_status" || name === "experiment_result") {
-    const delegated = await maybeDelegateRunTool(env, owner, name, args);
-    if (delegated) return delegated;
-    return readExperimentStatus(env, owner, name, args, {
-      synchronizeRunpod: synchronizeRunpodExperiment,
-      modalConfigured,
-      reserveModalStatusCheck,
-      synchronizeModalRun,
-    });
-  }
-  if (name === "experiment_cancel") {
-    const delegated = await maybeDelegateRunTool(env, owner, name, args);
-    if (delegated) return delegated;
-    return cancelLocalRun(env, owner, args.run_id, { synchronizeRunpod: synchronizeRunpodExperiment });
-  }
-  if (name === "experiment_reconcile") return reconcileProviderRuns(env, owner, {
-    maybeDelegateRunTool,
-    synchronizeRunpod: synchronizeRunpodExperiment,
-  });
-  if (name === "experiment_artifact") {
-    const delegated = await maybeDelegateRunTool(env, owner, name, args);
-    if (delegated) return delegated;
-    return readRunResultArtifact(env, owner, args);
-  }
-  if (name === "experiment_list") return listExperiments(env, owner, args);
-  throw new Error("UNKNOWN_TOOL");
-}
-
 async function handleMcp(request, env, context = null, principal = null) {
   let message;
   try { message = await readJson(request); } catch (error) {
@@ -728,7 +603,9 @@ async function handleMcp(request, env, context = null, principal = null) {
       const name = message.params?.name;
       const args = normalizeTrainingArguments(name, message.params?.arguments ?? {}, env);
       if (!schemas[name] || !args || typeof args !== "object" || Array.isArray(args) || !validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
-      const value = envelope(name, await callTool(name, args, request, env, context, principal));
+      const value = envelope(name, await dispatchMcpTool(name, args, request, env, context, principal, {
+        modalGpuProviderEvidence, randomHex, authorizationUrl, submitSummary,
+      }));
       const result = { content: [{ type: "text", text: JSON.stringify(value) }], isError: false };
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
