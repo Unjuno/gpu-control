@@ -76,11 +76,12 @@ flowchart TD
 
 A static import graph is the single runtime module inventory: the architecture
 check enforces acyclic imports and the build copies the reachable closure from
-`worker/index.js`, rejecting orphan runtime modules. The architecture check reports the current module count.
-`experiment_input_contract.js` owns exact MCP argument validation and
-environment-bound plan normalization separately from public schemas in
-`mcp_tool_contract.js`; `provider_capabilities.js` owns the read-only
-provider/workload capability projection; and `github_tools.js` owns
+`worker/index.js`, rejecting orphan runtime modules. The architecture check
+reports the current module count. `experiment_input_contract.js` owns exact
+MCP argument validation and environment-bound plan normalization separately
+from public schemas in `mcp_tool_contract.js`; `provider_capabilities.js`
+owns the read-only provider/workload capability projection and derives common
+workload metadata from the generated registry; and `github_tools.js` owns
 owner-scoped GitHub MCP operations.
 
 The intended product flow is Sites-first. The Gateway links above represent a

@@ -194,6 +194,14 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   locally; live migration, deployment, and provider acceptance are not done.
   See ADR 0005. Broader provider capability generation, quote freshness and
   workload compatibility remain open.
+- **Capability inventory (2026-11-28):** Sites workload capability rows now
+  derive common identity, resource, cost, and cleanup fields from the generated
+  workload registry. Only the five existing workload IDs are eligible for
+  route-specific enablement; additional entries remain visible but disabled
+  until explicitly supported. Response order is preserved. This removes a
+  duplicate inventory without treating provider configuration as execution
+  support. Static provider roles and identifiers remain duplicated across
+  provider policy, tool validation, and adapter/runtime contracts.
 - **MAP account gate:** ADR 0007 adds a separate L4 Workspace evidence contract
   to prevent the Sites reservation from being mistaken for the actual Modal
   account cap. The candidate rejects a MAP monthly configuration above $1 and
