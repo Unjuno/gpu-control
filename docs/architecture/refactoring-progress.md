@@ -49,12 +49,36 @@ runtime, session, or experiment was started.
 graph is acyclic across 54 runtime modules, and the workload registry check
 passes.
 
-**Remaining:** an owner-scoped durable job must outlive the chat request,
-persist the Google operation/runtime/session handles before the next step,
-resume the exact Colab operation after transport ambiguity, and finalize the
-same training/run ledger. The current client timeout is not a job runner.
-Admission remains closed until that lifecycle, bounded quota semantics,
+**Remaining:** persist Google request/runtime/session/execution IDs in the
+existing training run before each call. A later `training_status` must replay
+only the same Google idempotency key after an ambiguous timeout, then resume
+through the same owner-scoped run. Do not add a second queue or run ledger when
+the provider's idempotency contract and the agent's status calls can recover
+the operation. The current client is only the transport layer, not that
+state machine. Admission remains closed until bounded quota semantics,
 artifacts, cancellation, and session cleanup are wired and verified.
+
+## 2026-11-28 — A6: separate immutable source verification from provider readiness
+
+**Problem:** `training_contract.js` bundled pinned GitHub manifest/lock
+validation with a Modal image and price profile. That made a valid repository
+appear non-executable before a different provider such as Colab could evaluate
+its own runtime and quota terms.
+
+**Change:** extracted `readTrainingSourceContract` as the canonical
+provider-neutral read of the immutable manifest, hash-locked dependency file,
+and source-readiness checks. Existing `readPublicTrainingContract` composes
+that contract with the existing Modal runtime gate, preserving its output and
+caller behavior. The Colab route can now apply Colab-specific runtime and
+quota rules to the same source contract without a second manifest parser.
+
+**Validation:** the full Sites Worker suite passes (166 tests); focused tests
+cover source verification without a Modal profile and existing Modal contract
+behavior. The runtime-module import graph remains acyclic across 54 modules.
+
+**Limit:** Colab still has no public prepare/submit/status caller. Source
+inspection is reusable foundation, not evidence that Colab can execute a
+repository.
 
 ## 2026-11-28 — A6: refresh Colab CLI boundary evidence
 

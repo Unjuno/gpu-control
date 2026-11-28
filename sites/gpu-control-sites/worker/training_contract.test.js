@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { readPublicTrainingContract } from "./training_contract.js";
+import { readPublicTrainingContract, readTrainingSourceContract } from "./training_contract.js";
 
 const repository = "owner/project";
 const commit = "a".repeat(40);
@@ -57,6 +57,21 @@ test("reads a strict experiment manifest at the registered immutable commit", as
   assert.equal(result.dependency_lock.sha256, createHash("sha256").update(lockBytes).digest("hex"));
   assert.ok(result.readiness.missing.includes("reviewed_runtime_image_and_provider_quote"));
   assert.deepEqual(result.manifest, manifest);
+});
+
+test("source contract validates pinned inputs without imposing a provider runtime profile", async () => {
+  const result = await readTrainingSourceContract(repository, commit, async (url) =>
+    new URL(url).pathname.endsWith("requirements.lock")
+      ? fileResponse("requirements.lock", lockBytes) : responseFor(manifest));
+  assert.equal(result.repository, repository);
+  assert.equal(result.commit, commit);
+  assert.deepEqual(result.manifest, manifest);
+  assert.equal(result.dependency_lock.sha256, createHash("sha256").update(lockBytes).digest("hex"));
+  assert.deepEqual(Buffer.from(result.dependency_lock.bytes), lockBytes);
+  assert.equal(result.source_readiness.ready, true);
+  assert.deepEqual(result.source_readiness.missing, []);
+  assert.equal("readiness" in result, false);
+  assert.equal("execution_available" in result, false);
 });
 
 test("uses a short-lived GitHub installation token only for the selected repository reads", async () => {

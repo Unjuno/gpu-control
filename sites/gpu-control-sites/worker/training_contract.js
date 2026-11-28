@@ -91,8 +91,7 @@ export function trainingControlPlaneConfigured(controlPlaneSha) {
   return typeof controlPlaneSha === "string" && /^[0-9a-f]{40}$/.test(controlPlaneSha);
 }
 
-function manifestReadiness(manifest, lockfile, executionConfig) {
-  const runtimeConfigured = trainingRuntimeProfileConfigured(executionConfig);
+function sourceManifestReadiness(manifest, lockfile) {
   const checks = {
     immutable_source: true,
     entrypoint: validRelativePythonPath(manifest.entrypoint),
@@ -105,6 +104,14 @@ function manifestReadiness(manifest, lockfile, executionConfig) {
     metrics_output: manifest.outputs.includes("metrics.json"),
   };
   const missing = Object.entries(checks).filter(([, ok]) => !ok).map(([key]) => key);
+  return { checks, missing, ready: missing.length === 0 };
+}
+
+function manifestReadiness(manifest, lockfile, executionConfig) {
+  const source = sourceManifestReadiness(manifest, lockfile);
+  const checks = source.checks;
+  const missing = [...source.missing];
+  const runtimeConfigured = trainingRuntimeProfileConfigured(executionConfig);
   if (!runtimeConfigured) missing.push("reviewed_runtime_image_and_provider_quote");
   return { checks, missing, ready: missing.length === 0 };
 }
@@ -172,8 +179,7 @@ export function validateTrainingManifest(value) {
   return validManifest(value);
 }
 
-export async function readPublicTrainingContract(repository, commit, fetchImpl = fetch, installationToken = null,
-  executionConfig = null) {
+export async function readTrainingSourceContract(repository, commit, fetchImpl = fetch, installationToken = null) {
   const source = parseTrainingSource(repository, commit);
   const url = new URL(`https://api.github.com/repos/${source.repository}/contents/${MANIFEST_PATH}`);
   url.searchParams.set("ref", source.commit);
@@ -216,11 +222,21 @@ export async function readPublicTrainingContract(repository, commit, fetchImpl =
     lockBytes = null;
   }
   const lockSha256 = lockBytes ? await sha256Hex(lockBytes) : null;
-  const readiness = manifestReadiness(manifest, lockBytes, executionConfig);
+  const sourceReadiness = sourceManifestReadiness(manifest, lockBytes);
   return { repository: source.repository, commit: source.commit, manifest_path: MANIFEST_PATH,
     manifest, manifest_sha256: await sha256Hex(manifestBytes),
     dependency_lock: lockBytes ? { path: manifest.dependencies_lock, size_bytes: lockBytes.byteLength,
-      sha256: lockSha256 } : { path: manifest.dependencies_lock, state: "unavailable" },
+      sha256: lockSha256, bytes: lockBytes } : { path: manifest.dependencies_lock, state: "unavailable" },
+    source_readiness: sourceReadiness };
+}
+
+/** Add a provider runtime profile to the source-only manifest contract. */
+export async function readPublicTrainingContract(repository, commit, fetchImpl = fetch, installationToken = null,
+  executionConfig = null) {
+  const sourceContract = await readTrainingSourceContract(repository, commit, fetchImpl, installationToken);
+  const readiness = manifestReadiness(sourceContract.manifest, sourceContract.dependency_lock.bytes || null, executionConfig);
+  const { bytes: _lockBytes, ...dependencyLock } = sourceContract.dependency_lock;
+  return { ...sourceContract, dependency_lock: dependencyLock,
     readiness, execution_available: readiness.ready,
     execution_blocking_reason: readiness.ready ? null :
       readiness.missing.length === 1 && readiness.missing[0] === "reviewed_runtime_image_and_provider_quote"

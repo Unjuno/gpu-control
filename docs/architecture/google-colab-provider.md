@@ -108,10 +108,13 @@ back to a paid provider or claim GPU availability from subscription tier alone.
 3. Add Colab capabilities and prepare logic with immutable source, eligible
    runtime spec, hard runtime/output bounds, and an explicit `cost_unknown`
    semantics until quota evidence is trustworthy.
-4. Add an owner-scoped durable job mechanism supported by the Sites host, then
-   idempotent D1 submit, asynchronous operation/status reconciliation, session
-   execution recovery, cancellation, result retrieval, and confirmed session
-   cleanup. Do not delete a runtime unless the owner explicitly asks.
+4. Add idempotent D1 submit and a persisted Colab operation state machine to
+   the existing training run. Store stable `requestId`, `sessionId`, and
+   `executionId` values before remote calls; `training_status` resumes only
+   the exact unfinished call after ambiguity. Do not create a second queue or
+   run ledger, and do not automatically replay a completed execution ID.
+   Implement cancellation, bounded result/artifact retrieval, and confirmed
+   session cleanup. Do not delete a runtime unless the owner explicitly asks.
 5. Keep CI offline by default. Use mocks/contracts for routine CI; a separate
    owner-controlled live Colab acceptance workflow may be added only when its
    credential, quota, cost, and cleanup bounds are verified and the workflow
