@@ -31,15 +31,17 @@ When adding a client integration, do not recreate retired infrastructure.
    fully lost response. Existing explicit-parameter calls remain supported.
 4. Never request, accept, display, or pass a provider credential in chat.
 
-When the user specifically asks about Google Colab, call `colab_capabilities` in
-addition to `experiment_capabilities`. It reports the connected Google account's
-current subscription tier and eligible runtime specs, but its execution,
-monitoring, artifact, cancellation, and cleanup lifecycle is not yet wired into
-GPU Control. Treat Colab as unavailable for GPU Control submission until that
-tool returns an executable route. Do not silently substitute Modal or RunPod.
-The official Colab CLI can be used by a separately configured local/CI client;
-that path does not create a GPU Control run record and must not be presented as
-a GPU Control execution.
+When the user asks for Colab, call `colab_capabilities` as well as
+`experiment_capabilities`. Use the latter's current `providers` entry for
+`google_colab` (`enabled`, `blocker`, quota and cost fields) as the authority
+for whether GPU Control can prepare that route. `colab_capabilities` supplies
+fresh account tier and eligible runtime facts; it is not, by itself, execution
+admission. The Colab prepare/submit/status/result/artifact/cancel/reconcile
+lifecycle exists in source, but is usable only when the connected MCP release,
+owner connection, D1/R2 lifecycle, and admission gates all report ready. Do not
+declare it universally unavailable or enabled from this Skill; follow current
+capability output and the release record. Never silently substitute Modal or
+RunPod. A standalone Colab CLI job remains outside the GPU Control run ledger.
 
 Capabilities describes fixed workload routes; it does not by itself make an
 owner-selected repository executable. For a repository request, use the
@@ -83,19 +85,20 @@ If the registration has multiple execution profiles, select the desired
 commit, and idempotency-key inputs remain supported, but do not ask the user
 to provide fixed values. If the user has already requested execution, prepare
 the exact plan. The first
-`training_prepare` returns an `authorization_url` for this plan. Open it using
-the authenticated ChatGPT Sites owner session and confirm the displayed source,
-image, dataset, run name, step ceiling, GPU, runtime, and cost once. This is not a request to sign in to Modal or
-reconnect the Sites MCP. After confirmation, call `training_status` to verify
-`authorization_state=authorized`, then call `training_submit` with the exact
-returned plan without asking the user to repeat the execution request. The
-server consumes the short-lived, exact-plan owner evidence atomically with the
-one-use dispatch reservation. Monitor that same run. Recover ambiguous
-submission through `training_status`; do not create a duplicate. At terminal
-success, retrieve private checkpoint chunks through `training_checkpoint` and
-verify the assembled SHA-256. Provider login, secret rotation, admission, or
-budget changes are separate operations; do not ask for them as routine per-run
-steps.
+`training_prepare` returns the exact plan. When it lists `training_submit`, call
+that tool with the exact returned plan; the connected MCP client's native
+write confirmation is the per-run checkpoint. This works from ChatGPT and
+other compatible OAuth MCP clients and does not require a ChatGPT-only browser
+authorization page. Do not ask the user to repeat the execution request.
+The server binds authorization to the current owner, control-plane SHA, source,
+image, provider, GPU, runtime, and cost, then consumes it with the one-use
+dispatch reservation. If `training_submit` is absent or a blocker is present,
+follow the returned status and stop before dispatch. Monitor that same run.
+Recover ambiguous submission through `training_status`; do not create a
+duplicate. At terminal success, retrieve private checkpoint chunks through
+`training_checkpoint` and verify the assembled SHA-256. Provider login, secret
+rotation, admission, or budget changes are separate operations; do not ask for
+them as routine per-run steps.
 
 ## Owner-selected GitHub training source
 
@@ -146,14 +149,40 @@ result. Disconnecting in GPU Control removes its owner binding; the user can
 also uninstall the GitHub App from GitHub.
 
 `training_inspect` is read-only. It does not create an execution plan or start
-compute. The owner-selected Modal route remains unavailable until its shared
-runtime image, separate CPU staging and GPU quotes, monthly/per-run budgets,
-artifact verification, cleanup receipt, security review, exact-head CI, and
-admission release gates are complete. Report the returned blocker exactly;
-never claim that the prototype route is live. Do not substitute the MAP-44M
-runtime or a registered demo workload for the user's repository. RunPod custom
-repository execution is not exposed by this lane and must not be inferred from
-the fixed RunPod canary.
+compute. Owner-selected Modal readiness is dynamic: require
+`machine_state.owner_selected_training.ready_to_prepare=true`, then let
+`training_prepare` validate the exact repository and plan. If the capability or
+prepare response reports a blocker, report it and stop before submit. Do not
+describe the route as live based only on source code or tests. Do not substitute
+the MAP-44M runtime or a registered demo workload for the user's repository.
+RunPod's fixed canary does not imply owner-selected RunPod repository support;
+use only a distinct route explicitly returned by current capabilities.
+
+## Google Colab owner-selected source
+
+When the user selects Colab for their public GitHub source, first inspect both
+capability tools. If Colab is disconnected and `colab_capabilities` advertises
+`colab_connection_start`, perform that one-time setup and have the owner finish
+Google consent, then reread capabilities. If the `google_colab` provider is
+enabled and connected, call `experiment_prepare` with
+`provider="google_colab"`, the repository, and only the user's requested
+accelerator/runtime choices. The server pins the commit and validates the
+manifest and locked dependencies. Keep returned IDs and the exact provider
+plan inside the agent workflow. If storage or admission is blocked, report the
+current blocker; never fall back to another provider without the user's
+direction.
+
+Colab does not expose exact USD cost or remaining Compute Units through its
+API. The returned plan must be inspected for its unknown-quota/cost terms,
+unrestricted runtime network egress, public-source-only restriction, and
+run-owned runtime deletion. Submit only the exact returned
+`provider_approved_plan`. Set `positive_compute_units_attested=true` only after
+the owner has explicitly confirmed both a positive Colab Compute Unit balance
+and acceptance that GPU Control cannot observe or cap the actual quota use.
+That attestation applies to the exact submit call; a paid subscription tier is
+not proof of positive balance. Then poll and recover the same run through the
+common MCP status/result/artifact/cancel tools until terminal state and cleanup
+are confirmed.
 
 ## Choose a route
 

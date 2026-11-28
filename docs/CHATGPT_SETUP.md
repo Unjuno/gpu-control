@@ -91,15 +91,16 @@ Use this prompt after all intended provider credentials have been connected:
 
 ```text
 GPU Controlのexperiment_capabilitiesを呼び出して、Modal、RunPod、Kaggle、
-Hugging Faceの4プロバイダーについて、configured、enabled、blocker、予算、
-利用可能な登録済みworkloadを表にしてください。
+Hugging Face、Google Colabについて、configured、enabled、blocker、予算・
+quotaの見える範囲、利用可能な登録済みworkloadを表にしてください。
+Google Colabについてはcolab_capabilitiesも呼び出して、接続状態、subscription
+tier、eligible GPU、実行lifecycleのready状態を区別してください。さらに
+owner_selected_trainingのready_to_prepareとblockerを報告してください。
+ソース実装の有無と現在のMCP release/admission状態を混同しないでください。
 
-Google Colabを希望する場合はcolab_capabilitiesも呼び出してください。
-現在は接続とeligible GPU確認までで、GPU Controlの実行・結果・cleanupには
-まだ接続されていません。
-
-まだ実験は開始しないでください。秘密値を表示せず、Railway、Vercel、
-Neon、外部PostgreSQLが実行経路に含まれていないことも確認してください。
+まだ実験は開始しないでください。秘密値を表示せず、各ルートの最新応答だけを
+根拠にしてください。Railway、Vercel、Neon、外部PostgreSQLを実行経路として
+推測で追加しないでください。
 ```
 
 For a real run, name one registered workload and tell ChatGPT to execute it.
