@@ -87,6 +87,24 @@ submit authorization to owner-selected plans.
 batch does not change runtime behavior or prove OAuth deployment, external
 client handshake, or Colab execution readiness.
 
+## 2026-11-28 — A13: make the operator Skill client-neutral
+
+**Finding:** the repository's primary agent Skill told operators to use only
+the ChatGPT-named MCP tools and called owner-selected submission a destructive
+ChatGPT write. That wording could make a compatible OAuth client appear to
+need a separate workflow, even though the tool schemas and owner ledger are
+shared.
+
+**Change:** the Skill now names the shared authenticated MCP interface and
+connected-client confirmation boundary, while stating that external OAuth is
+not usable until deployed. It continues to distinguish the MAP legacy Sites
+login and direct Colab CLI jobs from the shared agent lifecycle.
+
+**Validation:** checked the Skill's claims against `MCP_CLIENTS.md`, PR #70's
+OAuth source status, `training_prepare`/`training_submit` descriptions, and the
+Colab capability blocker. No credentials, provider settings, admission, or
+execution were changed.
+
 ## 2026-11-28 — Normalize the client-neutral MCP product boundary
 
 **Finding:** the owner-bound OAuth design, MCP client guide, and provider

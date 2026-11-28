@@ -1,13 +1,17 @@
 ---
 name: gpu-control-operator
-description: Operates GPU Control through the authenticated ChatGPT Sites MCP lifecycle. Use when a user asks to inspect, register, run, monitor, cancel, recover, or retrieve a GPU experiment, including work from an owner-selected GitHub repository on Modal, RunPod, Kaggle, Hugging Face, or Google Colab when that route is supported.
+description: Operates GPU Control through its authenticated MCP lifecycle from ChatGPT/Work or a compatible OAuth MCP client. Use when a user asks to inspect, register, run, monitor, cancel, recover, or retrieve a GPU experiment from a supported Modal, RunPod, Kaggle, Hugging Face, or Google Colab route.
 ---
 
 # GPU Control Operator
 
-Use only the **GPU Control — ChatGPT実験管理** MCP tools. The production control
-plane is ChatGPT Sites; do not recreate a Vercel, Neon, Railway, external
-PostgreSQL, local Keychain Runner, arbitrary shell, or direct provider route.
+Use only the authenticated **GPU Control MCP** tools available to the current
+client. ChatGPT Sites and compatible authenticated OAuth clients share the same
+owner-scoped control plane and run ledger after the OAuth route is deployed.
+The current external-client OAuth implementation is source-only in PR #70;
+check the release state before claiming that a non-ChatGPT client can connect.
+Do not recreate a Vercel, Neon, Railway, external PostgreSQL, local Keychain
+Runner, arbitrary shell, or direct provider route.
 
 ## Start every session
 
@@ -32,7 +36,7 @@ GPU Control. Treat Colab as unavailable for GPU Control submission until that
 tool returns an executable route. Do not silently substitute Modal or RunPod.
 The official Colab CLI can be used by a separately configured local/CI client;
 that path does not create a GPU Control run record and must not be presented as
-a ChatGPT Sites execution.
+a GPU Control execution.
 
 Capabilities describes fixed workload routes; it does not by itself make an
 owner-selected repository executable. For a repository request, use the
@@ -117,7 +121,7 @@ owner-scoped GitHub App connection before registering it:
    running. The server generates the run ID and idempotency key.
 4. When preparation is executable and the same current user request asks to
    run it, call `training_submit` with the exact returned plan. This is a
-   destructive ChatGPT MCP write: the host's native confirmation is the one
+   destructive MCP write: the connected host's native confirmation is the one
    per-run user checkpoint. Do not add a second browser confirmation or ask
    the user to repeat the execution request. The Worker binds that confirmation
    to the exact plan, current control-plane SHA, owner, and one-use budget
