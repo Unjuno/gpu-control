@@ -157,6 +157,30 @@ actionable issues and confirmed authorization and metadata validation precede
 dispatch. No provider call, experiment, deployment or admission change
 occurred.
 
+
+## 2026-11-28 — A7: centralize the MCP tool-result projection
+
+**Problem:** `worker/index.js` converted domain return values into the
+schema-v2 envelope and separately assembled legacy text-only, structured
+content, and current-protocol completion metadata. This made result
+compatibility a transport implementation detail and duplicated tool success
+and error shape construction in the dispatcher.
+
+**Change:** moved normalization and the success/error projections into
+`worker/mcp_tool_result.js`. Domain tools provide values, while the module owns
+the stable public envelope and version-specific MCP result shape. The oldest
+supported protocol remains text-only; later versions include structured
+content; the current version also carries its completion type and server
+metadata. Errors accept only the already sanitized code from
+`mcp_tool_errors.js`.
+
+**Validation:** focused tests cover envelope normalization, all three protocol
+result shapes, and the bounded error projection. All 178 Sites tests pass; the
+Worker graph is acyclic across 64 runtime modules. Independent read-only
+security review found no actionable findings and confirmed provider/internal
+error details remain redacted. No provider call, experiment, OAuth flow, or
+deployment occurred.
+
 **Source correction (2026-11-28):** a follow-up check of the official CLI's
 current authentication reference found that OAuth credentials moved to the
 OS-native keyring on 2026-10-21. `~/.config/colab-cli/` still holds session,

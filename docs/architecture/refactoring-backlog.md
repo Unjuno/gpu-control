@@ -340,7 +340,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 bounded result routing live in `worker/training_tools.js`. The MAP repository
 slug is centralized in `training_source.js`. Historical checkpoints measured
 2,333 and 2,175 lines before later lifecycle and transport extractions; the
-entrypoint has since been reduced to 413 lines. Provider-specific Colab OAuth,
+entrypoint has since been reduced to 397 lines. Provider-specific Colab OAuth,
 external-MCP OAuth, and the shared GitHub owner-proof callbacks now have
 dedicated route modules. Stable MCP tool error projection now has its own
 contract module. Remaining A7 work is to further reduce the HTTP/MCP
@@ -385,8 +385,8 @@ now lives in `worker/mcp_tool_dispatch.js`. `index.js` retains request parsing,
 MCP metadata/scope checks, HTTP routing and response envelopes, then passes the
 normalized call and bounded submission callbacks to the dispatch interface.
 Unused provider/workload imports and constants were removed from the entrypoint.
-The Worker graph remains acyclic and all 175 Sites contract tests pass;
-`index.js` is now 413 lines. Colab's provider-specific OAuth setup/callback
+The Worker graph remains acyclic and all 178 Sites contract tests pass;
+`index.js` is now 397 lines. Colab's provider-specific OAuth setup/callback
 handlers live in `worker/google_colab_oauth_routes.js`; external MCP discovery,
 registration, consent, token and revocation routes live in
 `worker/mcp_oauth_routes.js`; GitHub App and MCP client owner proof flows live
@@ -394,7 +394,8 @@ in `worker/github_oauth_routes.js`. Stable errors exposed to MCP callers are
 mapped in `worker/mcp_tool_errors.js`, keeping provider-internal messages out
 of public results. `worker/mcp_protocol.js` owns protocol negotiation, request
 metadata/name validation and per-tool OAuth scope selection. These modules
-preserve shared HTTP composition contracts.
+preserve shared HTTP composition contracts. `worker/mcp_tool_result.js` owns
+the schema-v2 tool envelope and protocol-version-specific result projection.
 
 **Progress (2026-11-28):** Colab OAuth setup and callback handlers now live in
 `worker/google_colab_oauth_routes.js`; `index.js` supplies the shared HTML
@@ -431,6 +432,16 @@ request or a protocol response before tool routing. The existing supported
 versions and scope behavior remain unchanged. All 175 Sites tests pass; the
 Worker graph is acyclic across 63 modules. Independent security review found
 no actionable issues and confirmed validation runs before dispatch.
+
+**Progress (2026-11-28):** schema-v2 tool result normalization and the
+protocol-specific MCP success/error result projections now live in
+`worker/mcp_tool_result.js`. Domain tools return their values; the result
+module applies the canonical envelope, preserves the 2025-03-26 text-only
+compatibility behavior, adds structured content for later versions and the
+current protocol's completion metadata, and formats only sanitized error
+codes. All 178 Sites tests pass; the Worker graph is acyclic across 64 modules.
+Independent security review found no actionable issues. No external service,
+provider, or deployment was contacted.
 
 **Progress (2026-11-28):** stable MCP tool error projection now lives in
 `worker/mcp_tool_errors.js`. The dispatcher error envelope remains in the MCP
