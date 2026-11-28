@@ -1240,3 +1240,7 @@ ceilings, or persisted plan fields changed.
 missing settings; the full Sites suite passes with 158 tests and a 50-module
 acyclic runtime graph. D1 migration test, Worker build, artifact validation,
 and diff check pass. No provider operation or deployment occurred.
+
+**Independent review:** no actionable findings. The review confirmed that
+missing settings still fail closed and the normalization preserves existing
+runtime/budget semantics.
