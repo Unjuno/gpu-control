@@ -51,3 +51,41 @@ test("advertises the bounded registered inference contract", async () => {
   assert.match(list.description, /result_available, cleanup_state, stable terminal time/);
 });
 
+test("keeps MCP guidance and operation annotations client-neutral", () => {
+  const tools = listMcpTools("2026-07-28", "2025-03-26");
+  const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
+  const { experiment_prepare: prepare, experiment_submit: submit,
+    experiment_provider_health: health, training_submit: trainingSubmit,
+    training_artifact: trainingArtifact } = byName;
+
+  assert.deepEqual(health.inputSchema.required, ["run_id", "plan_fingerprint"]);
+  assert.deepEqual(submit.inputSchema.required, ["plan_fingerprint", "run_id"]);
+  assert.match(prepare.description, /without asking the user the same question again/);
+  assert.match(submit.description, /do not ask a second conversational confirmation/);
+  assert.match(submit.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
+  assert.equal(trainingSubmit.annotations.destructiveHint, true);
+  assert.match(trainingSubmit.description, /destructive MCP write action/);
+  assert.match(trainingSubmit.description, /client may also show its own native write-approval UI/);
+  assert.doesNotMatch(trainingSubmit.description, /ChatGPT/);
+  assert.match(trainingSubmit.description, /No separate GPU Control browser confirmation or Modal login is needed/);
+  assert.deepEqual(trainingArtifact.inputSchema.required, ["run_id", "artifact_id", "offset", "max_bytes"]);
+  assert.equal(trainingArtifact.annotations.readOnlyHint, true);
+
+  for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list", "training_inspect"]) {
+    assert.deepEqual(byName[name].annotations,
+      { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, name);
+  }
+  assert.deepEqual(prepare.annotations,
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
+  assert.deepEqual(submit.annotations,
+    { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false });
+  for (const name of ["experiment_status", "experiment_result"]) {
+    assert.deepEqual(byName[name].annotations,
+      { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, name);
+  }
+  assert.deepEqual(byName.experiment_cancel.annotations,
+    { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false });
+  assert.deepEqual(health.annotations,
+    { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false });
+});
+

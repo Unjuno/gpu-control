@@ -197,59 +197,6 @@ test("root page is a public status surface without granting execution authority"
   assert.doesNotMatch(body, /token|secret|credential/i);
 });
 
-test("MCP tool annotations distinguish read, execution, and lifecycle operations", async () => {
-  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
-    method: "POST",
-    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
-  }), environment());
-  const rpc = await response.json();
-  assert.equal(response.status, 200);
-  const tools = Object.fromEntries(rpc.result.tools.map((item) => [item.name, item.annotations]));
-  const healthTool = rpc.result.tools.find((item) => item.name === "experiment_provider_health");
-  const prepareTool = rpc.result.tools.find((item) => item.name === "experiment_prepare");
-  const submitTool = rpc.result.tools.find((item) => item.name === "experiment_submit");
-  const trainingSubmitTool = rpc.result.tools.find((item) => item.name === "training_submit");
-  const trainingArtifactTool = rpc.result.tools.find((item) => item.name === "training_artifact");
-  assert.deepEqual(healthTool.inputSchema.required, ["run_id", "plan_fingerprint"]);
-  assert.deepEqual(submitTool.inputSchema.required, ["plan_fingerprint", "run_id"]);
-  assert.match(prepareTool.description, /without asking the user the same question again/);
-  assert.match(submitTool.description, /do not ask a second conversational confirmation/);
-  assert.match(submitTool.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
-  assert.equal(trainingSubmitTool.annotations.destructiveHint, true);
-  assert.match(trainingSubmitTool.description, /destructive MCP write action/);
-  assert.match(trainingSubmitTool.description, /client may also show its own native write-approval UI/);
-  assert.doesNotMatch(trainingSubmitTool.description, /ChatGPT/);
-  assert.match(trainingSubmitTool.description, /No separate GPU Control browser confirmation or Modal login is needed/);
-  assert.deepEqual(trainingArtifactTool.inputSchema.required, ["run_id", "artifact_id", "offset", "max_bytes"]);
-  assert.equal(trainingArtifactTool.annotations.readOnlyHint, true);
-
-  for (const name of ["experiment_capabilities", "experiment_artifact", "experiment_list", "training_inspect"]) {
-    assert.equal(tools[name].readOnlyHint, true, `${name} should be read-only`);
-    assert.equal(tools[name].destructiveHint, false, `${name} should not be destructive`);
-    assert.equal(tools[name].idempotentHint, true, `${name} should be idempotent`);
-    assert.equal(tools[name].openWorldHint, false, `${name} uses only bounded resources`);
-  }
-  assert.deepEqual(tools.experiment_prepare, {
-    readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
-  });
-  assert.deepEqual(tools.experiment_submit, {
-    readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
-  });
-  for (const name of ["experiment_status", "experiment_result"]) {
-    assert.equal(tools[name].readOnlyHint, false, `${name} synchronizes provider state into D1/R2`);
-    assert.equal(tools[name].destructiveHint, false, `${name} does not cancel or allocate by intent`);
-    assert.equal(tools[name].idempotentHint, false, `${name} may advance a live run`);
-    assert.equal(tools[name].openWorldHint, false, `${name} uses only the configured provider`);
-  }
-  assert.deepEqual(tools.experiment_cancel, {
-    readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
-  });
-  assert.deepEqual(tools.experiment_provider_health, {
-    readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false,
-  });
-});
-
 test("Modal status polling fails closed when the shared provider-call budget is exhausted", async () => {
   const runId = "8".repeat(32);
   const row = { id: runId, state: "running", created_at: 1, updated_at: 2,

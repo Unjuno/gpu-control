@@ -2333,3 +2333,19 @@ The map now points to `18311137da1a0801bff863971960585de699f418` and records
 the local Worker graph and test measurements. All seven exact-head CI checks
 passed for that source head. PR #70 remains open, unmerged, and in parked
 repository mode.
+
+## 2026-11-28 — A13: colocate MCP UX contract checks with the contract
+
+**Finding:** the large Worker integration fixture exercised tool schemas,
+descriptions, and operation annotations through the HTTP dispatcher. Those
+assertions describe `mcp_tool_contract.js`, while transport identity and HTTP
+behavior already have dedicated integration tests.
+
+**Change:** moved the client-neutral guidance and read/write annotation
+assertions into `mcp_tool_contract.test.js`, which now tests the schema and
+annotations directly from their owner module. Removed the duplicate dispatcher
+round trip from `index.test.js`; transport authorization coverage is unchanged.
+
+**Validation:** focused contract tests pass (2); the full Sites suite passes
+(187 Worker tests, 2 graph tests), and the graph remains acyclic across 67
+modules. No public MCP schema, annotation, or runtime behavior changed.
