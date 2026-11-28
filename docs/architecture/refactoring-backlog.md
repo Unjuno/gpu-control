@@ -403,9 +403,12 @@ acceptance.
 - **Progress (2026-11-28):** added a Worker HTTP integration test for protected
   resource and authorization-server discovery, DCR, consent-page creation,
   and rejection of a bearer header at the token endpoint. OAuth module tests
-  cover the full local PKCE/owner-binding/token lifecycle. The independent
-  external-client handshake and shared two-client ledger check remain release
-  gates.
+  cover the full local PKCE/owner-binding/token lifecycle. A current-schema
+  HTTP integration case now mints a real OAuth access token through the linked
+  GitHub-owner flow, calls the same MCP Worker as the ChatGPT identity, and
+  verifies identical tools and owner-filtered run history. This is local
+  end-to-end protocol evidence, not a deployed external-client handshake. The
+  independent client connection and release check remain gates.
 
 ## P2 — reduce module entropy without moving complexity to callers
 

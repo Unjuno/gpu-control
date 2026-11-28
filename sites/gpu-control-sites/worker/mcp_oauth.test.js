@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import worker from "./index.js";
 import { authenticateMcpAccessToken, beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
@@ -18,10 +18,17 @@ async function challenge(value) {
   return b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
 }
 
-function database() {
+function database({ currentSchema = false } = {}) {
   const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("../drizzle/0035_github_owner_identity.sql", import.meta.url), "utf8"));
-  sqlite.exec(readFileSync(new URL("../drizzle/0036_mcp_oauth_clients.sql", import.meta.url), "utf8"));
+  sqlite.exec("PRAGMA foreign_keys=ON");
+  if (currentSchema) {
+    for (const migration of readdirSync(new URL("../drizzle/", import.meta.url)).filter((name) => name.endsWith(".sql")).sort()) {
+      sqlite.exec(readFileSync(new URL(`../drizzle/${migration}`, import.meta.url), "utf8"));
+    }
+  } else {
+    sqlite.exec(readFileSync(new URL("../drizzle/0035_github_owner_identity.sql", import.meta.url), "utf8"));
+    sqlite.exec(readFileSync(new URL("../drizzle/0036_mcp_oauth_clients.sql", import.meta.url), "utf8"));
+  }
   return {
     sqlite,
     prepare(sql) {
@@ -44,6 +51,26 @@ function database() {
       } catch (error) { sqlite.exec("ROLLBACK"); throw error; }
     },
   };
+}
+
+async function authorizeClientForLinkedOwner(db, client, at) {
+  const auth = { response_type: "code", client_id: client.client_id, redirect_uri: callback,
+    scope: "experiments:read", state: "client-state", code_challenge: await challenge(verifier),
+    code_challenge_method: "S256", resource };
+  const consent = await createMcpOAuthConsent(db, auth, origin, at);
+  const csrf = (await consent.response.text()).match(/name="csrf" value="([A-Za-z0-9_-]{43})"/)?.[1];
+  assert.ok(csrf);
+  const login = await beginMcpOAuthGitHubLogin(db, csrf, { GITHUB_APP_ID: "1", GITHUB_APP_SLUG: "gpu-control",
+    GITHUB_APP_PRIVATE_KEY: "configured", GITHUB_APP_CLIENT_ID: "github-client",
+    GITHUB_APP_CLIENT_SECRET: "x".repeat(20), GITHUB_APP_OAUTH_CALLBACK_URL: `${origin}/github/oauth/callback` }, at);
+  const state = new URL(login.authorization_url).searchParams.get("state");
+  const completed = await completeMcpOAuthGitHubLogin(db, state, "ghu_abcdefghijklmnop", async () =>
+    new Response(JSON.stringify({ id: 1234567, login: "owner" }), { status: 200 }), at + 1);
+  const code = new URL(completed.redirect_uri).searchParams.get("code");
+  const token = await exchangeMcpOAuthToken(db, new URLSearchParams({ grant_type: "authorization_code",
+    client_id: client.client_id, code, redirect_uri: callback, code_verifier: verifier, resource }), origin, at + 2);
+  assert.equal(token.status, 200);
+  return (await token.json()).access_token;
 }
 
 test("Sites HTTP exposes OAuth discovery, public-client registration and owner consent", async () => {
@@ -86,6 +113,56 @@ test("Sites HTTP exposes OAuth discovery, public-client registration and owner c
       body: "grant_type=authorization_code",
     }), env);
     assert.equal(tokenWithBearerHeader.status, 400);
+  } finally { db.sqlite.close(); }
+});
+
+test("an OAuth-authorized MCP client and ChatGPT share the current MCP contract and owner-scoped run ledger", async () => {
+  const db = database({ currentSchema: true });
+  try {
+    db.sqlite.prepare("INSERT INTO github_owner_identities VALUES (?, ?, ?)").run("owner-1", "1234567", now);
+    db.sqlite.prepare(`INSERT INTO plans (id, owner_id, idempotency_key, fingerprint, workload, repository,
+      source_sha, image_digest, parameters_json, runtime_seconds, max_cost_usd, state, created_at, expires_at, provider)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 'modal_cpu')`)
+      .run("a".repeat(32), "owner-1", "client-neutral-plan", "b".repeat(64), "tiny-stories-inference-v1",
+        "owner-1/research", "c".repeat(40), `sha256:${"d".repeat(64)}`, "{}", 30, "0.00", now, now + 300);
+    db.sqlite.prepare(`INSERT INTO runs (id, owner_id, plan_id, state, cleanup_state, result_json, created_at, updated_at)
+      VALUES (?, ?, ?, 'succeeded', 'confirmed', '{}', ?, ?)`)
+      .run("a".repeat(32), "owner-1", "a".repeat(32), now, now + 10);
+    db.sqlite.prepare(`INSERT INTO plans (id, owner_id, idempotency_key, fingerprint, workload, repository,
+      source_sha, image_digest, parameters_json, runtime_seconds, max_cost_usd, state, created_at, expires_at, provider)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 'modal_cpu')`)
+      .run("e".repeat(32), "owner-2", "other-owner-plan", "f".repeat(64), "tiny-stories-inference-v1",
+        "owner-2/research", "1".repeat(40), `sha256:${"2".repeat(64)}`, "{}", 30, "0.00", now, now + 300);
+    db.sqlite.prepare(`INSERT INTO runs (id, owner_id, plan_id, state, cleanup_state, result_json, created_at, updated_at)
+      VALUES (?, ?, ?, 'succeeded', 'confirmed', '{}', ?, ?)`)
+      .run("e".repeat(32), "owner-2", "e".repeat(32), now, now + 10);
+
+    const client = await registerMcpOAuthClient(db, { client_name: "Independent MCP client", redirect_uris: [callback] }, "192.0.2.55", now);
+    const accessToken = await authorizeClientForLinkedOwner(db, client, now + 10);
+    const env = { DB: db, GPU_CONTROL_ALLOWED_USER_IDS: "owner-1" };
+    const rpc = (message, headers = {}) => worker.fetch(new Request(`${origin}/mcp`, {
+      method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(message),
+    }), env);
+    const toolList = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
+    const chatTools = await rpc(toolList, { "oai-authenticated-user-id": "owner-1" });
+    const externalTools = await rpc(toolList, { authorization: `Bearer ${accessToken}` });
+    assert.equal(chatTools.status, 200);
+    assert.equal(externalTools.status, 200);
+    assert.deepEqual((await externalTools.json()).result, (await chatTools.json()).result);
+
+    const listRuns = { jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "experiment_list", arguments: {} } };
+    const chatRuns = await rpc(listRuns, { "oai-authenticated-user-id": "owner-1" });
+    const externalRuns = await rpc(listRuns, { authorization: `Bearer ${accessToken}` });
+    assert.equal(chatRuns.status, 200);
+    assert.equal(externalRuns.status, 200);
+    const chatResult = await chatRuns.json();
+    const externalResult = await externalRuns.json();
+    assert.deepEqual(externalResult.result, chatResult.result);
+    const visibleRuns = JSON.parse(chatResult.result.content[0].text).machine_state.experiments;
+    assert.deepEqual(visibleRuns.map((run) => run.run_id), ["a".repeat(32)]);
+    assert.ok(!JSON.stringify(externalResult).includes("e".repeat(32)),
+      "an authenticated client cannot read a different owner's run");
   } finally { db.sqlite.close(); }
 });
 

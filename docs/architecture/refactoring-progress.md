@@ -5,6 +5,25 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A13: exercise a real OAuth token through the shared MCP route
+
+**Problem:** external OAuth issuance and ChatGPT/external tool parity were
+covered separately. A token minted by the owner-binding flow had not been
+shown entering the actual Worker MCP route and reading the same current-schema
+run ledger as the Sites identity path.
+
+**Change:** added an integration case using the complete forward-migration
+schema. It registers a public client, completes PKCE and the linked GitHub
+owner proof, exchanges the authorization code, then calls `tools/list` and
+`experiment_list` using that access token and the ChatGPT Sites identity for
+the same owner. The test compares both response contracts and confirms that
+the external client cannot read a second owner's run.
+
+**Validation:** `node --test worker/mcp_oauth.test.js` passes all six cases.
+This proves local OAuth-to-MCP HTTP integration and D1 owner filtering. It does
+not prove a deployed OAuth handshake or any provider execution; repository
+release policy remains parked.
+
 ## 2026-11-28 — A13: lock ChatGPT/external MCP contract parity
 
 **Problem:** Sites-header authentication and external OAuth both entered the
