@@ -5,23 +5,35 @@ configured in GPU Control yet.
 
 ## Available integration
 
-Google now documents two Colab MCP options:
+Google now exposes two distinct Colab MCP surfaces; they must not be treated as
+interchangeable:
 
 - `https://github.com/googlecolab/colab-mcp` is a local stdio bridge to a
-  browser-open Colab session. It is for local MCP clients and is not callable
-  from the hosted Sites worker.
+  browser-open Colab session. Google's README says the MCP client must run on
+  the user's device and support `notifications/tools/list_changed`; it lists
+  Gemini CLI, Claude Code and Windsurf as compatible examples. It is not
+  callable from the hosted Sites Worker. The README does not establish that
+  ChatGPT's hosted Chat/Work client can launch or connect to this local server.
 - `https://colaboratory.googleapis.com/mcp` is Google's hosted Colab API MCP.
   Its live `tools/list` response was read on 2026-11-27 and returned
   `list_runtime_specs`, `create_runtime`, `create_session`, `execute_code`,
   `delete_session`, `delete_runtime`, runtime listing/inspection, and
   subscription lookup.
 
+The local stdio server can be useful for a local coding-agent workflow, but it
+does not by itself add Colab to ordinary ChatGPT web conversations or to GPU
+Control. Do not install or ask the user to authenticate to that local server as
+if it would grant the Sites Worker access. First verify the exact target
+client's local MCP support. For the ChatGPT Sites product path, investigate the
+hosted API MCP and its OAuth/delegation contract behind the GPU Control
+provider adapter.
+
 The hosted endpoint is the integration surface to investigate for Colab. A
 direct ChatGPT-to-Colab app can be used as a separate, manually connected tool
-when the user's ChatGPT plan permits remote MCP write tools. That connection
-does not grant the GPU Control Sites Worker access to the user's Google OAuth
-token, and its runs are separate from GPU Control's D1 run history and provider
-budget leases. It is therefore not the product acceptance path.
+when the user's ChatGPT client and plan permit remote MCP write tools. That
+connection does not grant the GPU Control Sites Worker access to the user's
+Google OAuth token, and its runs are separate from GPU Control's D1 run history
+and provider budget leases. It is therefore not the product acceptance path.
 
 The target product path is to select Colab from the same GPU Control
 conversation, after the owner connects Google once through an explicit
@@ -81,6 +93,8 @@ contract.
 
 ## References
 
+- [Google announcement for the local Colab MCP server](https://developers.googleblog.com/announcing-the-colab-mcp-server-connect-any-ai-agent-to-google-colab/)
+- [Official `googlecolab/colab-mcp` README](https://github.com/googlecolab/colab-mcp#readme)
 - [Colab API MCP reference](https://developers.google.com/colab/api/reference/mcp)
 - [Google MCP authentication](https://docs.cloud.google.com/mcp/authenticate-mcp)
 - [Colab runtime API](https://developers.google.com/colab/api/reference/rest/v1beta/runtimes)

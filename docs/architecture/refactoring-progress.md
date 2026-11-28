@@ -525,3 +525,23 @@ at `f4ea1039bc9d7a2e2b0c96765f0818c389b903bd` (117 files, +11,652/−686).
 All seven exact-head checks passed. Independent security review and required
 GitHub review remain outstanding; owner-selected admission remains parked, and
 this source candidate has not been deployed.
+
+## 2026-11-28 — A6: distinguish Colab local MCP from hosted adapter surface
+
+**Finding:** Google's official `googlecolab/colab-mcp` README describes a
+local stdio server connected to a browser-open Colab session. It requires an
+MCP client running on the user's device with `notifications/tools/list_changed`
+support; listed compatible examples are Gemini CLI, Claude Code and Windsurf.
+That local server does not establish ChatGPT web/Work compatibility and cannot
+be called from the hosted GPU Control Sites Worker. The separate hosted Colab
+API MCP is the candidate surface for the shared Sites lifecycle.
+
+**Change:** clarified the distinction in the Colab architecture decision and
+provider design doc. The standard product remains ChatGPT Sites → owner-bound
+provider adapter → Colab API, with one run/budget/artifact/cleanup ledger. No
+provider is added, no login is requested, and no runtime is allocated.
+
+**References:** Google Developers Blog and official `googlecolab/colab-mcp`
+README, checked 2026-11-28. The exact target client's ability to connect a local
+stdio server must be verified independently; the local README does not claim
+ChatGPT web support.

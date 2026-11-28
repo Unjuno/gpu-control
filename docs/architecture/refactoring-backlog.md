@@ -210,13 +210,18 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A6. Decide Colab integration at the shared lifecycle boundary
 
-- **Evidence:** `docs/architecture/google-colab-provider.md` describes a
-  hosted MCP, but direct calls bypass Sites D1 owner/run/budget/cleanup state.
-- **Work:** compare direct ChatGPT MCP connection with a Sites-owned adapter.
-  Preferred product path is a provider adapter behind the same owner, plan,
-  run, result and cleanup contract. First prove identity delegation, interactive
-  session lifetime, GPU/runtime quota visibility, cancellation and durable
-  artifact handoff. Keep Colab unavailable until all are enforceable.
+- **Evidence:** Google's open-source `googlecolab/colab-mcp` is a local stdio
+  bridge to a browser-open Colab session and requires an MCP client running on
+  the user's device with `notifications/tools/list_changed` support. It is not
+  the hosted Colab API MCP and cannot be called by the Sites Worker as-is.
+  Direct ChatGPT-to-Colab MCP calls, when the ChatGPT client supports that
+  connection, bypass Sites D1 owner/run/budget/cleanup state.
+- **Work:** compare a user-device local-agent route with the Google-hosted Colab
+  API MCP behind a Sites-owned adapter. The product path remains a provider
+  adapter behind the same owner, plan, run, result and cleanup contract. First
+  prove client compatibility, identity delegation, interactive session
+  lifetime, GPU/runtime quota visibility, cancellation and durable artifact
+  handoff. Keep Colab unavailable until all are enforceable.
 - **Done when:** user can ask the same ordinary-language experiment request and
   agent can safely choose Colab only when current capability and quota permit;
   otherwise it explains the concrete blocker without paid fallback.
