@@ -1,6 +1,14 @@
 """Project validated MCP training inputs onto the private adapter lifecycle."""
 
 
+def uses_custom_training_lane(tool, arguments, existing_submission):
+    """Select custom execution from the signed plan on submit and recovery calls."""
+    if isinstance(existing_submission, dict):
+        return True
+    candidate = arguments.get("plan") if tool == "training_submit" else arguments.get("approved_plan")
+    return isinstance(candidate, dict) and candidate.get("execution_kind") == "owner_selected_python"
+
+
 def lifecycle_arguments(tool, arguments, *, plan=None):
     """Keep the adapter bridge's action-specific argument contract explicit."""
     fields = {

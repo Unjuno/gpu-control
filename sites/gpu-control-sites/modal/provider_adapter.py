@@ -23,6 +23,7 @@ import modal
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from canonical_json import canonical_json_bytes
+from custom_training_tool_args import uses_custom_training_lane
 
 
 APP_NAME = "gpu-control-provider-adapter"
@@ -656,9 +657,7 @@ async def invoke(tool: str, request: Request):
             custom_run_id = arguments.get("run_id")
             existing_custom = (submission_store.get(f"custom-training:{custom_run_id}")
                                if isinstance(custom_run_id, str) else None)
-            custom_plan = arguments.get("plan") if verified_tool == "training_submit" else None
-            if isinstance(existing_custom, dict) or (isinstance(custom_plan, dict) and
-                    custom_plan.get("execution_kind") == "owner_selected_python"):
+            if uses_custom_training_lane(verified_tool, arguments, existing_custom):
                 # The adapter is single-container and this synchronous lane
                 # serializes status/cancel around the staging-to-GPU handoff.
                 result = _dispatch_custom_training(owner, verified_tool, arguments)
