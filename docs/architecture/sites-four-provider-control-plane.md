@@ -5,8 +5,8 @@
 The authenticated GPU Control API/MCP is the single product control plane.
 ChatGPT chat/Work and any compatible MCP client use the same interface when
 connected and owner-authenticated. Client choice must not create a second plan,
-budget, or run-history system. The current public product integration and all
-acceptance claims below remain ChatGPT/Sites-specific unless stated otherwise.
+budget, or run-history system. Historical live acceptances below were made
+through ChatGPT/Sites and do not prove the external OAuth client handshake.
 
 This document describes the fixed-workload provider design as previously
 verified; its provider rows are not a fresh live check. The current PR #70
@@ -18,18 +18,19 @@ unmerged and undispatched under parked policy. See [the selected-repository
 architecture](chatgpt-selected-repository-experiments.md) and [Colab provider
 design](google-colab-provider.md).
 
-The current production ChatGPT path has four compute providers:
+The last verified production ChatGPT/Sites path had four compute providers:
 
 1. Modal
 2. RunPod
 3. Kaggle
 4. Hugging Face
 
-Google Colab is a fifth target provider, not a separate completion path. Google
+Google Colab is a fifth provider implemented in the current source candidate,
+not a separate control plane or a deployed capability. Google
 offers a hosted MCP endpoint at `https://colaboratory.googleapis.com/mcp`.
 Sites uses a separate owner-scoped Google OAuth grant. PR #70 source implements
-that connection and the shared lifecycle; the production route remains
-unavailable until deployment/configuration and live acceptance. The hosted API
+that connection and the shared lifecycle; the route remains unavailable on the
+deployed Site until deployment/configuration and live acceptance. The hosted API
 exposes neither remaining Compute Units nor an exact per-run quote. Submit
 therefore requires a fresh owner attestation of positive CU, discloses unknown
 actual consumption, forbids top-up/fallback, and keeps admission disabled by
@@ -95,7 +96,7 @@ Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
 | RunPod | Sites -> RunPod REST v2 | Sites secret | independent $1/run reservation; no Sites monthly cap; exact Pod termination required |
 | Kaggle | Sites -> Modal adapter -> Kaggle | Modal secret | free-first; no paid fallback |
 | Hugging Face | Sites -> Modal adapter -> private ZeroGPU Space | Modal secrets and Space secret | free ZeroGPU only; no paid fallback |
-| Google Colab (planned fifth provider; unavailable) | ChatGPT -> Sites D1 plan/lease -> owner-scoped Google OAuth -> hosted Colab API MCP | GPU Control Google connection, server-side only | runtime/resource ceiling; exact dollar/CU cap unavailable until a trusted quota/quote is exposed |
+| Google Colab owner-selected source (implemented in PR #70; not deployed) | Authenticated MCP client -> Sites D1 plan/operation journal -> owner-scoped Google OAuth -> hosted Colab API MCP | GPU Control Google connection, server-side only | bounded runtime/resource; exact dollar/CU cap unavailable; admission closed by default |
 
 The Modal reservation sum covers only Modal CPU/GPU workload compute. It does
 not count Modal control-function hosting charges for the Kaggle/Hugging Face
@@ -113,11 +114,14 @@ configuration uses only `PROVIDER_ADAPTER_URL`, `PROVIDER_ADAPTER_KEY_ID`, and
 ## Activation acceptance
 
 - No Railway resource or PostgreSQL service is required.
-- Google Colab is a target provider, but is reported unavailable until its
-  owner-scoped Sites connection, bounded plans, idempotent submission/recovery,
-  status, cancellation, result and cleanup evidence exist. Direct Google MCP
-  app calls remain outside the Sites ledger and are not product acceptance.
-- Sites reports all four registered providers and the real blocker for each.
+- Google Colab's source path now includes its owner-scoped Sites connection,
+  bounded plans, same-operation recovery, status, cancellation, results and
+  cleanup. It remains unavailable in the deployed product until OAuth/config
+  and migration are released, independent security review completes, and a
+  bounded live GPU run verifies artifacts and cleanup. Direct Google MCP app
+  calls remain outside the Sites ledger and are not product acceptance.
+- The last verified production Site reported four fixed-workload providers.
+  Refresh live capability state before making a current deployment claim.
 - Kaggle and Hugging Face calls work through the authenticated Modal adapter.
 - RunPod cannot start without an exact price-bound plan and one-use confirmation.
 - RunPod also remains disabled until the authenticated completion transport has

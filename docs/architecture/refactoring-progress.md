@@ -2702,6 +2702,27 @@ check results; checked for stale `89dc396`/203-test/pending-CI claims in active
 architecture and release summaries. Documentation-only update; no provider,
 deployment, admission, or runtime state changed.
 
+## 2026-11-28 — A1: distinguish Colab source support from production support
+
+**Finding:** `sites-four-provider-control-plane.md` still labeled Colab as a
+planned, unavailable target and described lifecycle implementation as work
+that had not happened. Its route row and activation gate contradicted the
+current PR #70 source and the Colab provider specification. This blurred the
+difference between implemented source, deployed capability and live provider
+acceptance.
+
+**Change:** updated the provider control-plane record to identify Colab as an
+owner-selected route implemented in PR #70 source, while keeping deployment,
+OAuth configuration, migration, security review and live GPU acceptance as
+separate release gates. Clarified that the four-provider count belongs to the
+last verified production Site and that direct Google MCP calls remain outside
+the shared Sites ledger.
+
+**Validation:** cross-checked the route and lifecycle claims against the
+current Colab provider guide, PR #70 source and release matrix. `git diff --check`
+passes. No runtime code, provider configuration, admission or live execution
+changed.
+
 ## 2026-11-28 — A3: exercise Colab lifecycle recovery after response loss
 
 **Finding:** Colab had unit coverage for its operation journal and MCP protocol,
