@@ -7,15 +7,16 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `8894015` on PR #70. The local Sites
+**Current source snapshot:** code head `ae2f1fc` on PR #70. The local Sites
 suite passes 163 tests and the import graph is acyclic across 52 runtime
 modules. Exact-head GitHub checks for the latest push are not yet verified;
 local success is not CI or release evidence. `worker/index.js` is 816 lines,
-while `worker/index.test.js` is 2,636 lines and remains the largest integration
-fixture. The owner-training registration integration test is 680 lines and the
-MCP request-auth route test is 68 lines. The Gateway provider-runtime CI
-selection, including five compatibility-module identity checks, passes locally.
-These measurements describe this source candidate only.
+while `worker/index.test.js` is 2,435 lines and remains the largest integration
+fixture. The owner-training registration integration test is 680 lines, the
+experiment read-model route test is 222 lines, and the MCP request-auth route
+test is 68 lines. The Gateway provider-runtime CI selection, including five
+compatibility-module identity checks, passes locally. These measurements
+describe this source candidate only.
 
 This is an evidence-backed map of the current repository, not a claim that all
 listed source paths are active in the hosted product.

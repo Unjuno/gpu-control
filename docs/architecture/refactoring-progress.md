@@ -1351,6 +1351,27 @@ remain. Removing the legacy Gateway service is a separate unresolved decision
 under A4 and is not justified by duplicate provider implementations.
 
 
+## 2026-11-28 — A8: isolate owner-scoped experiment read-model routes
+
+**Problem:** seven HTTP integration cases for owner isolation, run-list
+projection, provider provenance, delegated history, terminal cleanup state,
+pagination, and historical result provenance were embedded in the broad
+`index.test.js` fixture.
+
+**Change:** moved the cases into
+`worker/experiment_read_models.integration.test.js` with a small owner allowlist
+and per-case D1 query result. The tested HTTP/MCP paths and assertions remain
+unchanged; no general-purpose test fixture abstraction was introduced.
+
+**Validation:** all seven focused cases pass, all 163 Worker tests pass, and
+the 52-module graph remains acyclic. The entry test file is 2,435 lines, down
+201 lines; the new domain integration file is 222 lines. No provider operation
+or deployment occurred.
+
+**Review:** checked assertion parity and verified each test declares the D1
+rows it returns.
+
+
 ## 2026-11-28 — A13: exercise external MCP OAuth over Worker HTTP
 
 **Problem:** OAuth protocol functions had focused unit coverage, but no test

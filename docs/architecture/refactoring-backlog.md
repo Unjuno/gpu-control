@@ -345,8 +345,9 @@ duplicate source and provider reads in the ordinary run path.
 ### A8. Split test fixtures by contract and reuse domain builders
 
 - **Evidence:** Sites `index.test.js` measured 3,444 lines at source candidate
-  `615e039`; at head `c6c69c2` it is 2,636 lines after contract, source, and
-  MCP request-auth route tests were extracted. It still combines route, capability, provider,
+  `615e039`; at head `ae2f1fc` it is 2,435 lines after contract, source,
+  authentication, and read-model route tests were extracted. It still combines
+  route, capability, provider,
   cancellation, artifact and run-list integration concerns. Gateway
   store/worker tests are also large. The suite has valuable runtime contracts.
 - **Work:** partition tests by domain and lifecycle; extract only stable test
@@ -366,6 +367,13 @@ duplicate source and provider reads in the ordinary run path.
   purpose-built for token lookup and empty run listing, so it no longer depends
   on the broad `index.test.js` environment builder. Focused tests pass (2/2),
   the full suite remains 163/163, and `index.test.js` shrank by 48 lines.
+- **Progress (2026-11-28):** moved seven owner-scoped run-list and status/result
+  HTTP integration cases to `worker/experiment_read_models.integration.test.js`.
+  The new file uses a minimal per-case D1 fixture rather than the provider-heavy
+  general environment. All seven focused cases and the complete 163-test Sites
+  suite pass. `index.test.js` shrank by 201 lines to 2,435 lines; the extracted
+  file is 222 lines. Filtering, pagination, provider provenance, terminal
+  cleanup state, and cross-owner privacy assertions remain intact.
 
 ### A9. Consolidate Python/Gateway provider runtime duplication by consumer
 
@@ -592,9 +600,10 @@ found no actionable findings.
 **Progress (2026-11-28):** moved public MCP schema/description assertions to
 `worker/mcp_tool_contract.test.js`, GitHub source pinning cases to
 `worker/training_source.test.js`. `worker/index.test.js` shrank from 3,445 to
-3,326 lines at that checkpoint without dropping coverage. At head `c6c69c2`,
-it is 2,636 lines; all 163 Worker tests pass locally and the graph is acyclic
-across 52 runtime modules. The 2-test request-auth route slice passes alone.
+3,326 lines at that checkpoint without dropping coverage. At head `ae2f1fc`,
+it is 2,435 lines; all 163 Worker tests pass locally and the graph is acyclic
+across 52 runtime modules. The 7-test read-model and 2-test request-auth route
+slices pass on their own.
 
 **Progress (2026-11-28):** the shared `MAP_TRAINING_CONTROL_PLANE_SHA`
 authorization identity now has one Worker binding reader in
