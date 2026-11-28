@@ -1,4 +1,4 @@
-import { githubAppConfigured, getOwnedGithubInstallation } from "./github_app_connection.js";
+import { githubAppConfigured, githubAppOwnerConnectionConfigured, getOwnedGithubInstallation } from "./github_app_connection.js";
 import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
   trainingRuntimeProfileFingerprint } from "./training_contract.js";
@@ -17,7 +17,7 @@ export async function getOwnerTrainingCapability(env, owner, budgetPolicy) {
   });
   const modalProviderBudget = modalBudgetAssessment.providerBudget;
   const providerBudgetPolicyReady = budgetPolicy.state === "ready";
-  const githubConfigured = githubAppConfigured(env);
+  const githubConfigured = githubAppConfigured(env) && githubAppOwnerConnectionConfigured(env);
   let githubConnected = false;
   if (githubConfigured) {
     try { githubConnected = Boolean(await getOwnedGithubInstallation(env.DB, owner)); }

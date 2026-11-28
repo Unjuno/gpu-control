@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import test from "node:test";
 import { createGithubOAuthRoutes } from "./github_oauth_routes.js";
 
@@ -12,6 +12,7 @@ const env = {
   GITHUB_APP_PRIVATE_KEY: privatePem,
   GITHUB_APP_CLIENT_ID: "Iv1.client-id",
   GITHUB_APP_CLIENT_SECRET: "github-app-client-secret-for-tests",
+  GITHUB_APP_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString("base64url"),
   GITHUB_APP_OAUTH_CALLBACK_URL: "https://gpu-control.example/github/oauth/callback",
 };
 

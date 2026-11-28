@@ -86,6 +86,15 @@ export function githubAppOAuthConfigured(env) {
   } catch { return false; }
 }
 
+export function githubAppTokenStorageConfigured(env) {
+  try { return fromBase64Url(env?.GITHUB_APP_TOKEN_ENCRYPTION_KEY, "invalid").length === 32; }
+  catch { return false; }
+}
+
+export function githubAppOwnerConnectionConfigured(env) {
+  return githubAppOAuthConfigured(env) && githubAppTokenStorageConfigured(env);
+}
+
 export async function createGithubAppJwt(env, now = Math.floor(Date.now() / 1000)) {
   if (!githubAppConfigured(env) || !Number.isSafeInteger(now)) throw new Error("GITHUB_APP_NOT_CONFIGURED");
   const header = base64Url(utf8(JSON.stringify({ alg: "RS256", typ: "JWT" })));
@@ -109,6 +118,50 @@ function randomHex(bytes = 32) {
 
 function randomBase64Url(bytes = 32) {
   return base64Url(crypto.getRandomValues(new Uint8Array(bytes)));
+}
+
+function fromBase64Url(value, errorCode) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error(errorCode);
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+  try { return Uint8Array.from(atob(base64 + "=".repeat((4 - base64.length % 4) % 4)), (char) => char.charCodeAt(0)); }
+  catch { throw new Error(errorCode); }
+}
+
+function githubTokenAad(owner, githubUserId, tokenType) {
+  if (!validOwner(owner) || !/^[1-9][0-9]{0,19}$/.test(githubUserId || "") ||
+      !["access", "refresh"].includes(tokenType)) throw new Error("GITHUB_CREDENTIAL_UNAVAILABLE");
+  return utf8(`gpu-control:github-user-token:v1:${owner}:${githubUserId}:${tokenType}`);
+}
+
+async function githubTokenKey(env) {
+  const bytes = fromBase64Url(env?.GITHUB_APP_TOKEN_ENCRYPTION_KEY, "GITHUB_CREDENTIAL_UNAVAILABLE");
+  if (bytes.length !== 32) throw new Error("GITHUB_CREDENTIAL_UNAVAILABLE");
+  return crypto.subtle.importKey("raw", bytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+
+async function sealGithubUserToken(env, owner, githubUserId, tokenType, token) {
+  if (typeof token !== "string" || token.length < 8 || token.length > 4096 || /\s/.test(token)) {
+    throw new Error("GITHUB_USER_AUTHORIZATION_INVALID");
+  }
+  const key = await githubTokenKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv,
+    additionalData: githubTokenAad(owner, githubUserId, tokenType), tagLength: 128 }, key, utf8(token));
+  return { iv: base64Url(iv), ciphertext: base64Url(new Uint8Array(ciphertext)) };
+}
+
+async function openGithubUserToken(env, owner, githubUserId, tokenType, row) {
+  const key = await githubTokenKey(env);
+  const iv = fromBase64Url(row?.[`${tokenType}_token_iv`], "GITHUB_CREDENTIAL_UNAVAILABLE");
+  const ciphertext = fromBase64Url(row?.[`${tokenType}_token_ciphertext`], "GITHUB_CREDENTIAL_UNAVAILABLE");
+  if (iv.length !== 12 || ciphertext.length < 24 || ciphertext.length > 8192) {
+    throw new Error("GITHUB_CREDENTIAL_UNAVAILABLE");
+  }
+  try {
+    const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv,
+      additionalData: githubTokenAad(owner, githubUserId, tokenType), tagLength: 128 }, key, ciphertext);
+    return new TextDecoder("utf-8", { fatal: true }).decode(clear);
+  } catch { throw new Error("GITHUB_CREDENTIAL_UNAVAILABLE"); }
 }
 
 async function pkceChallenge(verifier) {
@@ -162,6 +215,7 @@ export async function beginGithubInstallationOAuth(db, state, installationId, in
   url.searchParams.set("client_id", env.GITHUB_APP_CLIENT_ID);
   url.searchParams.set("redirect_uri", env.GITHUB_APP_OAUTH_CALLBACK_URL);
   url.searchParams.set("state", oauthState);
+  url.searchParams.set("scope", "offline_access");
   url.searchParams.set("code_challenge", await pkceChallenge(verifier));
   url.searchParams.set("code_challenge_method", "S256");
   return { authorization_url: url.toString(),
@@ -179,6 +233,7 @@ async function githubApiWithUserToken(path, token, fetchImpl) {
       headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`,
         "x-github-api-version": API_VERSION }, signal: AbortSignal.timeout(5_000) });
   } catch { throw new Error("GITHUB_USER_AUTHORIZATION_FAILED"); }
+  if (response.status === 401 || response.status === 403) throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
   return githubJson(response);
 }
 
@@ -207,16 +262,80 @@ export async function exchangeGithubOAuthCode(env, code, codeVerifier, options =
   } catch { throw new Error("GITHUB_USER_AUTHORIZATION_FAILED"); }
   const result = await githubJson(response);
   if (typeof result.access_token !== "string" || !/^ghu_[A-Za-z0-9_]{16,508}$/.test(result.access_token) ||
-      result.token_type !== "bearer" || result.scope !== "") {
+      typeof result.refresh_token !== "string" || !/^ghr_[A-Za-z0-9_]{16,508}$/.test(result.refresh_token) ||
+      result.token_type !== "bearer" || result.scope !== "" ||
+      !Number.isSafeInteger(result.expires_in) || result.expires_in < 60 || result.expires_in > 28_800 ||
+      !Number.isSafeInteger(result.refresh_token_expires_in) || result.refresh_token_expires_in < 60 ||
+      result.refresh_token_expires_in > 15_897_600) {
     throw new Error("GITHUB_USER_AUTHORIZATION_FAILED");
   }
-  return result.access_token;
+  return { access_token: result.access_token, refresh_token: result.refresh_token,
+    access_expires_in: result.expires_in, refresh_expires_in: result.refresh_token_expires_in };
 }
 
-export async function completeGithubInstallationOAuth(db, oauthState, userToken, fetchImpl = fetch,
+async function refreshGithubOAuthToken(env, refreshToken, fetchImpl) {
+  let response;
+  try {
+    response = await fetchImpl("https://github.com/login/oauth/access_token", { method: "POST", redirect: "error",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: env.GITHUB_APP_CLIENT_ID,
+        client_secret: env.GITHUB_APP_CLIENT_SECRET, grant_type: "refresh_token", refresh_token: refreshToken }),
+      signal: AbortSignal.timeout(5_000) });
+  } catch { throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED"); }
+  if (!response.ok) throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
+  let result;
+  try {
+    const bytes = await readBoundedResponseBytes(response, { maxBytes: 16_384,
+      tooLargeCode: "GITHUB_USER_AUTHORIZATION_REQUIRED", missingBodyCode: "GITHUB_USER_AUTHORIZATION_REQUIRED" });
+    result = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch { throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED"); }
+  if (typeof result.access_token !== "string" || !/^ghu_[A-Za-z0-9_]{16,508}$/.test(result.access_token) ||
+      typeof result.refresh_token !== "string" || !/^ghr_[A-Za-z0-9_]{16,508}$/.test(result.refresh_token) ||
+      result.token_type !== "bearer" || !Number.isSafeInteger(result.expires_in) ||
+      result.expires_in < 60 || result.expires_in > 28_800 ||
+      !Number.isSafeInteger(result.refresh_token_expires_in) || result.refresh_token_expires_in < 60 ||
+      result.refresh_token_expires_in > 15_897_600) throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
+  return result;
+}
+
+async function currentGithubUserToken(env, db, owner, connection, githubUserId, options = {}) {
+  const now = options.now ?? Math.floor(Date.now() / 1000);
+  if (connection.access_token_expires_at > now + 60) {
+    return openGithubUserToken(env, owner, githubUserId, "access", connection);
+  }
+  if (connection.refresh_token_expires_at <= now) throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
+  const fetchImpl = options.fetchImpl || fetch;
+  let refreshToken;
+  try { refreshToken = await openGithubUserToken(env, owner, githubUserId, "refresh", connection); }
+  catch { throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED"); }
+  let refreshed;
+  try { refreshed = await refreshGithubOAuthToken(env, refreshToken, fetchImpl); }
+  catch {
+    // Another simultaneous request may have rotated the one-time refresh token.
+    const latest = await getOwnedGithubInstallation(db, owner);
+    if (latest?.access_token_expires_at > now + 60) {
+      return openGithubUserToken(env, owner, githubUserId, "access", latest);
+    }
+    throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
+  }
+  const access = await sealGithubUserToken(env, owner, githubUserId, "access", refreshed.access_token);
+  const refresh = await sealGithubUserToken(env, owner, githubUserId, "refresh", refreshed.refresh_token);
+  const updated = await db.prepare(`UPDATE github_app_installations SET
+    access_token_ciphertext=?, access_token_iv=?, refresh_token_ciphertext=?, refresh_token_iv=?,
+    access_token_expires_at=?, refresh_token_expires_at=?
+    WHERE owner_id=? AND installation_id=?`).bind(access.ciphertext, access.iv, refresh.ciphertext,
+      refresh.iv, now + refreshed.expires_in, now + refreshed.refresh_token_expires_in,
+      owner, connection.installation_id).run();
+  if ((updated?.meta?.changes ?? updated?.changes ?? 0) !== 1) throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
+  return refreshed.access_token;
+}
+
+export async function completeGithubInstallationOAuth(env, db, oauthState, tokens, fetchImpl = fetch,
   now = Math.floor(Date.now() / 1000)) {
   if (typeof oauthState !== "string" || !/^[a-f0-9]{64}$/.test(oauthState) ||
-      typeof userToken !== "string" || !Number.isSafeInteger(now)) throw new Error("GITHUB_CONNECTION_INVALID");
+      !tokens || typeof tokens.access_token !== "string" || typeof tokens.refresh_token !== "string" ||
+      !Number.isSafeInteger(tokens.access_expires_in) || !Number.isSafeInteger(tokens.refresh_expires_in) ||
+      !Number.isSafeInteger(now)) throw new Error("GITHUB_CONNECTION_INVALID");
   const stateHash = await sha256(oauthState);
   const intent = await db.prepare(`SELECT owner_id, pending_installation_id, pending_account_login,
       expires_at, consumed_at FROM github_installation_states WHERE oauth_state_hash=?`)
@@ -224,13 +343,14 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
   if (!intent || intent.expires_at <= now) throw new Error("GITHUB_INSTALLATION_STATE_EXPIRED");
   if (intent.consumed_at !== null) throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
   if (!validInstallationId(intent.pending_installation_id)) throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
-  const identity = await readGithubOAuthIdentity(userToken, fetchImpl);
+  const identity = await readGithubOAuthIdentity(tokens.access_token, fetchImpl);
   const authorizedRepositories = [];
   let totalCount = null;
   const pageSize = 25;
   for (let page = 1; page <= 20; page += 1) {
     const access = await githubApiWithUserToken(
-      `/user/installations/${intent.pending_installation_id}/repositories?per_page=${pageSize}&page=${page}`, userToken, fetchImpl);
+      `/user/installations/${intent.pending_installation_id}/repositories?per_page=${pageSize}&page=${page}`,
+      tokens.access_token, fetchImpl);
     if (!Number.isSafeInteger(access.total_count) || access.total_count < 0 || access.total_count > 500 ||
         !Array.isArray(access.repositories) || access.repositories.length > pageSize ||
         (totalCount !== null && totalCount !== access.total_count)) {
@@ -243,14 +363,17 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
           !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository.full_name)) {
         throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
       }
-      authorizedRepositories.push(repository.full_name.toLowerCase());
+      authorizedRepositories.push({ id: String(repository.id), repository: repository.full_name.toLowerCase() });
     }
     if (authorizedRepositories.length >= totalCount || access.repositories.length === 0) break;
   }
   if (totalCount === null || authorizedRepositories.length !== totalCount ||
-      new Set(authorizedRepositories).size !== authorizedRepositories.length) {
+      new Set(authorizedRepositories.map((item) => item.id)).size !== authorizedRepositories.length) {
     throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
   }
+  const owner = intent.owner_id;
+  const accessToken = await sealGithubUserToken(env, owner, identity.id, "access", tokens.access_token);
+  const refreshToken = await sealGithubUserToken(env, owner, identity.id, "refresh", tokens.refresh_token);
   const consumedAt = now;
   const completionNonce = randomHex();
   const results = await db.batch([
@@ -267,14 +390,22 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
       SELECT owner_id FROM github_installation_states WHERE oauth_state_hash=? AND completion_nonce=?)`)
       .bind(stateHash, completionNonce),
     db.prepare(`INSERT INTO github_app_installations
-      (owner_id, installation_id, account_login, repository_selection, user_authorized_repositories_json, connected_at)
-      SELECT owner_id, pending_installation_id, pending_account_login, 'selected', ?, ?
+      (owner_id, installation_id, account_login, repository_selection, user_authorized_repositories_json,
+       access_token_ciphertext, access_token_iv, refresh_token_ciphertext, refresh_token_iv,
+       access_token_expires_at, refresh_token_expires_at, connected_at)
+      SELECT owner_id, pending_installation_id, pending_account_login, 'selected', ?, ?, ?, ?, ?, ?, ?, ?
       FROM github_installation_states WHERE oauth_state_hash=? AND completion_nonce=?
       ON CONFLICT(owner_id) DO UPDATE SET installation_id=excluded.installation_id,
         account_login=excluded.account_login, repository_selection=excluded.repository_selection,
         user_authorized_repositories_json=excluded.user_authorized_repositories_json,
+        access_token_ciphertext=excluded.access_token_ciphertext, access_token_iv=excluded.access_token_iv,
+        refresh_token_ciphertext=excluded.refresh_token_ciphertext, refresh_token_iv=excluded.refresh_token_iv,
+        access_token_expires_at=excluded.access_token_expires_at,
+        refresh_token_expires_at=excluded.refresh_token_expires_at,
         connected_at=excluded.connected_at`)
-      .bind(JSON.stringify(authorizedRepositories), now, stateHash, completionNonce),
+      .bind(JSON.stringify(authorizedRepositories), accessToken.ciphertext, accessToken.iv,
+        refreshToken.ciphertext, refreshToken.iv, now + tokens.access_expires_in,
+        now + tokens.refresh_expires_in, now, stateHash, completionNonce),
     db.prepare(`INSERT INTO github_owner_identities (owner_id, github_user_id, verified_at)
       SELECT owner_id, ?, ? FROM github_installation_states
       WHERE oauth_state_hash=? AND completion_nonce=?
@@ -379,9 +510,9 @@ export async function listGithubInstallationRepositories(env, installationId, op
     throw new Error("GITHUB_INSTALLATION_TOKEN_SCOPE_INVALID");
   }
   const repos = [];
-  for (let page = 1; page <= 5; page += 1) {
+  for (let page = 1; page <= 20; page += 1) {
     const url = new URL(`${API_ORIGIN}/installation/repositories`);
-    url.searchParams.set("per_page", "100");
+    url.searchParams.set("per_page", "25");
     url.searchParams.set("page", String(page));
     let response;
     try {
@@ -390,16 +521,17 @@ export async function listGithubInstallationRepositories(env, installationId, op
           "x-github-api-version": API_VERSION }, signal: AbortSignal.timeout(5_000) });
     } catch { throw new Error("GITHUB_APP_API_FAILED"); }
     const result = await githubJson(response);
-    if (!Array.isArray(result?.repositories) || result.repositories.length > 100 ||
+    if (!Array.isArray(result?.repositories) || result.repositories.length > 25 ||
         !Number.isSafeInteger(result.total_count) || result.total_count > 500) {
       throw new Error("GITHUB_APP_API_RESPONSE_INVALID");
     }
     for (const repo of result.repositories) {
-      if (typeof repo?.full_name !== "string" || !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo.full_name) ||
+      if (!Number.isSafeInteger(repo?.id) || repo.id < 1 ||
+          typeof repo?.full_name !== "string" || !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo.full_name) ||
           typeof repo.private !== "boolean" || typeof repo.default_branch !== "string") {
         throw new Error("GITHUB_APP_API_RESPONSE_INVALID");
       }
-      repos.push({ repository: repo.full_name.toLowerCase(), private: repo.private,
+      repos.push({ id: String(repo.id), repository: repo.full_name.toLowerCase(), private: repo.private,
         default_branch: repo.default_branch });
     }
     if (repos.length >= result.total_count || result.repositories.length === 0) break;
@@ -410,27 +542,68 @@ export async function listGithubInstallationRepositories(env, installationId, op
 export async function listOwnedGithubRepositories(env, db, owner, options = {}) {
   const connection = await getOwnedGithubInstallation(db, owner);
   if (!connection) throw new Error("GITHUB_CONNECTION_REQUIRED");
+  const identity = await db.prepare(`SELECT github_user_id FROM github_owner_identities WHERE owner_id=?`)
+    .bind(owner).first();
+  if (!identity || !/^[1-9][0-9]{0,19}$/.test(identity.github_user_id || "")) {
+    throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
+  }
+  const userToken = await currentGithubUserToken(env, db, owner, connection, identity.github_user_id, options);
+  const currentIdentity = await readGithubOAuthIdentity(userToken, options.fetchImpl || fetch);
+  if (currentIdentity.id !== identity.github_user_id) throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
   let authorized;
   try { authorized = JSON.parse(connection.user_authorized_repositories_json); }
   catch { throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED"); }
   if (!Array.isArray(authorized) || authorized.length > 500 ||
-      authorized.some((item) => typeof item !== "string" || !/^[a-z0-9-]+\/[a-z0-9_.-]+$/.test(item))) {
+      authorized.some((item) => !item || typeof item !== "object" ||
+        !/^[1-9][0-9]{0,19}$/.test(item.id || "") ||
+        typeof item.repository !== "string" || !/^[a-z0-9-]+\/[a-z0-9_.-]+$/.test(item.repository))) {
     throw new Error("GITHUB_USER_AUTHORIZATION_REQUIRED");
   }
-  const authorizedSet = new Set(authorized);
-  return (await listGithubInstallationRepositories(env, connection.installation_id, options))
-    .filter((repository) => authorizedSet.has(repository.repository));
+  const userRepositories = [];
+  let totalCount = null;
+  for (let page = 1; page <= 20; page += 1) {
+    const access = await githubApiWithUserToken(
+      `/user/installations/${connection.installation_id}/repositories?per_page=25&page=${page}`,
+      userToken, options.fetchImpl || fetch);
+    if (!Number.isSafeInteger(access.total_count) || access.total_count < 0 || access.total_count > 500 ||
+        !Array.isArray(access.repositories) || access.repositories.length > 25 ||
+        (totalCount !== null && totalCount !== access.total_count)) {
+      throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
+    }
+    totalCount = access.total_count;
+    for (const repo of access.repositories) {
+      if (!Number.isSafeInteger(repo?.id) || repo.id < 1 || typeof repo.full_name !== "string" ||
+          !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo.full_name)) {
+        throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
+      }
+      userRepositories.push({ id: String(repo.id), repository: repo.full_name.toLowerCase() });
+    }
+    if (userRepositories.length >= totalCount || access.repositories.length === 0) break;
+  }
+  if (totalCount === null || userRepositories.length !== totalCount ||
+      new Set(userRepositories.map((item) => item.id)).size !== userRepositories.length) {
+    throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
+  }
+  const originallyAuthorizedIds = new Set(authorized.map((item) => item.id));
+  const currentlyAuthorizedIds = new Set(userRepositories.map((item) => item.id));
+  const installationRepositories = await listGithubInstallationRepositories(env, connection.installation_id, options);
+  return installationRepositories.filter((repository) => originallyAuthorizedIds.has(repository.id) &&
+    currentlyAuthorizedIds.has(repository.id));
 }
 
 export async function getOwnedGithubInstallation(db, owner) {
   if (!validOwner(owner)) throw new Error("GITHUB_CONNECTION_INVALID");
-  return db.prepare(`SELECT installation_id, account_login, repository_selection, user_authorized_repositories_json
+  return db.prepare(`SELECT installation_id, account_login, repository_selection, user_authorized_repositories_json,
+      access_token_ciphertext, access_token_iv, refresh_token_ciphertext, refresh_token_iv,
+      access_token_expires_at, refresh_token_expires_at
     FROM github_app_installations WHERE owner_id=?`).bind(owner).first();
 }
 
 /** Mint a short-lived read token only for a repository selected by this Sites owner. */
 export async function createOwnedRepositoryReadToken(env, db, owner, repository, options = {}) {
-  if (!githubAppConfigured(env)) throw new Error("GITHUB_APP_NOT_CONFIGURED");
+  if (!githubAppConfigured(env) || !githubAppOwnerConnectionConfigured(env)) {
+    throw new Error("GITHUB_APP_NOT_CONFIGURED");
+  }
   const connection = await getOwnedGithubInstallation(db, owner);
   if (!connection) throw new Error("GITHUB_CONNECTION_REQUIRED");
   const repositories = await listOwnedGithubRepositories(env, db, owner, options);

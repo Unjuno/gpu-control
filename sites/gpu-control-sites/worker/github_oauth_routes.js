@@ -3,6 +3,7 @@ import {
   completeGithubInstallationOAuth,
   exchangeGithubOAuthCode,
   githubAppOAuthConfigured,
+  githubAppTokenStorageConfigured,
   verifyGithubInstallation,
 } from "./github_app_connection.js";
 import { completeMcpOAuthGitHubLogin, isMcpOAuthGitHubState } from "./mcp_oauth.js";
@@ -28,7 +29,7 @@ function cookieValue(request, name) {
 export function createGithubOAuthRoutes({ htmlPage, escapeHtml }) {
   async function setup(request, env) {
     if (request.method !== "GET") return htmlPage("GitHub接続", "<p>このcallbackはGETのみ受け付けます。</p>", 405);
-    if (!env.DB || !githubAppOAuthConfigured(env)) return htmlPage("GitHub接続を確認できません",
+    if (!env.DB || !githubAppOAuthConfigured(env) || !githubAppTokenStorageConfigured(env)) return htmlPage("GitHub接続を確認できません",
       "<p>GPU Control側のGitHub App設定がまだ完了していません。</p>", 503);
     const url = new URL(request.url);
     const state = url.searchParams.get("state") || "";
@@ -49,7 +50,7 @@ export function createGithubOAuthRoutes({ htmlPage, escapeHtml }) {
 
   async function callback(request, env) {
     if (request.method !== "GET") return htmlPage("GitHub接続", "<p>このcallbackはGETのみ受け付けます。</p>", 405);
-    if (!env.DB || !githubAppOAuthConfigured(env)) return htmlPage("GitHub接続を確認できません",
+    if (!env.DB || !githubAppOAuthConfigured(env) || !githubAppTokenStorageConfigured(env)) return htmlPage("GitHub接続を確認できません",
       "<p>GPU Control側のGitHub App設定がまだ完了していません。</p>", 503);
     const url = new URL(request.url);
     const callbackUrl = new URL(env.GITHUB_APP_OAUTH_CALLBACK_URL);
@@ -72,14 +73,14 @@ export function createGithubOAuthRoutes({ htmlPage, escapeHtml }) {
         "<p>本人確認stateまたはPKCE verifierを確認できません。新しい接続linkを作成してください。</p>", 400));
     }
     try {
-      const userToken = await exchangeGithubOAuthCode(env, code, codeVerifier);
+      const tokens = await exchangeGithubOAuthCode(env, code, codeVerifier);
       if (mcpOAuth) {
-        const completed = await completeMcpOAuthGitHubLogin(env.DB, state, userToken);
+        const completed = await completeMcpOAuthGitHubLogin(env.DB, state, tokens.access_token);
         return finish(completed.response, "mcp");
       }
-      const connected = await completeGithubInstallationOAuth(env.DB, state, userToken);
+      const connected = await completeGithubInstallationOAuth(env, env.DB, state, tokens);
       return finish(htmlPage("GitHub接続完了", `<p>${escapeHtml(connected.account_login)}の選択済みrepositoryをGPU Controlへ接続しました。</p>
-        <p>GitHub利用者本人がinstallationへアクセスできることを確認しました。短時間のuser tokenは保存せず破棄しました。</p>
+        <p>GitHub利用者本人がinstallationへアクセスできることを確認しました。期限付きuser tokenは暗号化して保存し、読み取り時にGitHub権限を再確認します。</p>
         <p>許可されたのは選択repositoryのContents readとMetadata readです。installation tokenもGPU Controlの実験コンテナへ渡しません。</p>
         <p>チャットへ戻り、github_repositoriesで接続結果を確認できます。</p>`));
     } catch {

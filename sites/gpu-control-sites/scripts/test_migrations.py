@@ -163,7 +163,9 @@ assert {row[1] for row in conn.execute("PRAGMA table_info(github_installation_st
 }
 assert {row[1] for row in conn.execute("PRAGMA table_info(github_app_installations)")} == {
     "owner_id", "installation_id", "account_login", "repository_selection",
-    "user_authorized_repositories_json", "connected_at",
+    "user_authorized_repositories_json", "access_token_ciphertext", "access_token_iv",
+    "refresh_token_ciphertext", "refresh_token_iv", "access_token_expires_at",
+    "refresh_token_expires_at", "connected_at",
 }
 assert "cleanup_confirmed_at" in {row[1] for row in conn.execute("PRAGMA table_info(training_plans)")}
 assert conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='github_app_installations'").fetchone()[0].find("UNIQUE") >= 0

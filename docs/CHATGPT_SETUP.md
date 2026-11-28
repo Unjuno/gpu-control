@@ -368,14 +368,17 @@ https://gpu-control-sites.unjuno.chatgpt.site/github/setup, and OAuth Callback
 URL https://gpu-control-sites.unjuno.chatgpt.site/github/oauth/callback.
 The Sites Worker needs GITHUB_APP_ID, GITHUB_APP_SLUG,
 GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET,
-GITHUB_APP_OAUTH_CALLBACK_URL, and the private key in server-side secret
-storage. The install callback alone does not prove who initiated the install:
-the owner completes a GitHub user authorization step, and the Worker verifies
-that token can read the exact installation before binding it. The temporary
-user token is discarded and is never saved. Applying migration 0033 clears
-pre-existing GitHub installation bindings because their owner identity was not
-verified; reconnect once after that migration. Never put the private key or
-installation token in ChatGPT, a training container, repository files, or logs.
+GITHUB_APP_OAUTH_CALLBACK_URL, the private key, and a random 32-byte
+`GITHUB_APP_TOKEN_ENCRYPTION_KEY` in server-side secret storage. The install
+callback alone does not prove who initiated the install: the owner completes a
+GitHub user authorization step, and the Worker verifies access to the exact
+installation. The short-lived user token and rotating refresh token are
+encrypted at rest with owner-and-identity-bound AES-GCM; each repository list
+and source-token request rechecks the current GitHub user and repository IDs.
+If GitHub access is revoked, the source is no longer selectable. Applying
+migration 0042 clears earlier installation bindings; reconnect once after that
+migration. Never put any GitHub token, private key, or installation token in
+ChatGPT, a training container, repository files, or logs.
 
 In ChatGPT, call `github_connection_status`. If it is disconnected, call
 github_connection_start and open its one-time link; install the App with the

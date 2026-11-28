@@ -3603,3 +3603,21 @@ suite passes 222/222, the graph remains acyclic across 85 modules, and build,
 artifact validation, and migration replay pass. Exact-head CI runs
 `46170711441`, `46170711445`, and `46170711444` all pass. PR #70 remains open
 with review required and is not deployed.
+
+## 2026-11-29 — GitHub authorization revocation enforcement
+
+**Finding:** Security Review found that a saved GitHub repository-name snapshot
+did not observe a later permission revocation. The owner could still ask the
+Site to read source while the App installation retained access.
+
+**Change:** GitHub user authorization now requests expiring access and rotating
+refresh tokens, encrypts them with a dedicated Worker secret, and revalidates
+the current GitHub identity and repository IDs before listing or minting a
+source token. Source access is intersected by immutable repository ID across
+the original authorized scope, the user's current access, and the current App
+installation. Migration 0042 clears stale bindings so the owner reconnects.
+
+**Validation:** all 225 Sites tests pass, including revocation and refresh
+coverage; D1 migration replay passes; the Worker dependency graph remains
+acyclic across 85 modules. Hosted migration, deployment, and live source reads
+were not performed. PR #70 remains the source candidate and is not deployed.

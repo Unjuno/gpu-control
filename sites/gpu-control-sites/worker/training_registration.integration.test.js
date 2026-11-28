@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_aut
 import { getOwnedTrainingSource } from "./training_source.js";
 import { trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { canonicalJson } from "./canonical_json.js";
+import { beginGithubInstallationOAuth, completeGithubInstallationOAuth, createGithubInstallationUrl } from "./github_app_connection.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
@@ -55,7 +56,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0028_training_execution_specs.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0029_training_authorization_evidence.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0033_github_installation_user_authorization.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0035_github_owner_identity.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0041_github_user_repository_scope.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0042_github_live_user_authorization.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0031_training_cleanup_confirmation.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0040_training_terminal_result.sql", import.meta.url), "utf8"));
     db.exec(`CREATE TABLE provider_budget_policies (
@@ -142,10 +146,25 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     env.GITHUB_APP_ID = "12345";
     env.GITHUB_APP_SLUG = "gpu-control-source";
     env.GITHUB_APP_PRIVATE_KEY = appKeys.privateKey.export({ type: "pkcs8", format: "pem" });
-    db.prepare(`INSERT INTO github_app_installations
-      (owner_id, installation_id, account_login, repository_selection, user_authorized_repositories_json, connected_at)
-      VALUES (?, ?, ?, 'selected', ?, ?)`).run("selected-owner", "98765", "sample-owner",
-        JSON.stringify(["sample-owner/sample-model"]), 1);
+    env.GITHUB_APP_CLIENT_ID = "Iv1.client-id";
+    env.GITHUB_APP_CLIENT_SECRET = "github-app-client-secret-for-tests";
+    env.GITHUB_APP_OAUTH_CALLBACK_URL = "https://gpu-control-sites.unjuno.chatgpt.site/github/oauth/callback";
+    env.GITHUB_APP_TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("base64url");
+    const setup = await createGithubInstallationUrl(env.DB, "selected-owner", env.GITHUB_APP_SLUG, 2_000_000_000);
+    const setupState = new URL(setup.authorization_url).searchParams.get("state");
+    const auth = await beginGithubInstallationOAuth(env.DB, setupState, "98765", {
+      id: "98765", account: { login: "sample-owner" }, repository_selection: "selected", suspended_at: null,
+      permissions: { contents: "read", metadata: "read" },
+    }, env, 2_000_000_001);
+    const authState = new URL(auth.authorization_url).searchParams.get("state");
+    await completeGithubInstallationOAuth(env, env.DB, authState, {
+      access_token: "ghu_aaaaaaaaaaaaaaaaaaaa", refresh_token: "ghr_bbbbbbbbbbbbbbbbbbbb",
+      access_expires_in: 28_800, refresh_expires_in: 15_897_600,
+    }, async (url) => String(url).endsWith("/user")
+      ? new Response(JSON.stringify({ id: 567890, login: "sample-owner" }), { status: 200 })
+      : new Response(JSON.stringify({ total_count: 1, repositories: [
+        { id: 123, full_name: "sample-owner/sample-model" },
+      ] }), { status: 200 }), 2_000_000_002);
     const ownerCapabilities = await call("selected-owner", "experiment_capabilities", {});
     assert.equal(ownerCapabilities.machine_state.owner_selected_training.github_app_configured, true);
     assert.equal(ownerCapabilities.machine_state.owner_selected_training.github_connected, true);
@@ -159,6 +178,10 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     globalThis.fetch = async (url, options) => {
       const parsed = new URL(String(url));
       requests.push({ url: parsed, options });
+      if (parsed.pathname === "/user") return new Response(JSON.stringify({ id: 567890, login: "sample-owner" }), { status: 200 });
+      if (parsed.pathname === "/user/installations/98765/repositories") return new Response(JSON.stringify({
+        total_count: 1, repositories: [{ id: 123, full_name: "sample-owner/sample-model" }],
+      }), { status: 200 });
       if (parsed.pathname === "/app/installations/98765/access_tokens") {
         const body = options.body ? JSON.parse(options.body) : {};
         if (body.repositories) return new Response(JSON.stringify({ token: "single-repo-token",
@@ -170,7 +193,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
           permissions: { contents: "read", metadata: "read" } }), { status: 201 });
       }
       if (parsed.pathname === "/installation/repositories") return new Response(JSON.stringify({
-        total_count: 1, repositories: [{ full_name: installedRepo, private: true, default_branch: "main" }],
+        total_count: 1, repositories: [{ id: 123, full_name: installedRepo, private: true, default_branch: "main" }],
       }), { status: 200 });
       if (parsed.pathname === "/repos/sample-owner/sample-model") return new Response(JSON.stringify({
         private: true, archived: false, default_branch: "main",

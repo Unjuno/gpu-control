@@ -1,4 +1,4 @@
-import { createGithubInstallationUrl, disconnectGithubApp, githubAppConfigured, githubAppOAuthConfigured,
+import { createGithubInstallationUrl, disconnectGithubApp, githubAppConfigured, githubAppOwnerConnectionConfigured,
   githubConnectionStatus, getOwnedGithubInstallation, listOwnedGithubRepositories } from "./github_app_connection.js";
 
 const GITHUB_TOOLS = new Set([
@@ -14,7 +14,7 @@ export function isGithubTool(name) {
 export async function handleGithubTool(name, env, owner) {
   if (!isGithubTool(name)) return null;
   if (name === "github_connection_start") {
-    if (!githubAppOAuthConfigured(env)) return { schema_version: 2, status: "blocked",
+    if (!githubAppOwnerConnectionConfigured(env)) return { schema_version: 2, status: "blocked",
       human_summary: "GitHub App接続の初期設定が完了していません。GPU実験は開始していません。",
       machine_state: { configured: false }, next_allowed_actions: [], blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
     const link = await createGithubInstallationUrl(env.DB, owner, env.GITHUB_APP_SLUG);
@@ -29,7 +29,7 @@ export async function handleGithubTool(name, env, owner) {
       machine_state: { configured: false, connected: false }, next_allowed_actions: [],
       blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
     const connection = await githubConnectionStatus(env.DB, owner);
-    const setupConfigured = githubAppOAuthConfigured(env);
+    const setupConfigured = githubAppOwnerConnectionConfigured(env);
     return { schema_version: 2, status: "ok", human_summary: !setupConfigured && !connection.connected
       ? "GitHub接続を開始するためのOAuth設定が未完了です。"
       : "GitHub repository connection state.",
@@ -40,7 +40,7 @@ export async function handleGithubTool(name, env, owner) {
   if (name === "github_connection_disconnect") return { schema_version: 2, status: "ok",
     human_summary: "GPU ControlからGitHub repository connectionを削除しました。GitHub App自体のuninstallはGitHub側で行ってください。",
     machine_state: await disconnectGithubApp(env.DB, owner), next_allowed_actions: ["github_connection_start"], blocking_reason: null };
-  if (!githubAppConfigured(env)) return { schema_version: 2, status: "blocked",
+  if (!githubAppOwnerConnectionConfigured(env) || !githubAppConfigured(env)) return { schema_version: 2, status: "blocked",
     human_summary: "GitHub App接続の初期設定が完了していません。",
     machine_state: { repositories: [] }, next_allowed_actions: ["github_connection_start"],
     blocking_reason: "GITHUB_APP_NOT_CONFIGURED" };
