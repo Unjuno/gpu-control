@@ -7,10 +7,11 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `ae2f1fc` on PR #70. The local Sites
-suite passes 163 tests and the import graph is acyclic across 52 runtime
-modules. Exact-head GitHub checks for the latest push are not yet verified;
-local success is not CI or release evidence. `worker/index.js` is 816 lines,
+**Current source snapshot:** code head `e9bd23f` on PR #70. The local Python
+suite passes 616 tests and five subtests (one skipped); the Sites Worker suite
+passes 163 tests and its graph is acyclic across 52 runtime modules. Exact-head
+GitHub checks for the latest push are not yet verified; local success is not
+CI or release evidence. `worker/index.js` is 816 lines,
 while `worker/index.test.js` is 2,435 lines and remains the largest integration
 fixture. The owner-training registration integration test is 680 lines, the
 experiment read-model route test is 222 lines, and the MCP request-auth route
@@ -120,7 +121,7 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Modal provider adapter | Verify signed Sites envelope; dispatch bounded provider/runtime operations | `modal/provider_adapter.py`, `modal/provider_adapter_core.py` | Separate Modal service and secret boundary. Adapter has provider-specific code and owner-training orchestration. |
 | Custom GPU staging/execution | Fetch pinned source, resolve hash-locked wheels for manifest Python, execute manifest entrypoint under CPU/memory hard limits, collect bounded outputs and cleanup | `modal/custom_training_*.py`, `modal/custom_sandbox_entrypoint.py` | Implemented in PR #70 source; admission and release acceptance are separate. Source fetch and job execution are separate sandboxes. |
 | Provider runtime shared with Gateway tests | Shared Kaggle/HF contracts, backends, artifacts, settings | `modal/provider_runtime/` | Packaged into adapter and imported/wrapped by Gateway tests. Verify every wrapper's real caller before retirement. |
-| Generic Python control library | Offline policy, source/container verification, execution plans, provider lifecycle and RunPod client | `src/gpu_control/` | Root package; Gateway depends on it. Sites Worker does not import it. It is not automatically the live Sites policy engine. |
+| Generic Python control library | Offline policy, source/container verification, execution plans, provider lifecycle and RunPod client | `src/gpu_control/` | Root package; Gateway depends on it. Sites Worker does not import it. An AST contract test keeps `gpu_control` independent of `gpu_gateway` and the Sites provider runtime. It is not automatically the live Sites policy engine. |
 | Legacy Gateway service | OAuth, FastAPI, PostgreSQL store, queue worker, recovery supervisor and API | `gateway/gpu_gateway/`, `gateway/deploy/` | Not the current production path; `gateway/app.py` identifies local compatibility use. Do not deploy its templates for Sites. |
 | GitHub Issue bridge | Restricted GitHub project check and submission workflow | `gateway/scripts/comment_bridge.py`, `gateway/gpu_gateway/ci_bridge.py`, `project_control/`, `.github/workflows/project-checks-ci.yml` | Separate GitHub Actions interface. A subset of Gateway package modules remains a real caller; do not confuse with GPU experiment orchestration. |
 | Workload examples | Fixed and research workloads, Dockerfiles, data contracts | `workloads/`, `sites/gpu-control-sites/modal/provider_runtime/workloads/` | Source payloads and workload instructions are untrusted data, not control-plane policy. |

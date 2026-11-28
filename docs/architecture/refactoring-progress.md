@@ -1372,6 +1372,28 @@ or deployment occurred.
 rows it returns.
 
 
+## 2026-11-28 — A9/A12: enforce Python core and migration-source boundaries
+
+**Problem:** `gpu_control` is intended as a host-independent reusable library,
+but no automated check prevented it from importing Gateway or the Sites-owned
+provider runtime. Separately, the root D1 replay test repeated the full
+migration filename catalog, so new valid migrations failed until a second
+list was updated.
+
+**Change:** added an AST architecture test that keeps the dependency direction
+from Gateway to `gpu_control`, never the reverse. Replaced the duplicated D1
+migration filename inventory with a check for sequential, gap-free numeric
+prefixes; the migration directory is now the single source for filenames.
+
+**Validation:** `uv run --locked pytest` passes 616 tests and five subtests
+(one skipped). The Sites Worker suite remains at 163 passing tests; its module
+graph and external runtime packaging checks are unchanged. No provider
+operation or deployment occurred.
+
+**Review:** checked current import direction and replayed the complete ordered
+migration set against in-memory SQLite.
+
+
 ## 2026-11-28 — A13: exercise external MCP OAuth over Worker HTTP
 
 **Problem:** OAuth protocol functions had focused unit coverage, but no test

@@ -39,6 +39,7 @@ def _insert_plan(db: sqlite3.Connection, plan_id: str, created_at: int = 1) -> N
 
 def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     migrations = sorted(MIGRATIONS.glob("*.sql"))
+    assert migrations, "the D1 migration directory must not be empty"
     migration_versions = [path.name.split("_", 1)[0] for path in migrations]
     assert migration_versions == [f"{version:04d}" for version in range(len(migrations))]
 

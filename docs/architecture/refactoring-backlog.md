@@ -385,7 +385,9 @@ duplicate source and provider reads in the ordinary run path.
   worker, inventory code and existing tests still call those import paths;
   Docker images package the shared runtime. Root `src/gpu_control` remains a
   separate reusable control library rather than a second implementation of
-  these provider adapters.
+  these provider adapters. It has no reverse imports from Gateway or the Sites
+  provider runtime; Gateway consumes its capability, selection, pricing, and
+  execution contracts.
 - **Work:** build an import/call graph. Keep one provider implementation for
   Kaggle/HF semantics; retain only compatibility facades with real callers.
   Retire a facade only alongside its Gateway caller or after those callers use
@@ -445,10 +447,16 @@ duplicate source and provider reads in the ordinary run path.
 **Progress:** `npm test` runs `scripts/check-worker-architecture.mjs`, which
 uses the same static Worker import graph as packaging. It checks static in-tree
 imports, rejects dynamic imports and entrypoint backedges, and fails on cycles.
-The build copies exactly the 18 modules reachable from `index.js` and fails if
-a runtime module is orphaned. This establishes Worker dependency and packaging
-rules only; provider/workload boundaries, Python imports, schema parity, and
-append-only migrations remain open.
+The build copies the modules reachable from `index.js` and fails if a runtime
+module is orphaned. This establishes Worker dependency and packaging rules;
+Python host direction, schema parity, and append-only migrations remain open.
+
+**Progress (2026-11-28):** `tests/test_package_boundaries.py` parses the reusable
+`src/gpu_control` package and rejects imports from Gateway or the Sites-owned
+provider runtime. The root Python suite passes 616 tests and five subtests (one
+skipped). The D1 replay test now treats the migration directory as its
+authoritative filename inventory and checks only that version prefixes remain
+ordered, unique, and gap-free.
 
 ## Decision queue
 
