@@ -498,3 +498,10 @@ selection and result aggregation for existing delegated and RunPod runs. It
 invokes existing lifecycle adapters and never submits new work. The complete
 151-test suite, D1 migration check, Worker build and artifact verification
 pass; the import graph is acyclic across 46 runtime modules.
+
+**Progress (2026-11-28):** the owner-bound Modal CPU submit workflow now lives
+in `worker/modal_cpu_submission.js`. It centralizes exact plan and single-use
+authorization matching, health gating, budget reservation, idempotent run
+creation and lost-submit recovery behind explicit provider/helper ports. All
+151 Worker tests pass; the 47-module graph is acyclic and the packaged artifact
+validates.

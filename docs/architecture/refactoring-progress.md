@@ -1076,3 +1076,24 @@ ports and does not submit new provider work.
 delegated run and RunPod lifecycle contracts; D1 forward migration tests pass;
 build packages 46 reachable Worker modules; artifact validation and
 `git diff --check` pass. No provider operation or deployment occurred.
+
+
+## 2026-11-28 — A7: isolate Modal CPU submission
+
+**Problem:** owner-plan matching, single-use ChatGPT authorization, health
+readiness, shared budget reservation, D1 run creation, and recovery of a lost
+submit response were inline in `callTool`. This security-sensitive workflow
+was difficult to review separately from provider routing.
+
+**Change:** moved the full Modal CPU submit use case into
+`worker/modal_cpu_submission.js`. It owns exact plan/authorization checks,
+health-gate reuse, budget and state reservation, idempotent run creation, and
+provider submit/recovery. The dispatcher retains request validation and
+selects RunPod/delegated/Modal CPU routes. Existing provider and authorization
+helpers are narrow injected services.
+
+**Validation:** all 151 Worker tests pass, including lost-submit recovery,
+one-use authorization, budget exhaustion, health checks and owner-bound plan
+matching; D1 forward migration tests pass; build packages 47 reachable Worker
+modules; Site artifact validation and `git diff --check` pass. No provider
+operation or deployment occurred.
