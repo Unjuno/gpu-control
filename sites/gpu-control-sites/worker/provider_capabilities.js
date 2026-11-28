@@ -1,16 +1,11 @@
-import { githubAppConfigured, getOwnedGithubInstallation } from "./github_app_connection.js";
-import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 import { readProviderBudgetPolicy } from "./provider_budget_policy.js";
-import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
-  trainingRuntimeProfileFingerprint } from "./training_contract.js";
-import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
-import { OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
 import { runpodConfigured } from "./runpod_provider.js";
 import { RUNPOD_WORKLOAD } from "./runpod_plan.js";
 import { WORKLOADS } from "./workload_registry.js";
 import { PROVIDERS, PROVIDER_ROUTES } from "./provider_catalog.js";
 import { MODAL_MAX_RUNTIME_SECONDS, MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE,
   MODAL_SANDBOX_COST_CEILING_USD, MODAL_SANDBOX_RESOURCES, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
+import { getOwnerTrainingCapability } from "./owner_training_capabilities.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -139,117 +134,24 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     provider_budgets: providerBudgets,
     paid_execution: "parked",
   };
-  const githubConfigured = githubAppConfigured(env);
-  let githubConnected = false;
-  if (githubConfigured) {
-    try { githubConnected = Boolean(await getOwnedGithubInstallation(env.DB, owner)); }
-    catch { githubConnected = false; }
-  }
-  const ownerTrainingAdmission = env.OWNER_TRAINING_ADMISSION_ENABLED === "true";
-  const ownerTrainingAdapterConfigured = providerAdapterConfigured(env);
-  const ownerTrainingConfig = ownerTrainingExecutionConfig(env);
-  const ownerTrainingSiteProfileConfigured = trainingRuntimeProfileConfigured(ownerTrainingConfig);
-  const ownerTrainingSiteControlPlaneConfigured = trainingControlPlaneConfigured(env.MAP_TRAINING_CONTROL_PLANE_SHA);
-  const ownerTrainingSiteProfileFingerprint = await trainingRuntimeProfileFingerprint(ownerTrainingExecutionConfig(env));
-  const ownerTrainingBudgetAvailable = Number.isSafeInteger(ownerTrainingConfig.monthly_microusd) &&
-    ownerTrainingConfig.monthly_microusd > 0 &&
-    ownerTrainingConfig.monthly_microusd <= OWNER_TRAINING_MAX_MONTHLY_MICROUSD &&
-    ownerTrainingConfig.monthly_microusd <= (modalProviderBudget?.monthly_limit_microusd ?? 0) &&
-    (modalProviderBudget?.monthly_remaining_microusd ?? 0) > 0 &&
-    Number.isSafeInteger(ownerTrainingConfig.max_cost_microusd) &&
-    ownerTrainingConfig.max_cost_microusd > 0 && ownerTrainingConfig.max_cost_microusd <= OWNER_TRAINING_MAX_COST_MICROUSD &&
-    ownerTrainingConfig.max_cost_microusd <= (modalProviderBudget?.per_run_limit_microusd ?? 0);
-  const ownerTrainingCapability = {
-    execution_kind: "owner_selected_python",
-    compute_provider: "modal_gpu",
-    repository_access: "authenticated_owner_selected_github_repositories",
-    requires_manifest: ".gpu-control/experiment.json",
-    requires_hash_locked_dependencies: true,
-    registration_id_is_internal: true,
-    ask_user_for_registration_id: false,
-    github_app_configured: githubConfigured,
-    github_connected: githubConnected,
-    adapter_configured: ownerTrainingAdapterConfigured,
-    site_profile_configured: ownerTrainingSiteProfileConfigured,
-    site_control_plane_configured: ownerTrainingSiteControlPlaneConfigured,
-    admission_enabled: ownerTrainingAdmission,
-    provider_budget_policy_ready: providerBudgetPolicyReady,
-    provider_budget_admission_enabled: modalProviderBudget?.modal_gpu_admission_enabled === true,
-    budget_policy: ownerTrainingBudgetAvailable ? {
-      state: "ready", provider: "modal", scope: "modal_compute_shared_across_routes",
-      monthly_limit_usd: modalProviderBudget.monthly_limit_usd,
-      per_run_limit_usd: modalProviderBudget.per_run_limit_usd,
-    } : { state: "unavailable", provider: "modal", scope: "modal_compute_shared_across_routes" },
-    adapter_readiness_available: false,
-    adapter_profile_configured: false,
-    adapter_control_plane_configured: false,
-    adapter_admission_enabled: false,
-    adapter_profile_matches: false,
-    ready_to_prepare: false,
-    paid_fallback_allowed: false,
-    next_actions: !githubConfigured
-      ? ["github_connection_status"]
-      : !githubConnected
-      ? ["github_connection_start"]
-      : ["github_repositories", "training_register", "training_preview",
-        "training_list"],
-    blocker: !githubConfigured ? "GITHUB_APP_NOT_CONFIGURED"
-      : !githubConnected ? "GITHUB_CONNECTION_REQUIRED"
-      : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED" : "OWNER_TRAINING_ADAPTER_READINESS_UNAVAILABLE",
-  };
-  result.machine_state.owner_selected_training = ownerTrainingCapability;
-  if (!providerAdapterConfigured(env)) {
+  const ownerTraining = await getOwnerTrainingCapability(env, owner, budgetPolicy);
+  result.machine_state.owner_selected_training = ownerTraining.capability;
+  if (!ownerTraining.adapter_configured) {
     result.provider_adapter = { configured: false, available: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" };
     return result;
   }
+  if (!ownerTraining.adapter_available) {
+    result.provider_adapter = { configured: true, available: false, blocker: "PROVIDER_ADAPTER_UNAVAILABLE" };
+    return result;
+  }
+  result.provider_adapter = { configured: true, available: true,
+    capabilities: ownerTraining.adapter_capabilities };
+  const adapterWorkloads = new Map(Object.values(WORKLOADS)
+    .filter((workload) => workload.adapter_manifest && PROVIDER_ROUTES[workload.provider]?.adapter_hosted)
+    .map((workload) => [workload.provider, workload.id]));
   try {
-    const delegated = await callProviderAdapterTool(env, owner, "experiment_capabilities", {});
-    const adapterOwnerTraining = delegated?.machine_state?.owner_selected_training;
-    ownerTrainingCapability.adapter_readiness_available = Boolean(adapterOwnerTraining &&
-      typeof adapterOwnerTraining === "object" && !Array.isArray(adapterOwnerTraining));
-    ownerTrainingCapability.adapter_profile_configured = adapterOwnerTraining?.profile_configured === true;
-    ownerTrainingCapability.adapter_control_plane_configured = adapterOwnerTraining?.control_plane_configured === true;
-    ownerTrainingCapability.adapter_admission_enabled = adapterOwnerTraining?.admission_enabled === true;
-    ownerTrainingCapability.adapter_profile_matches = Boolean(ownerTrainingSiteProfileFingerprint &&
-      adapterOwnerTraining?.profile_fingerprint === ownerTrainingSiteProfileFingerprint);
-    ownerTrainingCapability.ready_to_prepare = githubConfigured && githubConnected &&
-      ownerTrainingAdapterConfigured && ownerTrainingSiteProfileConfigured && ownerTrainingSiteControlPlaneConfigured &&
-      ownerTrainingAdmission && ownerTrainingCapability.adapter_profile_configured &&
-      ownerTrainingCapability.adapter_control_plane_configured && ownerTrainingCapability.adapter_admission_enabled &&
-      ownerTrainingCapability.adapter_profile_matches && providerBudgetPolicyReady &&
-      modalProviderBudget?.modal_gpu_admission_enabled === true && ownerTrainingBudgetAvailable;
-    ownerTrainingCapability.blocker = !githubConfigured ? "GITHUB_APP_NOT_CONFIGURED"
-      : !githubConnected ? "GITHUB_CONNECTION_REQUIRED"
-      : !ownerTrainingAdapterConfigured ? "PROVIDER_ADAPTER_NOT_CONFIGURED"
-      : !ownerTrainingSiteProfileConfigured ? "OWNER_TRAINING_SITE_PROFILE_NOT_CONFIGURED"
-      : !ownerTrainingCapability.adapter_readiness_available ? "OWNER_TRAINING_ADAPTER_CAPABILITY_UNAVAILABLE"
-      : !ownerTrainingCapability.adapter_profile_configured ? "OWNER_TRAINING_ADAPTER_PROFILE_NOT_CONFIGURED"
-      : !ownerTrainingSiteControlPlaneConfigured || !ownerTrainingCapability.adapter_control_plane_configured
-        ? "TRAINING_AUTHORIZATION_NOT_CONFIGURED"
-      : !ownerTrainingAdmission || !ownerTrainingCapability.adapter_admission_enabled
-        ? "OWNER_TRAINING_ADMISSION_DISABLED"
-      : !providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE"
-      : modalProviderBudget?.modal_gpu_admission_enabled !== true ? "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED"
-      : !ownerTrainingBudgetAvailable ? "OWNER_TRAINING_BUDGET_POLICY_UNAVAILABLE"
-      : !ownerTrainingCapability.adapter_profile_matches ? "OWNER_TRAINING_ADAPTER_PROFILE_MISMATCH" : null;
-    const { profile_fingerprint: _profileFingerprint, ...safeAdapterOwnerTraining } = adapterOwnerTraining || {};
-    const safeDelegated = { ...delegated,
-      provider_budget_policy_state: budgetPolicy.state,
-      provider_budgets: providerBudgets,
-      machine_state: { ...delegated.machine_state,
-        owner_selected_training: adapterOwnerTraining ? safeAdapterOwnerTraining : adapterOwnerTraining } };
-    result.provider_adapter = { configured: true, available: true, capabilities: safeDelegated };
-    if (ownerTrainingCapability.ready_to_prepare) {
-      ownerTrainingCapability.next_actions = ["github_repositories", "training_register",
-        "training_preview", "training_prepare", "training_list"];
-    }
-    const adapterProviders = Array.isArray(delegated?.machine_state?.providers)
-      ? delegated.machine_state.providers : [];
-    const adapterWorkloads = new Map(Object.values(WORKLOADS)
-      .filter((workload) => workload.adapter_manifest && PROVIDER_ROUTES[workload.provider]?.adapter_hosted)
-      .map((workload) => [workload.provider, workload.id]));
     for (const [providerId, workloadId] of adapterWorkloads) {
-      const adapterProvider = adapterProviders.find((item) => item?.id === providerId);
+      const adapterProvider = ownerTraining.adapter_providers.find((item) => item?.id === providerId);
       const provider = result.providers.find((item) => item.id === providerId);
       const modalGpuRoute = providerId === PROVIDER_ROUTES.modal_gpu.id;
       const budgetProviderId = PROVIDERS[PROVIDER_ROUTES[providerId].provider].budget_provider;
@@ -275,7 +177,7 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     }
   } catch {
     result.provider_adapter = { configured: true, available: false, blocker: "PROVIDER_ADAPTER_UNAVAILABLE" };
-    ownerTrainingCapability.blocker = "OWNER_TRAINING_ADAPTER_READINESS_UNAVAILABLE";
+    ownerTraining.capability.blocker = "OWNER_TRAINING_ADAPTER_READINESS_UNAVAILABLE";
   }
   return result;
 }
