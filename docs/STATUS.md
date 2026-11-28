@@ -4,9 +4,9 @@
 
 - The current source candidate is [PR #70](https://github.com/Unjuno/gpu-control/pull/70),
   branch `codex/owner-training-workloads`; latest implementation commit
-  `97584ad`. GitHub is the live authority for PR head, review and exact-head
+  `b509923`. GitHub is the live authority for PR head, review and exact-head
   CI; these volatile values are not copied into architecture documents. The
-  209-test Sites suite, five root Skill/client checks, Worker
+  211-test Sites suite, five root Skill/client checks, Worker
   build/artifact validation, and D1 forward migration replay pass locally.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
@@ -42,7 +42,7 @@
   prove Google's live idempotency behavior or real Colab execution. The earlier
   independent Security Review does not cover this latest source. The automated
   diff scanner could not start on the linked worktree; no independent scan
-  result is claimed for `97584ad`.
+  result is claimed for `b509923`.
 - The `31bc183` follow-up also fails closed when a submitted Colab plan has lost
   its operation journal: status, cancel and repeated submit report uncertainty
   without contacting Colab. The `748ac11` RunPod follow-up preserves an

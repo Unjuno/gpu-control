@@ -55,7 +55,13 @@ retries and terminal claims ambiguous.
   `worker/provider_budget_policy.js`, `worker/training_dispatch_claim.js`, and
   the D1 lifecycle tables.
 - RunPod account lease state machine: `worker/provider_account_lease.js` and
-  `worker/runpod_lifecycle.js`.
+  `worker/runpod_lifecycle.js`. `resumeTerminalAccountLease` resumes a
+  partially completed D1 account-lease cleanup only when the owner run is
+  terminal and its saved RunPod cleanup receipt matches the required transition.
+  The SQLite-backed lifecycle tests inject a failure after run terminalization
+  in both cancellation and ambiguous-submit TTL recovery, then verify that
+  status resumes the same D1 lease without repeating provider calls. This is
+  source-level recovery evidence, not deployed/provider acceptance.
 - Colab run-operation journal: `worker/google_colab_operation_store.js` and
   `worker/google_colab_lifecycle.js`.
 - Modal fixed-GPU lease and owner-training adapter recovery:

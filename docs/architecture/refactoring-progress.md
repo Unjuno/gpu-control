@@ -3012,3 +3012,25 @@ a local CI invariant.
 **Validation:** full Sites `npm test` passes 209 tests; the architecture check
 reports an acyclic graph across 77 runtime modules. No runtime behavior,
 provider configuration, or admission state changed.
+
+## 2026-11-28 — A3: resume RunPod account cleanup after partial terminalization
+
+**Finding:** RunPod records the owner run's terminal state and confirmed
+provider cleanup before releasing its account-scoped lease. If that later D1
+lease transition fails, a retry for an ambiguous-submit TTL case found the
+terminal row but left an `uncertain` lease stuck. Cancellation had the same
+partial-write window from an `active` lease.
+
+**Change:** terminal status recovery now reads the saved RunPod cleanup receipt
+and resumes only the legal lease transitions for its exact outcome: confirmed
+not-started/rejected creates release directly; provider-terminal or cancelled
+jobs advance active/cleanup-pending leases; elapsed Serverless TTL advances
+the same uncertain lease using its run-bound synthetic expiry handle. It does
+not repeat provider calls. Code commit: `b509923`.
+
+**Validation:** failure-injection lifecycle tests cover both an uncertain
+lease after TTL terminalization and an active lease after confirmed
+cancellation. Both recover to `released` without duplicate create/cancel. The
+full Sites suite passes 211 tests; architecture graph is acyclic across 77
+modules; Worker build/artifact validation and D1 forward migration replay
+pass. No live RunPod call or state change occurred.

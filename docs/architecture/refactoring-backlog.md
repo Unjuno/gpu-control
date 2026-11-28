@@ -233,6 +233,15 @@ acceptance.
   `pending`/`uncertain` instead of claiming completion. Missing account lease
   and provider-job recovery now surface as stable bounded MCP errors. This does
   not resolve lost account-lease records or prove the live relay contract.
+- **RunPod terminal/lease recovery (2026-11-28):** terminal run state and
+  cleanup receipt are written before the account lease's final transition. If
+  that D1 write fails, status previously returned the confirmed terminal run
+  while leaving some lease states unreleased. `resumeTerminalAccountLease`
+  now resumes only the D1 lease transitions allowed by the exact saved cleanup
+  receipt. SQLite-backed lifecycle tests inject failures after cancellation
+  and ambiguous-submit TTL terminalization, then prove recovery releases the
+  same lease without repeating provider cancellation or creating another job.
+  Missing lease records and live provider behavior remain separate open cases.
 
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 
