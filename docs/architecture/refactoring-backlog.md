@@ -386,13 +386,16 @@ duplicate source and provider reads in the ordinary run path.
 - **Done when:** one implementation owns each provider protocol, with
   intentional compatibility facades only where a real external caller needs
   them.
-- **Progress (2026-11-28):** repository and image paths both load the same
-  Sites-owned runtime; the five Gateway facades replace their `sys.modules`
-  entry with the canonical implementation. Added an identity contract test for
-  all five paths to the provider-runtime CI workflow. This confirms no second
-  implementation is being maintained; Gateway callers still justify the
-  import facades, so removing them now would spread migration work or break
-  callers. The service-level Gateway retirement decision remains open under A4.
+- **Progress (2026-11-28):** the loader resolves either the repository
+  checkout's Sites-owned runtime or the copy packaged in the Gateway image;
+  both Gateway Dockerfiles copy that canonical directory. The five Gateway
+  facades replace their `sys.modules` entry with the canonical implementation.
+  Added an identity contract test for all five paths to the provider-runtime
+  CI workflow, and the full workflow test selection passes locally. This
+  confirms no second implementation is being maintained; Gateway callers still
+  justify the import facades, so removing them now would spread migration work
+  or break callers. The service-level Gateway retirement decision remains
+  open under A4.
 
 ## P3 — standards that prevent regression
 

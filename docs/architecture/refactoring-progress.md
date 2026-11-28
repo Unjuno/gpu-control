@@ -1328,6 +1328,29 @@ the tested assertions are unchanged.
 focused plus full suites pass.
 
 
+## 2026-11-28 — A9: enforce the shared Python provider runtime boundary
+
+**Problem:** Gateway retains five historical import paths for provider
+adapters whose implementation is owned by the Sites Modal runtime. Without a
+direct identity check, a later edit could accidentally restore a second
+implementation behind a compatibility module.
+
+**Change:** added a parameterized test proving each Gateway import resolves to
+the exact corresponding `gpu_gateway._provider_runtime` module. The provider
+runtime CI workflow now runs the contract. The Gateway and worker images both
+copy the Sites-owned runtime; existing registry, worker, inventory, and tests
+remain valid callers for the compatibility imports.
+
+**Validation:** the full offline provider-runtime CI test selection, including
+the five alias assertions, passes locally. Sites remains at 163 passing Worker
+tests and 52 acyclic runtime modules. No provider operation or deployment
+occurred.
+
+**Decision:** retain the import facades while their in-repository callers
+remain. Removing the legacy Gateway service is a separate unresolved decision
+under A4 and is not justified by duplicate provider implementations.
+
+
 ## 2026-11-28 — A13: exercise external MCP OAuth over Worker HTTP
 
 **Problem:** OAuth protocol functions had focused unit coverage, but no test
