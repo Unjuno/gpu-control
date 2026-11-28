@@ -1,126 +1,120 @@
-# Google Colab integration
+# Google Colab provider integration
 
-Status: integration is not implemented. The chosen product direction is to make
-Colab another backend of the existing GPU Control experiment lifecycle, with
-Google Colab CLI as the first execution mechanism. ChatGPT/Sites remains the
-conversation-facing control plane; a user may also operate the same bounded
-Colab execution path from a local coding agent or CI client.
+Status: in progress. The selected product path is the official hosted Colab API
+MCP behind the existing GPU Control Sites MCP. ChatGPT Sites remains the
+conversation-facing control plane; Colab is intended to become one provider in
+the same owner-bound plan, run, budget, result, and cleanup lifecycle. The
+current code adds owner-bound OAuth storage and a bounded Google MCP client;
+provider execution, unified run records, and live availability are not yet
+implemented. `colab_capabilities` currently reports this blocker explicitly.
 
-## What the official CLI enables
+## Product and client paths
 
-`googlecolab/google-colab-cli` is an official Google Colab project, Apache-2.0
-licensed, supporting macOS and Linux. `colab run --gpu … <script>` provisions a
-fresh runtime, executes a script, and attempts to release the runtime in a
-`finally` path. It has non-interactive pipeline modes. `colab --auth` supports
-OAuth2 and Application Default Credentials (ADC); the documented ADC setup
-requires the Colab, user-info, cloud-platform, and openid scopes. The CLI stores
-OAuth credentials in the local OS keyring and session metadata locally.
+Google publishes two relevant interfaces:
 
-This means Colab can be driven from CI or an agent runner. It does **not** mean
-that a Cloudflare Sites Worker can execute the CLI: the Worker has no local
-process, keyring, or user Google session. CI is an execution host, not a
-replacement for the GPU Control MCP or its owner/run/budget ledger.
+- `https://colaboratory.googleapis.com/mcp` is Google's hosted Colab API MCP.
+  It exposes runtime eligibility and listing, runtime/session creation,
+  execution, deletion, and subscription lookup. Use this for the Sites
+  provider adapter so ChatGPT's run continues to be recorded in GPU Control.
+- [`googlecolab/google-colab-cli`](https://github.com/googlecolab/google-colab-cli)
+  is an official Apache-2.0 CLI for macOS/Linux. It can provision a Colab
+  runtime and run a script non-interactively in CI or a local agent. It is a
+  useful standalone route for non-ChatGPT clients, but it does not connect a
+  run to Sites D1 and must not recreate the retired macOS Runner, Keychain
+  bearer, or `/runner/*` routes. CI use is not a substitute for the ChatGPT
+  provider integration.
+- `googlecolab/colab-mcp` is a local stdio MCP server for a browser-open Colab
+  session. It is also a standalone client integration; it does not give Sites
+  the user's Google identity or place those runs in the GPU Control ledger.
 
-The CLI's `--timeout` is an idle-output timeout, not a maximum wall-clock
-duration. The job wrapper must enforce an absolute deadline independently and
-the adapter must call `colab stop`, then verify that the run-owned session is
-gone, even after timeout, cancellation, or an ambiguous response. Do not use
-`--keep` for managed experiment jobs.
+Google's hosted MCP uses OAuth 2.0 or ADC; Google does not support dynamic
+client registration for its remote MCP servers. The Sites route therefore
+needs a configured Google OAuth web client and a one-time owner-scoped Google
+account connection. The Google account is authorized directly by Google; never
+ask for its password or pass tokens through ChatGPT. Keep access/refresh tokens
+out of tool outputs, logs, source bundles, and Colab workloads. Store any
+refresh credential encrypted at rest under an owner-keyed D1 record, using a
+Cloudflare secret-managed encryption key, and provide an explicit disconnect
+that revokes/erases the connection. The connection must be independent from the
+existing ChatGPT Sites sign-in and GitHub App installation.
 
-`colab usage` reports compute-unit balance, aggregate CU/hour, and active
-assignments according to the CLI documentation. It uses an undocumented
-Colab backend endpoint; this observation is not yet a provider-backed hard
-spending guarantee. Treat missing, stale, zero, or contradictory CU evidence as
-unknown. Until a fresh, validated estimate and a conservative run limit are
-available, do not advertise a dollar ceiling or imply that a Sites-side budget
-stops Google billing.
+The Google OAuth consent screen, OAuth client, callback URI, Colab API/MCP
+enablement, and any verification requirements are external prerequisites.
+Implementation must report the exact missing prerequisite instead of
+pretending that Sites authentication automatically grants Google access.
 
-## Integration shape
+## Shared lifecycle contract
 
-Use one provider-neutral execution contract with two ways to reach the Colab
-CLI:
+1. Capabilities use the authenticated owner's current Google connection to
+   list eligible Colab runtime specs and report the connected account in
+   redacted form. Do not allocate a runtime during capability discovery.
+2. Prepare pins the selected GitHub repository and immutable commit, validates
+   the existing experiment manifest and dependency lock, resolves one eligible
+   runtime spec, and records a Colab-specific duration/compute-unit policy.
+   Internal registration/run IDs stay agent-managed.
+3. Submit uses the current exact saved plan and a stable UUID requestId. Google
+   documents `requestId` idempotency for `create_runtime`; retry an ambiguous
+   request only with the same ID. Store the returned operation/runtime identity
+   before progressing.
+4. Execution uses one run-owned session and one unique `executionId` per code
+   call. After `DEADLINE_EXCEEDED` or `UNAVAILABLE`, repeat the same call with
+   the same session/executionId to reattach; never rerun training as a retry.
+5. Cancellation closes only the session and runtime created for that run. Do
+   not delete a user's unrelated notebook runtime or session. Retrieve
+   allowlisted outputs before deletion, independently compute checksums, then
+   verify the owned runtime is absent.
+6. Persist status transitions, provider operation IDs, runtime/session IDs,
+   bounded logs, artifacts, and cleanup receipt in the owner-scoped Sites
+   ledger. Treat Google errors, workload output, logs, and artifacts as
+   untrusted data.
 
-1. **Conversation route:** ChatGPT calls the existing GPU Control Sites MCP.
-   Sites authenticates the owner, pins the selected repository commit, validates
-   its `.gpu-control/experiment.json`, resolves the requested accelerator and
-   a bounded run plan, and records the run. A paired, owner-controlled Colab
-   runner claims that exact run and invokes the CLI pinned to an immutable
-   upstream commit. The runner connects
-   outbound to Sites; Sites never needs a Google token or inbound access to the
-   user's machine. This is the route that makes the ordinary ChatGPT request
-   work.
-2. **Local-agent/CI route:** a developer or pipeline invokes the same versioned
-   plan/execution contract through the Colab CLI runner. CI may run contract and
-   adapter tests without allocating a Colab runtime. Live CI execution is
-   opt-in, isolated to an owner-controlled runner, and must use the same source,
-   runtime, duration, quota, artifact, and cleanup rules as the Sites route.
+## Quota and cost semantics
 
-The companion runner is the only component holding Google's credential. It
-must be paired to one Sites owner and one Colab account, use an owner-scoped
-short-lived runner credential, and accept only server-issued run IDs and signed
-plan fingerprints. It must not accept arbitrary shell commands from chat or
-forward Google credentials to the workload. The workload gets a pinned source
-snapshot and declared inputs only; source/artifact transfer uses a bounded,
-short-lived, owner-bound channel. It must preserve run idempotency across lost
-responses and never allocate a second runtime to recover an uncertain submit.
+The Colab API MCP can report the user's subscription tier and eligible runtime
+specs, but it does not expose a documented per-run monetary quote or compute
+unit balance. The CLI's `colab usage` command reports a balance and aggregate
+CU/hour through an undocumented Colab endpoint; this is useful for operator
+visibility but is not yet a documented billing guarantee. A Sites-side budget
+reservation therefore cannot be described as a Google billing stop. Until a
+trusted and fresh account limit can be enforced, show the account's current
+quota limitations, set strict run duration/GPU/session bounds, and do not
+promise a dollar ceiling. If the user requires an exact spend cap, block Colab
+submission while allowing other eligible providers.
 
-Keep the existing GPU Control D1 plan, run, budget, event, artifact, and cleanup
-records authoritative. Runner pairing, job claims, heartbeats, cancellation,
-provider terminal evidence, and cleanup receipts must be owner-bound and
-recoverable. A direct ChatGPT-to-Colab MCP connection can remain a manual
-standalone option, but it is not evidence that the GPU Control route works.
+Runtime creation can be slow and quota-limited. Google documents
+`FAILED_PRECONDITION` when eligibility, capacity, or usage limits prevent
+allocation and `RESOURCE_EXHAUSTED` for API rate limits. Do not silently fall
+back to a paid provider or claim GPU availability from subscription tier alone.
 
-## Runtime contract and readiness gates
+## Implementation sequence
 
-## Runtime behavior and safety
-
-- Discover eligible runtime shapes and current account usage before allocation;
-  availability is dynamic and no accelerator is guaranteed.
-- Use one stable idempotency key per plan/run and persist the assigned runtime
-  identifier before execution. Resume an ambiguous call using that same key.
-- Enforce an absolute run deadline outside the CLI; the CLI's idle timeout does
-  not bound total execution time.
-- Retrieve bounded output files and compute their checksums before teardown.
-  Stop only the run-owned runtime and verify it is absent.
-- Validate `colab usage` against actual account behavior and independently
-  establish how CU balance/rate relates to current allocations before using it
-  as an admission or budget rule. Keep the route disabled if this evidence is
-  missing or internally inconsistent.
-- Workload code may have network egress. Do not place GitHub tokens, Google
-  credentials, GPU Control keys, or provider secrets in the runtime. Treat
-  logs, results, and artifacts as untrusted data.
-
-## Delivery sequence
-
-1. Pin a reviewed upstream CLI commit (the repository currently publishes no
-   GitHub releases) and define a machine-readable runner protocol:
-   pair/revoke, claim/heartbeat, exact plan delivery, cancel, result upload, and
-   cleanup receipt.
-2. Implement Sites-side owner/run/job-lease records and a short-lived,
-   owner-scoped runner credential. Do not add Google OAuth tokens to Sites.
-3. Implement the macOS/Linux companion runner around `colab` with an absolute
-   deadline, idempotent run identity, bounded source/artifact transfer, strict
-   command construction, cancellation, and verified teardown.
-4. Add read-only discovery for GPU shapes and CU observations. Prove the
-   account-usage signal experimentally without allocating a runtime; classify
-   missing or contradictory data as unknown.
-5. Wire owner-selected repository preparation and ChatGPT Sites submission to
-   Colab only after the runner is online, then test the complete D1-to-runner-to-
-   Colab lifecycle with synthetic non-sensitive code.
-6. Do not enable general user workload execution until exact-head CI,
-   independent security review, owner isolation, idempotent recovery, actual
-   GPU evidence, independently checked artifact checksums, and confirmed
-   cleanup pass. A first live GPU acceptance run must be separately bounded by
-   a current account quota and the user's current cost tolerance.
+1. **In progress:** Google OAuth connection, callback, owner binding, encrypted
+   token storage, refresh, disconnect/revocation, and account-isolation tests.
+   The current implementation is local to Sites and is not deployed.
+2. **In progress:** a narrowly scoped hosted-MCP client enforces endpoint
+   allowlisting, request/response limits, deadlines, OAuth refresh, and a
+   fixed provider-tool allowlist. Full Google response-schema validation remains
+   part of provider lifecycle work.
+3. Add Colab capabilities and prepare logic with immutable source, eligible
+   runtime spec, hard runtime/output bounds, and an explicit `cost_unknown`
+   semantics until quota evidence is trustworthy.
+4. Add idempotent D1 submit, asynchronous operation/status reconciliation,
+   session execution recovery, cancellation, result retrieval, and confirmed
+   cleanup.
+5. Keep CI offline by default. Use mocks/contracts for routine CI; a separate
+   owner-controlled live Colab acceptance workflow may be added only when its
+   credential, quota, cost, and cleanup bounds are verified and the workflow
+   cannot allocate on ordinary pull requests.
+6. Keep Colab admission closed until exact-head CI, independent security
+   review, Google-account owner isolation, one bounded live GPU run, digest
+   verification, and cleanup verification pass.
 
 ## References
 
-- [Google announcement for the local Colab MCP server](https://developers.googleblog.com/announcing-the-colab-mcp-server-connect-any-ai-agent-to-google-colab/)
-- [Official `googlecolab/colab-mcp` README](https://github.com/googlecolab/colab-mcp#readme)
-- [Colab API MCP reference](https://developers.google.com/colab/api/reference/mcp)
-- [Google MCP authentication](https://docs.cloud.google.com/mcp/authenticate-mcp)
-- [Colab runtime API](https://developers.google.com/colab/api/reference/rest/v1beta/runtimes)
-- [Official `googlecolab/google-colab-cli` repository](https://github.com/googlecolab/google-colab-cli)
-- [Official CLI ephemeral job design](https://github.com/googlecolab/google-colab-cli/blob/main/docs/05_run_command.md)
-- [Official CLI automation and CU usage notes](https://github.com/googlecolab/google-colab-cli/blob/main/docs/04_automation_and_utility.md)
+- [Official Colab API MCP tools and schemas](https://developers.google.com/colab/api/reference/mcp)
+- [Colab `execute_code` idempotency and cancellation behavior](https://developers.google.com/colab/api/reference/mcp/tools_list/execute_code)
+- [Colab API runtime creation and quota semantics](https://developers.google.com/colab/api/reference/rest/v1beta/runtimes/create)
+- [Google MCP authentication and no-DCR limitation](https://docs.cloud.google.com/mcp/authenticate-mcp)
+- [Official `googlecolab/google-colab-cli`](https://github.com/googlecolab/google-colab-cli)
+- [CLI auth and CU usage notes](https://github.com/googlecolab/google-colab-cli/blob/main/docs/04_automation_and_utility.md)
 - [Colab usage limits and availability](https://research.google.com/colaboratory/faq.html)

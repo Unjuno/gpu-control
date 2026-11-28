@@ -4,6 +4,8 @@ import { normalizeTrainingArguments, safeJson, validGatewayApprovedPlan, validGa
   validPlan, validProviderApprovedPlan, validRegisteredPrepare,
   validRegisteredZeroGpuPrepare, validToolArguments } from "./experiment_input_contract.js";
 import { handleGithubTool, isGithubTool } from "./github_tools.js";
+import { completeGoogleColabOAuth, beginGoogleColabOAuth, googleColabOAuthConfigured } from "./google_colab_connection.js";
+import { handleGoogleColabTool, isGoogleColabTool } from "./google_colab_tools.js";
 import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
 import { beginGithubInstallationOAuth, completeGithubInstallationOAuth, createOwnedRepositoryReadToken,
   exchangeGithubOAuthCode, githubAppOAuthConfigured,
@@ -391,6 +393,72 @@ async function handleGithubOAuthCallback(request, env) {
   } catch {
     return finish(htmlPage("GitHub接続を完了できません",
       "<p>GitHub本人確認が期限切れ、使用済み、またはinstallationへのアクセスを確認できません。チャットで新しい接続linkを作成してください。</p>", 400));
+  }
+}
+
+function googleColabOAuthCookie(request) {
+  const cookie = request.headers.get("cookie") || "";
+  return cookie.split(";").map((item) => item.trim())
+    .find((item) => item.startsWith("__Host-gpu-control-colab-oauth="))
+    ?.slice("__Host-gpu-control-colab-oauth=".length) || "";
+}
+
+function clearGoogleColabOAuthCookie(response) {
+  response.headers.set("set-cookie", "__Host-gpu-control-colab-oauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax");
+  response.headers.set("cache-control", "no-store");
+  response.headers.set("referrer-policy", "no-referrer");
+  return response;
+}
+
+async function handleGoogleColabSetup(request, env) {
+  if (request.method !== "GET") return htmlPage("Google Colab接続", "<p>この接続はGETのみ受け付けます。</p>", 405);
+  if (!env.DB || !googleColabOAuthConfigured(env) || !env.GOOGLE_COLAB_TOKEN_ENCRYPTION_KEY) {
+    return htmlPage("Google Colab接続を確認できません", "<p>GPU Control側のGoogle OAuth設定がまだ完了していません。</p>", 503);
+  }
+  const state = new URL(request.url).searchParams.get("state") || "";
+  try {
+    const authorization = await beginGoogleColabOAuth(env.DB, state, env);
+    return new Response(null, { status: 302, headers: {
+      location: authorization.authorization_url, "set-cookie": authorization.pkce_cookie,
+      "cache-control": "no-store", "referrer-policy": "no-referrer",
+    } });
+  } catch {
+    return htmlPage("Google Colab接続を開始できません",
+      "<p>接続リンクが期限切れ、使用済み、またはSitesのOAuth設定が不足しています。チャットで新しい接続リンクを作成してください。</p>", 400);
+  }
+}
+
+async function handleGoogleColabOAuthCallback(request, env) {
+  if (request.method !== "GET") return clearGoogleColabOAuthCookie(
+    htmlPage("Google Colab接続", "<p>このcallbackはGETのみ受け付けます。</p>", 405));
+  if (!env.DB || !googleColabOAuthConfigured(env)) return clearGoogleColabOAuthCookie(
+    htmlPage("Google Colab接続を確認できません", "<p>GPU Control側のGoogle OAuth設定がまだ完了していません。</p>", 503));
+  const url = new URL(request.url);
+  let callback;
+  try { callback = new URL(env.GOOGLE_COLAB_OAUTH_CALLBACK_URL); } catch { callback = null; }
+  if (!callback || url.origin + url.pathname !== callback.origin + callback.pathname) {
+    return clearGoogleColabOAuthCookie(htmlPage("Google Colab接続を完了できません",
+      "<p>接続先URLが設定と一致しません。</p>", 400));
+  }
+  if (url.searchParams.has("error")) return clearGoogleColabOAuthCookie(
+    htmlPage("Google Colab接続をキャンセルしました", "<p>チャットに戻り、必要なら新しい接続リンクを作成してください。</p>", 400));
+  const oauthState = url.searchParams.get("state") || "";
+  const code = url.searchParams.get("code") || "";
+  const [cookieState, verifier, ...extra] = googleColabOAuthCookie(request).split(".");
+  if (url.searchParams.getAll("state").length !== 1 || url.searchParams.getAll("code").length !== 1 ||
+      !/^[a-f0-9]{64}$/.test(oauthState) || cookieState !== oauthState || extra.length !== 0 ||
+      !/^[A-Za-z0-9_-]{43}$/.test(verifier || "") || !/^[A-Za-z0-9._~-]{1,2048}$/.test(code)) {
+    return clearGoogleColabOAuthCookie(htmlPage("Google Colab接続を完了できません",
+      "<p>接続リンクが期限切れか、ブラウザー確認に失敗しました。チャットで新しいリンクを作成してください。</p>", 400));
+  }
+  try {
+    const linked = await completeGoogleColabOAuth(env.DB, env, oauthState, verifier, code);
+    const body = "<p>Googleアカウント <strong>" + escapeHtml(linked.account_email) +
+      "</strong> をGPU Control ownerに接続しました。</p><p>チャットに戻り、Colab接続状態を確認してください。</p>";
+    return clearGoogleColabOAuthCookie(htmlPage("Google Colabを接続しました", body));
+  } catch {
+    return clearGoogleColabOAuthCookie(htmlPage("Google Colab接続を完了できません",
+      "<p>Googleの認証を検証または安全に保存できませんでした。チャットで新しい接続リンクを作成してください。</p>", 400));
   }
 }
 
@@ -1303,6 +1371,7 @@ async function callTool(name, args, request, env, context = null) {
   const owner = userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
+  if (isGoogleColabTool(name)) return handleGoogleColabTool(name, env, owner);
   if (isGithubTool(name)) return handleGithubTool(name, env, owner);
   if (isTrainingTool(name)) return handleTrainingTool(name, args, { env, owner,
     delegate: callProviderAdapterTool, isConfigured: providerAdapterConfigured,
@@ -1913,7 +1982,12 @@ async function handleMcp(request, env, context = null) {
         "TRAINING_GITHUB_DEFAULT_COMMIT_UNAVAILABLE", "TRAINING_GITHUB_COMMIT_UNAVAILABLE",
         "AUTHENTICATED_SITE_USER_REQUIRED", "SITE_USER_NOT_AUTHORIZED",
         "D1_NOT_CONFIGURED", "REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID", "IDEMPOTENCY_KEY_CONFLICT", "INVALID_ARGUMENTS",
-        "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL"]);
+        "SUBMIT_TRANSACTION_FAILED", "PLAN_EXPIRED_OR_ALREADY_USED", "RUN_NOT_FOUND", "RESULT_NOT_READY", "UNKNOWN_TOOL",
+        "GOOGLE_COLAB_CONNECTION_INVALID", "GOOGLE_COLAB_CONNECTION_STATE_EXPIRED", "GOOGLE_COLAB_CONNECTION_STATE_REPLAYED",
+        "GOOGLE_COLAB_OAUTH_NOT_CONFIGURED", "GOOGLE_COLAB_OAUTH_FAILED", "GOOGLE_COLAB_OAUTH_RESPONSE_INVALID",
+        "GOOGLE_COLAB_OAUTH_SCOPE_INVALID", "GOOGLE_COLAB_IDENTITY_INVALID", "GOOGLE_COLAB_CONNECTION_REQUIRED",
+        "GOOGLE_COLAB_CRYPTO_NOT_CONFIGURED", "GOOGLE_COLAB_CREDENTIAL_UNAVAILABLE",
+        "GOOGLE_COLAB_RECONNECT_REQUIRES_DISCONNECT"]);
       const runpodProviderCodes = new Set([
         "RUNPOD_AUTHENTICATION_FAILED", "RUNPOD_PERMISSION_DENIED", "RUNPOD_PROVIDER_NOT_CONFIGURED",
         "RUNPOD_PROVIDER_TIMEOUT", "RUNPOD_PROVIDER_UNAVAILABLE", "RUNPOD_RATE_LIMITED",
@@ -1943,6 +2017,8 @@ export default {
     if (url.pathname === "/health" && request.method === "GET") return json({ ok: true, service: "gpu-control-sites", storage: !!env.DB });
     if (url.pathname === "/github/setup") return handleGithubSetup(request, env);
     if (url.pathname === "/github/oauth/callback") return handleGithubOAuthCallback(request, env);
+    if (url.pathname === "/google/setup") return handleGoogleColabSetup(request, env);
+    if (url.pathname === "/google/oauth/callback") return handleGoogleColabOAuthCallback(request, env);
     if (url.pathname.startsWith("/runner/")) return json({ error: "NOT_FOUND" }, 404);
     if (url.pathname === "/authorize" || url.pathname === "/authorize-training") {
       try { return await handleAuthorizationRequest(request, env); }

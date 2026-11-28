@@ -214,33 +214,34 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   definition plus its adapter implementation and acceptance evidence; no
   provider can be advertised just because an adapter host is configured.
 
-### A6. Integrate Colab CLI through an owner-controlled runner
+### A6. Integrate the hosted Colab API MCP behind Sites
 
-- **Evidence (2026-11-28):** Google's official `googlecolab/google-colab-cli`
-  supports macOS/Linux, GPU `colab run`, non-interactive pipelines, OAuth2 or
-  ADC, and account CU balance/aggregate rate reporting. A Cloudflare Sites
-  Worker cannot invoke the local CLI or access its OS keyring. The CLI's
-  `--timeout` is an idle-output timeout, not an absolute duration cap. The
-  CLI's CU command reads an undocumented backend endpoint, so it is not yet a
-  verified hard budget signal.
-- **Decision:** keep ChatGPT Sites MCP as the user-facing control plane and
-  make the CLI a provider execution backend through a paired, owner-controlled
-  outbound runner. The runner holds Google credentials locally and accepts
-  only owner-bound, server-issued jobs; Sites D1 remains authoritative for
-  plans, budgets, runs, leases, artifacts, cancellation and cleanup. CI may
-  exercise this same contract, but GitHub Actions itself is not a provider or
-  an alternate user-facing control plane.
-- **Work:** define the runner protocol; implement pairing/revocation and
-  owner-bound job leases; package a macOS/Linux runner pinned to a reviewed CLI
-  version; enforce absolute timeout, idempotency, cancellation, bounded
-  artifacts and verified teardown; validate GPU shape and CU observations.
-  Keep general Colab admission closed until security review and a complete
-  synthetic-to-real-GPU acceptance sequence pass.
-- **Done when:** from the same ChatGPT Sites conversation the owner can select
-  Colab without supplying an internal ID, the runner executes the exact pinned
-  plan, and the returned result, artifact digest, actual accelerator and
-  teardown are independently verified. Local-agent and CI use must follow the
-  same contract and must not bypass owner, quota or cleanup controls.
+- **Evidence (2026-11-28):** Google's official hosted Colab MCP exposes
+  runtime discovery/allocation, code execution, session/runtime deletion, and
+  subscription lookup. It supports Google OAuth/ADC but no dynamic client
+  registration. `google-colab-cli` supports pipeline/CI use but cannot be run
+  by a Cloudflare Worker and does not write results to Sites D1. The former
+  macOS Runner, Keychain bearer and `/runner/*` path are explicitly retired and
+  must not be restored. Colab's documented API does not provide a per-run
+  dollar quote or CU balance; the CLI's CU endpoint is undocumented.
+- **Decision:** ChatGPT Sites MCP remains the one product control plane.
+  Implement the hosted Colab MCP as a provider adapter with a one-time,
+  owner-scoped Google OAuth connection. Encrypt refresh credentials in the
+  Sites trust boundary and keep Google tokens away from the agent/workload.
+  The CLI remains available to local/CI clients only as a separate supported
+  interface, not as the hidden Sites execution bridge.
+- **Work:** implement owner-bound Google OAuth connect/disconnect, protected
+  credential refresh, hosted MCP client, exact-plan creation, idempotent
+  runtime/session lifecycle, bounded source/result transfer, cancellation and
+  cleanup receipts. Keep cost as unknown until account CU semantics can be
+  trusted; never label the internal Sites reservation a Google billing cap.
+  Keep admission closed until exact-head CI, independent security review, and
+  one bounded end-to-end GPU acceptance pass.
+- **Done when:** from ordinary ChatGPT Sites chat the owner can ask for a
+  registered repository experiment without supplying internal IDs; Sites
+  selects Colab only when its current connected-account capabilities and
+  product bounds permit it; and provider GPU, outputs/digests, terminal state,
+  and cleanup are verified in the same owner-scoped ledger.
 
 ## P2 — reduce module entropy without moving complexity to callers
 

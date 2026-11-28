@@ -5,6 +5,38 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A6: start the hosted Colab provider foundation
+
+**Problem:** Colab was requested as a ChatGPT-accessible compute resource, but
+the retired local Runner cannot be reused and the hosted Google MCP was not yet
+connected to the Sites owner identity boundary.
+
+**Change:** documented ADR 0011 selecting Google's hosted Colab API MCP. Added
+owner-scoped OAuth state, PKCE, verified Google identity, AES-GCM refresh-token
+storage, access-token refresh, disconnect/revocation, and a fixed-origin
+Google MCP client with a tool allowlist and bounded request/response sizes.
+Added migration 0034 and a connection/capability tool surface. No provider run
+or runtime creation is currently available; capability output states that the
+execution lifecycle is not implemented. The official Colab CLI remains an
+independent local/CI option and does not restore the retired Sites Runner.
+
+**Validation:** all 127 Sites tests and migration tests pass; the 31-module
+Worker graph is acyclic; the Worker artifact builds; `git diff --check` passes.
+An unrelated Node 26 build failure in `copy-worker-runtime.mjs` was fixed by
+wrapping `path.basename` in an explicit callback. No Google OAuth secret was
+configured, no live Google request was made, no deployment occurred, and no
+runtime was allocated.
+
+The Codex Security diff-scan service rejected this worktree because it could
+not resolve it as a non-bare Git worktree. This is an unresolved review gate,
+not a clean security-scan result; no canonical scan report was generated.
+
+**Remaining A6:** exact Google MCP output validation, connect/capability
+integration tests, immutable GitHub source staging, exact plan, async run
+ledger, safe cancellation, artifact verification, cleanup, provider selection,
+deployed owner acceptance, and independent security review. This slice is not
+Colab acceptance or completion.
+
 ## 2026-11-28 — A1: remove duplicate inspection from the chat run path
 
 **Problem:** the operator Skill instructed an agent to call `training_inspect`
@@ -673,29 +705,37 @@ need independent compatibility work. Arbitrary repository execution remains
 Modal-only in the unmerged candidate; this discovery refactor does not make
 RunPod, Kaggle, Hugging Face or Colab arbitrary-source routes available.
 
-## 2026-11-28 — A6: select Colab CLI owner-runner integration
+## 2026-11-28 — A6: select Colab CLI owner-runner integration (superseded)
 
-**Finding:** Google's official `google-colab-cli` supports macOS/Linux, fresh
-GPU jobs via `colab run`, non-interactive pipeline use, OAuth2 or ADC, and
-account compute-unit observations. Its OAuth credential is local to the CLI
-host; its timeout only bounds inactivity, and `colab usage` relies on an
-undocumented Colab endpoint. Therefore, CI can host the CLI, but the Sites
-Worker cannot execute it directly, and neither the CLI CU report nor a Sites
-reservation is yet a hard Google billing limit.
+**Proposal:** this batch selected a paired, owner-controlled outbound runner
+for the Google Colab CLI and recorded the protocol in ADR 0010. The following
+correction records why this proposal was replaced before any runner code or
+configuration was added.
 
-**Decision:** ChatGPT Sites MCP stays the single conversational control plane.
-The CLI will run through a paired, owner-controlled outbound runner that holds
-Google credentials locally and executes only immutable, server-issued plans.
-Sites D1 remains the authority for owner, plan, budget reservation, run,
-artifact, cancellation and cleanup. Local agents and CI can use the same
-versioned runner protocol; they do not create a second provider ledger.
+## 2026-11-28 — A6 correction: preserve retired Runner boundary
 
-**Change:** updated the Colab provider specification and A6 backlog, and added
-ADR 0010 with the pairing, job lease, source/artifact transfer, deadline,
-idempotency, quota and cleanup requirements. No runtime, credential, provider
-setting or admission was changed; no Colab job was started.
+**Correction:** the preceding entry's owner-runner direction conflicted with
+the existing [`RELEASE_MATRIX.md`](../RELEASE_MATRIX.md) and
+[`2026-11-11 Sites architecture pivot`](../decisions/2026-11-11-sites-d1-architecture-pivot.md),
+which explicitly retire the macOS Runner, Keychain bearer, and `/runner/*`
+routes. Do not implement or revive that path.
 
-**Remaining:** implement the Sites runner-job protocol and owner pairing, build
-the pinned macOS/Linux CLI runner, validate source and artifact transfer, then
-prove synthetic lifecycle and cleanup before considering a bounded real-GPU
-acceptance run. Colab is not yet selectable from ChatGPT.
+**Decision:** superseded ADR 0010 and replaced it with ADR 0011: connect the
+official hosted Colab API MCP behind Sites using an owner-scoped Google OAuth
+connection and encrypted refresh credential. This keeps ChatGPT Sites and D1
+as the single provider/run control plane. `google-colab-cli` remains available
+for independent local/CI clients; it is not the hidden Sites runner. Google
+MCP OAuth requires a configured client because Google does not support dynamic
+client registration. The exact OAuth client, callback and consent prerequisites
+are external setup gates.
+
+**Validation:** reviewed the official Google Colab MCP tool schemas, REST
+runtime create/idempotency contract, Google OAuth/DCR guidance, CLI automation
+and auth docs, and the repository's Runner retirement policy. Updated the
+provider design, backlog, architecture index and decision history. No runner,
+credential, admission, deployment, or Colab runtime was changed or created.
+
+**Remaining:** implement the hosted-MCP OAuth connection and provider adapter,
+including owner isolation, token-at-rest protection, async lifecycle recovery,
+bounded results, cancellation, and verified cleanup. Colab remains unavailable
+from ChatGPT until the full acceptance sequence passes.

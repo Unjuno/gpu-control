@@ -10,6 +10,10 @@ const MODAL_GPU_WORKLOAD = WORKLOADS.modal_gpu_canary.id;
 const MODAL_SANDBOX_COST_CEILING_USD = WORKLOADS.tiny_stories.cost_ceiling_usd;
 
 export const schemas = {
+  colab_connection_start: { type: "object", properties: {}, additionalProperties: false },
+  colab_connection_status: { type: "object", properties: {}, additionalProperties: false },
+  colab_connection_disconnect: { type: "object", properties: {}, additionalProperties: false },
+  colab_capabilities: { type: "object", properties: {}, additionalProperties: false },
   github_connection_start: { type: "object", properties: {}, additionalProperties: false },
   github_connection_status: { type: "object", properties: {}, additionalProperties: false },
   github_connection_disconnect: { type: "object", properties: {}, additionalProperties: false },
@@ -182,6 +186,10 @@ schemas.training_status = schemas.experiment_status;
 schemas.training_cancel = schemas.experiment_cancel;
 
 export const toolDescriptions = {
+  colab_connection_start: "Start the one-time Google Colab account connection for this authenticated GPU Control owner. It opens Google's OAuth consent page for OpenID/email identity and Colab runtime access. This does not allocate a runtime or start an experiment. Google OAuth credentials are encrypted at rest by Sites and never returned to the agent or workload.",
+  colab_connection_status: "Read whether this authenticated GPU Control owner has connected a Google Colab account. Returns only the Google account email and connection time, never OAuth tokens.",
+  colab_connection_disconnect: "Remove this owner's Google Colab connection from GPU Control and request Google to revoke the OAuth grant. If Google revocation cannot be confirmed, revoke GPU Control from the Google Account connected-app settings.",
+  colab_capabilities: "Read the authenticated owner's Colab subscription tier, eligible accelerator specs, and runtime count. This calls Google's read-only Colab API; runtime proxy tokens and URLs are always removed. A positive capability is not evidence that GPU Control's run lifecycle is enabled.",
   github_connection_start: "Start the one-time GitHub App connection for this authenticated GPU Control owner. GitHub can grant access only to repositories explicitly selected during installation; the app requires Contents read and Metadata read only. After installation, complete GitHub user authorization so GPU Control can verify that this account can access the exact installation. The short-lived user token is discarded. This does not start compute.",
   github_connection_status: "Read the GitHub App connection state for the authenticated GPU Control owner. No token or installation identifier is returned.",
   github_connection_disconnect: "Remove this owner's GitHub repository connection from GPU Control. This does not uninstall the GitHub App from the GitHub account; revoke it there separately if desired.",
@@ -211,16 +219,16 @@ export const toolDescriptions = {
 };
 
 const READ_ONLY_TOOLS = new Set([
-  "github_connection_status", "github_repositories", "training_artifact", "training_checkpoint",
+  "colab_connection_status", "colab_capabilities", "github_connection_status", "github_repositories", "training_artifact", "training_checkpoint",
   "training_status", "training_preview", "training_list", "training_inspect",
   "experiment_capabilities", "experiment_artifact", "experiment_list",
 ]);
 const DESTRUCTIVE_TOOLS = new Set([
-  "github_connection_disconnect", "training_submit", "training_cancel", "experiment_provider_health",
+  "colab_connection_start", "colab_connection_disconnect", "github_connection_disconnect", "training_submit", "training_cancel", "experiment_provider_health",
   "experiment_submit", "experiment_cancel", "experiment_reconcile",
 ]);
 const NON_IDEMPOTENT_TOOLS = new Set([
-  "experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health",
+  "colab_connection_start", "experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health",
 ]);
 
 for (const name of Object.keys(schemas)) {

@@ -1,8 +1,13 @@
 # ADR 0010: Integrate Colab CLI through an owner-controlled runner
 
-- Status: accepted for implementation
+- Status: superseded by ADR 0011; do not implement
 - Date: 2026-11-28
 - Scope: Google Colab CLI integration with the existing GPU Control Sites MCP
+
+> Superseded on 2026-11-28 after review of `docs/RELEASE_MATRIX.md` and the
+> Sites architecture decision retiring the local Runner, Keychain bearer, and
+> `/runner/*` routes. This ADR is retained as decision history only. Its
+> owner-runner implementation must not be revived.
 
 ## Context
 
@@ -85,7 +90,10 @@ or a separate source of truth. Live CI must not be enabled by default.
 
 ## Delivery sequence
 
-1. Define the versioned runner protocol and its threat model.
+1. Define the versioned runner protocol and its threat model. Candidate
+   upstream commit observed on 2026-11-28:
+   `7370b25f953a3f9a29f925a85607359f2f05d749`. Review source and dependencies
+   before making this the shipped pin.
 2. Implement D1 job claims, leases, runner pairing/revocation, and bounded
    source/artifact transfer. Keep provider admission closed.
 3. Implement the macOS/Linux runner wrapper with CLI pinning, isolated config

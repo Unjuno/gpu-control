@@ -11,7 +11,7 @@ conn = sqlite3.connect(":memory:")
 conn.execute("PRAGMA foreign_keys=ON")
 
 paths = sorted(MIGRATIONS.glob("*.sql"))
-assert paths[-1].name == "0033_github_installation_user_authorization.sql"
+assert paths[-1].name == "0034_google_colab_account_connection.sql"
 history = next(path for path in paths if path.name == "0021_reliable_run_history.sql")
 shared_budget = next(path for path in paths if path.name == "0032_modal_compute_budget.sql")
 for path in paths[:paths.index(history)]:
@@ -79,6 +79,8 @@ conn.execute("INSERT INTO github_app_installations VALUES (?,?,?,?,?)",
 conn.execute("INSERT INTO github_installation_states VALUES (?,?,?,?,?)",
              ("a" * 64, "owner", 100, 200, None))
 conn.executescript(github_user_authorization.read_text(encoding="utf-8"))
+google_colab_connection = next(path for path in paths if path.name == "0034_google_colab_account_connection.sql")
+conn.executescript(google_colab_connection.read_text(encoding="utf-8"))
 conn.execute(
     "UPDATE gateway_delegated_plans SET cancelled_at=101 WHERE owner_id=? AND id=? AND state='prepared'",
     ("owner", "e" * 32),
@@ -121,5 +123,14 @@ assert conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='
 assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='github_installation_states_oauth_state'").fetchone() == (1,)
 assert conn.execute("SELECT COUNT(*) FROM github_app_installations").fetchone() == (0,)
 assert conn.execute("SELECT COUNT(*) FROM github_installation_states").fetchone() == (0,)
+assert {row[1] for row in conn.execute("PRAGMA table_info(google_colab_accounts)")} == {
+    "owner_id", "google_subject_id", "account_email", "refresh_token_ciphertext",
+    "refresh_token_iv", "connected_at", "updated_at",
+}
+assert {row[1] for row in conn.execute("PRAGMA table_info(google_colab_oauth_states)")} == {
+    "setup_state_hash", "owner_id", "oauth_state_hash", "created_at", "expires_at", "consumed_at",
+}
+assert conn.execute("SELECT COUNT(*) FROM google_colab_accounts").fetchone() == (0,)
+assert conn.execute("SELECT COUNT(*) FROM google_colab_oauth_states").fetchone() == (0,)
 assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 print("D1 forward migration passed: legacy rows preserved, cancellation and stable terminal history verified")

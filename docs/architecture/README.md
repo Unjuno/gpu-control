@@ -27,6 +27,12 @@ front end for external compute.
 - [ADR 0008](decisions/0008-runpod-owner-selected-execution.md): the RunPod
   fixed canary is not an owner-selected execution route; retry, isolation,
   billing, and durable results must be proven before adding one.
+- [ADR 0010](decisions/0010-colab-cli-owner-runner.md): superseded proposal
+  for a local Colab CLI runner; retained as history and must not be revived.
+- [ADR 0011](decisions/0011-hosted-colab-mcp-provider.md): integrate Google's
+  hosted Colab API MCP through an owner-scoped Sites provider adapter.
+- [Colab provider specification](google-colab-provider.md): OAuth, runtime,
+  idempotency, quota, artifact and cleanup contracts for the integration.
 - [Refactoring backlog](refactoring-backlog.md): ordered, evidence-linked
   architecture work with dependencies and acceptance conditions.
 - [Refactoring progress](refactoring-progress.md): completed batches and
