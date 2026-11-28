@@ -224,12 +224,17 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   macOS Runner, Keychain bearer and `/runner/*` path are explicitly retired and
   must not be restored. Colab's documented API does not provide a per-run
   dollar quote or CU balance; the CLI's CU endpoint is undocumented.
-- **Decision:** ChatGPT Sites MCP remains the one product control plane.
-  Implement the hosted Colab MCP as a provider adapter with a one-time,
-  owner-scoped Google OAuth connection. Encrypt refresh credentials in the
-  Sites trust boundary and keep Google tokens away from the agent/workload.
-  The CLI remains available to local/CI clients only as a separate supported
-  interface, not as the hidden Sites execution bridge.
+- **Decision:** GPU Control's owner-bound API/MCP is the one product control
+  plane; ChatGPT chat/Work is the primary client, not the only client. ChatGPT,
+  Codex, and future local/CI clients should use the same plan authorization,
+  provider adapters, run ledger, results, and cleanup contract. Implement the
+  hosted Colab MCP as a provider adapter with a one-time, owner-scoped Google
+  OAuth connection. Encrypt refresh credentials in the Sites trust boundary
+  and keep Google tokens away from the agent/workload. The official Colab CLI
+  may remain a standalone developer tool, but its runs are not GPU Control
+  runs; do not present that separate path as an integrated client or silently
+  fork the run ledger. Add another client only when it can call the shared
+  control-plane contract under the same owner identity and authorization.
 - **Work:** implement owner-bound Google OAuth connect/disconnect, protected
   credential refresh, hosted MCP client, exact-plan creation, idempotent
   runtime/session lifecycle, bounded source/result transfer, cancellation and
@@ -237,11 +242,13 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   trusted; never label the internal Sites reservation a Google billing cap.
   Keep admission closed until exact-head CI, independent security review, and
   one bounded end-to-end GPU acceptance pass.
-- **Done when:** from ordinary ChatGPT Sites chat the owner can ask for a
-  registered repository experiment without supplying internal IDs; Sites
-  selects Colab only when its current connected-account capabilities and
-  product bounds permit it; and provider GPU, outputs/digests, terminal state,
-  and cleanup are verified in the same owner-scoped ledger.
+- **Done when:** from ordinary ChatGPT chat/Work and at least one documented
+  non-ChatGPT MCP client, the owner can ask for a registered repository
+  experiment without supplying internal IDs; each client uses the same
+  owner-bound plans and run ledger; Colab is selected only when its current
+  connected-account capabilities and product bounds permit it; and provider
+  GPU, outputs/digests, terminal state, and cleanup are verified in that same
+  ledger. Standalone CLI runs are clearly labeled outside GPU Control.
 
 ## P2 — reduce module entropy without moving complexity to callers
 

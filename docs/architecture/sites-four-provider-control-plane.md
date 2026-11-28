@@ -1,6 +1,13 @@
-# Sites provider control plane
+# GPU Control provider control plane
 
 ## Decision
+
+The authenticated GPU Control API/MCP is the single product control plane.
+ChatGPT chat and Work are the primary clients; another MCP-capable client can
+use the same interface when it is explicitly connected and owner-authenticated.
+Client choice must not create a second plan, budget, or run-history system.
+The current public product integration and all acceptance claims below remain
+ChatGPT/Sites-specific unless stated otherwise.
 
 This document describes the fixed-workload provider design as previously
 verified; its provider rows are not a fresh live check. The current PR #70
@@ -30,7 +37,8 @@ Railway, Vercel, Neon, and a separately hosted PostgreSQL Gateway are not part
 of the production execution path.
 
 ```text
-ChatGPT (authenticated user)
+Authenticated GPU Control client (ChatGPT chat/Work first; other MCP clients
+when connected)
   -> ChatGPT Sites MCP
      -> D1: plans, one-use authorization, budgets, run state, provider handles
      -> Modal control API: fixed Modal CPU workload

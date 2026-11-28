@@ -39,6 +39,14 @@ specification now distinguish subscription-quota availability from both
 included-free execution and a dollar spending cap. GPU Control has no
 additional-unit purchase or paid-provider fallback path.
 
+**Client architecture:** the user-facing goal is not ChatGPT-only access.
+ChatGPT chat/Work is the primary client; other authenticated MCP clients should
+share the same owner-bound plan and run ledger. The official Colab CLI remains
+standalone and its runs are outside GPU Control. The architecture docs now make
+that distinction explicit and require any future client integration to reuse
+the shared control-plane authorization and lifecycle rather than fork history.
+This is a target contract, not evidence that a second client is already wired.
+
 ## 2026-11-28 — A6: validate Colab capability responses at the provider boundary
 
 **Problem:** the hosted Colab client bounded and parsed responses, but the
