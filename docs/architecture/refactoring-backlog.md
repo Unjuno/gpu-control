@@ -340,9 +340,10 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 bounded result routing live in `worker/training_tools.js`. The MAP repository
 slug is centralized in `training_source.js`. Historical checkpoints measured
 2,333 and 2,175 lines before later lifecycle and transport extractions; the
-entrypoint has since been reduced to 471 lines. Provider-specific Colab OAuth,
+entrypoint has since been reduced to 446 lines. Provider-specific Colab OAuth,
 external-MCP OAuth, and the shared GitHub owner-proof callbacks now have
-dedicated route modules. Remaining A7 work is to further reduce the HTTP/MCP
+dedicated route modules. Stable MCP tool error projection now has its own
+contract module. Remaining A7 work is to further reduce the HTTP/MCP
 composition root without duplicating transport contracts.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
@@ -384,13 +385,14 @@ now lives in `worker/mcp_tool_dispatch.js`. `index.js` retains request parsing,
 MCP metadata/scope checks, HTTP routing and response envelopes, then passes the
 normalized call and bounded submission callbacks to the dispatch interface.
 Unused provider/workload imports and constants were removed from the entrypoint.
-The Worker graph remains acyclic and all 169 Sites contract tests pass;
-`index.js` is now 471 lines. Colab's provider-specific OAuth setup/callback
+The Worker graph remains acyclic and all 172 Sites contract tests pass;
+`index.js` is now 446 lines. Colab's provider-specific OAuth setup/callback
 handlers live in `worker/google_colab_oauth_routes.js`; external MCP discovery,
 registration, consent, token and revocation routes live in
 `worker/mcp_oauth_routes.js`; GitHub App and MCP client owner proof flows live
-in `worker/github_oauth_routes.js`. These route modules reuse the shared HTTP
-composition safely.
+in `worker/github_oauth_routes.js`. Stable errors exposed to MCP callers are
+mapped in `worker/mcp_tool_errors.js`, keeping provider-internal messages out
+of public results. These modules preserve shared HTTP composition contracts.
 
 **Progress (2026-11-28):** Colab OAuth setup and callback handlers now live in
 `worker/google_colab_oauth_routes.js`; `index.js` supplies the shared HTML
@@ -419,6 +421,14 @@ callback/error behavior are preserved. All 169 Sites tests pass; the 61-module
 graph is acyclic. Independent security review found no actionable issues. No
 GitHub identity, credential, provider, run, deployment, or admission state was
 changed.
+
+**Progress (2026-11-28):** stable MCP tool error projection now lives in
+`worker/mcp_tool_errors.js`. The dispatcher error envelope remains in the MCP
+transport, while the error-code authority has a single module-level allowlist
+for known domain errors, typed bounded RunPod failures, and the legacy adapter
+collapse. Unknown exceptions return only `INTERNAL_ERROR`. All 172 Sites tests
+pass; the Worker graph is acyclic across 62 modules. Independent security
+review found no actionable issues. Public error strings remain compatible.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 

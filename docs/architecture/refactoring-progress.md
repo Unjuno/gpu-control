@@ -114,6 +114,27 @@ with ADR 0010/0011, the provider specification, and A6 acceptance gates. No
 Google login, CLI install, runtime allocation, provider credential, D1 or
 admission change occurred.
 
+
+## 2026-11-28 — A7: centralize the public MCP tool-error contract
+
+**Problem:** `worker/index.js` rebuilt two allowlists inside every caught tool
+failure and mixed provider/domain error exposure policy into MCP dispatch.
+Unknown failures needed to remain redacted, while existing known public codes
+had to remain stable.
+
+**Change:** moved the mapping into `worker/mcp_tool_errors.js` and migrated the
+MCP call boundary. The module owns a single allowlist of public domain codes,
+accepts RunPod codes only from its typed bounded error shape, collapses legacy
+adapter errors to `GATEWAY_DELEGATION_FAILED`, and maps all other errors to
+`INTERNAL_ERROR`. The JSON-RPC result envelope stays in the transport layer.
+
+**Validation:** focused tests cover known domain codes, arbitrary error
+redaction, typed RunPod validation and legacy error collapse. All 172 Sites
+tests pass; the Worker graph is acyclic across 62 runtime modules. Independent
+security review found no actionable issues and verified that provider text
+stays out of MCP output. No provider call, experiment, deployment, admission,
+or configuration change occurred.
+
 **Source correction (2026-11-28):** a follow-up check of the official CLI's
 current authentication reference found that OAuth credentials moved to the
 OS-native keyring on 2026-10-21. `~/.config/colab-cli/` still holds session,
