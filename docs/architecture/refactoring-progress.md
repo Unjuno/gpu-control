@@ -5,6 +5,31 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A7: extract the bounded Modal HTTP client
+
+**Problem:** the Worker entrypoint mixed provider origin/credential checks,
+authenticated HTTP, redirect rejection, response-size enforcement, timeout
+normalization, Modal request-payload projection and health-response matching
+with MCP transport and lifecycle orchestration.
+
+**Change:** moved that cohesive provider boundary into
+`worker/modal_http_client.js`. The module owns exact-origin configuration,
+bounded request/response behavior and health evidence. `index.js` now imports
+the stable functions and remains responsible for policy, authorization,
+budget reservations and lifecycle transitions. The entrypoint shrank by 126
+lines, from 2,085 to 1,959.
+
+**Validation:** all 120 Sites tests pass, including existing coverage for
+credential forwarding, redirects, bounded responses, health evidence and
+recovery; the 27-module Worker graph is acyclic, generated files are current,
+the build and artifact checks pass, and `git diff --check` passes. No provider
+settings, credentials or admission changed and no provider call was made.
+
+**Current PR/release state:** PR #70 remains open and unmerged at
+`d5888d104152a152ac644eb255a69b90f3e7437f`; its Project bridge check passes,
+while the other six exact-head checks are queued. Independent review is still
+required. The new Modal client extraction is local and not yet pushed.
+
 ## 2026-11-28 — A5: shared Modal compute reservation
 
 **Goal:** prevent independent Modal CPU, fixed GPU and training routes from
