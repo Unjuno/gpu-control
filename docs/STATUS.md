@@ -3,10 +3,9 @@
 ## Source/release checkpoint — 2026-11-28
 
 - The current source candidate is PR #70 branch
-  `codex/owner-training-workloads`, latest code commit
-  `748ac11ac1e3f8317c0632b9eb50c76fb017e7b7`. PR #70 remains open and
-  unmerged. All seven exact-head GitHub Actions checks passed for this code
-  commit.
+  `codex/owner-training-workloads`, latest head
+  `27372e1e2b73d7ee1faff1bd3e398af4f04f4b9b`. PR #70 remains open and
+  unmerged. All seven exact-head GitHub Actions checks passed for this head.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
@@ -25,8 +24,10 @@
 - For module ownership, duplicated contracts, state authority and the next
   refactoring batches, see [the repository architecture map](architecture/repository-map.md)
   and [the prioritized backlog](architecture/refactoring-backlog.md).
-- Local Sites validation on `748ac11` passed 206 tests; the Worker graph is
-  acyclic across 76 modules, build and D1 migration replay passed. The Colab
+- The prior full local validation at `748ac11` passed 206 tests; the Worker
+  graph was acyclic across 76 modules, and build and D1 migration replay
+  passed. The current error-contract change passes its focused 3-test suite;
+  the exact-head GitHub Actions suite passes at `27372e1`. The Colab
   lifecycle integration test covers same-request-ID recovery after lost
   mocked runtime-create and cleanup responses on both status and cancellation.
   A non-empty deletion response leaves cleanup pending; a later exact empty
@@ -36,10 +37,12 @@
   linked worktree; no independent scan result is claimed.
 - The `31bc183` follow-up also fails closed when a submitted Colab plan has lost
   its operation journal: status, cancel and repeated submit report uncertainty
-  without contacting Colab. Current validation passes 206 tests, build and
-  migration replay. The `748ac11` RunPod follow-up preserves an ambiguous
-  cancellation request and completes cancellation when the same receipt is
-  recovered, while returning pending until cleanup is confirmed.
+  without contacting Colab. The `748ac11` RunPod follow-up preserves an
+  ambiguous cancellation request and completes cancellation when the same
+  receipt is recovered, while returning pending until cleanup is confirmed.
+  Commit `27372e1` also exposes the fixed RunPod lease/recovery error codes to
+  MCP clients and corrects the Colab CLI guide; it does not change provider
+  execution or admission.
 
 The dated entries below are historical snapshots. Their deployment versions,
 provider configuration, costs and readiness must not be treated as current

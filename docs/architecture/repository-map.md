@@ -7,10 +7,12 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current code snapshot:** PR #70 code commit `748ac11ac1e3f8317c0632b9eb50c76fb017e7b7`.
-The Sites Worker suite passes 206 tests, its graph is acyclic across 76 runtime
-modules, the Sites build and D1 forward migration replay pass, and all seven
-exact-head GitHub Actions checks pass at this code commit. The root
+**Current code snapshot:** PR #70 head `27372e1e2b73d7ee1faff1bd3e398af4f04f4b9b`.
+All seven exact-head GitHub Actions checks pass at this commit. The previous
+full local Sites validation at `748ac11` passed 206 tests; its graph was
+acyclic across 76 runtime modules, and the Sites build and D1 forward
+migration replay passed. The current public error-contract change passes its
+focused 3-test suite. The root
 Python suite last passed 624 tests, one skipped, and five subtests at an earlier
 recorded source checkpoint; it was not rerun for this head. These measurements
 describe this source candidate only and do not prove hosted release.
@@ -199,7 +201,7 @@ Sites Worker.
 | Kaggle GPU | Sites -> authenticated Modal adapter -> fixed registered Kaggle workload | Fixed workload route has historical live acceptance; free quota and exact current account state must be refreshed. |
 | Hugging Face ZeroGPU/artifacts | Sites -> Modal adapter -> fixed Space/private artifact path | Fixed workload and immutable artifact round trip have historical evidence; not general arbitrary-code execution. |
 | Owner-selected repository on Modal | Sites GitHub App selection -> immutable SHA -> strict manifest/lock -> trusted Modal stager -> isolated Modal GPU Sandbox | PR #70 source has a separate `training_*` capability; owner admission is separate and repository policy remains parked. Not released/accepted by this map. |
-| Google Colab owner-selected repository | Sites owner-scoped Google OAuth -> hosted Colab API MCP -> D1 operation journal -> private R2 verified artifacts -> run-owned runtime deletion | Integrated in PR #70 source behind the shared `experiment_*` lifecycle. Admission is closed by default; local validation passes 206 tests and exact-head CI passes at code commit `748ac11`. Fake-provider coverage includes invalid deletion receipts and missing submitted operation journals; both preserve uncertainty/cleanup state and avoid rerunning or reallocating. Production OAuth/configuration, migration, independent security review and live GPU acceptance remain open. |
+| Google Colab owner-selected repository | Sites owner-scoped Google OAuth -> hosted Colab API MCP -> D1 operation journal -> private R2 verified artifacts -> run-owned runtime deletion | Integrated in PR #70 source behind the shared `experiment_*` lifecycle. Admission is closed by default; full local validation passes at `748ac11`, and exact-head CI passes at `27372e1`. Fake-provider coverage includes invalid deletion receipts and missing submitted operation journals; both preserve uncertainty/cleanup state and avoid rerunning or reallocating. Production OAuth/configuration, migration, independent security review and live GPU acceptance remain open. |
 | Google Colab CLI/local MCP | Direct terminal CLI or browser-session local MCP | Optional for authenticated terminal clients and CI. These sessions are outside the GPU Control owner/run ledger and are not a second Sites provider route. |
 
 ## Technology and contract inventory
