@@ -886,3 +886,22 @@ Historic safe artifact IDs remain readable.
 build copied all 35 reachable runtime modules; artifact validation and
 `git diff --check` pass. No deployment, migration application, or provider
 operation was performed.
+
+
+## 2026-11-28 — A7: isolate registered-workload prepare resolution
+
+**Problem:** `experiment_prepare` fixed-ID validation, CPU/RunPod/provider
+default completion and the owner-bound Kaggle result to ZeroGPU artifact lookup
+were embedded in the Worker entrypoint. This made an input contract depend on
+the transport composition root.
+
+**Change:** moved those operations into `worker/registered_prepare.js`. The
+module owns fixed workload defaults and source artifact selection; Worker
+dispatch retains provider admission and plan persistence. Existing tool schema,
+owner scope, immutable source pins and response flow are preserved. Added
+direct tests for CPU/Kaggle/RunPod resolution and unknown-ID rejection.
+
+**Validation:** all 146 Worker tests pass; D1 forward migration tests pass;
+build packages all 36 reachable runtime modules; Site artifact validation and
+`git diff --check` pass. `worker/index.js` shrank by 97 lines (2,119 to 2,022).
+No live migration, deployment, or experiment was performed.

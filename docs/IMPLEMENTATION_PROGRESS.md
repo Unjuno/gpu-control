@@ -4681,3 +4681,17 @@ Validation: 142 Worker tests pass; D1 forward-migration tests pass; build
 packages all 35 reachable runtime modules; Site artifact validation and
 `git diff --check` pass. This is source-only; no live migration, deployment, or
 provider run occurred.
+
+
+## 2026-11-28 architecture batch — registered workload plan resolution
+
+Moved fixed workload ID validation/default expansion and the owner-bound
+Kaggle artifact-reference resolution for ZeroGPU into
+`sites/gpu-control-sites/worker/registered_prepare.js`. `experiment_prepare`
+retains its public contract; the entrypoint still owns provider admission and
+plan persistence. This removes 97 lines from `worker/index.js` (2,119 to 2,022).
+
+Validation: 146 Worker tests pass, including new direct fixed-default tests; D1
+forward migrations pass; build packages all 36 reachable Worker modules; Site
+artifact validation and `git diff --check` pass. No live migration, deploy or
+provider execution occurred.
