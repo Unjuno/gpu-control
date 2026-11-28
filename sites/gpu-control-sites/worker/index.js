@@ -39,6 +39,7 @@ import { beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
   READ_SCOPE, EXECUTE_SCOPE } from "./mcp_oauth.js";
 import { authenticateMcpPrincipal, mcpAuthorizationChallenge, sitesOwnerFromRequest,
   sitesPlatformIdentityPresent } from "./mcp_request_auth.js";
+import { trainingControlPlaneSha } from "./training_security_configuration.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -230,7 +231,7 @@ async function renderTrainingAuthorizationPage(request, env, owner) {
   if (!row) return htmlPage("学習計画を確認できません", "<p>チャットで学習計画の状態を確認してください。</p>", 404);
   const plan = JSON.parse(row.plan_json);
   const challenge = await issueTrainingChallenge(env.DB, owner, runId, fingerprint,
-    env.MAP_TRAINING_CONTROL_PLANE_SHA, now);
+    trainingControlPlaneSha(env), now);
   if (!challenge) return htmlPage("承認状態", "<p>チャットに戻り、学習計画の状態を確認してください。</p>");
   const evidence = plan.provider_evidence;
   const accountEvidenceDetails = evidence ? `<dt>Modal Workspace利用証拠</dt><dd>上限 USD ${escapeHtml(evidence.usage_limit_usd)} / L4料金 USD ${escapeHtml(evidence.hourly_price_usd)}/h / クレジット利用 USD ${escapeHtml(evidence.credits_used_usd)} / 請求 USD ${escapeHtml(evidence.charges_usd)} / 確認 ${escapeHtml(new Date(evidence.verified_at * 1000).toISOString())}</dd>` : "";
@@ -264,7 +265,7 @@ async function handleAuthorizationRequest(request, env) {
   if (!owner) return htmlPage("このアカウントは許可されていません", "<p>GPU Controlを許可したChatGPTアカウントで開いてください。</p>", 403);
   if (!env.DB) return htmlPage("データベースを利用できません", "<p>このSiteでは承認を記録できません。</p>", 503);
   const training = new URL(request.url).pathname === "/authorize-training";
-  if (training && !/^[0-9a-f]{40}$/.test(env.MAP_TRAINING_CONTROL_PLANE_SHA || "")) {
+  if (training && !/^[0-9a-f]{40}$/.test(trainingControlPlaneSha(env) || "")) {
     return htmlPage("学習の承認を受け付けていません", "<p>チャットで学習計画の状態を確認してください。</p>", 503);
   }
   if (request.method === "GET") {
@@ -297,7 +298,7 @@ async function handleAuthorizationRequest(request, env) {
   const now = Math.floor(Date.now() / 1000);
   if (training) {
     const confirmed = await confirmTrainingChallenge(env.DB, owner, runId, fingerprint,
-      env.MAP_TRAINING_CONTROL_PLANE_SHA, token, now);
+      trainingControlPlaneSha(env), token, now);
     return confirmed
       ? htmlPage("学習計画を承認しました", "<p>チャットに戻り、この学習計画を実行してください。</p>")
       : htmlPage("承認できませんでした", "<p>チャットで学習計画の状態を確認してください。</p>", 409);

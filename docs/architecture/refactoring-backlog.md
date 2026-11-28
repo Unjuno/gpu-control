@@ -566,3 +566,10 @@ found no actionable findings.
 `worker/training_source.test.js`. `worker/index.test.js` shrank from 3,445 to
 3,326 lines without dropping coverage; the full 156-test suite and 50-module
 acyclic graph pass.
+
+**Progress (2026-11-28):** the shared `MAP_TRAINING_CONTROL_PLANE_SHA`
+authorization identity now has one Worker binding reader in
+`worker/training_security_configuration.js`; capabilities, plan submission,
+and Site confirmation routes use that boundary. A static architecture check
+prevents direct reads elsewhere. All 163 Worker tests, migration checks,
+build, and artifact validation pass; the 52-module graph is acyclic.

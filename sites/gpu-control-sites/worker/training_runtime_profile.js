@@ -1,3 +1,5 @@
+import { trainingControlPlaneSha } from "./training_security_configuration.js";
+
 /** Resolve the owner-selected Modal runtime profile shared by inspection and planning. */
 export function ownerTrainingExecutionConfig(env) {
   return {
@@ -8,7 +10,7 @@ export function ownerTrainingExecutionConfig(env) {
     max_runtime_seconds: Number(env.OWNER_TRAINING_MAX_RUNTIME_SECONDS),
     max_cost_microusd: Number(env.OWNER_TRAINING_MAX_COST_MICROUSD),
     monthly_microusd: Number(env.OWNER_TRAINING_MONTHLY_MICROUSD),
-    control_plane_sha: env.MAP_TRAINING_CONTROL_PLANE_SHA,
+    control_plane_sha: trainingControlPlaneSha(env),
   };
 }
 

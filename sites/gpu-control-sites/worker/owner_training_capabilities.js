@@ -3,6 +3,7 @@ import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_a
 import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
   trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { ownerTrainingAdmissionEnabled, ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
+import { trainingControlPlaneSha } from "./training_security_configuration.js";
 import { OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
 import { PROVIDERS } from "./provider_catalog.js";
 
@@ -20,7 +21,7 @@ export async function getOwnerTrainingCapability(env, owner, budgetPolicy) {
   const adapterConfigured = providerAdapterConfigured(env);
   const runtimeConfig = ownerTrainingExecutionConfig(env);
   const siteProfileConfigured = trainingRuntimeProfileConfigured(runtimeConfig);
-  const siteControlPlaneConfigured = trainingControlPlaneConfigured(env.MAP_TRAINING_CONTROL_PLANE_SHA);
+  const siteControlPlaneConfigured = trainingControlPlaneConfigured(trainingControlPlaneSha(env));
   const siteProfileFingerprint = await trainingRuntimeProfileFingerprint(ownerTrainingExecutionConfig(env));
   const budgetAvailable = Number.isSafeInteger(runtimeConfig.monthly_microusd) &&
     runtimeConfig.monthly_microusd > 0 &&

@@ -1288,6 +1288,27 @@ occurred.
 and submit retain the same fail-closed literal-`true` admission behavior.
 
 
+## 2026-11-28 — A11: centralize the shared training authorization identity
+
+**Problem:** the shared control-plane SHA used to bind owner and MAP training
+authorization was read directly by capabilities, plan submission, and Site
+authorization routes. Its security role was distinct from ordinary execution
+profile settings but had no explicit configuration boundary.
+
+**Change:** added `worker/training_security_configuration.js` as the sole
+binding reader and migrated those consumers. The architecture check now rejects
+direct reads elsewhere. Authorization formats, signing, and identity values are
+unchanged.
+
+**Validation:** all 163 Worker tests pass; the 52-module graph is acyclic;
+D1 migration checks, Worker build, and artifact validation pass. No provider
+operation or deployment occurred.
+
+**Independent review:** no actionable findings. Review confirmed that the
+existing control-plane identity and fail-closed validation are preserved across
+capability, plan, and confirmation paths.
+
+
 ## 2026-11-28 — A13: exercise external MCP OAuth over Worker HTTP
 
 **Problem:** OAuth protocol functions had focused unit coverage, but no test

@@ -8,6 +8,7 @@ import { DEFAULT_MAP_EXECUTION, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX
   OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
 import { ownerTrainingAdmissionEnabled, ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { mapTrainingConfiguration } from "./map_training_configuration.js";
+import { trainingControlPlaneSha } from "./training_security_configuration.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
 import { sha256Hex } from "./sha256.js";
 
@@ -465,7 +466,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     throw new Error("INVALID_ARGUMENTS");
   }
   if (row.dispatch_claimed_at !== null) return trainingPlanState(env, owner, runId);
-  const controlPlaneSha = env.MAP_TRAINING_CONTROL_PLANE_SHA;
+  const controlPlaneSha = trainingControlPlaneSha(env);
   if (typeof controlPlaneSha !== "string" || !/^[0-9a-f]{40}$/.test(controlPlaneSha)) {
     return { schema_version: 2, status: "blocked", human_summary: "学習の認証境界が設定されていません。",
       machine_state: { run_id: runId }, next_allowed_actions: ["training_status"],

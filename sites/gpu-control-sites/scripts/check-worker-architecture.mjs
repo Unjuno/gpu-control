@@ -49,6 +49,12 @@ const mapTrainingConfigSources = modulesReadingBindingsOutside(mapTrainingConfig
 assert.deepEqual(mapTrainingConfigSources, [],
   "MAP training source, image, quote and runtime settings may only be read by map_training_configuration.js");
 
+const trainingSecurityConfigBoundary = join(workerRoot, "training_security_configuration.js");
+const trainingSecurityConfigSources = modulesReadingBindingsOutside(trainingSecurityConfigBoundary,
+  ["MAP_TRAINING_CONTROL_PLANE_SHA"]);
+assert.deepEqual(trainingSecurityConfigSources, [],
+  "The shared training authorization identity may only be read by training_security_configuration.js");
+
 const artifactStorageSources = workerFiles.filter((file) =>
   file !== join(workerRoot, "run_artifacts.js") && /\bBUCKET\.(?:get|put|delete)\s*\(/.test(readFileSync(file, "utf8")));
 assert.deepEqual(artifactStorageSources, [],
