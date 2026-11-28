@@ -7,6 +7,14 @@ const COLAB_MCP_ENDPOINT = "https://colaboratory.googleapis.com/mcp";
 // escaping and MCP envelope fields while retaining one bounded request cap.
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;
+const SHORT_TOOL_TIMEOUT_MS = 30_000;
+const LONG_TOOL_TIMEOUT_MS = 600_000;
+const LONG_RUNNING_TOOLS = new Set(["create_runtime", "execute_code"]);
+
+/** Colab's documented execution ceiling is 600 seconds; short reads stay bounded. */
+export function googleColabToolTimeoutMs(name) {
+  return LONG_RUNNING_TOOLS.has(name) ? LONG_TOOL_TIMEOUT_MS : SHORT_TOOL_TIMEOUT_MS;
+}
 async function readBoundedText(response) {
   const bytes = await readBoundedResponseBytes(response, {
     maxBytes: MAX_RESPONSE_BYTES, tooLargeCode: "GOOGLE_COLAB_RESPONSE_TOO_LARGE",
@@ -53,6 +61,10 @@ export async function callGoogleColabMcpTool(env, owner, name, argumentsValue = 
   if (!validGoogleColabToolCall(name, argumentsValue, options)) {
     throw new Error("GOOGLE_COLAB_TOOL_INVALID");
   }
+  const timeoutMs = options.timeoutMs ?? googleColabToolTimeoutMs(name);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > LONG_TOOL_TIMEOUT_MS) {
+    throw new Error("GOOGLE_COLAB_TIMEOUT_INVALID");
+  }
   const auth = await googleColabAccessToken(env.DB, env, owner, { fetchImpl: options.fetchImpl });
   const id = crypto.randomUUID();
   const body = JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: argumentsValue } });
@@ -61,7 +73,7 @@ export async function callGoogleColabMcpTool(env, owner, name, argumentsValue = 
   let response;
   try {
     response = await fetchImpl(COLAB_MCP_ENDPOINT, { method: "POST", redirect: "error",
-      signal: AbortSignal.timeout(30_000), headers: { authorization: "Bearer " + auth.access_token,
+      signal: AbortSignal.timeout(timeoutMs), headers: { authorization: "Bearer " + auth.access_token,
         "content-type": "application/json", accept: "application/json, text/event-stream" }, body });
   } catch { throw new Error("GOOGLE_COLAB_PROVIDER_UNAVAILABLE"); }
   const contentType = response.headers.get("content-type") || "";

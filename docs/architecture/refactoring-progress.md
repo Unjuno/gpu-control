@@ -2547,3 +2547,16 @@ transition, runtime identity replacement, request ID retry and ciphertext
 substitution cases. Migration validation passes; the import graph is acyclic
 across 70 modules. The storage module is not yet wired into a public Colab
 submit/status route, so execution remains unavailable.
+
+## 2026-11-28 — A6: separate Colab short and long call deadlines
+
+**Change:** the hosted MCP client now keeps capability and ordinary lifecycle
+reads at 30 seconds while allowing `create_runtime` and `execute_code` the
+Google-documented 600-second call ceiling. Explicit per-call overrides remain
+bounded by that ceiling; the client adds no automatic retries.
+
+**Validation:** focused Colab contract and transport tests pass, and the full
+Sites suite passes 192 Worker tests with an acyclic graph across 70 modules.
+This only aligns the outbound call deadline; a disconnected request is still
+not durable by itself, so public execution remains gated on status-driven
+recovery using the persisted operation journal.

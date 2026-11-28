@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { completeGoogleColabOAuth, createGoogleColabConnectionUrl, beginGoogleColabOAuth } from "./google_colab_connection.js";
-import { callGoogleColabMcpTool } from "./google_colab_mcp_client.js";
+import { callGoogleColabMcpTool, googleColabToolTimeoutMs } from "./google_colab_mcp_client.js";
 import { handleGoogleColabTool } from "./google_colab_tools.js";
 
 const env = {
@@ -104,6 +104,13 @@ test("Google Colab MCP client is pinned to the hosted endpoint, allowlists tool 
         : new Response("x".repeat(80_000), { headers: { "content-type": "application/json" } }),
     }), { message: "GOOGLE_COLAB_RESPONSE_TOO_LARGE" });
   } finally { db.close(); }
+});
+
+test("Google Colab uses the documented long-call ceiling only for runtime creation and execution", () => {
+  assert.equal(googleColabToolTimeoutMs("create_runtime"), 600_000);
+  assert.equal(googleColabToolTimeoutMs("execute_code"), 600_000);
+  assert.equal(googleColabToolTimeoutMs("get_runtime"), 30_000);
+  assert.equal(googleColabToolTimeoutMs("list_runtime_specs"), 30_000);
 });
 
 test("Colab capability projection reports eligible GPUs without exposing runtime proxy credentials", async () => {

@@ -97,17 +97,17 @@ response. Runtime creation, code execution, result retrieval, and deletion
 must be distinct persisted state transitions. Do not reuse one generic HTTP
 timeout or automatic retry policy for all four operations.
 
-The Sites Worker client currently applies a 30-second timeout to every Google
-MCP call. Keep that limit for short capability reads. The execution adapter
-needs a recoverable call protocol that survives the connected MCP client's
-own request deadline. Cloudflare documents no hard wall-clock duration for an
-HTTP-triggered Worker while the client remains connected, but work may be
-cancelled when that connection ends; `waitUntil()` extends work for only 30
-seconds after response or disconnect. Therefore a long Colab execution cannot
-depend on one open `training_submit` request or an in-memory promise. Persist
-the request identity and make `training_status` resume only the same pending
-operation, or use a separately justified durable Cloudflare coordinator. See
-[Workers platform limits](https://developers.cloudflare.com/workers/platform/limits/).
+The Sites Worker client uses short timeouts for capability and lifecycle reads,
+and the documented 600-second ceiling for `create_runtime` and `execute_code`.
+This bounds the provider call but does not make it durable. Cloudflare
+documents no hard wall-clock duration for an HTTP-triggered Worker while the
+client remains connected, but work may be cancelled when that connection ends;
+`waitUntil()` extends work for only 30 seconds after response or disconnect.
+Therefore a long Colab execution cannot depend on one open `training_submit`
+request or an in-memory promise. Persist the request identity and make
+`training_status` resume only the same pending operation, or use a separately
+justified durable Cloudflare coordinator. See [Workers platform
+limits](https://developers.cloudflare.com/workers/platform/limits/).
 
 Before enabling Colab admission, prove that a disconnected or timed-out chat
 request leaves enough durable state to recover the run and delete its owned
