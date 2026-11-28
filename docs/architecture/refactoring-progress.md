@@ -1118,3 +1118,27 @@ recovery, cancellation and artifact verification; D1 forward migration tests
 pass; the Worker graph is acyclic across 48 runtime modules; build, Site
 artifact validation and `git diff --check` pass. No provider operation or
 deployment occurred. Exact-head CI is pending and is tracked separately.
+
+
+## 2026-11-28 — A7: isolate delegated provider lifecycle
+
+**Problem:** adapter-backed prepare, submit authorization, provider-specific
+budget claims, response-loss recovery, cancellation and status/artifact routing
+were implemented together in the dispatcher. This made adding or maintaining
+another MCP client/provider route require changes in a large composition root.
+
+**Change:** moved the complete delegated-provider plan and run lifecycle into
+`worker/delegated_experiment_lifecycle.js`, including free-provider policy
+authorization, Modal GPU active lease, exact approved-plan and one-use
+authorization checks, budget reservation/submit claim, idempotent recovery,
+provider-handle redaction, and existing-run status/cancel/artifact routing.
+The Worker dispatcher now passes the small account-evidence and secure-random
+ports and selects the native versus delegated lifecycle. Existing tools and
+persisted D1 contracts are unchanged.
+
+**Validation:** all 151 Worker tests pass, including owner-scoped training,
+Modal GPU reservation, delegated run recovery and artifact routing; the Worker
+graph is acyclic across 49 runtime modules. D1 forward migration, Worker build,
+Site artifact validation and `git diff --check` pass. Independent Security
+Review found no actionable findings. No provider operation or deployment
+occurred.

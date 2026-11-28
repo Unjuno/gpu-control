@@ -8,7 +8,8 @@ import { trainingControlPlaneConfigured, trainingRuntimeProfileConfigured,
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash, generateKeyPairSync } from "node:crypto";
-import worker, { maybeDelegateRunTool, modalGpuProviderEvidence, reserveModalGpuLease } from "./index.js";
+import worker, { modalGpuProviderEvidence } from "./index.js";
+import { maybeDelegateRunTool, reserveModalGpuLease } from "./delegated_experiment_lifecycle.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);

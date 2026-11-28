@@ -512,3 +512,12 @@ now live in `worker/modal_cpu_lifecycle.js`. The dispatcher composes lifecycle
 operations through narrow imports, and provider result trust rules stay with
 their provider. All 151 Worker tests, D1 migration checks, build and artifact
 validation pass; the 48-module graph remains acyclic. Exact-head CI is pending.
+
+**Progress (2026-11-28):** adapter-backed prepare, authorization, provider
+budget/lease claims, submit recovery and existing-run lifecycle routing now live
+in `worker/delegated_experiment_lifecycle.js`. The dispatcher supplies the
+short-lived Modal account evidence and secure random source, and chooses the
+native or delegated lifecycle. This keeps the shared D1 run and authorization
+contracts intact for all compatible MCP clients. All 151 Worker tests pass;
+the 49-module graph is acyclic; D1 migration, build and artifact validation
+pass. Independent Security Review found no actionable findings.
