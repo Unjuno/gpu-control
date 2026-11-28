@@ -722,7 +722,9 @@ modules; the exact pushed head and CI are recorded in the progress log.
   The Worker Modal CPU Admission flag is also interpreted once by
   `modal_cpu_policy.js`; capability, health, and submit paths consume the same
   fail-closed predicate, and the Worker architecture check rejects direct
-  reads elsewhere.
+  reads elsewhere. Google Colab OAuth callback validation and request matching
+  now share `google_colab_connection.js`; the architecture check rejects raw
+  callback-setting reads in route modules.
 
 ### A12. Add architecture checks only after rules have an owner
 

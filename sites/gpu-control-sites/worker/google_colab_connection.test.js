@@ -6,7 +6,7 @@ import test from "node:test";
 import {
   beginGoogleColabOAuth, completeGoogleColabOAuth, createGoogleColabConnectionUrl,
   decryptGoogleColabOperationData, disconnectGoogleColab, encryptGoogleColabOperationData,
-  googleColabAccessToken, googleColabConnectionConfigured,
+  googleColabAccessToken, googleColabConnectionConfigured, googleColabOAuthCallbackMatches,
   googleColabConnectionStatus, googleColabOAuthConfigured,
 } from "./google_colab_connection.js";
 
@@ -56,6 +56,14 @@ async function begin(db, owner = "chat-owner", now = 1_800_000_000) {
 test("Google Colab OAuth configuration binds an HTTPS callback and 256-bit token-encryption key", () => {
   assert.equal(googleColabOAuthConfigured(env), true);
   assert.equal(googleColabConnectionConfigured(env), true);
+  assert.equal(googleColabOAuthCallbackMatches(env,
+    "https://gpu-control-sites.unjuno.chatgpt.site/google/oauth/callback?code=ignored&state=ignored"), true);
+  assert.equal(googleColabOAuthCallbackMatches(env,
+    "https://gpu-control-sites.unjuno.chatgpt.site/google/oauth/other"), false);
+  assert.equal(googleColabOAuthCallbackMatches(env,
+    "https://evil.example/google/oauth/callback"), false);
+  assert.equal(googleColabOAuthCallbackMatches({ ...env, GOOGLE_COLAB_OAUTH_CALLBACK_URL: "malformed" },
+    "https://gpu-control-sites.unjuno.chatgpt.site/google/oauth/callback"), false);
   assert.equal(googleColabOAuthConfigured({ ...env, GOOGLE_COLAB_OAUTH_CALLBACK_URL: "https://evil.example/callback" }), false);
   assert.equal(googleColabConnectionConfigured({ ...env, GOOGLE_COLAB_TOKEN_ENCRYPTION_KEY: "short" }), false);
 });

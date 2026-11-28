@@ -42,6 +42,16 @@ export function googleColabOAuthConfigured(env) {
   } catch { return false; }
 }
 
+/** Match a request against the validated OAuth callback owned by this module. */
+export function googleColabOAuthCallbackMatches(env, requestUrl) {
+  if (!googleColabOAuthConfigured(env)) return false;
+  let actual;
+  try { actual = requestUrl instanceof URL ? requestUrl : new URL(requestUrl); }
+  catch { return false; }
+  const configured = new URL(env.GOOGLE_COLAB_OAUTH_CALLBACK_URL);
+  return actual.origin === configured.origin && actual.pathname === configured.pathname;
+}
+
 export function googleColabConnectionConfigured(env) {
   if (!googleColabOAuthConfigured(env)) return false;
   try { return fromBase64Url(env.GOOGLE_COLAB_TOKEN_ENCRYPTION_KEY).length === 32; }

@@ -70,6 +70,12 @@ const modalCpuAdmissionSources = modulesReadingBindingsOutside(modalCpuPolicyBou
 assert.deepEqual(modalCpuAdmissionSources, [],
   "Modal CPU admission may only be interpreted by modal_cpu_policy.js");
 
+const googleColabOAuthBoundary = join(workerRoot, "google_colab_connection.js");
+const googleColabOAuthSources = modulesReadingBindingsOutside(googleColabOAuthBoundary,
+  ["GOOGLE_COLAB_OAUTH_CALLBACK_URL"]);
+assert.deepEqual(googleColabOAuthSources, [],
+  "Google Colab OAuth callback configuration may only be interpreted by google_colab_connection.js");
+
 // The reviewed MAP workload profile has one environment parser as well. The
 // live admission decision remains separate from profile validity, and the
 // shared control-plane signing key has its own identity/security concern.

@@ -1,5 +1,5 @@
 import { completeGoogleColabOAuth, beginGoogleColabOAuth,
-  googleColabOAuthConfigured } from "./google_colab_connection.js";
+  googleColabOAuthCallbackMatches, googleColabOAuthConfigured } from "./google_colab_connection.js";
 
 function googleColabOAuthCookie(request) {
   const cookie = request.headers.get("cookie") || "";
@@ -41,9 +41,7 @@ export function createGoogleColabOAuthRoutes({ htmlPage, escapeHtml }) {
     if (!env.DB || !googleColabOAuthConfigured(env)) return clearGoogleColabOAuthCookie(
       htmlPage("Google Colab接続を確認できません", "<p>GPU Control側のGoogle OAuth設定がまだ完了していません。</p>", 503));
     const url = new URL(request.url);
-    let callbackUrl;
-    try { callbackUrl = new URL(env.GOOGLE_COLAB_OAUTH_CALLBACK_URL); } catch { callbackUrl = null; }
-    if (!callbackUrl || url.origin + url.pathname !== callbackUrl.origin + callbackUrl.pathname) {
+    if (!googleColabOAuthCallbackMatches(env, url)) {
       return clearGoogleColabOAuthCookie(htmlPage("Google Colab接続を完了できません",
         "<p>接続先URLが設定と一致しません。</p>", 400));
     }

@@ -38,6 +38,22 @@ module reads the raw binding. A unit test covers missing and malformed values.
 --check` passes. No provider, credential, admission, deployment, or billing
 state was changed.
 
+## 2026-11-29 — A11: centralize Google Colab OAuth callback matching
+
+**Finding:** the OAuth configuration boundary validated the callback's HTTPS
+origin and exact path, but the HTTP route separately parsed and matched that
+same binding. This created a second place to interpret the redirect target.
+
+**Change:** `google_colab_connection.js` now owns callback matching against a
+request URL. The route calls that function and no longer reads the callback
+binding. The Worker architecture guard enforces that ownership. Tests cover a
+valid callback with query values, wrong path/host, and malformed configuration.
+
+**Validation:** 43 focused Colab/Worker tests pass; the full Sites suite passes
+(215); the Worker graph remains acyclic across 78 modules; and
+`git diff --check` passes. No OAuth credentials or external accounts were
+accessed or changed.
+
 ## 2026-11-29 — A11: share MAP Modal profile parsing
 
 **Finding:** the MAP function entrypoint validated source, image, and runtime
