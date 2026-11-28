@@ -255,6 +255,12 @@ test("Colab recovers create and cleanup response loss without rerunning or confi
       { fetchImpl: countedFetch, now: 109 });
     assert.equal(missingCancel.machine_state.state, "uncertain");
     assert.equal(missingCancel.blocking_reason, "GOOGLE_COLAB_OPERATION_RECORD_MISSING");
+    assert.equal((await sqlite.prepare("SELECT cancelled_at FROM gateway_delegated_plans WHERE owner_id=? AND id=?")
+      .get(owner, missingRunId)).cancelled_at, 109, "missing journal still keeps a durable cancel intent");
+    const missingAfterCancel = await googleColabRunTool(env, owner, "experiment_status", missingRunId,
+      { fetchImpl: countedFetch, now: 110 });
+    assert.equal(missingAfterCancel.machine_state.state, "uncertain");
+    assert.equal(missingAfterCancel.blocking_reason, "GOOGLE_COLAB_OPERATION_RECORD_MISSING");
     const missingSubmit = await submitGoogleColabExperiment(env, owner, {
       run_id: missingRunId, plan_fingerprint: missingFingerprint, provider_approved_plan: plan,
     }, { fetchImpl: countedFetch, now: 110 });

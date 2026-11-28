@@ -78,11 +78,12 @@ export async function submitGoogleColabExperiment(env, owner, args, options = {}
   try { plan = JSON.parse(planRow?.approved_plan_json); } catch { plan = null; }
   if (!planRow || !validGoogleColabApprovedPlan(plan) || planRow.fingerprint !== args.plan_fingerprint ||
       planRow.approved_plan_json !== canonicalJson(args.provider_approved_plan) ||
-      args.provider_approved_plan?.provider !== "google_colab" || planRow.cancelled_at ||
+      args.provider_approved_plan?.provider !== "google_colab" ||
       planRow.expires_at < now || !["prepared", "submitted"].includes(planRow.state)) {
     return result("blocked", "このColab planは現在のownerに属さないか、期限切れまたはplanが一致しません。",
       args.run_id, "prepared", "not_required", [], "APPROVED_PLAN_MISMATCH_OR_EXPIRED");
   }
+  if (planRow.cancelled_at) return googleColabRunTool(env, owner, "experiment_cancel", args.run_id, options);
   if (planRow.state === "prepared" && !googleColabAdmissionEnabled(env)) return result("blocked",
     "Google Colab実行受付は停止中です。runtimeは作成していません。", args.run_id,
     "prepared", "not_required", [], "GOOGLE_COLAB_WORKLOAD_ADMISSION_DISABLED");
@@ -285,6 +286,12 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
     if (!operation) {
       const now = options.now ?? Math.floor(Date.now() / 1000);
       if (row.state !== "prepared" || row.submit_attempted_at !== null) {
+        if (row.submit_attempted_at !== null) {
+          await env.DB.prepare(`UPDATE gateway_delegated_plans
+            SET cancelled_at=COALESCE(cancelled_at, ?), updated_at=?
+            WHERE owner_id=? AND id=? AND fingerprint=?`)
+            .bind(now, now, owner, runId, row.fingerprint).run();
+        }
         return missingOperationRecord(runId);
       }
       const cancelled = await env.DB.prepare(`UPDATE gateway_delegated_plans SET cancelled_at=?, updated_at=?
@@ -362,6 +369,7 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
     }
     const operation = await readGoogleColabOperation(env.DB, owner, runId, row.fingerprint);
     if (!operation) {
+      if (row.cancelled_at && row.submit_attempted_at !== null) return missingOperationRecord(runId);
       if (row.cancelled_at) return result("ok", "Colab planを送信前に取り消しました。runtimeは作成されていません。",
         runId, "cancelled", "not_required", [], null, { expires_at: row.expires_at, runtime_allocated: false });
       if (row.state === "prepared" && row.submit_attempted_at === null) return result("ok",
