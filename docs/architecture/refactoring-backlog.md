@@ -717,7 +717,8 @@ modules; the exact pushed head and CI are recorded in the progress log.
   shared by capability status and dispatch. MAP's Modal function entrypoint
   and submit backend now share one parser for the pinned source, image, runtime,
   price, and quote-expiry profile. Other provider configuration still needs
-  the wider inventory.
+  the wider inventory. Modal packaging tests now enforce those two established
+  configuration ownership boundaries with an AST check over runtime modules.
 
 ### A12. Add architecture checks only after rules have an owner
 

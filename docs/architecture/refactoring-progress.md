@@ -72,6 +72,20 @@ No cooldown duration or database behavior changed.
 passes (214). The Worker graph is acyclic across 78 modules. No provider,
 credential, admission, deployment, or billing state was touched.
 
+## 2026-11-29 — A12: guard Modal configuration ownership
+
+**Change:** Modal packaging tests now inspect runtime Python ASTs and fail if
+owner-training admission or MAP runtime-profile environment settings are read
+outside their designated configuration modules. The check ignores test files
+and string-only forwarding of bindings; it guards only actual `os.environ`
+reads.
+
+**Validation:** packaging guard suite passes (9), full Modal Python suite
+passes (107), full Sites suite passes (214), Worker graph is acyclic across
+78 modules, and `git diff --check` passes. A synthetic duplicate read is
+rejected by the AST guard. No provider, credential, admission, deployment, or
+billing state was touched.
+
 ## 2026-11-29 — A10: make signing fixtures share the canonical JSON authority
 
 **Finding:** four Worker test files carried local recursive key-sorting

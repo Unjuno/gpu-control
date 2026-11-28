@@ -4,6 +4,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 
 ADAPTER = Path(__file__).with_name("provider_adapter.py")
 PROVIDER_RUNTIME_MODULES = {
@@ -15,6 +17,41 @@ PROVIDER_RUNTIME_MODULES = {
     "orbitune_workload.py",
     "settings.py",
 }
+CONFIG_ENV_OWNERS = {
+    "OWNER_TRAINING_ADMISSION_ENABLED": "custom_training_plan.py",
+    "MAP_TRAINING_SOURCE_SHA": "map_training_configuration.py",
+    "MAP_TRAINING_MODAL_IMAGE_ID": "map_training_configuration.py",
+    "MAP_TRAINING_IMAGE_DIGEST": "map_training_configuration.py",
+    "MAP_TRAINING_RUNTIME_SECONDS": "map_training_configuration.py",
+    "MAP_TRAINING_HOURLY_MICROUSD": "map_training_configuration.py",
+    "MAP_TRAINING_QUOTE_EXPIRES_AT": "map_training_configuration.py",
+}
+
+
+def _os_environ_read(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+        target = node.func.value
+        if (isinstance(target, ast.Attribute) and target.attr == "environ" and
+                isinstance(target.value, ast.Name) and target.value.id == "os" and
+                node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
+            return node.args[0].value
+    if isinstance(node, ast.Subscript):
+        target = node.value
+        key = node.slice
+        if (isinstance(target, ast.Attribute) and target.attr == "environ" and
+                isinstance(target.value, ast.Name) and target.value.id == "os" and
+                isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            return key.value
+    return None
+
+
+def _assert_config_owner_reads(path: str, tree: ast.AST) -> None:
+    for node in ast.walk(tree):
+        name = _os_environ_read(node)
+        if name in CONFIG_ENV_OWNERS:
+            assert path == CONFIG_ENV_OWNERS[name], (
+                f"{name} is owned by {CONFIG_ENV_OWNERS[name]}, read found in {path}"
+            )
 
 
 def test_adapter_packages_sites_owned_provider_runtime() -> None:
@@ -51,6 +88,21 @@ def test_packaged_modules_do_not_import_gateway_services_or_databases() -> None:
             elif isinstance(node, ast.Import):
                 imported.update(alias.name.rsplit(".", 1)[-1] for alias in node.names)
         assert imported.isdisjoint(forbidden), f"{name} imports a legacy service module"
+
+
+def test_runtime_configuration_is_read_only_by_its_domain_owner() -> None:
+    modal_root = ADAPTER.parent
+    for path in modal_root.glob("*.py"):
+        if path.name.startswith("test_"):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        _assert_config_owner_reads(path.name, tree)
+
+
+def test_configuration_owner_guard_rejects_duplicate_interpretation() -> None:
+    tree = ast.parse('import os\nos.environ.get("MAP_TRAINING_SOURCE_SHA")')
+    with pytest.raises(AssertionError, match="owned by map_training_configuration.py"):
+        _assert_config_owner_reads("map_training_backend.py", tree)
 
 
 def test_modal_signed_payloads_share_one_canonical_byte_encoder() -> None:
