@@ -63,8 +63,10 @@ acceptance.
   external GPU, carries IDs/provider details internally, and returns verified
   result and cleanup. ChatGPT chat/Work is an important client, not a product
   boundary. Modal is currently the only
-  owner-selected route in PR #70; RunPod arbitrary-source is next, while
-  Kaggle/Hugging Face remain fixed-workload routes and Colab is not integrated.
+  owner-selected route in PR #70; Google Colab is the next integration target
+  but currently provides connection/capability reads only. RunPod
+  arbitrary-source follows after Colab; Kaggle/Hugging Face remain
+  fixed-workload routes.
 - **Done when:** no current-state document promotes PR source or old canaries
   into present-day deployed capability; the first-run ChatGPT prompt names
   actual available actions and blockers.

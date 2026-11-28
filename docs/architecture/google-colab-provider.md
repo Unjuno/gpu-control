@@ -213,6 +213,26 @@ cap through the documented API. No Colab execution tool should be public
 until this separate policy path, durable recovery, cancellation, artifact
 verification and owned-runtime cleanup are implemented.
 
+Google's current tool contracts also constrain allocation and cleanup:
+`list_sessions` includes user-notebook sessions, and `create_session` with a
+matching ID returns an already-open session. Only a session created by this
+run may be closed. `delete_runtime` removes every file and every session and
+is irreversible, so it is allowed only for a runtime whose creation request
+and returned identity are durably bound to the exact run and whose cleanup was
+included in that run's plan. A runtime found by listing is never considered
+owned or reusable by GPU Control. Keep one run-owned runtime/session per run
+until an explicit, reviewed reuse contract exists.
+
+`create_runtime` must persist its UUID `requestId` before the provider call;
+after a timeout, retry the identical request and never mint a replacement ID.
+Each execution must persist a UUID `executionId` before dispatch. After
+`DEADLINE_EXCEEDED` or `UNAVAILABLE`, reattach with the exact same session,
+code and execution ID. Because replaying a completed ID starts the code again,
+the journal must distinguish pending from completed before retrying. Provider
+execution can take 600 seconds, so a caller's request timeout is not the run
+state: an owner-scoped durable coordinator or status-triggered exact-operation
+recovery is required before submit is exposed.
+
 ## References
 
 - [Official Colab API MCP tools and schemas](https://developers.google.com/colab/api/reference/mcp)

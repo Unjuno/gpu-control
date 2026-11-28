@@ -2492,3 +2492,22 @@ remain independently capped at 64 KiB. Added a client test that sends more than
 the architecture graph remains acyclic across 69 modules, the registry check
 passes, and `git diff --check` passes. No Google runtime was created and no
 provider credentials or admission settings changed.
+
+## 2026-11-28 — A6: validate the Colab runtime proxy origin
+
+**Finding:** Colab's runtime response includes a URL and short-lived proxy
+token used together for file transfer. Accepting an arbitrary HTTPS URL would
+let an invalid provider response redirect credential-bearing requests to an
+attacker-controlled host.
+
+**Change:** runtime connection URLs are restricted to the exact
+`https://colab.googleusercontent.com` origin without userinfo, port, query, or
+fragment. Added contract coverage for deceptive host suffixes and URL
+credentials. The architecture record now requires owner-bound runtime creation
+and forbids reuse/deletion of sessions or runtimes not created by that exact
+run; it also documents exact-ID recovery for timeouts.
+
+**Validation:** focused Colab MCP tests pass (6); the full Sites suite passes
+188 Worker tests, two graph tests, generated registry validation, and the
+acyclic import check across 69 modules. This does not enable or live-test
+Colab execution.
