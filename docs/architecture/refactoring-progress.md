@@ -518,3 +518,10 @@ execution through Modal only. RunPod is fixed-workload only; Kaggle and
 Hugging Face remain registered-workload routes; Colab remains proposed. This
 refactor improves agent-facing capability ownership but does not by itself
 complete the ordinary-chat external-GPU product or prove deployed behavior.
+
+
+**Current source/release state after this batch:** PR #70 is open and unmerged
+at `f4ea1039bc9d7a2e2b0c96765f0818c389b903bd` (117 files, +11,652/−686).
+All seven exact-head checks passed. Independent security review and required
+GitHub review remain outstanding; owner-selected admission remains parked, and
+this source candidate has not been deployed.
