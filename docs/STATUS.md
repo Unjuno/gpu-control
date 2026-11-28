@@ -4,16 +4,20 @@
 
 - The current source candidate is PR #70 branch
   `codex/owner-training-workloads`, latest implementation commit
-  `5b4410a03b5f5f890a1923f53f4c65631c8d2e73`. PR #70 remains open and
-  unmerged. All seven exact-head GitHub Actions checks passed for that
-  implementation commit; any later branch commits only refresh records.
+  `74a8bde`. PR #70 remains open and unmerged with review required. All seven
+  exact-head GitHub Actions checks passed at `8b1c609`; checks for `74a8bde`
+  are pending. The 208-test Sites suite, five root Skill/client checks, Worker
+  build/artifact validation, and D1 forward migration replay pass locally.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
   connection, D1 operation journal, verified R2 artifacts and run-owned
   cleanup. RunPod/Kaggle/Hugging Face custom-repository execution is not
-  implied by their fixed-workload routes. Colab's direct CLI remains a
-  separate local/CI route outside the shared run ledger.
+  implied by their fixed-workload routes. MAP-44M and owner-selected training
+  share the exact-plan MCP submit authorization across compatible clients;
+  current run guides no longer direct MAP users to its legacy authorization
+  URL. Colab's direct CLI remains a separate local/CI route outside the shared
+  run ledger.
 - `policies/repository-state.yaml` remains `mode: parked` and explicitly keeps
   owner-selected GPU admission disabled. No current claim is made that PR #70
   has been merged, deployed, migrated in hosted D1, or accepted in a new
@@ -28,15 +32,18 @@
 - The prior full local validation at `748ac11` passed 206 tests; the Worker
   graph was acyclic across 76 modules, and build and D1 migration replay
   passed. Focused tests for RunPod public errors and custom-training journal
-  loss pass 5/5 across their two suites; exact-head CI passes at `5b4410a`.
+  loss pass 5/5 across their two suites; the latest full local validation is
+  recorded above. Exact-head CI passes at `8b1c609` and is pending for
+  `74a8bde`.
   The Colab
   lifecycle integration test covers same-request-ID recovery after lost
   mocked runtime-create and cleanup responses on both status and cancellation.
   A non-empty deletion response leaves cleanup pending; a later exact empty
-  success response confirms cleanup without replaying execution. It does not prove Google's live
-  idempotency behavior or real Colab execution. The earlier independent Security Review does not
-  cover this latest source. The automated diff scanner could not start on the
-  linked worktree; no independent scan result is claimed.
+  success response confirms cleanup without replaying execution. It does not
+  prove Google's live idempotency behavior or real Colab execution. The earlier
+  independent Security Review does not cover this latest source. The automated
+  diff scanner could not start on the linked worktree; no independent scan
+  result is claimed for `74a8bde`.
 - The `31bc183` follow-up also fails closed when a submitted Colab plan has lost
   its operation journal: status, cancel and repeated submit report uncertainty
   without contacting Colab. The `748ac11` RunPod follow-up preserves an
