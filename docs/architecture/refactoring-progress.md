@@ -3533,8 +3533,16 @@ endpoint bounds. The hosted Colab MCP remains the single Colab provider path;
 the standalone CLI remains suitable for direct local/CI use, not a second
 GPU Control ledger.
 
-**Validation:** focused RunPod and MCP contract tests pass (16/16); all Sites
-tests pass (221/221); the Worker graph is acyclic across 84 modules; registry
+**Validation:** focused RunPod and MCP contract tests pass (28/28); all Sites
+tests pass (222/222); the Worker graph is acyclic across 85 modules; registry
 freshness, Worker build, artifact validation, D1 forward-migration replay,
 and `git diff --check` pass. No RunPod job, Colab runtime, credential, provider
-setting, or deployment was changed. Exact-head CI is pending after push.
+setting, or deployment was changed. Exact-head CI passed on the preceding
+RunPod estimate change; the shared-policy follow-up is pending its own CI after
+push.
+
+**Follow-up normalization:** added `runpod_execution_policy.js` as the single
+source for execution, TTL, idle, initialization estimate, and cost-window
+values shared by plan preparation and the provider request. The plan response
+summary now renders its assumption values from the immutable plan. A focused
+test binds the estimator formula to this policy.

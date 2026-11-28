@@ -105,6 +105,11 @@ acceptance.
   not yet bound. Do not describe the Sites reservation as a RunPod charge
   limit. A provider-enforced all-attempt bound remains a release requirement
   before advertising a maximum RunPod spend.
+- **A22 — One RunPod runtime and estimate policy:** completed in this batch.
+  `runpod_execution_policy.js` is the authority for workload execution time,
+  per-request execution timeout, job TTL, worker idle timeout, initialization
+  assumption, and the estimated billable window. Plan validation/pricing and
+  provider request construction now share it.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct

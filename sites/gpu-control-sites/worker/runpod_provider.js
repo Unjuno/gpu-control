@@ -1,6 +1,11 @@
 import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
 import { readRunpodApiKey, readRunpodConfiguration } from "./runpod_configuration.js";
 import { readBoundedResponseBytes } from "./http_response_body.js";
+import {
+  RUNPOD_EXECUTION_TIMEOUT_SECONDS,
+  RUNPOD_JOB_TTL_SECONDS,
+  RUNPOD_WORKER_IDLE_TIMEOUT_SECONDS,
+} from "./runpod_execution_policy.js";
 
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
@@ -153,7 +158,7 @@ export class RunpodV2Client {
     if (endpoint.id !== this.endpointId || endpoint.type !== "QUEUE" || endpoint.image !== this.image ||
         endpoint.gpu?.count !== 1 || !Array.isArray(endpoint.gpu?.pools) || endpoint.gpu.pools.length !== 1 ||
         endpoint.gpu.pools[0] !== this.gpuPoolId || endpoint.workers?.min !== 0 || endpoint.workers?.max !== 1 ||
-        endpoint.workers?.idleTimeout !== 5 ||
+        endpoint.workers?.idleTimeout !== RUNPOD_WORKER_IDLE_TIMEOUT_SECONDS ||
         !Number.isSafeInteger(endpoint.timeout) || endpoint.timeout < 5000 || endpoint.timeout > 30_000 ||
         !Array.isArray(endpoint.ports) || endpoint.ports.length !== 0 || !noMounts || !["", null, undefined].includes(endpoint.args) ||
         endpoint.env?.GPU_CONTROL_SOURCE_SHA !== this.sourceSha ||
@@ -179,7 +184,8 @@ export class RunpodV2Client {
     return this.request(`/v2/${this.endpointId}/run`, { method: "POST", binding: { runId, planFingerprint }, body: { input: { schema_version: 1, run_id: runId,
       plan_fingerprint: planFingerprint, nonce, completion_key_b64: completionKeyB64, completion_key_id: completionKeyId,
       source_sha: sourceSha, image_digest: this.image.slice(this.image.indexOf("@") + 1), execution_name: `gpu-control-${runId.slice(0, 12)}` },
-      policy: { executionTimeout: 30_000, ttl: 300_000 } } });
+      policy: { executionTimeout: RUNPOD_EXECUTION_TIMEOUT_SECONDS * 1000,
+        ttl: RUNPOD_JOB_TTL_SECONDS * 1000 } } });
   }
   async getSubmissionReceipt({ runId, planFingerprint }) {
     if (!this.jobRelay) return null;

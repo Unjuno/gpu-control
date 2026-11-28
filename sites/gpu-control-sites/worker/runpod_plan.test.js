@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { prepareRunpodExperiment, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
+import { RUNPOD_DEFAULT_INITIALIZATION_SECONDS, RUNPOD_ESTIMATED_BILLABLE_SECONDS, RUNPOD_EXECUTION_TIMEOUT_SECONDS,
+  RUNPOD_JOB_TTL_SECONDS, RUNPOD_WORKER_IDLE_TIMEOUT_SECONDS } from "./runpod_execution_policy.js";
+
+test("RunPod estimate uses the same execution policy as provider submission", () => {
+  assert.equal(RUNPOD_ESTIMATED_BILLABLE_SECONDS,
+    RUNPOD_DEFAULT_INITIALIZATION_SECONDS + RUNPOD_JOB_TTL_SECONDS + RUNPOD_WORKER_IDLE_TIMEOUT_SECONDS);
+  assert.equal(RUNPOD_EXECUTION_TIMEOUT_SECONDS, 30);
+});
 
 function environment() {
   const rows = new Map();
