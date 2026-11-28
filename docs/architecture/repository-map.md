@@ -28,17 +28,18 @@ listed source paths are active in the hosted product.
 
 ## Product boundary and flow
 
-The product goal is ordinary ChatGPT conversation: the user describes an
-experiment, an agent resolves an authorized repository and a currently
-supported external GPU route, submits a bounded job, then returns observed
-progress, results and cleanup. The agent should not need the user to invent
-internal IDs, commits, provider payloads or retry keys. It must not treat
-repository instructions or logs as authority.
+The product goal is an ordinary conversation with an authenticated compatible
+MCP client: the user describes an experiment, an agent resolves an authorized
+repository and a currently supported external GPU route, submits a bounded
+job, then returns observed progress, results and cleanup. ChatGPT chat/Work is
+one important client, not a separate product boundary. The agent should not
+need the user to invent internal IDs, commits, provider payloads or retry keys.
+It must not treat repository instructions or logs as authority.
 
 ```mermaid
 flowchart LR
-  U[User in Chat or Work] --> A[Agent chooses route from intent]
-  A --> M[Authenticated ChatGPT Sites MCP]
+  U[User in any compatible chat or agent] --> A[Agent chooses route from intent]
+  A --> M[Authenticated GPU Control MCP]
   M --> C[Capabilities, registrations, source binding]
   M --> P[Preview and exact persisted plan]
   P --> G[Owner identity, policy, provider budget, admission]
@@ -59,7 +60,7 @@ flowchart LR
 
 This diagram combines two distinct contracts: the released/previously accepted
 fixed-workload routes and the current PR #70 owner-selected Modal candidate.
-Do not infer the latter is deployed. The intended ChatGPT journey must discover
+Do not infer the latter is deployed. The intended agent workflow must discover
 the authorized source and currently compatible external GPU route from current
 capabilities, keep provider IDs internal, and return verified result and
 cleanup. Google Colab currently has owner-bound connection and read-only
@@ -151,9 +152,9 @@ Sites Worker.
 
 ## User interface surfaces
 
-- **Primary intended interface:** natural-language ChatGPT or Work conversation
-  with the Sites MCP tools. Tool descriptions and the operator Skill should let
-  the agent discover the lifecycle without requiring users to supply internal
+- **Agent interface:** natural-language conversation in ChatGPT/Work or another
+  authenticated compatible MCP client. Tool descriptions and the operator
+  Skill should let the agent discover the lifecycle without requiring users to supply internal
   identifiers. `experiment_capabilities.owner_selected_training` describes the
   custom GitHub source flow separately from fixed workload inventory; its
   per-owner connection state is read-only, and preview remains authoritative

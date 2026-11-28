@@ -1,15 +1,18 @@
 # Connect another MCP client
 
-GPU Control has one owner-scoped experiment control plane. ChatGPT remains the
-primary client. A compatible remote MCP client can connect to the same MCP URL
-using OAuth; it shares the same plans, provider policies, run history, results,
-artifacts, and cleanup records. It does not receive provider credentials.
+GPU Control has one owner-scoped experiment control plane. ChatGPT and any
+compatible remote MCP client can connect to the same MCP URL using their
+supported authentication flow. They share the same plans, provider policies,
+run history, results, artifacts, and cleanup records. No client receives
+provider credentials.
 
-“Use it from another chat or agent” means connecting that client to this remote
-MCP endpoint and signing in as the already linked owner. It does not mean an
-anonymous public API or a separate provider-specific integration. Each client
-has its own revocable OAuth grant, while the owner identity, authorization,
-budget checks, and run ledger remain shared.
+“Use it from another chat, agent, or compatible automation client” means
+connecting that client to this remote MCP endpoint and authenticating as the
+already linked owner. It does not mean an anonymous public API or a separate
+provider-specific integration. Each OAuth client has its own revocable grant,
+while owner identity, authorization, budget checks, and the run ledger remain
+shared. The MCP contract is the product interface; ChatGPT-specific Sites
+identity is one transport adapter to that same owner-scoped contract.
 The client and its account/workspace policy must also allow the relevant MCP
 tools. A server-side OAuth grant cannot override a client-side restriction or
 the native confirmation policy for write-capable tools.

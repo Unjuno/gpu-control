@@ -5,6 +5,29 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — Normalize the client-neutral MCP product boundary
+
+**Finding:** the owner-bound OAuth design, MCP client guide, and provider
+specification already use one shared plan/run ledger for authenticated MCP
+clients. Several current architecture summaries still described ChatGPT as the
+primary client, which could imply that other clients were secondary product
+paths even though the intended contract is shared.
+
+**Change:** aligned the MCP client guide, Colab/provider architecture, ADR 0012,
+repository map, and A0/A1 backlog wording around one client-neutral MCP
+contract. ChatGPT's trusted Sites identity is documented as one transport
+adapter. Authentication remains required; this does not make the API anonymous
+or imply that an undeployed OAuth route is already available. Standalone
+`google-colab-cli` jobs remain outside the GPU Control ledger; an automation
+client can share that ledger only by calling the same authenticated MCP
+lifecycle.
+
+**Validation:** checked current MCP client setup and Colab integration docs
+against ADRs 0010–0012 and the A0/A1 release gates. `git diff --check` passes.
+No runtime code, OAuth configuration, provider, admission, deployment, or
+experiment was changed. PR #70 exact-head CI was green at `69591b3` before this
+documentation-only batch; the new commit requires fresh hosted checks.
+
 ## 2026-11-28 — A0: refresh the exact source and verification snapshot
 
 **Source:** PR #70, branch `codex/owner-training-workloads`, head

@@ -96,9 +96,10 @@ authorization, provider policy, one-use dispatch, or cleanup verification.
 
 ## Consequences
 
-- ChatGPT remains the primary conversational experience; compatible clients
-  can use the same GPU Control plans and run records after one owner-bound
-  OAuth connection.
+- ChatGPT and other compatible MCP clients use the same GPU Control plans and
+  run records after owner-bound authentication. ChatGPT's trusted identity
+  header remains one transport adapter; it does not define a separate product
+  contract or ledger.
 - The official Colab CLI remains a standalone developer tool. It is not
   described as a GPU Control client until it authenticates to this MCP instead
   of using a separate Colab credential and execution path.

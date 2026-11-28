@@ -1,8 +1,8 @@
 # Architecture index
 
-This directory describes the source architecture, the ChatGPT product boundary,
-and the staged work needed to make ordinary agent conversations a reliable
-front end for external compute.
+This directory describes the source architecture, the shared authenticated
+MCP product boundary, and the staged work needed to make ordinary agent
+conversations a reliable front end for external compute.
 
 ## Current source snapshot
 
@@ -18,9 +18,9 @@ front end for external compute.
   capability budget authority decision, superseded by ADR 0005.
 - [ADR 0005](decisions/0005-shared-modal-compute-budget.md): one Sites-side
   Modal CPU/GPU compute reservation ceiling across routes.
-- [ADR 0006](decisions/0006-chat-first-external-compute.md): normal chat is
-  the primary interface and external GPU routes must share one owner-bound
-  lifecycle.
+- [ADR 0006](decisions/0006-chat-first-external-compute.md): natural-language
+  agent use is the interface and external GPU routes must share one owner-bound
+  lifecycle across compatible MCP clients.
 - [ADR 0007](decisions/0007-github-installation-owner-proof.md): GitHub
   installation callbacks require one-time user authorization before an
   owner-bound source connection is trusted.

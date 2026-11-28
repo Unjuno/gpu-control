@@ -58,10 +58,11 @@ acceptance.
 - **Work:** maintain a compact release record that separately names source
   head, merge SHA, Sites deployment/version, applied D1 migration, live tool
   schema, provider configuration, and exact end-to-end acceptance run.
-- **Current chat-first invariant:** the user describes the experiment in
-  ordinary ChatGPT/Work conversation; the agent resolves authorized source and
-  compatible external GPU, carries IDs/provider details internally, and
-  returns verified result and cleanup. Modal is currently the only
+- **Current agent-first invariant:** a user describes the experiment in a
+  compatible MCP client; the agent resolves authorized source and compatible
+  external GPU, carries IDs/provider details internally, and returns verified
+  result and cleanup. ChatGPT chat/Work is an important client, not a product
+  boundary. Modal is currently the only
   owner-selected route in PR #70; RunPod arbitrary-source is next, while
   Kaggle/Hugging Face remain fixed-workload routes and Colab is not integrated.
 - **Done when:** no current-state document promotes PR source or old canaries
@@ -102,11 +103,13 @@ acceptance.
   choice such as repository when the request is ambiguous. Keep missing
   capability explicit; never silently fall back to a different or paid
   provider.
-- **Product requirement:** the main user action is an ordinary ChatGPT/Work
-  request such as “try this experiment.” The agent discovers the owner-selected
-  repository and current executable routes, carries all internal IDs, and
-  chooses a compatible external GPU without requiring a separate CLI or a
-  pre-registered workload. A local/container-only result does not satisfy this
+- **Product requirement:** the user can make an ordinary-language request in
+  ChatGPT/Work or another authenticated compatible MCP client, such as “try
+  this experiment.” The agent discovers the owner-selected repository and
+  current executable routes, carries all internal IDs, and chooses a
+  compatible external GPU without requiring a separate CLI or a pre-registered
+  workload. Every client uses the same owner, plan, budget, run, artifact, and
+  cleanup contract. A local/container-only result does not satisfy this
   requirement.
 - **Provider sequence:** the first owner-selected implementation is Modal GPU.
   The same owner-bound plan and lifecycle must then support RunPod GPU for the
@@ -124,8 +127,9 @@ acceptance.
   capture, and current endpoint semantics under [ADR 0008](decisions/0008-runpod-owner-selected-execution.md).
   If those guarantees cannot be shown, RunPod must not advertise the
   owner-selected route.
-- **Done when:** ordinary ChatGPT and Work tool schemas both expose the same
-  owner-selected path; the agent resolves repository and commit without asking
+- **Done when:** ChatGPT/Work and compatible remote MCP clients expose the same
+  owner-selected path through the common MCP contract; the agent resolves
+  repository and commit without asking
   for internal IDs; compatible, authorized external GPU routes are selected
   from current capability evidence; and current acceptance proves plan through
   result retrieval and cleanup for each advertised owner-selected provider.
