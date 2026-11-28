@@ -1,12 +1,11 @@
 import { GOOGLE_COLAB_MAX_FILE_BYTES } from "./google_colab_runtime_files.js";
+import { GOOGLE_COLAB_MAX_ARTIFACT_COUNT, GOOGLE_COLAB_MAX_RECEIPT_BYTES,
+  GOOGLE_COLAB_MAX_TOTAL_ARTIFACT_BYTES } from "./google_colab_execution_limits.js";
 
 const RECEIPT_PREFIX = "GPU_CONTROL_RECEIPT:";
-const MAX_TOTAL_OUTPUT_BYTES = 100 * 1024 * 1024;
-const MAX_ARTIFACTS = 16;
-
 /** Parse only the runner's bounded machine receipt; all other output stays untrusted text. */
 export function parseGoogleColabExecutionReceipt(stdout, expected) {
-  if (typeof stdout !== "string" || new TextEncoder().encode(stdout).byteLength > 64 * 1024 ||
+  if (typeof stdout !== "string" || new TextEncoder().encode(stdout).byteLength > GOOGLE_COLAB_MAX_RECEIPT_BYTES ||
       !expected || typeof expected !== "object" || Array.isArray(expected)) {
     throw new Error("GOOGLE_COLAB_EXECUTION_RESULT_INVALID");
   }
@@ -19,7 +18,7 @@ export function parseGoogleColabExecutionReceipt(stdout, expected) {
       receipt.run_id !== expected.runId || receipt.repository !== expected.repository ||
       receipt.commit !== expected.commit || !["succeeded", "failed"].includes(receipt.state) ||
       !Number.isSafeInteger(receipt.elapsed_seconds) || receipt.elapsed_seconds < 0 ||
-      !Array.isArray(receipt.artifacts) || receipt.artifacts.length > MAX_ARTIFACTS ||
+      !Array.isArray(receipt.artifacts) || receipt.artifacts.length > GOOGLE_COLAB_MAX_ARTIFACT_COUNT ||
       !(receipt.metrics === null || receipt.metrics && typeof receipt.metrics === "object" && !Array.isArray(receipt.metrics)) ||
       !(receipt.gpu === null || receipt.gpu && typeof receipt.gpu === "object" && !Array.isArray(receipt.gpu)) ||
       !(receipt.exit_code === null || Number.isSafeInteger(receipt.exit_code)) ||
@@ -39,7 +38,7 @@ export function parseGoogleColabExecutionReceipt(stdout, expected) {
     }
     seen.add(artifact.path);
     total += artifact.size_bytes;
-    if (total > MAX_TOTAL_OUTPUT_BYTES) throw new Error("GOOGLE_COLAB_EXECUTION_RESULT_INVALID");
+    if (total > GOOGLE_COLAB_MAX_TOTAL_ARTIFACT_BYTES) throw new Error("GOOGLE_COLAB_EXECUTION_RESULT_INVALID");
   }
   if (receipt.state === "succeeded" &&
       (!receipt.gpu || receipt.gpu.cuda_available !== true || typeof receipt.gpu.name !== "string" ||

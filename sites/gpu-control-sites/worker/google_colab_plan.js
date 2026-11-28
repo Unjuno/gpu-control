@@ -6,10 +6,10 @@ import { parseTrainingSource } from "./training_source.js";
 import { validateTrainingManifest } from "./training_contract.js";
 import { sha256Hex } from "./sha256.js";
 import { googleColabAdmissionEnabled } from "./google_colab_policy.js";
+import { GOOGLE_COLAB_MAX_RUNTIME_SECONDS } from "./google_colab_execution_limits.js";
 
 export const GOOGLE_COLAB_WORKLOAD = "owner-selected-colab-training-v1";
 const PLAN_TTL_SECONDS = 600;
-const MAX_RUNTIME_SECONDS = 360;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
 
 function randomHex(byteLength = 16) {
@@ -26,7 +26,7 @@ export function validGoogleColabPrepare(input) {
   if (input.commit !== undefined && !/^[0-9a-f]{40}$/.test(input.commit)) return false;
   if (input.accelerator !== undefined && !["T4", "L4"].includes(input.accelerator)) return false;
   if (input.runtime_seconds !== undefined && (!Number.isSafeInteger(input.runtime_seconds) ||
-      input.runtime_seconds < 1 || input.runtime_seconds > MAX_RUNTIME_SECONDS)) return false;
+      input.runtime_seconds < 1 || input.runtime_seconds > GOOGLE_COLAB_MAX_RUNTIME_SECONDS)) return false;
   return typeof input.idempotency_key === "string" &&
     input.idempotency_key.length >= 8 && input.idempotency_key.length <= MAX_IDEMPOTENCY_KEY_LENGTH &&
     /^[A-Za-z0-9_.:-]+$/.test(input.idempotency_key);
@@ -159,7 +159,8 @@ export function validGoogleColabApprovedPlan(value) {
       !validateTrainingManifest(value.manifest) || !value.manifest.outputs.includes("metrics.json") ||
       !value.manifest.outputs.some((path) => /(^|\/)(checkpoint|checkpoints)(\/|$)/i.test(path)) ||
       !value.manifest.gpu_profiles.includes(value.runtime_spec?.accelerator) ||
-      !Number.isSafeInteger(value.runtime_seconds) || value.runtime_seconds < 1 || value.runtime_seconds > MAX_RUNTIME_SECONDS ||
+      !Number.isSafeInteger(value.runtime_seconds) || value.runtime_seconds < 1 ||
+      value.runtime_seconds > GOOGLE_COLAB_MAX_RUNTIME_SECONDS ||
       !value.runtime_spec || value.runtime_spec.variant !== "VARIANT_GPU" ||
       !["T4", "L4"].includes(value.runtime_spec.accelerator) || value.runtime_spec.shape !== "SHAPE_STANDARD" ||
       value.cost_classification !== "QUOTA_UNKNOWN" || value.known_cost_usd !== null || value.max_cost_usd !== null ||

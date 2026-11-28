@@ -5,6 +5,29 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-29 — A16: centralize Colab execution and artifact bounds
+
+**Finding:** the Colab plan and generated runtime each capped runtime at 360
+seconds. The generated Python runner, artifact downloader, and receipt parser
+also carried separate literals for per-file and total output sizes; the receipt
+parser independently repeated the output count and receipt-size ceilings.
+Changes could therefore make the runner, persisted receipt, and control-plane
+validator disagree.
+
+**Change:** added `worker/google_colab_execution_limits.js` as the authority for
+the owner-selected execution's runtime, artifact, and receipt ceilings. Plan
+validation, generated Python, file retrieval, and receipt parsing consume those
+exports. The existing `GOOGLE_COLAB_MAX_FILE_BYTES` export remains as a
+compatibility alias. HTTP payload limits stay in their respective transport
+modules because they protect different boundaries.
+
+**Validation:** focused Colab plan/runner/artifact tests pass (11/11), the full
+Sites suite passes (217), the Worker dependency graph is acyclic across 81
+runtime modules, registry freshness and architecture checks pass, Worker build
+and artifact validation pass, the D1 forward-migration replay passes, and
+`git diff --check` passes. No provider, credential, admission, deployment, or
+experiment was accessed or changed.
+
 ## 2026-11-29 — A11: share RunPod relay readiness validation
 
 **Finding:** `runpodConfigured` treated a relay URL and two proxy-token strings

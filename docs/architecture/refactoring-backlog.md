@@ -72,6 +72,12 @@ acceptance.
   owns MAP defaults, registration validation and training-specific bounds.
   Existing imports remain compatible while the training contract moves behind
   that boundary.
+- **A16 — One Colab execution-bounds authority:** completed in this batch.
+  `google_colab_execution_limits.js` owns the maximum runtime, per-file and
+  aggregate artifact sizes, receipt size, and artifact count. Plan validation,
+  generated runtime code, artifact retrieval, and receipt validation consume
+  the same values. Provider API request/response limits remain separate because
+  they bound different trust and transport surfaces.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct

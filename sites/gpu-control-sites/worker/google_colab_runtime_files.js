@@ -1,8 +1,9 @@
 import { readBoundedResponseBytes } from "./http_response_body.js";
 import { validGoogleColabRuntime } from "./google_colab_mcp_contract.js";
 import { sha256Hex } from "./sha256.js";
+import { GOOGLE_COLAB_MAX_ARTIFACT_BYTES } from "./google_colab_execution_limits.js";
 
-export const GOOGLE_COLAB_MAX_FILE_BYTES = 50 * 1024 * 1024;
+export const GOOGLE_COLAB_MAX_FILE_BYTES = GOOGLE_COLAB_MAX_ARTIFACT_BYTES;
 const FILE_TIMEOUT_MS = 30_000;
 
 function validRelativePath(value) {

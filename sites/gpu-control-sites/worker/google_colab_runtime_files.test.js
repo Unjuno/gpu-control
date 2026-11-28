@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { GOOGLE_COLAB_MAX_FILE_BYTES, readGoogleColabRuntimeFile } from "./google_colab_runtime_files.js";
+import { GOOGLE_COLAB_MAX_ARTIFACT_BYTES } from "./google_colab_execution_limits.js";
 
 const bytes = new TextEncoder().encode("immutable checkpoint bytes");
 const runtime = { name: "runtimes/gpu-control-run", runtimeSpec: {
@@ -34,7 +35,7 @@ test("Colab runtime file retrieval is run-bound, fixed-origin, bounded, and chec
 });
 
 test("Colab runtime file retrieval enforces the 50 MiB API bound and refuses redirects", async () => {
-  assert.equal(GOOGLE_COLAB_MAX_FILE_BYTES, 50 * 1024 * 1024);
+  assert.equal(GOOGLE_COLAB_MAX_FILE_BYTES, GOOGLE_COLAB_MAX_ARTIFACT_BYTES);
   await assert.rejects(readGoogleColabRuntimeFile(runtime, { ...artifact,
     size_bytes: GOOGLE_COLAB_MAX_FILE_BYTES + 1 }, { expectedRuntimeName: runtime.name }),
   { message: "GOOGLE_COLAB_ARTIFACT_INVALID" });

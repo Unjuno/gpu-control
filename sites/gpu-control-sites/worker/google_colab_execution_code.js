@@ -1,16 +1,14 @@
 import { parseTrainingSource } from "./training_source.js";
 import { validateTrainingManifest } from "./training_contract.js";
-
-const MAX_RUNTIME_SECONDS = 360;
-const MAX_OUTPUT_FILE_BYTES = 50 * 1024 * 1024;
-const MAX_TOTAL_OUTPUT_BYTES = 100 * 1024 * 1024;
+import { GOOGLE_COLAB_MAX_ARTIFACT_BYTES, GOOGLE_COLAB_MAX_RUNTIME_SECONDS,
+  GOOGLE_COLAB_MAX_TOTAL_ARTIFACT_BYTES } from "./google_colab_execution_limits.js";
 
 function validRunId(value) { return typeof value === "string" && /^[0-9a-f]{32}$/.test(value); }
 
 /** Build deterministic, credential-free code for one immutable public source run. */
 export function buildGoogleColabExecutionCode({ runId, repository, commit, visibility, manifest, runtimeSeconds, accelerator }) {
   if (!validRunId(runId) || !Number.isSafeInteger(runtimeSeconds) || runtimeSeconds < 1 ||
-      runtimeSeconds > MAX_RUNTIME_SECONDS || !validateTrainingManifest(manifest) ||
+      runtimeSeconds > GOOGLE_COLAB_MAX_RUNTIME_SECONDS || !validateTrainingManifest(manifest) ||
       visibility !== "public" || !["T4", "L4"].includes(accelerator) ||
       !manifest.gpu_profiles.includes(accelerator) || !manifest.outputs.includes("metrics.json") ||
       !manifest.outputs.some((path) => /(^|\/)(checkpoint|checkpoints)(\/|$)/i.test(path))) {
@@ -102,7 +100,7 @@ else:
             if ROOT.resolve() not in output.parents or not output.is_file() or output.is_symlink():
                 continue
             size = output.stat().st_size
-            if size > ${MAX_OUTPUT_FILE_BYTES} or total_bytes + size > ${MAX_TOTAL_OUTPUT_BYTES}:
+            if size > ${GOOGLE_COLAB_MAX_ARTIFACT_BYTES} or total_bytes + size > ${GOOGLE_COLAB_MAX_TOTAL_ARTIFACT_BYTES}:
                 outcome['error_code'] = 'OUTPUT_LIMIT_EXCEEDED'
                 outcome['state'] = 'failed'
                 break
