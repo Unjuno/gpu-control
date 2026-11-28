@@ -33,10 +33,12 @@ import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_a
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
 import { readRunResultArtifact } from "./run_artifacts.js";
-import { authenticateMcpAccessToken, beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
+import { beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
   createMcpOAuthConsent, exchangeMcpOAuthToken, isMcpOAuthGitHubState, mcpAuthorizationServerMetadata,
   mcpOAuthError, mcpProtectedResourceMetadata, registerMcpOAuthClient, revokeMcpOAuthToken,
   READ_SCOPE, EXECUTE_SCOPE } from "./mcp_oauth.js";
+import { authenticateMcpPrincipal, mcpAuthorizationChallenge, sitesOwnerFromRequest,
+  sitesPlatformIdentityPresent } from "./mcp_request_auth.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -253,9 +255,8 @@ async function renderTrainingAuthorizationPage(request, env, owner) {
 }
 
 async function handleAuthorizationRequest(request, env) {
-  const authenticatedUserId = request.headers.get("oai-authenticated-user-id");
-  const owner = userId(request, env);
-  if (!authenticatedUserId) {
+  const owner = sitesOwnerFromRequest(request, env);
+  if (!sitesPlatformIdentityPresent(request)) {
     const signInPath = chatGPTSignInPath(authorizationReturnPath(request));
     return htmlPage("ChatGPT Sitesへのサインインが必要です",
       `<p>あなたのChatGPTアカウントでサインインして、このplanの確認に戻ってください。</p><p><a href="${escapeHtml(signInPath)}" target="_top" rel="noreferrer">ChatGPTでサインイン</a></p>`, 401);
@@ -548,37 +549,6 @@ async function modalGpuProviderEvidence(env, now) {
   return readModalGpuAccountEvidence(env, { gpu: "T4", usageLimitUsd: MODAL_GPU_PROVIDER_USAGE_LIMIT_USD, now });
 }
 
-function userId(request, env) {
-  const id = request.headers.get("oai-authenticated-user-id");
-  if (!id || id.length > 256) return null;
-  const allowed = new Set(typeof env.GPU_CONTROL_ALLOWED_USER_IDS === "string"
-    ? env.GPU_CONTROL_ALLOWED_USER_IDS.split(",").map((value) => value.trim()).filter(Boolean)
-    : []);
-  return allowed.has(id) ? id : null;
-}
-
-async function authenticateMcpPrincipal(request, env) {
-  const platformIdentity = request.headers.get("oai-authenticated-user-id");
-  if (platformIdentity) {
-    const owner = userId(request, env);
-    return owner ? { owner_id: owner, auth_method: "chatgpt_sites", scopes: [READ_SCOPE, EXECUTE_SCOPE] }
-      : { denied: "forbidden" };
-  }
-  const authorization = request.headers.get("authorization") || "";
-  const match = authorization.match(/^Bearer (gpc_at_[A-Za-z0-9_-]{43})$/);
-  if (!match || !env.DB) return null;
-  return authenticateMcpAccessToken(env.DB, match[1], `${new URL(request.url).origin}/mcp`);
-}
-
-function mcpAuthorizationChallenge(request, { error = null, scope = READ_SCOPE } = {}) {
-  const resourceMetadata = `${new URL(request.url).origin}/.well-known/oauth-protected-resource`;
-  const challenge = [`Bearer resource_metadata="${resourceMetadata}"`, `scope="${scope}"`];
-  if (error) challenge.push(`error="${error}"`);
-  return new Response(null, { status: ["insufficient_scope", "forbidden"].includes(error) ? 403 : 401, headers: {
-    "www-authenticate": challenge.join(", "), "cache-control": "no-store", "content-length": "0",
-  } });
-}
-
 async function readJson(request, limit = MAX_BODY_BYTES) {
   const declared = Number(request.headers.get("content-length") || 0);
   if (declared > limit) throw new Error("BODY_TOO_LARGE");
@@ -634,8 +604,8 @@ async function readUrlEncodedForm(request, limit = 4096) {
 }
 
 async function callTool(name, args, request, env, context = null, principal = null) {
-  const owner = principal?.owner_id || userId(request, env);
-  if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
+  const owner = principal?.owner_id;
+  if (!owner) throw new Error(principal?.denied === "forbidden" ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
   if (isGoogleColabTool(name)) return handleGoogleColabTool(name, env, owner);
   if (isGithubTool(name)) return handleGithubTool(name, env, owner);

@@ -1160,3 +1160,23 @@ amounts and unknown providers.
 **Validation:** all 152 Worker tests pass; the graph remains acyclic across 49
 runtime modules; D1 forward migration, Worker build, Site artifact validation
 and `git diff --check` pass. No provider operation or deployment occurred.
+
+
+## 2026-11-28 — A7: isolate multi-client request authentication
+
+**Problem:** MCP principal resolution, ChatGPT identity-header interpretation,
+owner allowlisting and OAuth bearer challenges were embedded in the dispatcher.
+That made the multi-client identity boundary harder to audit and left the
+architecture check enforcing the older entrypoint-only location.
+
+**Change:** moved request identity resolution and `401`/`403` bearer challenge
+construction into `worker/mcp_request_auth.js`. The entrypoint now receives a
+resolved principal; browser confirmation pages use the same owner resolver.
+Updated the architecture check to allow header and allowlist interpretation
+only in this dedicated boundary. Added direct tests for owner resolution,
+scope projection, malformed bearer handling and challenge responses.
+
+**Validation:** all 156 Worker tests pass; the Worker graph is acyclic across
+50 runtime modules; D1 forward migration, Worker build, Site artifact
+validation and `git diff --check` pass. Independent Security Review found no
+actionable findings. No provider operation or deployment occurred.

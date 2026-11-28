@@ -8,13 +8,15 @@ const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const workerRoot = join(projectRoot, "worker");
 const { graph, runtimeFiles: workerFiles, entrypoint } = discoverWorkerModules(workerRoot);
 
-// ChatGPT's identity header is trusted only at the HTTP transport boundary.
-// Domain modules receive an already resolved owner and must not re-interpret
-// a platform header or environment allowlist as an identity source.
+// ChatGPT's identity header and allowlist are interpreted only in the request
+// authentication boundary. Other modules may ask its exported helpers, but
+// must not read the raw identity header or allowlist.
+const requestAuthBoundary = join(workerRoot, "mcp_request_auth.js");
 const platformIdentitySources = workerFiles.filter((file) =>
-  file !== entrypoint && /oai-authenticated-user-id|GPU_CONTROL_ALLOWED_USER_IDS/.test(readFileSync(file, "utf8")));
+  file !== requestAuthBoundary &&
+    /oai-authenticated-user-id|GPU_CONTROL_ALLOWED_USER_IDS/.test(readFileSync(file, "utf8")));
 assert.deepEqual(platformIdentitySources, [],
-  "ChatGPT platform identity and owner allowlist may only be read by the Worker entrypoint");
+  "ChatGPT platform identity and owner allowlist may only be interpreted by mcp_request_auth.js");
 
 const artifactStorageSources = workerFiles.filter((file) =>
   file !== join(workerRoot, "run_artifacts.js") && /\bBUCKET\.(?:get|put|delete)\s*\(/.test(readFileSync(file, "utf8")));

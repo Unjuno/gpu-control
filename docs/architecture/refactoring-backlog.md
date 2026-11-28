@@ -529,3 +529,11 @@ projection and shared Modal reservation construction. Added SQLite-backed
 checks for RunPod per-run ceilings, exact retry binding and fail-closed unknown
 providers. All 152 Worker tests, migration checks, build and artifact
 validation pass; the graph remains acyclic across 49 modules.
+
+**Progress (2026-11-28):** `worker/mcp_request_auth.js` now owns ChatGPT Sites
+identity-header interpretation, allowlist resolution, OAuth principal
+verification and bearer challenge construction. A static architecture guard
+restricts those identity sources to the dedicated request-auth boundary. All
+156 Worker tests, migration checks, build and artifact validation pass; the
+acyclic Worker graph contains 50 runtime modules. Independent Security Review
+found no actionable findings.
