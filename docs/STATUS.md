@@ -4,9 +4,9 @@
 
 - The current source candidate is PR #70 branch
   `codex/owner-training-workloads`, latest code commit
-  `31bc1836f35d934b799047e831fb7b0b2ae18dc6`. PR #70 remains open and
-  unmerged. All seven exact-head GitHub Actions checks passed for latest PR
-  tip `e8ea47a7ccfcb9003b41949c1c3a44c063204700`.
+  `748ac11ac1e3f8317c0632b9eb50c76fb017e7b7`. PR #70 remains open and
+  unmerged. All seven exact-head GitHub Actions checks passed for this code
+  commit.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
@@ -25,7 +25,7 @@
 - For module ownership, duplicated contracts, state authority and the next
   refactoring batches, see [the repository architecture map](architecture/repository-map.md)
   and [the prioritized backlog](architecture/refactoring-backlog.md).
-- Local Sites validation on `fc8931a` passed 205 tests; the Worker graph is
+- Local Sites validation on `748ac11` passed 206 tests; the Worker graph is
   acyclic across 76 modules, build and D1 migration replay passed. The Colab
   lifecycle integration test covers same-request-ID recovery after lost
   mocked runtime-create and cleanup responses on both status and cancellation.
@@ -36,8 +36,10 @@
   linked worktree; no independent scan result is claimed.
 - The `31bc183` follow-up also fails closed when a submitted Colab plan has lost
   its operation journal: status, cancel and repeated submit report uncertainty
-  without contacting Colab. Local revalidation passes the same 205 tests, build
-  and migration replay; all seven exact-head checks pass on the current PR tip.
+  without contacting Colab. Current validation passes 206 tests, build and
+  migration replay. The `748ac11` RunPod follow-up preserves an ambiguous
+  cancellation request and completes cancellation when the same receipt is
+  recovered, while returning pending until cleanup is confirmed.
 
 The dated entries below are historical snapshots. Their deployment versions,
 provider configuration, costs and readiness must not be treated as current

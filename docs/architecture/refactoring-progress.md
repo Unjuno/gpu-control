@@ -2809,3 +2809,23 @@ All 205 Sites tests, the 76-module acyclic architecture check, build, D1
 forward-migration replay, and `git diff --check` pass. Exact-head CI passed all
 seven checks at PR tip `644f507`. Code is in `31bc183`; the latest tip contains
 documentation updates only. No live provider/runtime or credential was used.
+
+## 2026-11-28 — A3: preserve cancellation intent through ambiguous RunPod submit
+
+**Finding:** while a RunPod submit response was uncertain and its receipt was
+not yet recoverable, `experiment_cancel` returned success even though the run
+remained active. The cancellation intent was not durable, so a later status
+poll that recovered the provider job could continue without cancelling it.
+
+**Change:** RunPod cancellation now persists `cancel_requested` on the
+owner-bound run. Synchronization honors that value after recovering the exact
+submission receipt and cancels/cleans that job. Until a terminal cleanup state
+is observed, the tool reports `pending`/`uncertain` and exposes status polling
+as the next action. A missing run from a concurrent state change returns
+`RUN_NOT_FOUND` rather than a false success.
+
+**Validation:** focused cancellation and RunPod lifecycle suites pass 12/12;
+all 206 Sites tests pass; the Worker graph is acyclic across 76 modules; build
+and D1 forward migration replay pass; `git diff --check` passes. All seven
+exact-head GitHub Actions checks pass on code commit `748ac11`. No live RunPod
+job, provider credential, or account state was used.

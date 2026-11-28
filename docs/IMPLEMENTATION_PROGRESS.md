@@ -4761,3 +4761,18 @@ credentials and GPU workflows. Ordinary CI remains offline; any future CI GPU
 path needs an explicit identity and shared-lifecycle design rather than a
 second control plane. No Colab API, runtime, OAuth credential, hosted Site,
 admission, or production migration was used or changed.
+
+
+## 2026-11-28 architecture batch — RunPod cancellation recovery
+
+RunPod `experiment_cancel` previously returned success while an ambiguous
+submit was still `running/uncertain`, and it discarded the cancellation intent
+before a provider job receipt could be recovered. Cancellation now persists
+the owner-bound run flag; a later status synchronization cancels the recovered
+exact job. The user-facing result stays pending until a terminal cleanup
+receipt is confirmed.
+
+Validation: focused cancellation and RunPod lifecycle suites pass 12/12; all
+206 Sites tests pass; Worker graph is acyclic across 76 modules; build and D1
+forward migration replay pass; `git diff --check` passes; seven exact-head CI
+checks pass at `748ac11`. No live RunPod call or account state was used.

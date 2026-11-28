@@ -213,6 +213,12 @@ acceptance.
   without calling Colab or creating a replacement runtime. This prevents a
   false `prepared` result and duplicate allocation; it cannot reconstruct lost
   provider evidence, so manual reconciliation remains necessary.
+- **RunPod cancellation evidence (2026-11-28):** a cancel request during an
+  ambiguous submit is now persisted on the owner-bound D1 run. If the same
+  provider receipt later becomes available, status synchronization cancels
+  that job and confirms cleanup. Until then, `experiment_cancel` reports
+  `pending`/`uncertain` instead of claiming completion. This does not resolve
+  lost account-lease records or prove the live relay contract.
 
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 
