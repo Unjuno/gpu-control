@@ -194,6 +194,14 @@ acceptance.
   fences custom-training Sandbox creation. This inventory documents distinct
   responsibilities; it does not yet prove every route's response-loss,
   terminal-state, cleanup, or durable-record-loss behavior.
+- **Colab lifecycle evidence (2026-11-28):**
+  `worker/google_colab_lifecycle.integration.test.js` exercises the real Sites
+  lifecycle and migration with a SQLite-backed D1 adapter and a deterministic
+  fake Colab MCP endpoint. It covers a lost `create_runtime` response,
+  same-request-ID recovery, execution failure, run-owned runtime deletion, and
+  terminal persistence. This is source-level recovery evidence only; it does
+  not prove Google's live idempotency behavior, provider terminal mismatch,
+  journal-loss recovery, or live GPU execution.
 
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 

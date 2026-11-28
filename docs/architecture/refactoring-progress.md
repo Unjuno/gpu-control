@@ -2682,3 +2682,25 @@ migrations and current Worker modules; Markdown links resolve and
 `git diff --check` passes. This documentation-only batch changes no runtime behavior,
 provider settings, or admission state. Route-by-route response-loss, terminal,
 cleanup, and record-loss acceptance remains open.
+
+## 2026-11-28 — A3: exercise Colab lifecycle recovery after response loss
+
+**Finding:** Colab had unit coverage for its operation journal and MCP protocol,
+but no integration test composed the real lifecycle with persisted operation
+state. The most important boundary is recovery when Google creates a runtime
+but the response is lost before Sites can persist its runtime identity.
+
+**Change:** added
+`sites/gpu-control-sites/worker/google_colab_lifecycle.integration.test.js`.
+It applies migration `0037` to in-memory SQLite, invokes the real Colab run
+lifecycle, drops the first mocked `create_runtime` response after provider-side
+creation, and verifies replay uses the same persisted request ID and resolves
+to one mocked runtime. It then verifies a failed execution receipt, deletion
+of the run-owned runtime, and terminal journal state.
+
+**Validation:** the focused integration test passes. The full Sites suite
+passes (204 tests), including the Worker architecture check and workload
+registry check. This does not establish Google's live create-runtime
+idempotency behavior, provider terminal-state mismatch handling, durable
+journal-loss recovery, or real Colab GPU acceptance; those A3/A6 release gaps
+remain open. No live provider runtime or provider setting was touched.
