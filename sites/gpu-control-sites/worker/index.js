@@ -16,6 +16,7 @@ import { mcpToolErrorCode } from "./mcp_tool_errors.js";
 import { CURRENT_MCP_VERSION, LEGACY_MCP_VERSIONS, SUPPORTED_MCP_VERSIONS,
   mcpRpcError, parseMcpProtocolRequest } from "./mcp_protocol.js";
 import { mcpToolErrorResponse, mcpToolSuccessResponse } from "./mcp_tool_result.js";
+import { readJsonRequest, readUrlEncodedFormRequest } from "./http_request_body.js";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
@@ -64,7 +65,7 @@ function htmlPage(title, content, status = 200) {
 
 const { setup: handleGoogleColabSetup, callback: handleGoogleColabOAuthCallback } =
   createGoogleColabOAuthRoutes({ htmlPage, escapeHtml });
-const mcpOAuthRoutes = createMcpOAuthRoutes({ htmlPage, escapeHtml, readJson, readUrlEncodedForm });
+const mcpOAuthRoutes = createMcpOAuthRoutes({ htmlPage, escapeHtml });
 const githubOAuthRoutes = createGithubOAuthRoutes({ htmlPage, escapeHtml });
 
 function authorizationUrl(_request, runId, fingerprint) {
@@ -220,7 +221,7 @@ async function handleAuthorizationRequest(request, env) {
     return htmlPage("リクエストを確認できません", "<p>Siteの確認ページから操作してください。</p>", 403);
   }
   let form;
-  try { form = await readUrlEncodedForm(request); }
+  try { form = await readUrlEncodedFormRequest(request); }
   catch (error) {
     return htmlPage(error?.message === "FORM_TOO_LARGE" ? "リクエストが大きすぎます" : "承認フォームを読み取れません",
       "<p>確認ページを開き直してください。</p>", error?.message === "FORM_TOO_LARGE" ? 413 : 400);
@@ -268,62 +269,8 @@ async function handleAuthorizationRequest(request, env) {
   return htmlPage("このplanを承認しました", "<p>承認はこのplanに1回だけ有効です。チャットに戻り、実験を送信してください。</p>");
 }
 
-async function readJson(request, limit = MAX_BODY_BYTES) {
-  const declared = Number(request.headers.get("content-length") || 0);
-  if (declared > limit) throw new Error("BODY_TOO_LARGE");
-  if (!request.body) throw new Error("INVALID_JSON");
-  const reader = request.body.getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > limit) {
-        await reader.cancel();
-        throw new Error("BODY_TOO_LARGE");
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-}
-
-async function readUrlEncodedForm(request, limit = 4096) {
-  const declared = Number(request.headers.get("content-length") || 0);
-  if (declared > limit) throw new Error("FORM_TOO_LARGE");
-  if (!request.body) throw new Error("INVALID_FORM");
-  const reader = request.body.getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > limit) {
-        await reader.cancel();
-        throw new Error("FORM_TOO_LARGE");
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-  return new URLSearchParams(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-}
-
 async function handleMcp(request, env, context = null, principal = null) {
-  const parsed = await parseMcpProtocolRequest(request, principal, readJson);
+  const parsed = await parseMcpProtocolRequest(request, principal, readJsonRequest);
   if (parsed.response) return parsed.response;
   const { message, id, requestedVersion, params } = parsed;
   if (message.method === "server/discover") {

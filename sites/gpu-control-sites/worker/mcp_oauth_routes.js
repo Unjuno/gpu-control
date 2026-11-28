@@ -8,6 +8,7 @@ import {
   registerMcpOAuthClient,
   revokeMcpOAuthToken,
 } from "./mcp_oauth.js";
+import { readJsonRequest, readUrlEncodedFormRequest } from "./http_request_body.js";
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: {
@@ -23,7 +24,7 @@ function hasMediaType(request, expected) {
 }
 
 /** Compose the external MCP client's OAuth and discovery HTTP surface. */
-export function createMcpOAuthRoutes({ htmlPage, escapeHtml, readJson, readUrlEncodedForm }) {
+export function createMcpOAuthRoutes({ htmlPage, escapeHtml }) {
   async function authorization(request, env) {
     if (!env.DB) return htmlPage("GPU Control OAuthを利用できません", "<p>owner-scoped storage is not configured.</p>", 503);
     if (request.method === "GET") {
@@ -44,7 +45,7 @@ export function createMcpOAuthRoutes({ htmlPage, escapeHtml, readJson, readUrlEn
     }
     if (request.method !== "POST") return htmlPage("Method Not Allowed", "<p>GETまたはPOSTを使用してください。</p>", 405);
     try {
-      const form = await readUrlEncodedForm(request);
+      const form = await readUrlEncodedFormRequest(request);
       const csrf = form.get("csrf") || "";
       const cookie = request.headers.get("cookie") || "";
       const savedCsrf = cookie.split(";").map((item) => item.trim())
@@ -69,7 +70,7 @@ export function createMcpOAuthRoutes({ htmlPage, escapeHtml, readJson, readUrlEn
     if (request.method !== "POST") return json({ error: "invalid_request" }, 405);
     if (!env.DB || !hasMediaType(request, "application/json")) return json({ error: "invalid_client_metadata" }, 400);
     try {
-      const body = await readJson(request, 16 * 1024);
+      const body = await readJsonRequest(request, 16 * 1024);
       const result = await registerMcpOAuthClient(env.DB, body, request.headers.get("cf-connecting-ip"));
       return json(result, 201);
     } catch (error) {
@@ -85,7 +86,7 @@ export function createMcpOAuthRoutes({ htmlPage, escapeHtml, readJson, readUrlEn
     if (!env.DB || request.headers.has("authorization") || !hasMediaType(request, "application/x-www-form-urlencoded")) {
       return json({ error: "invalid_request" }, 400);
     }
-    try { return await exchangeMcpOAuthToken(env.DB, await readUrlEncodedForm(request), new URL(request.url).origin); }
+    try { return await exchangeMcpOAuthToken(env.DB, await readUrlEncodedFormRequest(request), new URL(request.url).origin); }
     catch { return json({ error: "server_error" }, 500); }
   }
 
@@ -94,7 +95,7 @@ export function createMcpOAuthRoutes({ htmlPage, escapeHtml, readJson, readUrlEn
     if (!env.DB || request.headers.has("authorization") || !hasMediaType(request, "application/x-www-form-urlencoded")) {
       return json({ error: "invalid_request" }, 400);
     }
-    try { return await revokeMcpOAuthToken(env.DB, await readUrlEncodedForm(request)); }
+    try { return await revokeMcpOAuthToken(env.DB, await readUrlEncodedFormRequest(request)); }
     catch { return json({ error: "server_error" }, 500); }
   }
 
