@@ -32,6 +32,12 @@ acceptance.
 - Make a fresh compatible ChatGPT/Work or external MCP client able to discover
   provider/workload choices, select an authorized source, carry internal IDs,
   and follow the same authenticated lifecycle without manual run-ID invention.
+- Define compatibility by the actual connection contract in
+  [`MCP_CLIENTS.md`](../../sites/gpu-control-sites/MCP_CLIENTS.md): remote
+  Streamable HTTP, OAuth authorization code with PKCE S256, protected-resource
+  and authorization-server metadata, and public-client registration. A client
+  that lacks these capabilities needs native MCP/OAuth support; credentials
+  must not be pasted into prompts or substituted with provider keys.
 - Treat plain-language intent as the product interface. Tool schemas and
   descriptions should lead the agent through capability discovery, bounded
   prepare, one exact execution confirmation at the client boundary, submit,
@@ -351,18 +357,21 @@ acceptance.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** at source head `c6c69c2`, `worker/index.js` is 816 lines and
-  remains the transport and composition root for authentication, owner identity,
-  routing and provider
-  workflows. MCP schemas/descriptions, experiment input contracts, GitHub
-  ownership, training lifecycle, budgets, RunPod lifecycle, fixed-route and
-  owner-training capability projections, and the bounded Modal HTTP client now
-  have separate modules, but
-  provider lifecycle orchestration and route dispatch still occupy the entry.
-- **Work:** make `index.js` a small transport/composition root; move cohesive
-  GitHub-source, training-plan, artifact, capability and provider operations
-  behind stable domain interfaces. Inject D1, fetch, clock and provider ports
-  where they enable deterministic isolation.
+- **Evidence (source head `eaf3b6783994bd7a99e7caca58067f2208f1580c`):**
+  `worker/index.js` is 147 lines and owns HTTP route composition, MCP protocol
+  handling, principal authentication, and response projection. The 130-line
+  `worker/mcp_tool_dispatch.js` routes normalized calls to domain operations.
+  Tool schemas, validation, OAuth, owner identity, provider lifecycles, budgets,
+  artifact access, and capability projection have dedicated owners. The Worker
+  import graph is acyclic. Earlier 397-line and larger measurements are
+  historical checkpoints, not the current size.
+- **Work:** inspect the remaining dispatcher branches for policy decisions
+  that belong inside provider/domain interfaces. Keep HTTP, MCP transport,
+  OAuth, and domain operations separate. Extract a branch only when the new
+  interface owns meaningful behavior and reduces change coupling; do not split
+  files to meet a line-count target. Inject D1, fetch, clock, and provider ports
+  where this enables deterministic isolation without spreading infrastructure
+  through callers.
 - **Done when:** each domain owns its validation and transitions; routes call a
   small public interface; no circular imports; tools and response contracts stay
   backward compatible; cross-domain regression suite remains green.
@@ -372,11 +381,14 @@ acceptance.
 bounded result routing live in `worker/training_tools.js`. The MAP repository
 slug is centralized in `training_source.js`. Historical checkpoints measured
 2,333 and 2,175 lines before later lifecycle and transport extractions; the
-entrypoint has since been reduced to 397 lines. Provider-specific Colab OAuth,
+entrypoint was subsequently reduced to 397 lines and is 147 lines at source
+head `eaf3b6783994bd7a99e7caca58067f2208f1580c`. Provider-specific Colab OAuth,
 external-MCP OAuth, and the shared GitHub owner-proof callbacks now have
 dedicated route modules. Stable MCP tool error projection now has its own
-contract module. Remaining A7 work is to further reduce the HTTP/MCP
-composition root without duplicating transport contracts.
+contract module. At the current snapshot the transport/composition root is
+147 lines; remaining A7 work is to review dispatcher/domain coupling and retain
+the current boundary unless a concrete contract can absorb complexity without
+duplicating transport behavior.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and
