@@ -51,6 +51,38 @@ copying a bearer token into a prompt or using a provider key as a substitute.
    provider IDs and retry keys are server-managed. Client-side write
    confirmations and exact-plan authorization still apply.
 
+## Use it from a conversation
+
+After the client is connected and the current release exposes the requested
+route, use ordinary language. Do not look up registration IDs, run IDs, commit
+SHAs, or retry keys yourself. For example:
+
+> https://github.com/owner/repository の実験をGPU Controlで実行してください。まず現在の
+> capabilitiesを読み、このリポジトリを実行できるproviderと必要条件を
+> 確認してください。無料経路を優先し、有料providerへは切り替えないで
+> ください。実行できるなら、最新の正確なplanを作ってから実行し、同じrunの
+> 結果、artifactのchecksum、cleanupまで確認してください。必要な内部IDは
+> 自分で取得して保持してください。実行に必要なアカウント接続や、私が
+> まだ示していない費用・quotaの判断があれば、そこで止めて具体的に教えて
+> ください。
+
+The agent should use the currently advertised tools and route capabilities. A
+repository connection or registration is not itself proof that the source can
+run. If no admitted provider supports that repository, the agent must report
+the blocker rather than substitute a fixed demo or a paid provider. A current
+request to run covers one exact prepared plan; a client may still show its
+native write-action confirmation. The agent should not ask the owner to repeat
+the same request after preparation.
+
+For a read-only check, say: “GPU Controlで現在使えるprovider、workload、費用・
+quota上の制約を確認してください。実験は開始しないでください。”
+
+These prompts describe the intended client-neutral workflow, not proof that
+every route is deployed. The release status above and live capability response
+take precedence. Google Colab plans can expose quota usage that the provider API
+does not report; the agent must show that limitation and obtain the required
+owner attestation instead of treating a subscription tier as free compute.
+
 ChatGPT's existing GPU Control Sites connection uses ChatGPT's authenticated
 Sites identity. It does not need the separate OAuth registration described
 here. Codex or another compatible MCP client uses the external OAuth flow and

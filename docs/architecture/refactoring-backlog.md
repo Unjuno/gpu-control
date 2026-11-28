@@ -174,6 +174,13 @@ acceptance.
   workload. Every client uses the same owner, plan, budget, run, artifact, and
   cleanup contract. A local/container-only result does not satisfy this
   requirement.
+- **Client quickstart (2026-11-29):**
+  [`MCP_CLIENTS.md`](../../sites/gpu-control-sites/MCP_CLIENTS.md) now includes
+  a copyable owner-selected repository prompt and a read-only capability
+  prompt. It directs the agent to keep IDs internal, prefer an actually
+  available free route, avoid paid fallback, verify result/artifact/cleanup,
+  and stop for missing owner decisions. It explicitly defers to the current
+  MCP release rather than presenting PR source as deployed capability.
 - **Provider sequence:** Modal GPU is the first owner-selected implementation.
   Google Colab source is now integrated through Google's hosted Colab MCP,
   using the owner-bound Google connection and the same Sites plan/run ledger.

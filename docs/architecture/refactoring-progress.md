@@ -3480,3 +3480,21 @@ MCP artifact chunk policy, and refreshed the current source/CI evidence in
 the local 221-test, build, artifact, and migration checks passed for
 `b4159bc`. This does not establish an independent security review, hosted
 deployment, live Colab acceptance, or merge readiness.
+
+## 2026-11-29 — A1: add a client-neutral conversational quickstart
+
+**Finding:** MCP client setup described authentication and capability
+verification, but did not give an owner a single natural-language example for
+requesting an owner-selected repository run without handling internal IDs.
+
+**Change:** added copyable execution and read-only prompts to
+`sites/gpu-control-sites/MCP_CLIENTS.md`. The execution prompt requires current
+capability discovery, a genuinely available free route where possible, no paid
+fallback, same-run result/artifact/cleanup verification, and explicit reporting
+of missing account or quota decisions. The guide states that registration is
+not execution support and that the current release, not source code, determines
+whether a route can be used.
+
+**Validation:** `git diff --check` passes. This documentation-only change does
+not enable new routes or claim that PR #70 is deployed; the MCP release and
+live capability response remain authoritative.
