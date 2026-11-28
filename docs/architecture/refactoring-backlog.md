@@ -683,6 +683,9 @@ uses the same static Worker import graph as packaging. It checks static in-tree
 imports and static re-exports, rejects dynamic imports and entrypoint backedges,
 and fails on cycles. Script-level fixtures now guard named/wildcard re-export
 edges and reject semicolonless re-export syntax.
+The check also enforces that only `runpod_admission.js` reads RunPod's live
+completion-transport and admission bindings; a direct read in another Worker
+module fails with a local actionable error.
 The build copies the modules reachable from `index.js` and fails if a runtime
 module is orphaned. This establishes Worker dependency and packaging rules;
 Python host direction and schema parity remain open. A D1 migration guard now

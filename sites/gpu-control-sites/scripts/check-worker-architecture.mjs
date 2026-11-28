@@ -45,6 +45,15 @@ const ownerRuntimeProfileSources = modulesReadingBindingsOutside(trainingRuntime
 assert.deepEqual(ownerRuntimeProfileSources, [],
   "Owner training runtime profile values may only be read by training_runtime_profile.js");
 
+// RunPod admission and completion transport are one provider-owned decision.
+// Capabilities, planning and submission may consume the decision, but must not
+// parse its raw environment settings independently.
+const runpodAdmissionBoundary = join(workerRoot, "runpod_admission.js");
+const runpodAdmissionSources = modulesReadingBindingsOutside(runpodAdmissionBoundary,
+  ["RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED", "RUNPOD_WORKLOAD_ADMISSION_ENABLED"]);
+assert.deepEqual(runpodAdmissionSources, [],
+  "RunPod admission and completion transport settings may only be read by runpod_admission.js");
+
 // The reviewed MAP workload profile has one environment parser as well. The
 // live admission decision remains separate from profile validity, and the
 // shared control-plane signing key has its own identity/security concern.

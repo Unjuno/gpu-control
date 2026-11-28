@@ -2997,3 +2997,18 @@ tests, including an acyclic Worker graph across 77 modules. Worker build and
 artifact validation pass, D1 forward migration replay passes, and
 `git diff --check` passes. No RunPod API, credentials, admission setting, or
 runtime was accessed or changed.
+
+## 2026-11-28 — A12: guard the RunPod admission owner
+
+**Finding:** the shared RunPod admission function fixed current callers, but
+the architecture check did not prevent future modules from reading the raw
+environment flags and recreating a second policy interpretation.
+
+**Change:** extended `check-worker-architecture.mjs` to reject direct reads of
+the RunPod transport-verification and admission bindings outside
+`runpod_admission.js`. This turns the newly established single-owner rule into
+a local CI invariant.
+
+**Validation:** full Sites `npm test` passes 209 tests; the architecture check
+reports an acyclic graph across 77 runtime modules. No runtime behavior,
+provider configuration, or admission state changed.
