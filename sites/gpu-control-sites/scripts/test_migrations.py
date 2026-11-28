@@ -11,7 +11,6 @@ conn = sqlite3.connect(":memory:")
 conn.execute("PRAGMA foreign_keys=ON")
 
 paths = sorted(MIGRATIONS.glob("*.sql"))
-assert paths[-1].name == "0036_mcp_oauth_clients.sql"
 history = next(path for path in paths if path.name == "0021_reliable_run_history.sql")
 shared_budget = next(path for path in paths if path.name == "0032_modal_compute_budget.sql")
 for path in paths[:paths.index(history)]:
@@ -102,6 +101,8 @@ except sqlite3.IntegrityError:
     pass
 oauth_migration = next(path for path in paths if path.name == "0036_mcp_oauth_clients.sql")
 conn.executescript(oauth_migration.read_text(encoding="utf-8"))
+for path in paths[paths.index(oauth_migration) + 1:]:
+    conn.executescript(path.read_text(encoding="utf-8"))
 oauth_tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'mcp_oauth_%'")}
 assert oauth_tables == {"mcp_oauth_clients", "mcp_oauth_registration_limits", "mcp_oauth_authorization_requests",
                        "mcp_oauth_authorization_codes", "mcp_oauth_tokens"}

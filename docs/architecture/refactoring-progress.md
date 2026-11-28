@@ -2295,3 +2295,18 @@ dependency graph checks, generated registry check, and all 187 Worker tests
 pass locally. The package validator also confirms the deployed hosting
 manifest exactly matches `.openai/hosting.json`; seven exact-head checks pass
 on `9ae223dea50f14748b8d627e73e224bfbe4edb78`.
+
+## 2026-11-28 — A12: apply future tail migrations in the replay fixture
+
+**Finding:** the populated D1 replay fixture asserted that migration 0036 had
+to remain the newest file. That assertion made every valid append-only
+migration require an unrelated fixture edit.
+
+**Change:** removed the latest-filename sentinel. The fixture still applies the
+OAuth migration at its explicit semantic checkpoint, then applies every later
+append-only migration automatically so future schema changes remain covered by
+the populated forward replay.
+
+**Validation:** `python3 sites/gpu-control-sites/scripts/test_migrations.py`
+passes against all 36 migrations, and `git diff --check` passes. This changes
+only the local replay harness; no migration or live database was touched.
