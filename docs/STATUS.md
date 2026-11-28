@@ -1,13 +1,16 @@
 # Project status
 
-## Source/release checkpoint — 2026-11-28
+## Source/release checkpoint — 2026-11-29
 
 - The current source candidate is [PR #70](https://github.com/Unjuno/gpu-control/pull/70),
   branch `codex/owner-training-workloads`. GitHub is the live authority for PR
-  head, review and exact-head CI; these volatile values are not copied into
-  architecture documents. The
-  211-test Sites suite, five root Skill/client checks, Worker
+  head, review and exact-head CI; architecture documents record only fixed
+  source checkpoints. At source head `ef9df7a10d7239fe8b64d35da970052e602a81da`,
+  the 220-test Sites suite, 82-module acyclic Worker graph, Worker
   build/artifact validation, and D1 forward migration replay pass locally.
+  All three exact-head GitHub Actions workflows passed (CI run `46166007122`,
+  Project bridge tests `46166007057`, Sites provider runtime offline tests
+  `46166007104`).
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
@@ -25,6 +28,8 @@
   owner-selected GPU admission disabled. No current claim is made that PR #70
   has been merged, deployed, migrated in hosted D1, or accepted in a new
   ordinary ChatGPT run.
+- GitHub currently reports the PR open and mergeable, with review required.
+  The current source head has not received an independent security review.
 - The D1 source tree includes migrations through `0039_colab_positive_cu_attestation.sql`;
   the deployed D1 migration level has not been re-verified. Colab admission
   defaults closed and the exact-submit positive-CU attestation is persisted;
@@ -32,11 +37,9 @@
 - For module ownership, duplicated contracts, state authority and the next
   refactoring batches, see [the repository architecture map](architecture/repository-map.md)
   and [the prioritized backlog](architecture/refactoring-backlog.md).
-- The prior full local validation at `748ac11` passed 206 tests; the Worker
-  graph was acyclic across 76 modules, and build and D1 migration replay
-  passed. Focused tests for RunPod public errors and custom-training journal
-  loss pass 5/5 across their two suites; the latest full local validation is
-  recorded above. Exact-head CI and review are visible on [PR #70](https://github.com/Unjuno/gpu-control/pull/70).
+- Focused tests for RunPod public errors and custom-training journal loss
+  pass 5/5 across their two suites. Exact-head CI and review state are visible
+  on [PR #70](https://github.com/Unjuno/gpu-control/pull/70).
   The Colab
   lifecycle integration test covers same-request-ID recovery after lost
   mocked runtime-create and cleanup responses on both status and cancellation.

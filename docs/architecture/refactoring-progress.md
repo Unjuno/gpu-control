@@ -3447,3 +3447,20 @@ Worker build, artifact validation, D1 forward migration replay, and
 `git diff --check` pass. Exact-head CI will be checked after pushing. No
 Google OAuth, runtime, credential, provider setting, or experiment was
 accessed or changed.
+
+## 2026-11-29 — A0: refresh the architecture map at the current source head
+
+**Finding:** the repository map still described a 2026-11-28 snapshot and
+module sizes from before the owner-selected Colab lifecycle and recent module
+extractions. Its flow diagram also omitted the hosted Colab API MCP path.
+
+**Change:** refreshed the map to source checkpoint `ef9df7a`, remeasured the
+large modules and test suites, documented generated capability-order
+ownership, and added Colab runtime/artifact flow to the dependency diagram.
+Updated `docs/STATUS.md` with current exact-head local and GitHub Actions
+evidence while keeping release and review limits explicit.
+
+**Validation:** verified listed module sizes with `wc -l`, confirmed the
+Worker graph is acyclic across 82 modules, and checked documentation diffs for
+whitespace errors. This does not change runtime behavior or claim that Colab
+is deployed or live-accepted.

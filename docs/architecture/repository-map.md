@@ -1,6 +1,6 @@
 # Repository architecture map
 
-**Snapshot:** 2026-11-28 (Asia/Tokyo)  
+**Snapshot:** 2026-11-29 (Asia/Tokyo)
 **Source and release checkpoint:** PR #70 source and release evidence are
 maintained in [Project status](../STATUS.md); that file is authoritative for
 the changing PR head, CI, review, deployment, and provider acceptance. This map
@@ -10,14 +10,13 @@ The latest measured structural and test observations are dated entries in
 [`refactoring-progress.md`](refactoring-progress.md). They describe only the
 specific commit and validation listed there; do not infer current hosted
 behavior from them.
-**Measured at source checkpoint `748ac11`:** `worker/index.js` was 147 lines,
-and `worker/index.test.js` was 1,867 lines. Dedicated integration tests then
-covered ChatGPT authorization (125 lines), Modal health (277 lines), local
-cancellation (102 lines), and artifact retrieval (67 lines); owner-training
-registration (682 lines), experiment read-model (222 lines), and MCP
-request-auth (43 lines) were separate suites. The Gateway provider-runtime CI
-selection, including five compatibility-module identity checks, passed locally
-at that checkpoint. These are dated observations, not live size or CI claims.
+**Measured at source checkpoint `ef9df7a`:** the Sites Worker graph is acyclic
+across 82 runtime modules. `worker/index.js` is 147 lines and
+`worker/mcp_tool_dispatch.js` is 113 lines; owner-selected training
+registration coverage is isolated in
+`worker/training_registration.integration.test.js` (683 lines).
+`worker/index.test.js` is 1,893 lines. This map measures source structure only;
+it does not establish release or hosted-client behavior.
 
 This is an evidence-backed map of the current repository, not a claim that all
 listed source paths are active in the hosted product.
@@ -40,6 +39,10 @@ flowchart LR
   M --> P[Preview and exact persisted plan]
   P --> G[Owner identity, policy, provider budget, admission]
   G --> D[(Sites D1 lifecycle and budget records)]
+  M --> C[Google hosted Colab API MCP]
+  C --> CR[Run-owned Colab runtime]
+  CR --> D
+  CR --> O[Owner-scoped R2 artifacts]
   G -->|fixed RunPod lane| R[RunPod REST]
   G -->|fixed Modal or owner-selected candidate| MA[Modal adapter]
   MA --> K[Kaggle]
@@ -172,7 +175,7 @@ Sites Worker.
 | State or fact | Intended authority | Copies/observations | Risk to manage |
 | --- | --- | --- | --- |
 | Current activation mode and allowed exceptions | `policies/repository-state.yaml` | Human-readable policy documents and tool behavior | Must stay fail-closed; no runtime config can override policy without reviewed change. |
-| Sites fixed workload identity/defaults | `sites/gpu-control-sites/workloads/registry.json` | Generated `worker/workload_registry.js`, `modal/workload_registry.py` | CI checks generated copies; update source JSON and regenerate, never hand-edit generated copies. The legacy Gateway deploy fixture repeats selected immutable Kaggle/HF pins and has a focused contract test; its resource limits, transport, cleanup, and cost policy remain Gateway-owned. |
+| Sites fixed workload identity/defaults and capability order | `sites/gpu-control-sites/workloads/registry.json` | Generated `worker/workload_registry.js`, `modal/workload_registry.py` | CI checks generated copies; update source JSON and regenerate, never hand-edit generated copies. Unique `capability_order` values are generator-validated. The legacy Gateway deploy fixture repeats selected immutable Kaggle/HF pins and has a focused contract test; its resource limits, transport, cleanup, and cost policy remain Gateway-owned. |
 | Selected GitHub installation/repositories | Sites D1 GitHub App tables plus server-side GitHub App configuration | GitHub installation is external authority for repository access | Connector login alone is not the Worker credential. Installation token is short-lived and repo-scoped. |
 | Registration, exact source SHA and execution spec | Sites D1 | `training_register`/`training_list` tool responses | Registration is not by itself proof of executable runtime/admission. |
 | Plan, idempotency, authorization, budget reservation, owner-visible run identity and cleanup evidence | Sites D1 | MCP response and provider observations | D1 is the product ledger. For owner-selected training it records the immutable plan, one-time dispatch reservation, rejection and verified cleanup; it does not mirror every transient provider state. |
@@ -233,32 +236,32 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (implementation snapshot at PR #70 code head `129f002`):**
+5. **Large files (implementation snapshot at PR #70 source checkpoint `ef9df7a`):**
    `worker/index.js` 147 lines; `worker/training_authorization_routes.js` 210 lines;
-   `worker/mcp_tool_dispatch.js` 122 lines;
-   `worker/delegated_experiment_lifecycle.js` 391 lines;
+   `worker/mcp_tool_dispatch.js` 113 lines;
+   `worker/delegated_experiment_lifecycle.js` 398 lines;
    `worker/modal_cpu_lifecycle.js` 165 lines; Worker integration test
-   `worker/index.test.js` 1,920 lines; owner-selected training registration
+   `worker/index.test.js` 1,893 lines; owner-selected training registration
    lifecycle coverage is in `worker/training_registration.integration.test.js`
-   (682 lines). Training preview, preparation and submission are split across
+   (683 lines). Training preview, preparation and submission are split across
    `worker/training_preview.js`, `worker/training_prepare.js` and
    `worker/training_submit.js`; the old mixed `training_plan.js` module is
-   removed. `worker/training_plan_state.js` (78 lines) owns
+   removed. `worker/training_plan_state.js` (171 lines) owns
    persisted state/readiness/cancellation/cleanup projection, while
-   `worker/training_authorization.js` (126 lines) owns exact confirmation and
+   `worker/training_authorization.js` (132 lines) owns exact confirmation and
    its URL.
    MAP-specific plan
-   construction is isolated in `worker/map_training_plan.js` (115 lines), the
+   construction is isolated in `worker/map_training_plan.js` (122 lines), the
    atomic D1 authorization/budget/dispatch claim in
    `worker/training_dispatch_claim.js` (80 lines), and the existing Modal
    owner-selected builder in `worker/modal_owner_training_plan.js` (72 lines).
    Colab plan and lifecycle modules now own the hosted-MCP provider path;
-   `google_colab_lifecycle.js` is 403 lines and is a candidate for cohesive
+   `google_colab_lifecycle.js` is 427 lines and is a candidate for cohesive
    recovery/cleanup extraction only if that reduces, rather than relocates,
    state-transition complexity. MCP tool schema and GitHub source tests live
    beside their module contracts.
    `gateway/gpu_gateway/store.py` 1,156; Gateway `worker.py` 1,094;
-   `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 510.
+   `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 505.
    Split by cohesive domain/use case, not line count alone.
 6. **Documentation state drift:** `chatgpt-selected-repository-experiments.md`
    and `sites/README.md` have previously described source inspection as the end
