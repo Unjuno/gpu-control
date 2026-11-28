@@ -2411,3 +2411,25 @@ source today; it no longer describes this orchestrator as provider-neutral.
 (2 dependency-graph tests, acyclic graph across 67 Worker modules, current
 generated registry, and 188 Worker tests). No D1 schema, provider, credential,
 deployment, or admission state changed.
+
+## 2026-11-28 — A7: split training plan work into cohesive use cases
+
+**Finding:** `training_plan.js` combined source resolution and provider preview,
+idempotent D1 plan persistence, and exact-plan authorization/dispatch in one
+module. The public tool router imported all three operations through that
+mixed module, so a provider-specific change pulled unrelated lifecycle code
+into the same edit surface.
+
+**Change:** moved the three operations into `training_preview.js`,
+`training_prepare.js`, and `training_submit.js`; migrated the MCP router and
+the submission integration tests; deleted the old module. Added an executable
+architecture rule that prevents contracts from depending on use cases and
+keeps use-case dependencies flowing from preview to prepare to submit.
+Updated the architecture map and selected-repository design to match the
+current source. Public tool schemas, arguments, authorization, D1 state, and
+provider behavior are unchanged.
+
+**Validation:** `node --check` passes for all three modules. The Worker graph
+is acyclic across 69 runtime modules; the Sites suite passes 2 dependency-graph
+tests, the generated-registry check, and all 188 Worker tests. No D1 migration,
+provider, credential, deployment, or admission state changed.

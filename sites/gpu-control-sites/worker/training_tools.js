@@ -1,4 +1,6 @@
-import { prepareTrainingPlan, previewTrainingPlan, submitTrainingPlan } from "./training_plan.js";
+import { prepareTrainingPlan } from "./training_prepare.js";
+import { previewTrainingPlan } from "./training_preview.js";
+import { submitTrainingPlan } from "./training_submit.js";
 import { confirmTrainingCleanup, trainingPlanState } from "./training_plan_state.js";
 import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { listTrainingSources, MAP_TRAINING_REPOSITORY, parseTrainingRepository, registerTrainingSource,

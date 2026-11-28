@@ -74,12 +74,24 @@ const rawResponseReaders = workerFiles.filter((file) =>
 assert.deepEqual(rawResponseReaders, [],
   "External HTTP response streams must use http_response_body.js for bounded byte collection");
 
+const trainingUseCases = new Set(["training_preview.js", "training_prepare.js", "training_submit.js"]);
+const forbiddenTrainingDependencies = new Map([
+  ["training_preview.js", new Set(["training_prepare.js", "training_submit.js"])],
+  ["training_prepare.js", new Set(["training_submit.js"])],
+]);
+
 for (const [file, dependencies] of graph) {
   assert.ok(workerFiles.includes(file));
   assert.ok(!dependencies.includes(entrypoint), `${file}: domain modules must not import the Worker entrypoint`);
   if (file.endsWith("_contract.js")) {
-    const trainingOrchestrator = dependencies.filter((dependency) => dependency.endsWith("/training_plan.js"));
-    assert.deepEqual(trainingOrchestrator, [], `${file}: contracts must consume training policy/contracts, not training plan orchestration`);
+    const useCases = dependencies.filter((dependency) => trainingUseCases.has(dependency.split("/").at(-1)));
+    assert.deepEqual(useCases, [], `${file}: contracts must consume training policy/contracts, not training use cases`);
+  }
+  const forbidden = forbiddenTrainingDependencies.get(file.split("/").at(-1));
+  if (forbidden) {
+    const dependenciesByUseCase = dependencies.map((dependency) => dependency.split("/").at(-1));
+    assert.deepEqual(dependenciesByUseCase.filter((dependency) => forbidden.has(dependency)), [],
+      `${file}: training use-case dependencies must flow from preview to prepare to submit`);
   }
 }
 

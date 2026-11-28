@@ -57,7 +57,8 @@ every run. A user-configured provider budget lease bounds repeated runs.
 ## Implementation evidence in PR #70 source
 
 - The implementation surface is `worker/github_app_connection.js`,
-  `training_source.js`, `training_contract.js`, `training_plan.js`, the
+  `training_source.js`, `training_contract.js`, `training_preview.js`,
+  `training_prepare.js`, `training_submit.js`, the
   `training_*` D1 migrations, and `modal/custom_training_*.py`.
 - The source contract is JSON at `.gpu-control/experiment.json`, not the YAML
   alternative described in older target text below. It limits entrypoint,

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import worker from "./index.js";
-import { submitTrainingPlan } from "./training_plan.js";
+import { submitTrainingPlan } from "./training_submit.js";
 import { confirmTrainingCleanup } from "./training_plan_state.js";
 import { claimTrainingDispatch } from "./training_dispatch_claim.js";
 import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_authorization.js";
