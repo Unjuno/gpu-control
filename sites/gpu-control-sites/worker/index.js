@@ -1,11 +1,10 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { sha256Hex as sha256 } from "./sha256.js";
-import { isMcpToolReadOnly, listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
+import { listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
 import { normalizeTrainingArguments, validToolArguments } from "./experiment_input_contract.js";
 import { MODAL_PRICING_CHECKED_AT, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { executionOrigin } from "./execution_origin.js";
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
-import { READ_SCOPE, EXECUTE_SCOPE } from "./mcp_oauth.js";
 import { authenticateMcpPrincipal, mcpAuthorizationChallenge, sitesOwnerFromRequest,
   sitesPlatformIdentityPresent } from "./mcp_request_auth.js";
 import { trainingControlPlaneSha } from "./training_security_configuration.js";
@@ -14,11 +13,9 @@ import { createGoogleColabOAuthRoutes } from "./google_colab_oauth_routes.js";
 import { createMcpOAuthRoutes } from "./mcp_oauth_routes.js";
 import { createGithubOAuthRoutes } from "./github_oauth_routes.js";
 import { mcpToolErrorCode } from "./mcp_tool_errors.js";
+import { CURRENT_MCP_VERSION, LEGACY_MCP_VERSIONS, MCP_META_PREFIX, SUPPORTED_MCP_VERSIONS,
+  mcpRpcError, parseMcpProtocolRequest } from "./mcp_protocol.js";
 
-const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
-const MCP_VERSION = "2026-07-28";
-const MCP_VERSIONS = [...LEGACY_VERSIONS, MCP_VERSION];
-const META_PREFIX = "io.modelcontextprotocol/";
 const MAX_BODY_BYTES = 16 * 1024;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 
@@ -31,14 +28,6 @@ function json(data, status = 200, headers = {}) {
 
 function hasMediaType(request, expected) {
   return (request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase() === expected;
-}
-
-function rpcError(id, code, message) {
-  return json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
-}
-
-function mcpResult(id, value) {
-  return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(value) }] } });
 }
 
 function envelope(name, value) {
@@ -348,36 +337,14 @@ async function readUrlEncodedForm(request, limit = 4096) {
 }
 
 async function handleMcp(request, env, context = null, principal = null) {
-  let message;
-  try { message = await readJson(request); } catch (error) {
-    return rpcError(null, -32700, error.message === "BODY_TOO_LARGE" ? "Request too large" : "Invalid JSON");
-  }
-  const id = message?.id;
-  if (message?.jsonrpc !== "2.0" || !message.method) return rpcError(id, -32600, "Invalid Request");
-  const requestedVersion = request.headers.get("mcp-protocol-version") || LEGACY_VERSIONS[0];
-  if (!MCP_VERSIONS.includes(requestedVersion)) return json({ jsonrpc: "2.0", id, error: { code: -32022, message: "Unsupported protocol version", data: { supported: MCP_VERSIONS, requested: requestedVersion } } }, 400);
-  const params = message.params && typeof message.params === "object" ? message.params : {};
-  const requiredScope = message.method === "tools/call" && isMcpToolReadOnly(params.name)
-    ? READ_SCOPE : message.method === "tools/call" ? EXECUTE_SCOPE : READ_SCOPE;
-  if (!principal?.scopes?.includes(requiredScope)) {
-    return mcpAuthorizationChallenge(request, { error: "insufficient_scope", scope: requiredScope });
-  }
-  const meta = params._meta && typeof params._meta === "object" ? params._meta : {};
-  if (requestedVersion === MCP_VERSION || meta[`${META_PREFIX}protocolVersion`] === MCP_VERSION) {
-    if (meta[`${META_PREFIX}protocolVersion`] !== requestedVersion || request.headers.get("mcp-method") !== message.method || !meta[`${META_PREFIX}clientCapabilities`] || typeof meta[`${META_PREFIX}clientCapabilities`] !== "object") {
-      return json({ jsonrpc: "2.0", id, error: { code: -32020, message: "Request metadata/header mismatch" } }, 400);
-    }
-    if (["tools/call", "prompts/get", "resources/read"].includes(message.method)) {
-      const supplied = request.headers.get("mcp-name");
-      const expected = message.method === "resources/read" ? params.uri : params.name;
-      if (typeof expected !== "string" || supplied !== expected) return json({ jsonrpc: "2.0", id, error: { code: -32020, message: "Mcp-Name does not match the request" } }, 400);
-    }
-  }
+  const parsed = await parseMcpProtocolRequest(request, principal, readJson);
+  if (parsed.response) return parsed.response;
+  const { message, id, requestedVersion, params } = parsed;
   if (message.method === "server/discover") {
-    return json({ jsonrpc: "2.0", id, result: { supportedVersions: MCP_VERSIONS, capabilities: { tools: {} } } });
+    return json({ jsonrpc: "2.0", id, result: { supportedVersions: SUPPORTED_MCP_VERSIONS, capabilities: { tools: {} } } });
   }
   if (message.method === "tools/list") {
-    return json({ jsonrpc: "2.0", id, result: { tools: listMcpTools(requestedVersion, LEGACY_VERSIONS[0]) } });
+    return json({ jsonrpc: "2.0", id, result: { tools: listMcpTools(requestedVersion, LEGACY_MCP_VERSIONS[0]) } });
   }
   if (message.method === "tools/call") {
     try {
@@ -388,14 +355,14 @@ async function handleMcp(request, env, context = null, principal = null) {
         modalGpuProviderEvidence, randomHex, authorizationUrl, submitSummary,
       }));
       const result = { content: [{ type: "text", text: JSON.stringify(value) }], isError: false };
-      if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
-      return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
+      if (requestedVersion !== LEGACY_MCP_VERSIONS[0]) result.structuredContent = value;
+      return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === CURRENT_MCP_VERSION ? { resultType: "complete", _meta: { [`${MCP_META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
     } catch (error) {
       const code = mcpToolErrorCode(error);
       return json({ jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: JSON.stringify({ error: code }) }] } });
     }
   }
-  return rpcError(id, -32601, "Method not found");
+  return mcpRpcError(id, -32601, "Method not found");
 }
 
 export { modalGpuProviderEvidence };
@@ -439,7 +406,7 @@ export default {
         error: request.headers.has("authorization") ? "invalid_token" : null,
       });
       try { return await handleMcp(request, env, context, principal); }
-      catch { return rpcError(null, -32603, "Internal error"); }
+      catch { return mcpRpcError(null, -32603, "Internal error"); }
     }
     return json({ error: "NOT_FOUND" }, 404);
   },
