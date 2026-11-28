@@ -16,7 +16,10 @@ resource identities should not be silently counted as current capacity.
 runtime variant, accelerator, shape, eligibility and runtime resource name
 before projecting GPU eligibility or active runtime counts. Runtime names,
 proxy URLs and short-lived credentials remain outside the agent response.
-Malformed or incomplete provider records fail closed with a stable error.
+Malformed or incomplete provider records fail closed with a stable error. The
+capability contract also states that per-run cost and remaining quota are
+unknown, and that no paid fallback is allowed; it cannot label an eligible GPU
+as guaranteed free compute.
 
 **Validation:** 128 Sites Worker tests pass; the Worker module graph remains
 acyclic across 31 modules; migration-forward tests, Worker build and artifact

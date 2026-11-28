@@ -65,6 +65,8 @@ export async function handleGoogleColabTool(name, env, owner, options = {}) {
       machine_state: { configured: true, connected: true, account_email: connection.account_email,
         subscription_tier: tier, eligible_gpu_specs: gpuSpecs.slice(0, 100), active_runtime_count: runtimes.length,
         active_gpu_runtime_count: existingGpuRuntimes, execution_lifecycle_enabled: false,
+        cost_terms: { per_run_usd: null, remaining_quota: null,
+          semantics: "google_account_entitlement_not_quantified_per_run", paid_fallback_allowed: false },
         blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED", exact_run_cost_available: false },
       next_allowed_actions: [], blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED" };
   }
