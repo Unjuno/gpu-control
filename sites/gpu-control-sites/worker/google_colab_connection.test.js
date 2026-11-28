@@ -86,7 +86,7 @@ test("connection proves Google identity, encrypts the refresh token, refreshes a
     assert.notEqual(stored.refresh_token_ciphertext, Buffer.from(rawRefreshToken).toString("base64url"));
     assert.equal(stored.refresh_token_iv.length, 16);
     assert.deepEqual(await googleColabConnectionStatus(db, "chat-owner"),
-      { connected: true, account_email: "owner@example.com", connected_at: flow.now });
+      { connected: true, account_email_redacted: "o***@example.com", connected_at: flow.now });
     assert.deepEqual(await googleColabConnectionStatus(db, "other-owner"), { connected: false });
 
     const access = await googleColabAccessToken(db, env, "chat-owner", { fetchImpl: async (url, init) => {
@@ -148,7 +148,7 @@ test("OAuth response parsing is bounded and a connected owner must disconnect be
     await assert.rejects(completeGoogleColabOAuth(db, env, second.state, second.verifier, "second-code", {
       now: second.now, fetchImpl: tokenResponse("google-subject-2"),
     }), { message: "GOOGLE_COLAB_RECONNECT_REQUIRES_DISCONNECT" });
-    assert.equal((await googleColabConnectionStatus(db, "chat-owner")).account_email, "owner@example.com");
+    assert.equal((await googleColabConnectionStatus(db, "chat-owner")).account_email_redacted, "o***@example.com");
 
     const oversized = await begin(db, "oversized-owner");
     await assert.rejects(completeGoogleColabOAuth(db, env, oversized.state, oversized.verifier, "oversized-code", {

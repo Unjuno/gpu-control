@@ -55,7 +55,11 @@ pretending that Sites authentication automatically grants Google access.
 2. Prepare pins the selected GitHub repository and immutable commit, validates
    the existing experiment manifest and dependency lock, resolves one eligible
    runtime spec, and records a Colab-specific duration/compute-unit policy.
-   Internal registration/run IDs stay agent-managed.
+   The exact plan must disclose that Google has not supplied a balance or
+   per-run price. It must also disclose that Colab-managed runtime egress is
+   unrestricted by GPU Control; never place provider/GitHub credentials or
+   private user data in that runtime. Internal registration/run IDs stay
+   agent-managed.
 3. Submit uses the current exact saved plan and a stable UUID requestId. Google
    documents `requestId` idempotency for `create_runtime`; retry an ambiguous
    request only with the same ID. Store the returned operation/runtime identity
@@ -63,10 +67,13 @@ pretending that Sites authentication automatically grants Google access.
 4. Execution uses one run-owned session and one unique `executionId` per code
    call. After `DEADLINE_EXCEEDED` or `UNAVAILABLE`, repeat the same call with
    the same session/executionId to reattach; never rerun training as a retry.
-5. Cancellation closes only the session and runtime created for that run. Do
-   not delete a user's unrelated notebook runtime or session. Retrieve
-   allowlisted outputs before deletion, independently compute checksums, then
-   verify the owned runtime is absent.
+5. Cancellation closes the session created for that run. A plan must explicitly
+   state that its run-owned runtime will be deleted after output retrieval; the
+   exact write confirmation authorizes that destructive cleanup. Never delete a
+   pre-existing or unrelated notebook runtime/session. Retrieve allowlisted
+   outputs before runtime deletion, independently compute checksums, then
+   verify the owned runtime is absent. If the exact plan did not disclose
+   runtime deletion, leave it intact and report cleanup as incomplete.
 6. Persist status transitions, provider operation IDs, runtime/session IDs,
    bounded logs, artifacts, and cleanup receipt in the owner-scoped Sites
    ledger. Treat Google errors, workload output, logs, and artifacts as
@@ -74,20 +81,37 @@ pretending that Sites authentication automatically grants Google access.
 
 ## Quota and cost semantics
 
-The Colab API MCP can report the user's subscription tier and eligible runtime
-specs, but it does not expose a documented per-run monetary quote or compute
-unit balance. Google's FAQ says a paid user's Colab execution falls back to
-free-tier policies and restrictions after their compute-unit balance is
-exhausted. This makes remaining units an availability limit, not a per-run
-price quote or a provider-side dollar cap. The CLI's `colab usage` command
-reports a balance and aggregate CU/hour through an undocumented Colab endpoint;
-do not use that private endpoint as a billing authority. A Sites-side budget
-reservation therefore cannot be described as a Google billing stop. Until a
-trusted and fresh account limit can be enforced, show the account's current
-quota limitations, set strict run duration/GPU/session bounds, and do not
-promise a dollar ceiling. If the user requires an exact spend cap, block Colab
-submission while allowing other eligible providers. See Google's [Colab usage
-limits FAQ](https://research.google.com/colaboratory/faq.html).
+The Colab API MCP's `get_subscription` returns only `FREE`, `PRO`, or `PRO_PLUS`;
+`list_runtime_specs` reports current runtime eligibility. Neither returns a
+documented compute-unit balance or per-run monetary quote. Google's usage
+policy says managed runtimes in the free tier or without a positive Colab
+compute-unit balance may not be used for remote control, bypassing the notebook
+UI, or distributed-computing workers, and may be terminated without warning.
+Therefore, do not submit a GPU Control run when the requested GPU spec is not
+currently eligible or the user has not explicitly confirmed in the exact-plan
+write action that their Colab account has a positive compute-unit balance.
+Recheck tier and eligibility immediately before runtime creation. A prior
+attestation is not reusable for a later run. A `FREE` tier without positive
+units is not an allowed automated execution route.
+
+Google's FAQ says that paid-account execution reverts to free-tier restrictions
+after compute units are exhausted. Google does not document an API that lets
+GPU Control read or reserve those units. The exact plan must say `cost_unknown`
+and show the maximum run duration and accelerator; it must never describe a
+Sites reservation as a Google billing stop. GPU Control cannot purchase
+Pay-As-You-Go units, and must not attempt top-up or paid-provider fallback.
+If the user requires an exact USD ceiling or cannot confirm positive units,
+block Colab submit while leaving other eligible providers available. The
+official CLI's `colab usage` uses an undocumented endpoint; do not treat it as
+a billing authority. See Google's [Colab usage limits FAQ](https://research.google.com/colaboratory/faq.html)
+and [Colab API MCP subscription contract](https://developers.google.com/colab/api/reference/mcp/tools_list/get_subscription).
+
+Colab runtime code has external network access that Sites cannot constrain
+through this API. The plan must state `network_egress: unrestricted`; only run
+an owner-selected, immutable source that the owner is willing to trust with
+that access. Never mount Google Drive, forward secrets, or include private data
+in the source/runtime. This is a provider-specific execution boundary and must
+not inherit Modal's network-isolation claims.
 
 Runtime creation can be slow and quota-limited. Google documents
 `FAILED_PRECONDITION` when eligibility, capacity, or usage limits prevent
@@ -114,7 +138,9 @@ back to a paid provider or claim GPU availability from subscription tier alone.
    the exact unfinished call after ambiguity. Do not create a second queue or
    run ledger, and do not automatically replay a completed execution ID.
    Implement cancellation, bounded result/artifact retrieval, and confirmed
-   session cleanup. Do not delete a runtime unless the owner explicitly asks.
+   session/runtime cleanup. The exact plan and native execution confirmation
+   must explicitly authorize deletion of the run-owned runtime after outputs
+   are verified; never delete a runtime that pre-dates the run.
 5. Keep CI offline by default. Use mocks/contracts for routine CI; a separate
    owner-controlled live Colab acceptance workflow may be added only when its
    credential, quota, cost, and cleanup bounds are verified and the workflow

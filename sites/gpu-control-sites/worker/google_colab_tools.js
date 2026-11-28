@@ -29,14 +29,17 @@ export async function handleGoogleColabTool(name, env, owner, options = {}) {
     const { tier, activeRuntimeCount, activeGpuRuntimeCount, eligibleGpuSpecs } =
       projectGoogleColabCapabilities(subscription, specData, runtimeData);
     return { schema_version: 2, status: "ok",
-      human_summary: "Google ColabアカウントとGoogleのGPU eligibilityを読み取りました。GPU Controlからの実験実行ライフサイクルはまだ無効です。",
-      machine_state: { configured: true, connected: true, account_email: connection.account_email,
+      human_summary: "Google ColabのGPU eligibilityを読み取りました。Compute Unit残高はAPIで確認できず、GPU Controlからの実験実行ライフサイクルもまだ無効です。",
+      machine_state: { configured: true, connected: true, account_email_redacted: connection.account_email_redacted,
         subscription_tier: tier, eligible_gpu_specs: eligibleGpuSpecs, active_runtime_count: activeRuntimeCount,
         active_gpu_runtime_count: activeGpuRuntimeCount, execution_lifecycle_enabled: false,
         cost_terms: { per_run_usd: null, remaining_quota: null,
           semantics: "google_account_subscription_quota_not_quantified_per_run",
           quota_exhaustion_effect: "google_paid_account_reverts_to_free_tier_restrictions",
-          paid_fallback_allowed: false },
+          compute_unit_balance_available_via_api: false, positive_compute_units_required_for_automation: true,
+          positive_compute_units_verified: false, automatic_top_up_available: false, paid_fallback_allowed: false },
+        execution_security: { network_egress: "unrestricted", private_data_allowed: false,
+          provider_credentials_allowed: false, run_owned_runtime_deletion_requires_exact_plan_confirmation: true },
         blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED", exact_run_cost_available: false },
       next_allowed_actions: [], blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED" };
   }
@@ -67,7 +70,7 @@ export async function handleGoogleColabTool(name, env, owner, options = {}) {
     const current = await googleColabConnectionStatus(env.DB, owner);
     if (current.connected) return { schema_version: 2, status: "blocked",
       human_summary: "別のGoogleアカウントへ切り替える場合は、先に現在のColab接続を解除してください。",
-      machine_state: { connected: true, account_email: current.account_email },
+      machine_state: { connected: true, account_email_redacted: current.account_email_redacted },
       next_allowed_actions: ["colab_connection_status", "colab_connection_disconnect"],
       blocking_reason: "GOOGLE_COLAB_RECONNECT_REQUIRES_DISCONNECT" };
     const link = await createGoogleColabConnectionUrl(env.DB, owner);

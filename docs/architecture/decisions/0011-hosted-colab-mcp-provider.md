@@ -73,6 +73,24 @@ provider routes; that would fork authorization, retries, history, and cleanup.
 8. CI is offline by default. Any future live Colab workflow is separately
    credentialed, manual/owner-controlled, quota-bounded, prohibited on ordinary
    pull requests, and not a replacement control plane.
+9. Google policy restricts remote control, bypassing the notebook UI, and
+   distributed workers on managed runtimes when the account is free or has no
+   positive compute-unit balance. The Colab API exposes tier and runtime
+   eligibility but not the balance. At the exact-plan write confirmation, the
+   owner must attest that the account has positive units; recheck tier and GPU
+   eligibility immediately before submit. Never treat an earlier attestation
+   as reusable. A free tier without positive units is not an allowed automated
+   execution route. The run plan must state that exact dollar cost is
+   unknown and that GPU Control cannot buy or top up Pay-As-You-Go units.
+10. Colab-managed runtime egress is unrestricted by this control plane. State
+    this in the exact plan, run only immutable owner-selected code the owner
+    trusts with network access, and never mount Drive, inject credentials, or
+    place private data in the runtime. This lane must not claim Modal's egress
+    controls.
+11. Deleting a runtime destroys all data. The exact run plan and write
+    confirmation must explicitly authorize deleting its newly created runtime
+    after bounded outputs and checksums are collected. Never delete an
+    unrelated or pre-existing user runtime/session.
 
 ## Implementation sequence
 
@@ -100,6 +118,12 @@ provider routes; that would fork authorization, retries, history, and cleanup.
   sign-in.
 - Provider-side dollar spend cannot be stated as hard-bounded without a
   documented quote/quota mechanism. Product copy must disclose this clearly.
+- Colab execution requires an exact-plan confirmation that also attests to
+  positive compute-unit balance because the documented API cannot expose
+  that balance. This adds no second conversational approval; it uses the
+  existing native write confirmation. GPU Control cannot trigger a top-up.
+- The owner-selected Colab runtime has open network egress. Do not offer it for
+  secrets/private data, and show this provider difference before execution.
 - The Google Colab CLI remains usable from a user's local agent or CI for
   independent workloads. Its sessions do not appear in GPU Control's run
   ledger. A future CI execution host must implement the same owner-bound job
@@ -121,5 +145,7 @@ into the shared run ledger. Keep admission closed.
 - [Google MCP OAuth and DCR limitations](https://docs.cloud.google.com/mcp/authenticate-mcp)
 - [Colab runtime creation idempotency and quota](https://developers.google.com/colab/api/reference/rest/v1beta/runtimes/create)
 - [Colab execution resumption and cancellation](https://developers.google.com/colab/api/reference/mcp/tools_list/execute_code)
+- [Colab MCP subscription fields](https://developers.google.com/colab/api/reference/mcp/tools_list/get_subscription)
+- [Colab usage limits and availability](https://research.google.com/colaboratory/faq.html)
 - [Colab CLI for local agents and CI](https://github.com/googlecolab/google-colab-cli)
 - [Sites architecture pivot and Runner retirement](../../decisions/2026-11-11-sites-d1-architecture-pivot.md)

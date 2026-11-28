@@ -225,8 +225,16 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   metadata/history live under `~/.config/colab-cli/`; both are separate from
   Sites D1. Direct CLI jobs do not create Sites run records. A Worker cannot
   launch the CLI. The former macOS Runner, Keychain bearer and `/runner/*`
-  path are explicitly retired and must not be restored. Colab's documented hosted API does not
-  provide a per-run dollar quote or CU balance.
+  path are explicitly retired and must not be restored. Colab's documented
+  hosted API does not provide a per-run dollar quote or CU balance.
+  **Policy evidence (2026-11-28):** the documented `get_subscription` schema
+  returns only the tier, not CU balance. Google's usage policy restricts remote
+  control, notebook-UI bypass, and distributed workers on managed runtimes
+  when the account is free or has no positive CU balance. A future exact plan
+  therefore needs a fresh GPU eligibility check and an explicit owner
+  attestation of positive CU in the same native submit confirmation; there is
+  no API-backed balance proof or USD ceiling. Free-tier execution without
+  positive CU is disallowed. Sites must never purchase a Pay-As-You-Go top-up.
 - **Decision:** GPU Control's owner-bound API/MCP is the one product control
   plane; ChatGPT chat/Work is the primary client, not the only client. ChatGPT,
   Codex, and future local/CI clients should use the same plan authorization,
@@ -247,12 +255,13 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   trusted; never label the internal Sites reservation a Google billing cap.
   **Open boundary decision (2026-11-28):** Colab's managed runtime does not
   inherit the Modal sandbox's enforced no-egress policy; installing
-  hash-locked dependencies may require Internet access from the runtime. A
-  Colab-specific route must either make that network access explicit while
-  keeping provider/GitHub credentials out of the runtime and deleting its
-  run-owned runtime, or remain unavailable until egress can be enforced. The
-  owner has been asked to select the intended boundary; admission remains
-  closed while implementation and this decision are incomplete.
+  hash-locked dependencies may require Internet access from the runtime. The
+  provider contract must state `network_egress: unrestricted`, keep
+  provider/GitHub credentials and private data out of the runtime, and delete
+  only a newly created run-owned runtime after the exact plan authorizes it.
+  This material provider-specific disclosure is recorded for owner review;
+  admission remains closed until the route and its authorization wording are
+  accepted and implemented.
   Keep this provider policy behind a Colab-specific plan/adapter boundary;
   shared owner authorization, exact-plan confirmation, D1 run history, artifact
   metadata, and terminal cleanup remain the single lifecycle authority. Modal's

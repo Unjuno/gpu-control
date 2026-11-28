@@ -210,7 +210,10 @@ export async function completeGoogleColabOAuth(db, env, oauthState, verifier, co
 export async function googleColabConnectionStatus(db, owner) {
   if (!validOwner(owner)) throw new Error("GOOGLE_COLAB_CONNECTION_INVALID");
   const row = await db.prepare("SELECT account_email, connected_at FROM google_colab_accounts WHERE owner_id=?").bind(owner).first();
-  return row ? { connected: true, account_email: row.account_email, connected_at: row.connected_at } : { connected: false };
+  if (!row) return { connected: false };
+  const [local, domain] = row.account_email.split("@");
+  return { connected: true, account_email_redacted: `${local.slice(0, 1)}***@${domain}`,
+    connected_at: row.connected_at };
 }
 
 export async function googleColabAccessToken(db, env, owner, options = {}) {

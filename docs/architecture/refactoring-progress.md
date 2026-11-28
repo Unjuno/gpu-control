@@ -1582,3 +1582,34 @@ passes. No external provider operation occurred.
 pushed to PR #70. GitHub reports the PR open and mergeable, review required,
 and all seven exact-head checks queued. The architecture map now records this
 code snapshot; no merge or deployment is established.
+
+
+## 2026-11-28 — A6: bind Colab disclosure to verified provider evidence
+
+**Finding:** Google's documented Colab API `get_subscription` returns only
+`FREE`, `PRO`, or `PRO_PLUS`, not the compute-unit balance. Google's usage FAQ
+states that remote control, notebook-UI bypass, and distributed workers are
+restricted on managed runtimes in the free tier or without a positive unit
+balance. Colab runtime egress is not restricted by the Sites Worker. A
+capabilities result showing an eligible runtime therefore does not prove
+positive units, a dollar ceiling, or network isolation.
+
+**Change:** updated the Colab ADR, provider specification and backlog to make
+the exact-plan positive-unit attestation, fresh eligibility recheck,
+`cost_unknown`, no automatic top-up, unrestricted egress, secret/data exclusion,
+and explicit run-owned runtime deletion part of the provider's release gates.
+The read-only `colab_capabilities` response now exposes these limits to agents.
+Google account email in owner-facing capability/status responses is redacted;
+the OAuth callback still shows the full address only to the browser owner for
+identity confirmation.
+
+**Validation:** Sites `npm test` passes all 166 tests; the capability test
+asserts quota and egress disclosures, no full email, and no runtime proxy
+credential leakage. The Worker graph remains acyclic across 56 modules and
+the registry is current. `git diff --check` passes. No Colab runtime, provider
+request, credential, or deployment was created.
+
+**Decision still required:** unrestricted runtime egress and unknown Google
+spend are inherent to this provider route. Colab admission remains closed until
+the owner accepts those disclosed boundaries. Other independent architecture
+work continues.
