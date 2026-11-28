@@ -184,6 +184,27 @@ test("an unlinked GitHub user cannot bind the setup callback's installation ID",
   } finally { db.close(); }
 });
 
+test("malformed GitHub subject identities never consume the setup intent", async () => {
+  const db = database();
+  try {
+    const intent = await createGithubInstallationUrl(db, "site-owner", env.GITHUB_APP_SLUG, 1_800_000_000);
+    const state = new URL(intent.authorization_url).searchParams.get("state");
+    const authorization = await beginGithubInstallationOAuth(db, state, "98765", {
+      id: "98765", account: { login: "Unjuno" }, repository_selection: "selected", suspended_at: null,
+      permissions: { contents: "read", metadata: "read" },
+    }, env, 1_800_000_010);
+    const oauthState = new URL(authorization.authorization_url).searchParams.get("state");
+    await assert.rejects(completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa",
+      async () => mockResponse({ id: 0, login: "Unjuno" }), 1_800_000_020),
+    { message: "GITHUB_USER_IDENTITY_INVALID" });
+    const row = await db.prepare(`SELECT consumed_at, completion_nonce FROM github_installation_states
+      WHERE owner_id=?`).bind("site-owner").first();
+    assert.equal(row.consumed_at, null);
+    assert.equal(row.completion_nonce, null);
+    assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM github_owner_identities").bind().first()).count, 0);
+  } finally { db.close(); }
+});
+
 test("installation token is scoped to one repository and only Contents read", async () => {
   let request;
   const token = await createGithubInstallationToken(env, "98765", "Unjuno/model-as-a-paper", {
