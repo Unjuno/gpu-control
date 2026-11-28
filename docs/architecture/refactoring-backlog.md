@@ -384,8 +384,18 @@ MCP metadata/scope checks, HTTP routing and response envelopes, then passes the
 normalized call and bounded submission callbacks to the dispatch interface.
 Unused provider/workload imports and constants were removed from the entrypoint.
 The Worker graph remains acyclic and all 166 Sites contract tests pass;
-`index.js` is now 693 lines. Route registration and OAuth page handlers remain
-coupled to the HTTP composition root and are the next A7 boundary to assess.
+`index.js` is now 693 lines. Colab's provider-specific OAuth setup/callback
+handlers have been extracted to `worker/google_colab_oauth_routes.js`; shared
+HTML rendering and escaping remain injected by the composition root. Route
+registration and other OAuth page handlers remain to be assessed separately.
+
+**Progress (2026-11-28):** Colab OAuth setup and callback handlers now live in
+`worker/google_colab_oauth_routes.js`; `index.js` supplies the shared HTML
+renderer and `escapeHtml` helper. The PKCE cookie, callback origin/path check,
+state/code validation, response headers, and public messages are preserved.
+All 166 Sites tests pass and the runtime graph is acyclic across 59 modules.
+Independent security review found no actionable issues. No Google account,
+provider, run, credential, deployment, or admission state was touched.
 
 ### A8. Split test fixtures by contract and reuse domain builders
 

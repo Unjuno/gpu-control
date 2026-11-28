@@ -7,9 +7,10 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `c5c8fe5` on PR #70. The full Python
+**Current source snapshot:** code head `c5c8fe5` on PR #70 plus the current
+uncommitted Colab OAuth route-boundary candidate. The full Python
 suite passes with one skip; the Sites Worker suite passes 166 tests and its
-graph is acyclic across 58 runtime modules. GitHub exact-head CI and review
+graph is acyclic across 59 runtime modules. GitHub exact-head CI and review
 state are recorded in `refactoring-progress.md`; local success is not release
 evidence. `worker/index.js` is 693 lines,
 while `worker/index.test.js` is 2,435 lines and remains the largest integration
@@ -62,6 +63,13 @@ cleanup. Google Colab currently has owner-bound connection and read-only
 capability discovery only; its execution lifecycle is not integrated. A direct
 external Colab MCP call bypasses the Sites owner, budget, run-history, and
 cleanup ledger.
+
+The Google Colab OAuth setup/callback HTTP handlers are composed by
+`worker/index.js` through `worker/google_colab_oauth_routes.js`. The route
+module owns the provider-specific PKCE cookie parsing/clearing and callback
+validation; the composition root injects the shared HTML renderer and escaping
+helper. This remains a connection and read-only capability boundary, not a
+Colab execution adapter.
 
 ## Module dependency graph
 

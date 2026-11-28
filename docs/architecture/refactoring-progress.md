@@ -1713,3 +1713,26 @@ not weakened or moved into caller-controlled authority.
 693 lines and puts provider/workload dispatch behind a 122-line module. This is
 an ownership boundary improvement, not proof of deployment or live provider
 availability.
+
+
+## 2026-11-28 — A7: isolate Google Colab OAuth HTTP routes
+
+**Problem:** `worker/index.js` still owned the Colab setup and OAuth callback
+handlers, including provider-specific PKCE cookie processing and callback
+validation. This mixed an external provider's connection protocol with the
+generic Sites HTTP/MCP composition root.
+
+**Change:** moved those handlers into
+`worker/google_colab_oauth_routes.js`. The composition root injects its shared
+HTML renderer and escaping helper. Existing routes, response messages, cookie
+attributes, callback URL validation, state/code checks, and failure behavior
+are preserved. This is an internal boundary change; Colab execution remains
+unimplemented.
+
+**Validation:** `node --check` passes for both changed Worker modules;
+`npm test` passes all 166 Sites tests, and the Worker graph is acyclic across
+59 runtime modules. `git diff --check` passes. Independent read-only security
+review found no actionable issues for cookie handling, PKCE/state/code checks,
+callback matching, escaping, response headers, or failure paths. No provider
+request, experiment, account connection, credential operation, deployment, or
+admission change occurred.
