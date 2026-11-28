@@ -231,6 +231,10 @@ const NON_IDEMPOTENT_TOOLS = new Set([
   "colab_connection_start", "experiment_prepare", "experiment_status", "experiment_result", "experiment_provider_health",
 ]);
 
+export function isMcpToolReadOnly(name) {
+  return READ_ONLY_TOOLS.has(name);
+}
+
 for (const name of Object.keys(schemas)) {
   if (typeof toolDescriptions[name] !== "string") throw new Error(`MCP tool description missing: ${name}`);
 }
@@ -242,7 +246,7 @@ export function listMcpTools(protocolVersion, legacyVersion) {
     inputSchema: schemas[name],
     ...(protocolVersion === legacyVersion ? {} : { outputSchema: OUTPUT_SCHEMA }),
     annotations: {
-      readOnlyHint: READ_ONLY_TOOLS.has(name),
+      readOnlyHint: isMcpToolReadOnly(name),
       destructiveHint: DESTRUCTIVE_TOOLS.has(name),
       idempotentHint: !NON_IDEMPOTENT_TOOLS.has(name),
       openWorldHint: false,

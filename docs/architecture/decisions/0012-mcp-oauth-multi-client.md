@@ -1,6 +1,6 @@
 # ADR 0012: Authenticate multiple MCP clients through owner-bound OAuth
 
-- Status: accepted for implementation
+- Status: source implemented; release acceptance pending
 - Date: 2026-11-28
 - Scope: authenticated access to the GPU Control Sites MCP from ChatGPT and
   other MCP-capable clients
@@ -27,7 +27,8 @@ separate authorization-server module, even if it shares the same Worker and
 D1 deployment. Use authorization code with PKCE, protected-resource and
 authorization-server discovery, strict audience binding to the GPU Control
 MCP, and scoped short-lived access tokens. Support refresh-token rotation and
-per-client revocation only after replay and concurrency behavior is tested.
+per-client revocation. Token family replay is tested; concurrent Cloudflare D1
+execution and a real external-client handshake remain release checks.
 
 Use the existing GitHub App OAuth identity proof to link an external OAuth
 login to the same Sites owner. Persist the verified immutable GitHub user ID
@@ -85,10 +86,10 @@ authorization, provider policy, one-use dispatch, or cleanup verification.
 3. Adapt the MCP HTTP boundary to accept either the trusted ChatGPT identity
    or a validated OAuth principal; keep anonymous status pages public and
    every tool owner-authenticated.
-4. Test two clients for one owner, two owners for isolation, wrong audience,
-   revoked/expired tokens, refresh replay, redirect attacks, and exact-plan
-   execution authorization. Add an architecture rule that identity parsing is
-   confined to the transport/authentication boundary.
+4. Source tests cover owner resolution, wrong audience, token expiry through
+   the verifier, revocation, refresh replay, redirect attacks, and scope gates.
+   Add an architecture rule that identity parsing is confined to the
+   transport/authentication boundary.
 5. Connect a non-ChatGPT MCP client to a non-production endpoint and verify
    capabilities, prepare/read, and a no-compute lifecycle before considering
    any provider execution. Keep repository mode parked.
@@ -101,5 +102,7 @@ authorization, provider policy, one-use dispatch, or cleanup verification.
 - The official Colab CLI remains a standalone developer tool. It is not
   described as a GPU Control client until it authenticates to this MCP instead
   of using a separate Colab credential and execution path.
-- Account-linking and token migrations are release gates. Until they are
-  implemented and accepted, non-ChatGPT clients are not supported.
+- Account-linking and token migrations are release gates. The checked-in
+  source now implements the protocol, but external clients are not supported
+  until migration `0036`, GitHub OAuth callback settings, deployed metadata,
+  and a fresh no-compute client handshake are verified.

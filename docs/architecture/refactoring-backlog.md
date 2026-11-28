@@ -252,24 +252,21 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A13. Add owner-bound OAuth for non-ChatGPT MCP clients
 
-- **Evidence:** `worker/index.js:userId` accepts only the trusted
-  `oai-authenticated-user-id` header and `GPU_CONTROL_ALLOWED_USER_IDS`. A
-  direct MCP client cannot supply that platform identity. The existing GitHub
-  installation OAuth proves access to the selected installation during
-  linking. Migration `0035_github_owner_identity.sql` now persists the verified
-  numeric subject and enforces one-to-one owner binding, but it is not yet used
-  to issue or validate MCP tokens. Therefore the multi-client contract remains
-  unimplemented.
+- **Evidence:** source implementation is in PR #70: DCR, protected resource
+  and authorization-server metadata, consent, GitHub subject linking, PKCE,
+  audience-bound access tokens, refresh rotation/replay revocation, scopes,
+  migration `0036_mcp_oauth_clients.sql`, and a common MCP dispatcher. See
+  [`MCP_CLIENTS.md`](../../sites/gpu-control-sites/MCP_CLIENTS.md). This is
+  not yet a deployed or live-verified client connection.
 - **Decision:** follow
   [ADR 0012](decisions/0012-mcp-oauth-multi-client.md). Add a standards-based
   OAuth authorization flow for external MCP clients, bound to an owner through
   the immutable GitHub subject already verified during account linking. Do not
   expose long-lived personal API keys or create a separate execution ledger.
-- **Work:** persist the verified subject with a forward migration; issue
-  short-lived resource-audience OAuth tokens with separate read/execute scopes;
-  implement PKCE, redirect validation, token rotation/revocation, MCP protected
-  resource discovery and transport-level bearer validation; normalize both
-  transports into one owner principal before dispatch.
+- **Work:** apply migration 0036, deploy the metadata and callback routes, then
+  connect an independent OAuth-capable MCP client to a non-production Site
+  without submitting an experiment. Do not enable providers or change budgets
+  as part of this handshake.
 - **Done when:** two separately configured MCP clients for one linked owner
   see the same plans and runs; a second owner cannot observe or cancel them;
   wrong-audience, expired, revoked, replayed-refresh, and insufficient-scope

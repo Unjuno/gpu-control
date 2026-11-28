@@ -48,7 +48,7 @@ function environment({ heartbeatAt, admission = "false", heartbeatDigest = image
   };
   return {
     CPU_WORKLOAD_ADMISSION_ENABLED: admission,
-    GPU_CONTROL_ALLOWED_USER_IDS: "test-owner",
+    GPU_CONTROL_ALLOWED_USER_IDS: "test-owner,other-owner",
     CPU_WORKLOAD_REPOSITORY: "Unjuno/gpu-control",
     CPU_WORKLOAD_SOURCE_SHA: sourceSha,
     CPU_WORKLOAD_IMAGE_DIGEST: imageDigest,
@@ -254,8 +254,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       return JSON.parse((await response.json()).result.content[0].text);
     };
     const args = { repository: "Unjuno/model-as-a-paper", commit: sourceSha };
-    assert.equal((await call("", "training_register", args)).error, "AUTHENTICATED_SITE_USER_REQUIRED");
-    assert.equal((await call("unauthorized", "training_register", args)).error, "SITE_USER_NOT_AUTHORIZED");
+    assert.equal((await toolCall(env, "", "training_register", args)).status, 401);
+    assert.equal((await toolCall(env, "unauthorized", "training_register", args)).status, 403);
     assert.equal((await call("test-owner", "training_register", { ...args, repository: "https://example.com/a/b" })).error, "TRAINING_SOURCE_INVALID");
     const first = await call("test-owner", "training_register", args);
     assert.equal(first.machine_state.state, "registered");
@@ -848,7 +848,7 @@ test("GitHub App connection tools are owner-scoped and fail closed until configu
       const response = await toolCall(env, user, name, {});
       return JSON.parse((await response.json()).result.content[0].text);
     };
-    assert.equal((await call("unauthorized", "github_connection_status")).error, "SITE_USER_NOT_AUTHORIZED");
+    assert.equal((await toolCall(env, "unauthorized", "github_connection_status", {})).status, 403);
     assert.equal((await call("test-owner", "github_connection_start")).blocking_reason, "GITHUB_APP_NOT_CONFIGURED");
     assert.deepEqual((await call("test-owner", "github_connection_status")).machine_state,
       { configured: false, connected: false });
@@ -858,7 +858,7 @@ test("GitHub App connection tools are owner-scoped and fail closed until configu
     assert.equal((await call("test-owner", "github_connection_disconnect")).machine_state.disconnected, true);
 
     const listed = await worker.fetch(new Request("https://site.invalid/mcp", { method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) }), env);
     const body = await listed.json();
     const byName = new Map(body.result.tools.map((tool) => [tool.name, tool]));
@@ -870,7 +870,7 @@ test("GitHub App connection tools are owner-scoped and fail closed until configu
   } finally { db.close(); }
 });
 
-test("public MCP data tools reject anonymous callers before touching D1", async () => {
+test("public MCP data tools challenge anonymous callers before touching D1", async () => {
   const env = environment();
   let databaseReads = 0;
   env.DB.prepare = () => {
@@ -885,12 +885,37 @@ test("public MCP data tools reject anonymous callers before touching D1", async 
       params: { name: "experiment_list", arguments: {} },
     }),
   }), env);
-  const rpc = await response.json();
-
-  assert.equal(response.status, 200);
-  assert.equal(rpc.result.isError, true);
-  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "AUTHENTICATED_SITE_USER_REQUIRED" });
+  assert.equal(response.status, 401);
+  assert.match(response.headers.get("www-authenticate"), /resource_metadata=/);
+  assert.match(response.headers.get("www-authenticate"), /scope="experiments:read"/);
   assert.equal(databaseReads, 0);
+});
+
+test("MCP bearer authentication is audience-bound and execution scope is separate from read scope", async () => {
+  const token = `gpc_at_${"a".repeat(43)}`;
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const env = environment();
+  let grantedScope = "experiments:read";
+  env.DB.prepare = (sql) => ({ bind: (...values) => ({
+    first: async () => sql.includes("FROM mcp_oauth_tokens") && values[0] === tokenHash
+      ? { owner_id: "external-owner", client_id: "client", scope: grantedScope, resource: `${siteOrigin}/mcp`, expires_at: 1_900_000_000 }
+      : null,
+  }) });
+  const request = (authorization, name) => worker.fetch(new Request(`${siteOrigin}/mcp`, { method: "POST",
+    headers: { authorization, "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: {} } }) }), env);
+  const readOnly = await request(`Bearer ${token}`, "experiment_list");
+  assert.equal(readOnly.status, 200);
+  const deniedWrite = await request(`Bearer ${token}`, "experiment_prepare");
+  assert.equal(deniedWrite.status, 403);
+  assert.match(deniedWrite.headers.get("www-authenticate"), /scope="experiments:execute"/);
+  grantedScope = "experiments:read experiments:execute";
+  const allowedWrite = await request(`Bearer ${token}`, "experiment_prepare");
+  assert.equal(allowedWrite.status, 200);
+  assert.equal((await allowedWrite.json()).result.isError, true);
+  const wrongToken = await request(`Bearer ${"gpc_at_" + "b".repeat(43)}`, "experiment_list");
+  assert.equal(wrongToken.status, 401);
+  assert.match(wrongToken.headers.get("www-authenticate"), /error="invalid_token"/);
 });
 
 test("root page is a public status surface without granting execution authority", async () => {
@@ -905,7 +930,7 @@ test("root page is a public status surface without granting execution authority"
 test("MCP tool annotations distinguish read, execution, and lifecycle operations", async () => {
   const response = await worker.fetch(new Request("https://site.invalid/mcp", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "oai-authenticated-user-id": "test-owner" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
   }), environment());
   const rpc = await response.json();
@@ -1086,8 +1111,9 @@ test("Modal health diagnostic is owner-scoped and performs one authenticated GET
   };
   try {
     const denied = await toolCall(env, "other-owner", "experiment_provider_health", healthArgs);
+    assert.equal(denied.status, 200);
     const deniedValue = JSON.parse((await denied.json()).result.content[0].text);
-    assert.deepEqual(deniedValue, { error: "SITE_USER_NOT_AUTHORIZED" });
+    assert.equal(deniedValue.blocking_reason, "HUMAN_AUTHORIZATION_REQUIRED");
     assert.equal(called, false, "unauthorized caller must not reach Modal");
 
     const response = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
@@ -1204,10 +1230,7 @@ test("authenticated users outside the configured owner allowlist cannot touch D1
     throw new Error("unauthorized Site user reached D1");
   };
   const response = await toolCall(env, "another-chatgpt-user", "experiment_list", {});
-  const rpc = await response.json();
-
-  assert.equal(rpc.result.isError, true);
-  assert.deepEqual(JSON.parse(rpc.result.content[0].text), { error: "SITE_USER_NOT_AUTHORIZED" });
+  assert.equal(response.status, 403);
   assert.equal(databaseReads, 0);
 });
 

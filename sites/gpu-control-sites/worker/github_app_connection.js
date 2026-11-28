@@ -184,7 +184,7 @@ async function githubApiWithUserToken(path, token, fetchImpl) {
   return githubJson(response);
 }
 
-async function githubUserIdentity(userToken, fetchImpl) {
+export async function readGithubOAuthIdentity(userToken, fetchImpl = fetch) {
   const user = await githubApiWithUserToken("/user", userToken, fetchImpl);
   if (!Number.isSafeInteger(user?.id) || user.id < 1 || typeof user.login !== "string" ||
       !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$/.test(user.login)) {
@@ -226,7 +226,7 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
   if (!intent || intent.expires_at <= now) throw new Error("GITHUB_INSTALLATION_STATE_EXPIRED");
   if (intent.consumed_at !== null) throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
   if (!validInstallationId(intent.pending_installation_id)) throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
-  const identity = await githubUserIdentity(userToken, fetchImpl);
+  const identity = await readGithubOAuthIdentity(userToken, fetchImpl);
   const access = await githubApiWithUserToken(
     `/user/installations/${intent.pending_installation_id}/repositories?per_page=1&page=1`, userToken, fetchImpl);
   if (!Number.isSafeInteger(access.total_count) || access.total_count < 0 || access.total_count > 500 ||

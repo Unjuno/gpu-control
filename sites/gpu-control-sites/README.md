@@ -2,6 +2,11 @@
 
 Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 
+ChatGPT remains the primary client. Source also includes owner-bound OAuth for
+compatible external MCP clients; see [MCP_CLIENTS.md](MCP_CLIENTS.md). That
+path requires the OAuth migration and deployment and is not live just because
+it is present in this repository.
+
 ## Source and release status — 2026-11-28
 
 This file's older hosted-state notes below are historical snapshots and must

@@ -52,8 +52,9 @@ This is a target contract, not evidence that a second client is already wired.
 after the callback proves access to the exact selected installation. One
 GitHub subject can bind to only one Sites owner, and an owner cannot silently
 switch GitHub identities through a routine reconnect. Focused OAuth callback
-and D1 migration checks pass. The OAuth authorization server, token scopes,
-MCP metadata/challenge and external-client connection remain unimplemented.
+and D1 migration checks pass. A14 now adds the OAuth authorization server and
+scope/challenge path in source; deployment and external-client handshake
+remain release gates.
 
 ## 2026-11-28 — A6: validate Colab capability responses at the provider boundary
 
@@ -837,3 +838,32 @@ credential, admission, deployment, or Colab runtime was changed or created.
 including owner isolation, token-at-rest protection, async lifecycle recovery,
 bounded results, cancellation, and verified cleanup. Colab remains unavailable
 from ChatGPT until the full acceptance sequence passes.
+
+## 2026-11-28 — A13: implement owner-bound OAuth for external MCP clients
+
+**Problem:** ChatGPT's trusted Sites identity header was the only supported
+MCP authentication route. Codex and other remote MCP clients could not use the
+same owner-scoped run ledger. The verified GitHub subject mapping provided
+owner proof but was not yet consumed by an MCP authorization flow.
+
+**Change:** added DCR and OAuth discovery, explicit consent, GitHub user proof,
+PKCE S256 authorization-code exchange, MCP audience-bound 15-minute access
+tokens, hashed and rotating refresh tokens, replay-family revocation, token
+revocation, and `experiments:read` / `experiments:execute` scope gates. ChatGPT
+tool contracts remain intact. Both transports enter the same MCP dispatcher
+and owner-scoped D1 ledger. Added migration, transport challenge, architecture
+check, connection guide, and database-backed tests.
+
+**Validation:** all 138 Worker tests pass; the module graph is acyclic across
+34 modules; the forward-migration test, Worker build, and Site artifact
+validation pass. The diff was also reviewed manually. The Codex Security diff
+scan could not start: its setup inspection validated this worktree, but the
+scan launcher twice returned “requires a non-bare Git worktree with a
+resolvable HEAD.” No replacement canonical scan/report was created.
+
+No migration, OAuth setting, Site deployment, provider operation, or live
+experiment was performed.
+
+**Release limit:** repository source is not a live second-client connection.
+Migration 0036, deployed discovery/callback routes, and a fresh no-compute
+handshake from an independent OAuth-capable MCP client remain required.

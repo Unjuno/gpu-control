@@ -9,7 +9,7 @@
 
 ## Supported production architecture
 
-The only ChatGPT-facing control plane is the authenticated MCP endpoint at:
+The primary conversational control plane is the authenticated MCP endpoint at:
 
 `https://gpu-control-sites.unjuno.chatgpt.site/mcp`
 
@@ -65,9 +65,10 @@ enabled provider.
 
 ## ChatGPT connection
 
-Publishing a Site with the `mcp` capability creates its ChatGPT plugin. No
-local MCP process, `codex mcp add`, Vercel app, or separate OAuth server is
-needed.
+Publishing a Site with the `mcp` capability creates its ChatGPT plugin. ChatGPT
+continues to use its trusted Sites owner identity. Other MCP clients can use
+the same endpoint through the owner-bound OAuth flow described in
+[`MCP_CLIENTS.md`](MCP_CLIENTS.md); they do not get a separate run ledger.
 
 1. In ChatGPT, open Plugins and select the personal plugin created by
    **GPU Control — ChatGPT実験管理**.
@@ -77,8 +78,10 @@ needed.
 
 The public Site and execution authority are separate boundaries. Anonymous
 visitors may view the Site, but every stateful MCP tool requires the Sites
-authenticated user ID and the server-side `GPU_CONTROL_ALLOWED_USER_IDS`
-allowlist. D1 reads and writes are owner-scoped.
+authenticated user ID or a valid resource-bound OAuth bearer token. ChatGPT
+identities are restricted by `GPU_CONTROL_ALLOWED_USER_IDS`; OAuth owners are
+resolved through the immutable GitHub subject linked to that Sites owner. D1
+reads and writes are owner-scoped.
 
 ## First verification prompt
 

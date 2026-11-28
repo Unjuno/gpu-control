@@ -31,8 +31,12 @@ front end for external compute.
   for a local Colab CLI runner; retained as history and must not be revived.
 - [ADR 0011](decisions/0011-hosted-colab-mcp-provider.md): integrate Google's
   hosted Colab API MCP through an owner-scoped Sites provider adapter.
+- [ADR 0012](decisions/0012-mcp-oauth-multi-client.md): authenticate
+  compatible external MCP clients to the same owner-scoped experiment ledger.
 - [Colab provider specification](google-colab-provider.md): OAuth, runtime,
   idempotency, quota, artifact and cleanup contracts for the integration.
+- [MCP client connection](../../sites/gpu-control-sites/MCP_CLIENTS.md):
+  source-level OAuth client requirements, owner link, scopes and release gate.
 - [Refactoring backlog](refactoring-backlog.md): ordered, evidence-linked
   architecture work with dependencies and acceptance conditions.
 - [Refactoring progress](refactoring-progress.md): completed batches and

@@ -1,5 +1,5 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
-import { listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
+import { isMcpToolReadOnly, listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
 import { normalizeTrainingArguments, safeJson, validGatewayApprovedPlan, validGatewayPrepare,
   validPlan, validProviderApprovedPlan, validRegisteredPrepare,
   validRegisteredZeroGpuPrepare, validToolArguments } from "./experiment_input_contract.js";
@@ -22,6 +22,10 @@ import { MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE,
 import { getExperimentCapabilities } from "./provider_capabilities.js";
 import { modalConfigured, modalPayload, modalRequest, providerHealth } from "./modal_http_client.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
+import { authenticateMcpAccessToken, beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
+  createMcpOAuthConsent, exchangeMcpOAuthToken, isMcpOAuthGitHubState, mcpAuthorizationServerMetadata,
+  mcpOAuthError, mcpProtectedResourceMetadata, registerMcpOAuthClient, revokeMcpOAuthToken,
+  READ_SCOPE, EXECUTE_SCOPE } from "./mcp_oauth.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -59,6 +63,14 @@ function json(data, status = 200, headers = {}) {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers },
   });
+}
+
+function oauthJson(data, status = 200) {
+  return json(data, status, { pragma: "no-cache", "x-content-type-options": "nosniff" });
+}
+
+function hasMediaType(request, expected) {
+  return (request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase() === expected;
 }
 
 function rpcError(id, code, message) {
@@ -353,8 +365,9 @@ async function handleGithubOAuthCallback(request, env) {
   if (!env.DB || !githubAppOAuthConfigured(env)) return htmlPage("GitHub接続を確認できません",
     "<p>GPU Control側のGitHub App設定がまだ完了していません。</p>", 503);
   const url = new URL(request.url);
-  const finish = (response) => {
-    response.headers.set("set-cookie", "__Host-gpu-control-oauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax");
+  const finish = (response, oauthKind = "github") => {
+    response.headers.append("set-cookie", "__Host-gpu-control-oauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax");
+    if (oauthKind === "mcp") response.headers.append("set-cookie", "__Host-gpu-control-mcp-oauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax");
     response.headers.set("cache-control", "no-store");
     response.headers.set("referrer-policy", "no-referrer");
     return response;
@@ -363,21 +376,30 @@ async function handleGithubOAuthCallback(request, env) {
   if (`${url.origin}${url.pathname}` !== `${callback.origin}${callback.pathname}`) {
     return finish(htmlPage("GitHub接続を完了できません", "<p>接続先URLが設定と一致しません。</p>", 400));
   }
-  if (url.searchParams.has("error")) return finish(htmlPage("GitHub接続をキャンセルしました",
-    "<p>チャットへ戻り、必要なら新しいGitHub接続linkを作成してください。</p>", 400));
   const state = url.searchParams.get("state") || "";
+  if (url.searchParams.has("error")) {
+    const mcpOAuth = await isMcpOAuthGitHubState(env.DB, state);
+    return finish(htmlPage("GitHub接続をキャンセルしました",
+      "<p>接続を許可しませんでした。MCPクライアントへ戻ってください。</p>", 400), mcpOAuth ? "mcp" : "github");
+  }
   const code = url.searchParams.get("code") || "";
+  const mcpOAuth = await isMcpOAuthGitHubState(env.DB, state);
   const cookie = request.headers.get("cookie") || "";
+  const cookieName = mcpOAuth ? "__Host-gpu-control-mcp-oauth=" : "__Host-gpu-control-oauth=";
   const cookieValue = cookie.split(";").map((item) => item.trim())
-    .find((item) => item.startsWith("__Host-gpu-control-oauth="))?.slice("__Host-gpu-control-oauth=".length) || "";
+    .find((item) => item.startsWith(cookieName))?.slice(cookieName.length) || "";
   const [cookieState, codeVerifier, ...extra] = cookieValue.split(".");
-  if (!/^[a-f0-9]{64}$/.test(state) || cookieState !== state || extra.length !== 0 ||
+  if (!(mcpOAuth ? /^[A-Za-z0-9_-]{43}$/.test(state) : /^[a-f0-9]{64}$/.test(state)) || cookieState !== state || extra.length !== 0 ||
       !/^[A-Za-z0-9._~-]{43,128}$/.test(codeVerifier || "")) {
     return finish(htmlPage("GitHub接続を完了できません",
       "<p>本人確認stateまたはPKCE verifierを確認できません。新しい接続linkを作成してください。</p>", 400));
   }
   try {
     const userToken = await exchangeGithubOAuthCode(env, code, codeVerifier);
+    if (mcpOAuth) {
+      const completed = await completeMcpOAuthGitHubLogin(env.DB, state, userToken);
+      return finish(completed.response, "mcp");
+    }
     const connected = await completeGithubInstallationOAuth(env.DB, state, userToken);
     return finish(htmlPage("GitHub接続完了", `<p>${escapeHtml(connected.account_login)}の選択済みrepositoryをGPU Controlへ接続しました。</p>
       <p>GitHub利用者本人がinstallationへアクセスできることを確認しました。短時間のuser tokenは保存せず破棄しました。</p>
@@ -385,7 +407,7 @@ async function handleGithubOAuthCallback(request, env) {
       <p>チャットへ戻り、github_repositoriesで接続結果を確認できます。</p>`));
   } catch {
     return finish(htmlPage("GitHub接続を完了できません",
-      "<p>GitHub本人確認が期限切れ、使用済み、またはinstallationへのアクセスを確認できません。チャットで新しい接続linkを作成してください。</p>", 400));
+      "<p>GitHub本人確認が期限切れ、使用済み、またはこのGPU Control ownerへリンク済みの本人確認を完了できません。必要ならChatGPTのGPU ControlでGitHub接続を確認し、MCP clientから最初の接続をやり直してください。</p>", 400), mcpOAuth ? "mcp" : "github");
   }
 }
 
@@ -453,6 +475,85 @@ async function handleGoogleColabOAuthCallback(request, env) {
     return clearGoogleColabOAuthCookie(htmlPage("Google Colab接続を完了できません",
       "<p>Googleの認証を検証または安全に保存できませんでした。チャットで新しい接続リンクを作成してください。</p>", 400));
   }
+}
+
+function clearCookie(name) {
+  return `${name}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`;
+}
+
+async function handleMcpOAuthAuthorization(request, env) {
+  if (!env.DB) return htmlPage("GPU Control OAuthを利用できません", "<p>owner-scoped storage is not configured.</p>", 503);
+  if (request.method === "GET") {
+    try {
+      const url = new URL(request.url);
+      const getOne = (name) => url.searchParams.getAll(name).length === 1 ? url.searchParams.get(name) : null;
+      const consent = await createMcpOAuthConsent(env.DB, {
+        client_id: getOne("client_id"), redirect_uri: getOne("redirect_uri"), response_type: getOne("response_type"),
+        scope: getOne("scope"), state: getOne("state"), code_challenge: getOne("code_challenge"),
+        code_challenge_method: getOne("code_challenge_method"), resource: getOne("resource"),
+      }, url.origin);
+      return consent.response;
+    } catch (error) {
+      const message = mcpOAuthError(error);
+      return htmlPage("GPU Controlへの接続を開始できません",
+        `<p>OAuth要求を確認できませんでした（${escapeHtml(message)}）。MCPクライアント設定を確認してください。</p>`, 400);
+    }
+  }
+  if (request.method !== "POST") return htmlPage("Method Not Allowed", "<p>GETまたはPOSTを使用してください。</p>", 405);
+  try {
+    const form = await readUrlEncodedForm(request);
+    const csrf = form.get("csrf") || "";
+    const cookie = request.headers.get("cookie") || "";
+    const savedCsrf = cookie.split(";").map((item) => item.trim())
+      .find((item) => item.startsWith("__Host-gpu-control-mcp-consent="))
+      ?.slice("__Host-gpu-control-mcp-consent=".length) || "";
+    if (!csrf || csrf !== savedCsrf) throw new Error("MCP_OAUTH_CONSENT_CSRF_INVALID");
+    const login = await beginMcpOAuthGitHubLogin(env.DB, csrf, env);
+    return new Response(null, { status: 302, headers: { location: login.authorization_url,
+      "set-cookie": login.cookie, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+  } catch (error) {
+    const message = mcpOAuthError(error);
+    const detail = message === "MCP_OAUTH_OWNER_LINK_REQUIRED"
+      ? "先にChatGPTのGPU ControlでGitHub接続を完了してください。"
+      : `認可を開始できませんでした（${escapeHtml(message)}）。最初のMCP接続からやり直してください。`;
+    return htmlPage("GPU Controlへの接続を完了できません", `<p>${detail}</p>`, 400,
+      { "set-cookie": clearCookie("__Host-gpu-control-mcp-consent") });
+  }
+}
+
+async function handleMcpOAuthRegistration(request, env) {
+  if (request.method !== "POST") return oauthJson({ error: "invalid_request" }, 405);
+  if (!env.DB || !hasMediaType(request, "application/json")) {
+    return oauthJson({ error: "invalid_client_metadata" }, 400);
+  }
+  try {
+    const body = await readJson(request, 16 * 1024);
+    const result = await registerMcpOAuthClient(env.DB, body, request.headers.get("cf-connecting-ip"));
+    return oauthJson(result, 201);
+  } catch (error) {
+    const code = mcpOAuthError(error);
+    const status = code === "MCP_OAUTH_REGISTRATION_RATE_LIMITED" ? 429
+      : ["MCP_OAUTH_REGISTRATION_RATE_LIMIT_UNAVAILABLE", "MCP_OAUTH_REGISTRATION_STORAGE_UNAVAILABLE"].includes(code) ? 503 : 400;
+    return oauthJson({ error: status === 429 ? "temporarily_unavailable" : "invalid_client_metadata" }, status);
+  }
+}
+
+async function handleMcpOAuthToken(request, env) {
+  if (request.method !== "POST") return oauthJson({ error: "invalid_request" }, 405);
+  if (!env.DB || request.headers.has("authorization") || !hasMediaType(request, "application/x-www-form-urlencoded")) {
+    return oauthJson({ error: "invalid_request" }, 400);
+  }
+  try { return await exchangeMcpOAuthToken(env.DB, await readUrlEncodedForm(request), new URL(request.url).origin); }
+  catch { return oauthJson({ error: "server_error" }, 500); }
+}
+
+async function handleMcpOAuthRevoke(request, env) {
+  if (request.method !== "POST") return oauthJson({ error: "invalid_request" }, 405);
+  if (!env.DB || request.headers.has("authorization") || !hasMediaType(request, "application/x-www-form-urlencoded")) {
+    return oauthJson({ error: "invalid_request" }, 400);
+  }
+  try { return await revokeMcpOAuthToken(env.DB, await readUrlEncodedForm(request)); }
+  catch { return oauthJson({ error: "server_error" }, 500); }
 }
 
 function base64(bytes) {
@@ -571,6 +672,28 @@ function userId(request, env) {
     ? env.GPU_CONTROL_ALLOWED_USER_IDS.split(",").map((value) => value.trim()).filter(Boolean)
     : []);
   return allowed.has(id) ? id : null;
+}
+
+async function authenticateMcpPrincipal(request, env) {
+  const platformIdentity = request.headers.get("oai-authenticated-user-id");
+  if (platformIdentity) {
+    const owner = userId(request, env);
+    return owner ? { owner_id: owner, auth_method: "chatgpt_sites", scopes: [READ_SCOPE, EXECUTE_SCOPE] }
+      : { denied: "forbidden" };
+  }
+  const authorization = request.headers.get("authorization") || "";
+  const match = authorization.match(/^Bearer (gpc_at_[A-Za-z0-9_-]{43})$/);
+  if (!match || !env.DB) return null;
+  return authenticateMcpAccessToken(env.DB, match[1], `${new URL(request.url).origin}/mcp`);
+}
+
+function mcpAuthorizationChallenge(request, { error = null, scope = READ_SCOPE } = {}) {
+  const resourceMetadata = `${new URL(request.url).origin}/.well-known/oauth-protected-resource`;
+  const challenge = [`Bearer resource_metadata="${resourceMetadata}"`, `scope="${scope}"`];
+  if (error) challenge.push(`error="${error}"`);
+  return new Response(null, { status: ["insufficient_scope", "forbidden"].includes(error) ? 403 : 401, headers: {
+    "www-authenticate": challenge.join(", "), "cache-control": "no-store", "content-length": "0",
+  } });
 }
 
 async function readJson(request, limit = MAX_BODY_BYTES) {
@@ -1360,8 +1483,8 @@ async function maybeDelegateRunTool(env, owner, name, args) {
   return publicProviderAdapterResponse(response);
 }
 
-async function callTool(name, args, request, env, context = null) {
-  const owner = userId(request, env);
+async function callTool(name, args, request, env, context = null, principal = null) {
+  const owner = principal?.owner_id || userId(request, env);
   if (!owner) throw new Error(request.headers.get("oai-authenticated-user-id") ? "SITE_USER_NOT_AUTHORIZED" : "AUTHENTICATED_SITE_USER_REQUIRED");
   if (!env.DB) return { schema_version: 2, status: "blocked", human_summary: "D1 database is not configured.", machine_state: {}, next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED" };
   if (isGoogleColabTool(name)) return handleGoogleColabTool(name, env, owner);
@@ -1927,7 +2050,7 @@ async function callTool(name, args, request, env, context = null) {
   throw new Error("UNKNOWN_TOOL");
 }
 
-async function handleMcp(request, env, context = null) {
+async function handleMcp(request, env, context = null, principal = null) {
   let message;
   try { message = await readJson(request); } catch (error) {
     return rpcError(null, -32700, error.message === "BODY_TOO_LARGE" ? "Request too large" : "Invalid JSON");
@@ -1937,6 +2060,11 @@ async function handleMcp(request, env, context = null) {
   const requestedVersion = request.headers.get("mcp-protocol-version") || LEGACY_VERSIONS[0];
   if (!MCP_VERSIONS.includes(requestedVersion)) return json({ jsonrpc: "2.0", id, error: { code: -32022, message: "Unsupported protocol version", data: { supported: MCP_VERSIONS, requested: requestedVersion } } }, 400);
   const params = message.params && typeof message.params === "object" ? message.params : {};
+  const requiredScope = message.method === "tools/call" && isMcpToolReadOnly(params.name)
+    ? READ_SCOPE : message.method === "tools/call" ? EXECUTE_SCOPE : READ_SCOPE;
+  if (!principal?.scopes?.includes(requiredScope)) {
+    return mcpAuthorizationChallenge(request, { error: "insufficient_scope", scope: requiredScope });
+  }
   const meta = params._meta && typeof params._meta === "object" ? params._meta : {};
   if (requestedVersion === MCP_VERSION || meta[`${META_PREFIX}protocolVersion`] === MCP_VERSION) {
     if (meta[`${META_PREFIX}protocolVersion`] !== requestedVersion || request.headers.get("mcp-method") !== message.method || !meta[`${META_PREFIX}clientCapabilities`] || typeof meta[`${META_PREFIX}clientCapabilities`] !== "object") {
@@ -1959,7 +2087,7 @@ async function handleMcp(request, env, context = null) {
       const name = message.params?.name;
       const args = normalizeTrainingArguments(name, message.params?.arguments ?? {}, env);
       if (!schemas[name] || !args || typeof args !== "object" || Array.isArray(args) || !validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");
-      const value = envelope(name, await callTool(name, args, request, env, context));
+      const value = envelope(name, await callTool(name, args, request, env, context, principal));
       const result = { content: [{ type: "text", text: JSON.stringify(value) }], isError: false };
       if (requestedVersion !== LEGACY_VERSIONS[0]) result.structuredContent = value;
       return json({ jsonrpc: "2.0", id, result: { ...result, ...(requestedVersion === MCP_VERSION ? { resultType: "complete", _meta: { [`${META_PREFIX}serverInfo`]: { name: "gpu-control-sites", version: "0.1.0" } } } : {}) } });
@@ -2002,6 +2130,18 @@ export { maybeDelegateRunTool, modalGpuProviderEvidence, reserveModalGpuLease };
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    if (url.pathname === "/.well-known/oauth-protected-resource" && request.method === "GET") {
+      try { return json(mcpProtectedResourceMetadata(url.origin)); }
+      catch { return json({ error: "NOT_FOUND" }, 404); }
+    }
+    if (url.pathname === "/.well-known/oauth-authorization-server" && request.method === "GET") {
+      try { return json(mcpAuthorizationServerMetadata(url.origin)); }
+      catch { return json({ error: "NOT_FOUND" }, 404); }
+    }
+    if (url.pathname === "/oauth/register") return handleMcpOAuthRegistration(request, env);
+    if (url.pathname === "/oauth/authorize") return handleMcpOAuthAuthorization(request, env);
+    if (url.pathname === "/oauth/token") return handleMcpOAuthToken(request, env);
+    if (url.pathname === "/oauth/revoke") return handleMcpOAuthRevoke(request, env);
     if (url.pathname === "/" && request.method === "GET") {
       return htmlPage("GPU Control", `<p>ChatGPT Sites MCP control plane for registered GPU experiments.</p>
         <p>Viewing this page does not grant execution authority. Stateful tools require an authenticated, allowlisted Sites owner.</p>
@@ -2018,7 +2158,16 @@ export default {
       catch { return htmlPage("承認処理を完了できません", "<p>チャットでplanの状態を確認してください。</p>", 500); }
     }
     if (url.pathname === "/mcp" && request.method === "POST") {
-      try { return await handleMcp(request, env, context); }
+      let principal;
+      try {
+        principal = await authenticateMcpPrincipal(request, env);
+      }
+      catch { return new Response(null, { status: 503, headers: { "cache-control": "no-store" } }); }
+      if (principal?.denied === "forbidden") return mcpAuthorizationChallenge(request, { error: "forbidden" });
+      if (!principal) return mcpAuthorizationChallenge(request, {
+        error: request.headers.has("authorization") ? "invalid_token" : null,
+      });
+      try { return await handleMcp(request, env, context, principal); }
       catch { return rpcError(null, -32603, "Internal error"); }
     }
     return json({ error: "NOT_FOUND" }, 404);
