@@ -672,3 +672,30 @@ production setting, admission or credential was changed.
 need independent compatibility work. Arbitrary repository execution remains
 Modal-only in the unmerged candidate; this discovery refactor does not make
 RunPod, Kaggle, Hugging Face or Colab arbitrary-source routes available.
+
+## 2026-11-28 — A6: select Colab CLI owner-runner integration
+
+**Finding:** Google's official `google-colab-cli` supports macOS/Linux, fresh
+GPU jobs via `colab run`, non-interactive pipeline use, OAuth2 or ADC, and
+account compute-unit observations. Its OAuth credential is local to the CLI
+host; its timeout only bounds inactivity, and `colab usage` relies on an
+undocumented Colab endpoint. Therefore, CI can host the CLI, but the Sites
+Worker cannot execute it directly, and neither the CLI CU report nor a Sites
+reservation is yet a hard Google billing limit.
+
+**Decision:** ChatGPT Sites MCP stays the single conversational control plane.
+The CLI will run through a paired, owner-controlled outbound runner that holds
+Google credentials locally and executes only immutable, server-issued plans.
+Sites D1 remains the authority for owner, plan, budget reservation, run,
+artifact, cancellation and cleanup. Local agents and CI can use the same
+versioned runner protocol; they do not create a second provider ledger.
+
+**Change:** updated the Colab provider specification and A6 backlog, and added
+ADR 0010 with the pairing, job lease, source/artifact transfer, deadline,
+idempotency, quota and cleanup requirements. No runtime, credential, provider
+setting or admission was changed; no Colab job was started.
+
+**Remaining:** implement the Sites runner-job protocol and owner pairing, build
+the pinned macOS/Linux CLI runner, validate source and artifact transfer, then
+prove synthetic lifecycle and cleanup before considering a bounded real-GPU
+acceptance run. Colab is not yet selectable from ChatGPT.

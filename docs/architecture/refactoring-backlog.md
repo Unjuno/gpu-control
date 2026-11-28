@@ -214,23 +214,33 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   definition plus its adapter implementation and acceptance evidence; no
   provider can be advertised just because an adapter host is configured.
 
-### A6. Decide Colab integration at the shared lifecycle boundary
+### A6. Integrate Colab CLI through an owner-controlled runner
 
-- **Evidence:** Google's open-source `googlecolab/colab-mcp` is a local stdio
-  bridge to a browser-open Colab session and requires an MCP client running on
-  the user's device with `notifications/tools/list_changed` support. It is not
-  the hosted Colab API MCP and cannot be called by the Sites Worker as-is.
-  Direct ChatGPT-to-Colab MCP calls, when the ChatGPT client supports that
-  connection, bypass Sites D1 owner/run/budget/cleanup state.
-- **Work:** compare a user-device local-agent route with the Google-hosted Colab
-  API MCP behind a Sites-owned adapter. The product path remains a provider
-  adapter behind the same owner, plan, run, result and cleanup contract. First
-  prove client compatibility, identity delegation, interactive session
-  lifetime, GPU/runtime quota visibility, cancellation and durable artifact
-  handoff. Keep Colab unavailable until all are enforceable.
-- **Done when:** user can ask the same ordinary-language experiment request and
-  agent can safely choose Colab only when current capability and quota permit;
-  otherwise it explains the concrete blocker without paid fallback.
+- **Evidence (2026-11-28):** Google's official `googlecolab/google-colab-cli`
+  supports macOS/Linux, GPU `colab run`, non-interactive pipelines, OAuth2 or
+  ADC, and account CU balance/aggregate rate reporting. A Cloudflare Sites
+  Worker cannot invoke the local CLI or access its OS keyring. The CLI's
+  `--timeout` is an idle-output timeout, not an absolute duration cap. The
+  CLI's CU command reads an undocumented backend endpoint, so it is not yet a
+  verified hard budget signal.
+- **Decision:** keep ChatGPT Sites MCP as the user-facing control plane and
+  make the CLI a provider execution backend through a paired, owner-controlled
+  outbound runner. The runner holds Google credentials locally and accepts
+  only owner-bound, server-issued jobs; Sites D1 remains authoritative for
+  plans, budgets, runs, leases, artifacts, cancellation and cleanup. CI may
+  exercise this same contract, but GitHub Actions itself is not a provider or
+  an alternate user-facing control plane.
+- **Work:** define the runner protocol; implement pairing/revocation and
+  owner-bound job leases; package a macOS/Linux runner pinned to a reviewed CLI
+  version; enforce absolute timeout, idempotency, cancellation, bounded
+  artifacts and verified teardown; validate GPU shape and CU observations.
+  Keep general Colab admission closed until security review and a complete
+  synthetic-to-real-GPU acceptance sequence pass.
+- **Done when:** from the same ChatGPT Sites conversation the owner can select
+  Colab without supplying an internal ID, the runner executes the exact pinned
+  plan, and the returned result, artifact digest, actual accelerator and
+  teardown are independently verified. Local-agent and CI use must follow the
+  same contract and must not bypass owner, quota or cleanup controls.
 
 ## P2 — reduce module entropy without moving complexity to callers
 
