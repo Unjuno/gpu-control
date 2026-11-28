@@ -18,6 +18,14 @@ const platformIdentitySources = workerFiles.filter((file) =>
 assert.deepEqual(platformIdentitySources, [],
   "ChatGPT platform identity and owner allowlist may only be interpreted by mcp_request_auth.js");
 
+// The browser's exact-plan confirmation is one HTTP/security boundary. Keep
+// challenge issuance and consumption out of the transport composition root.
+const trainingAuthorizationBoundary = join(workerRoot, "training_authorization_routes.js");
+const confirmationChallengeSources = workerFiles.filter((file) =>
+  file !== trainingAuthorizationBoundary && /authorization_challenges/.test(readFileSync(file, "utf8")));
+assert.deepEqual(confirmationChallengeSources, [],
+  "Browser authorization challenge issuance and consumption must stay inside training_authorization_routes.js");
+
 // Owner-selected runtime profile values and its literal admission flag are
 // normalized in one module. The live gate stays semantically separate from
 // profile validity; callers must not re-parse either setting.
