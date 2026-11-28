@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverWorkerModules } from "./worker-module-graph.mjs";
@@ -6,6 +7,14 @@ import { discoverWorkerModules } from "./worker-module-graph.mjs";
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const workerRoot = join(projectRoot, "worker");
 const { graph, runtimeFiles: workerFiles, entrypoint } = discoverWorkerModules(workerRoot);
+
+// ChatGPT's identity header is trusted only at the HTTP transport boundary.
+// Domain modules receive an already resolved owner and must not re-interpret
+// a platform header or environment allowlist as an identity source.
+const platformIdentitySources = workerFiles.filter((file) =>
+  file !== entrypoint && /oai-authenticated-user-id|GPU_CONTROL_ALLOWED_USER_IDS/.test(readFileSync(file, "utf8")));
+assert.deepEqual(platformIdentitySources, [],
+  "ChatGPT platform identity and owner allowlist may only be read by the Worker entrypoint");
 
 for (const [file, dependencies] of graph) {
   assert.ok(workerFiles.includes(file));

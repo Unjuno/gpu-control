@@ -47,6 +47,14 @@ that distinction explicit and require any future client integration to reuse
 the shared control-plane authorization and lifecycle rather than fork history.
 This is a target contract, not evidence that a second client is already wired.
 
+**A13 identity foundation:** migration `0035_github_owner_identity.sql` and
+`github_app_connection.js` now persist the immutable numeric GitHub user ID
+after the callback proves access to the exact selected installation. One
+GitHub subject can bind to only one Sites owner, and an owner cannot silently
+switch GitHub identities through a routine reconnect. Focused OAuth callback
+and D1 migration checks pass. The OAuth authorization server, token scopes,
+MCP metadata/challenge and external-client connection remain unimplemented.
+
 ## 2026-11-28 — A6: validate Colab capability responses at the provider boundary
 
 **Problem:** the hosted Colab client bounded and parsed responses, but the

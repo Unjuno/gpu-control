@@ -171,7 +171,7 @@ export async function beginGithubInstallationOAuth(db, state, installationId, in
 }
 
 async function githubApiWithUserToken(path, token, fetchImpl) {
-  if (!path.startsWith("/user/") || path.includes("..") || typeof token !== "string" ||
+  if (!(path === "/user" || path.startsWith("/user/")) || path.includes("..") || typeof token !== "string" ||
       token.length > 512 || !/^ghu_[A-Za-z0-9_]{16,508}$/.test(token)) {
     throw new Error("GITHUB_USER_AUTHORIZATION_INVALID");
   }
@@ -182,6 +182,15 @@ async function githubApiWithUserToken(path, token, fetchImpl) {
         "x-github-api-version": API_VERSION }, signal: AbortSignal.timeout(5_000) });
   } catch { throw new Error("GITHUB_USER_AUTHORIZATION_FAILED"); }
   return githubJson(response);
+}
+
+async function githubUserIdentity(userToken, fetchImpl) {
+  const user = await githubApiWithUserToken("/user", userToken, fetchImpl);
+  if (!Number.isSafeInteger(user?.id) || user.id < 1 || typeof user.login !== "string" ||
+      !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$/.test(user.login)) {
+    throw new Error("GITHUB_USER_IDENTITY_INVALID");
+  }
+  return { id: String(user.id), login: user.login };
 }
 
 export async function exchangeGithubOAuthCode(env, code, codeVerifier, options = {}) {
@@ -217,6 +226,7 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
   if (!intent || intent.expires_at <= now) throw new Error("GITHUB_INSTALLATION_STATE_EXPIRED");
   if (intent.consumed_at !== null) throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
   if (!validInstallationId(intent.pending_installation_id)) throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
+  const identity = await githubUserIdentity(userToken, fetchImpl);
   const access = await githubApiWithUserToken(
     `/user/installations/${intent.pending_installation_id}/repositories?per_page=1&page=1`, userToken, fetchImpl);
   if (!Number.isSafeInteger(access.total_count) || access.total_count < 0 || access.total_count > 500 ||
@@ -228,8 +238,13 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
   const results = await db.batch([
     db.prepare(`UPDATE github_installation_states SET consumed_at=?, completion_nonce=?
       WHERE oauth_state_hash=? AND pending_installation_id=? AND owner_id=?
-        AND consumed_at IS NULL AND expires_at>? RETURNING owner_id`)
-      .bind(consumedAt, completionNonce, stateHash, intent.pending_installation_id, intent.owner_id, now),
+        AND consumed_at IS NULL AND expires_at>?
+        AND NOT EXISTS (SELECT 1 FROM github_owner_identities
+          WHERE owner_id=? AND github_user_id<>?)
+        AND NOT EXISTS (SELECT 1 FROM github_owner_identities
+          WHERE github_user_id=? AND owner_id<>?) RETURNING owner_id`)
+      .bind(consumedAt, completionNonce, stateHash, intent.pending_installation_id, intent.owner_id, now,
+        intent.owner_id, identity.id, identity.id, intent.owner_id),
     db.prepare(`DELETE FROM github_app_installations WHERE owner_id=(
       SELECT owner_id FROM github_installation_states WHERE oauth_state_hash=? AND completion_nonce=?)`)
       .bind(stateHash, completionNonce),
@@ -241,8 +256,23 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
         account_login=excluded.account_login, repository_selection=excluded.repository_selection,
         connected_at=excluded.connected_at`)
       .bind(now, stateHash, completionNonce),
+    db.prepare(`INSERT INTO github_owner_identities (owner_id, github_user_id, verified_at)
+      SELECT owner_id, ?, ? FROM github_installation_states
+      WHERE oauth_state_hash=? AND completion_nonce=?
+      ON CONFLICT(owner_id) DO UPDATE SET verified_at=excluded.verified_at
+        WHERE github_owner_identities.github_user_id=excluded.github_user_id`)
+      .bind(identity.id, now, stateHash, completionNonce),
   ]);
-  if (results?.[0]?.results?.length !== 1 || (results?.[2]?.meta?.changes ?? 0) !== 1) {
+  if (results?.[0]?.results?.length !== 1 || (results?.[2]?.meta?.changes ?? 0) !== 1 ||
+      (results?.[3]?.meta?.changes ?? 0) !== 1) {
+    const existing = await db.prepare(`SELECT owner_id FROM github_owner_identities
+      WHERE github_user_id=?`).bind(identity.id).first();
+    if (existing && existing.owner_id !== intent.owner_id) throw new Error("GITHUB_IDENTITY_ALREADY_LINKED");
+    const ownerIdentity = await db.prepare(`SELECT github_user_id FROM github_owner_identities
+      WHERE owner_id=?`).bind(intent.owner_id).first();
+    if (ownerIdentity && ownerIdentity.github_user_id !== identity.id) {
+      throw new Error("GITHUB_IDENTITY_CHANGE_REQUIRES_RELINK");
+    }
     throw new Error("GITHUB_INSTALLATION_STATE_REPLAYED");
   }
   return { connected: true, account_login: intent.pending_account_login, repository_selection: "selected" };

@@ -29,6 +29,7 @@ function database() {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../drizzle/0033_github_installation_user_authorization.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../drizzle/0035_github_owner_identity.sql", import.meta.url), "utf8"));
   const db = {
     prepare(sql) {
       return { bind(...values) {
@@ -94,13 +95,16 @@ test("install callback requires user access to the exact installation before bin
     assert.match(authorization.pkce_cookie, /Secure; HttpOnly; SameSite=Lax/);
     assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: false });
     const linked = await completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa", async (url, init) => {
-      assert.equal(String(url), "https://api.github.com/user/installations/98765/repositories?per_page=1&page=1");
       assert.equal(init.headers.authorization, "Bearer ghu_aaaaaaaaaaaaaaaaaaaa");
+      if (String(url) === "https://api.github.com/user") return mockResponse({ id: 7654321, login: "Unjuno" });
+      assert.equal(String(url), "https://api.github.com/user/installations/98765/repositories?per_page=1&page=1");
       return mockResponse({ total_count: 1, repositories: [{ id: 7, full_name: "Unjuno/model-as-a-paper" }] });
     }, 1_800_000_031);
     assert.deepEqual(linked, { connected: true, account_login: "Unjuno", repository_selection: "selected" });
     assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: true,
       account_login: "Unjuno", repository_selection: "selected", connected_at: 1_800_000_031 });
+    assert.deepEqual({ ...(await db.prepare("SELECT github_user_id, verified_at FROM github_owner_identities WHERE owner_id=?")
+      .bind("site-owner").first()) }, { github_user_id: "7654321", verified_at: 1_800_000_031 });
     await assert.rejects(completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa",
       async () => mockResponse({ total_count: 1, repositories: [{}] }), 1_800_000_031),
     { message: "GITHUB_INSTALLATION_STATE_REPLAYED" });
@@ -109,6 +113,34 @@ test("install callback requires user access to the exact installation before bin
         1_800_000_032)), { message: "GITHUB_INSTALLATION_STATE_REPLAYED" });
     await disconnectGithubApp(db, "site-owner");
     assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: false });
+  } finally { db.close(); }
+});
+
+test("a GitHub subject cannot be rebound to another Sites owner or silently switched", async () => {
+  const db = database();
+  try {
+    await db.prepare(`INSERT INTO github_owner_identities (owner_id, github_user_id, verified_at)
+      VALUES (?, ?, ?)` ).bind("first-owner", "7654321", 1_800_000_000).run();
+    const link = async (owner, identityId, login) => {
+      const intent = await createGithubInstallationUrl(db, owner, env.GITHUB_APP_SLUG, 1_800_000_000);
+      const state = new URL(intent.authorization_url).searchParams.get("state");
+      const authorization = await beginGithubInstallationOAuth(db, state, "98765", {
+        id: "98765", account: { login: "Unjuno" }, repository_selection: "selected", suspended_at: null,
+        permissions: { contents: "read", metadata: "read" },
+      }, env, 1_800_000_001);
+      const oauthState = new URL(authorization.authorization_url).searchParams.get("state");
+      await completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa", async (url) => {
+        return mockResponse(String(url) === "https://api.github.com/user"
+          ? { id: identityId, login } : { total_count: 1, repositories: [{}] });
+      }, 1_800_000_002);
+    };
+    await assert.rejects(link("second-owner", 7654321, "Unjuno"),
+      { message: "GITHUB_IDENTITY_ALREADY_LINKED" });
+    await assert.rejects(link("first-owner", 8765432, "OtherUser"),
+      { message: "GITHUB_IDENTITY_CHANGE_REQUIRES_RELINK" });
+    const identities = await db.prepare("SELECT owner_id, github_user_id FROM github_owner_identities").bind().all();
+    assert.deepEqual(identities.results.map((row) => ({ ...row })),
+      [{ owner_id: "first-owner", github_user_id: "7654321" }]);
   } finally { db.close(); }
 });
 

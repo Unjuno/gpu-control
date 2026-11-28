@@ -11,7 +11,7 @@ conn = sqlite3.connect(":memory:")
 conn.execute("PRAGMA foreign_keys=ON")
 
 paths = sorted(MIGRATIONS.glob("*.sql"))
-assert paths[-1].name == "0034_google_colab_account_connection.sql"
+assert paths[-1].name == "0035_github_owner_identity.sql"
 history = next(path for path in paths if path.name == "0021_reliable_run_history.sql")
 shared_budget = next(path for path in paths if path.name == "0032_modal_compute_budget.sql")
 for path in paths[:paths.index(history)]:
@@ -81,6 +81,22 @@ conn.execute("INSERT INTO github_installation_states VALUES (?,?,?,?,?)",
 conn.executescript(github_user_authorization.read_text(encoding="utf-8"))
 google_colab_connection = next(path for path in paths if path.name == "0034_google_colab_account_connection.sql")
 conn.executescript(google_colab_connection.read_text(encoding="utf-8"))
+github_owner_identity = next(path for path in paths if path.name == "0035_github_owner_identity.sql")
+conn.executescript(github_owner_identity.read_text(encoding="utf-8"))
+assert {row[1] for row in conn.execute("PRAGMA table_info(github_owner_identities)")} == {
+    "owner_id", "github_user_id", "verified_at",
+}
+conn.execute("INSERT INTO github_owner_identities VALUES (?,?,?)", ("owner", "7654321", 123))
+try:
+    conn.execute("INSERT INTO github_owner_identities VALUES (?,?,?)", ("other-owner", "7654321", 123))
+    raise AssertionError("GitHub identity must not link to multiple Sites owners")
+except sqlite3.IntegrityError:
+    pass
+try:
+    conn.execute("INSERT INTO github_owner_identities VALUES (?,?,?)", ("bad-owner", "12x", 123))
+    raise AssertionError("GitHub identity must be a numeric immutable subject ID")
+except sqlite3.IntegrityError:
+    pass
 conn.execute(
     "UPDATE gateway_delegated_plans SET cancelled_at=101 WHERE owner_id=? AND id=? AND state='prepared'",
     ("owner", "e" * 32),

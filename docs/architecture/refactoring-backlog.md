@@ -250,6 +250,32 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   GPU, outputs/digests, terminal state, and cleanup are verified in that same
   ledger. Standalone CLI runs are clearly labeled outside GPU Control.
 
+### A13. Add owner-bound OAuth for non-ChatGPT MCP clients
+
+- **Evidence:** `worker/index.js:userId` accepts only the trusted
+  `oai-authenticated-user-id` header and `GPU_CONTROL_ALLOWED_USER_IDS`. A
+  direct MCP client cannot supply that platform identity. The existing GitHub
+  installation OAuth proves access to the selected installation during
+  linking. Migration `0035_github_owner_identity.sql` now persists the verified
+  numeric subject and enforces one-to-one owner binding, but it is not yet used
+  to issue or validate MCP tokens. Therefore the multi-client contract remains
+  unimplemented.
+- **Decision:** follow
+  [ADR 0012](decisions/0012-mcp-oauth-multi-client.md). Add a standards-based
+  OAuth authorization flow for external MCP clients, bound to an owner through
+  the immutable GitHub subject already verified during account linking. Do not
+  expose long-lived personal API keys or create a separate execution ledger.
+- **Work:** persist the verified subject with a forward migration; issue
+  short-lived resource-audience OAuth tokens with separate read/execute scopes;
+  implement PKCE, redirect validation, token rotation/revocation, MCP protected
+  resource discovery and transport-level bearer validation; normalize both
+  transports into one owner principal before dispatch.
+- **Done when:** two separately configured MCP clients for one linked owner
+  see the same plans and runs; a second owner cannot observe or cancel them;
+  wrong-audience, expired, revoked, replayed-refresh, and insufficient-scope
+  requests fail at the HTTP boundary; and existing ChatGPT auth/schema remains
+  compatible. No provider execution is enabled by OAuth itself.
+
 ## P2 — reduce module entropy without moving complexity to callers
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
