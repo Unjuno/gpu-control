@@ -227,11 +227,12 @@ export async function completeGithubInstallationOAuth(db, oauthState, userToken,
   const identity = await readGithubOAuthIdentity(userToken, fetchImpl);
   const authorizedRepositories = [];
   let totalCount = null;
-  for (let page = 1; page <= 5; page += 1) {
+  const pageSize = 25;
+  for (let page = 1; page <= 20; page += 1) {
     const access = await githubApiWithUserToken(
-      `/user/installations/${intent.pending_installation_id}/repositories?per_page=100&page=${page}`, userToken, fetchImpl);
+      `/user/installations/${intent.pending_installation_id}/repositories?per_page=${pageSize}&page=${page}`, userToken, fetchImpl);
     if (!Number.isSafeInteger(access.total_count) || access.total_count < 0 || access.total_count > 500 ||
-        !Array.isArray(access.repositories) || access.repositories.length > 100 ||
+        !Array.isArray(access.repositories) || access.repositories.length > pageSize ||
         (totalCount !== null && totalCount !== access.total_count)) {
       throw new Error("GITHUB_USER_INSTALLATION_ACCESS_INVALID");
     }

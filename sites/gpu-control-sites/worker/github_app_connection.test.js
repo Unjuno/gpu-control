@@ -99,7 +99,7 @@ test("install callback requires user access to the exact installation before bin
     const linked = await completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa", async (url, init) => {
       assert.equal(init.headers.authorization, "Bearer ghu_aaaaaaaaaaaaaaaaaaaa");
       if (String(url) === "https://api.github.com/user") return mockResponse({ id: 7654321, login: "Unjuno" });
-      assert.equal(String(url), "https://api.github.com/user/installations/98765/repositories?per_page=100&page=1");
+      assert.equal(String(url), "https://api.github.com/user/installations/98765/repositories?per_page=25&page=1");
       return mockResponse({ total_count: 1, repositories: [{ id: 7, full_name: "Unjuno/model-as-a-paper" }] });
     }, 1_800_000_031);
     assert.deepEqual(linked, { connected: true, account_login: "Unjuno", repository_selection: "selected" });
@@ -116,6 +116,37 @@ test("install callback requires user access to the exact installation before bin
     await disconnectGithubApp(db, "site-owner");
     assert.deepEqual(await githubConnectionStatus(db, "site-owner"), { connected: false });
   } finally { db.close(); }
+});
+
+test("GitHub user-scope pagination stays below the bounded response size for 100 repositories", async () => {
+  const db = database();
+  const intent = await createGithubInstallationUrl(db, "site-owner", env.GITHUB_APP_SLUG, 1_800_000_000);
+  const state = new URL(intent.authorization_url).searchParams.get("state");
+  const authorization = await beginGithubInstallationOAuth(db, state, "98765", {
+    id: "98765", account: { login: "Unjuno" }, repository_selection: "selected", suspended_at: null,
+    permissions: { contents: "read", metadata: "read" },
+  }, env, 1_800_000_001);
+  const oauthState = new URL(authorization.authorization_url).searchParams.get("state");
+  const requestedPages = [];
+  const linked = await completeGithubInstallationOAuth(db, oauthState, "ghu_aaaaaaaaaaaaaaaaaaaa", async (url) => {
+    const value = new URL(url);
+    if (value.pathname === "/user") return mockResponse({ id: 7654321, login: "Unjuno" });
+    const page = Number(value.searchParams.get("page"));
+    assert.equal(value.searchParams.get("per_page"), "25");
+    requestedPages.push(page);
+    const repositories = Array.from({ length: page <= 4 ? 25 : 0 }, (_, index) => ({
+      id: (page - 1) * 25 + index + 1,
+      full_name: `Unjuno/repository-${(page - 1) * 25 + index}`,
+      description: "x".repeat(350),
+    }));
+    return mockResponse({ total_count: 100, repositories });
+  }, 1_800_000_002);
+  assert.equal(linked.connected, true);
+  assert.deepEqual(requestedPages, [1, 2, 3, 4]);
+  const stored = await db.prepare("SELECT user_authorized_repositories_json FROM github_app_installations WHERE owner_id=?")
+    .bind("site-owner").first();
+  assert.equal(JSON.parse(stored.user_authorized_repositories_json).length, 100);
+  db.close();
 });
 
 test("a GitHub subject cannot be rebound to another Sites owner or silently switched", async () => {
