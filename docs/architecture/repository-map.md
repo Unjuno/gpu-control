@@ -7,13 +7,14 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `527a711` on PR #70. The Sites Worker
-suite passes 187 tests and its graph is acyclic across 67 runtime modules. The
-root Python suite passes 619 tests, one skipped, and five subtests. All seven
-exact-head CI checks pass on `527a711`. Local success is not hosted release
-evidence.
+**Current source snapshot:** implementation head `129f002` on PR #70. The
+Sites Worker suite passes 187 tests and its graph is acyclic across 67 runtime
+modules. The root Python suite passes 619 tests, one skipped, and five
+subtests. All seven exact-head CI checks pass on `129f002`. This map refresh is
+documentation-only; it does not change that implementation snapshot or prove
+hosted release.
 `worker/index.js` is 147 lines,
-while `worker/index.test.js` is 1,978 lines and remains the largest integration
+while `worker/index.test.js` is 1,920 lines and remains the largest integration
 fixture. Dedicated integration tests cover ChatGPT authorization (125 lines),
 Modal health (277 lines), local cancellation (102 lines), and artifact retrieval
 (67 lines); the
@@ -235,25 +236,26 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (current worktree at PR #70 code head `158ff2c`):**
+5. **Large files (implementation snapshot at PR #70 code head `129f002`):**
    `worker/index.js` 147 lines; `worker/training_authorization_routes.js` 210 lines;
    `worker/mcp_tool_dispatch.js` 122 lines;
    `worker/delegated_experiment_lifecycle.js` 391 lines;
    `worker/modal_cpu_lifecycle.js` 165 lines; Worker integration test
-   `worker/index.test.js` 1,918 lines; owner-selected training registration
+   `worker/index.test.js` 1,920 lines; owner-selected training registration
    lifecycle coverage is in `worker/training_registration.integration.test.js`
    (682 lines). `worker/training_plan.js` is now 332 lines and coordinates
    preview/prepare/submit. `worker/training_plan_state.js` (78 lines) owns
    persisted state/readiness/cancellation/cleanup projection, while
-   `worker/training_authorization.js` owns exact confirmation and its URL.
+   `worker/training_authorization.js` (126 lines) owns exact confirmation and
+   its URL.
    MAP-specific plan
    construction is isolated in `worker/map_training_plan.js` (115 lines), the
    atomic D1 authorization/budget/dispatch claim in
-   `worker/training_dispatch_claim.js` (78 lines), and the existing Modal
-   owner-selected builder in `worker/modal_owner_training_plan.js`. Colab's capability
-   handler is 82 lines and its transport
-   client is 101 lines; no Colab plan or run lifecycle caller exists yet. MCP
-   tool schema and GitHub source tests also live beside their module contracts.
+   `worker/training_dispatch_claim.js` (80 lines), and the existing Modal
+   owner-selected builder in `worker/modal_owner_training_plan.js` (72 lines).
+   Colab's capability handler is 85 lines and its transport client is 87 lines;
+   no Colab plan or run lifecycle caller exists yet. MCP tool schema and GitHub
+   source tests also live beside their module contracts.
    `gateway/gpu_gateway/store.py` 1,156; Gateway `worker.py` 1,094;
    `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 510.
    Split by cohesive domain/use case, not line count alone.

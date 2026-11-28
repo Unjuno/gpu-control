@@ -49,6 +49,22 @@ it does not establish an external OAuth release or live client handshake. No
 provider execution, credential, admission, budget, OAuth deployment, or live
 Site configuration was changed.
 
+## 2026-11-28 — Refresh the architecture map against the current implementation
+
+**Finding:** the map's implementation snapshot referred to `527a711` and a
+separate large-file inventory referred to `158ff2c`, while the active PR head
+was `129f002`. The `index.test.js`, Colab client/capability, authorization, and
+dispatch-claim line counts also differed from the checked-out files.
+
+**Change:** refreshed the map to the verified implementation baseline
+`129f002`, its current test and module counts, and measured file sizes. The map
+continues to state that Colab has no plan or run-lifecycle caller and that PR
+source is not a deployed release.
+
+**Validation:** re-counted each named file from the checkout and ran
+`git diff --check`. This documentation-only correction does not change source
+behavior, provider policy, or release state.
+
 ## 2026-11-28 — A13: synchronize client-neutral operations and source map
 
 **Finding:** the operational guide and architecture map still described the
