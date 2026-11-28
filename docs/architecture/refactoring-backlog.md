@@ -27,6 +27,23 @@ acceptance.
 4. Migrate callers, retain only required compatibility, then delete old code.
 5. Keep every batch small, independently reviewable, reversible and green.
 
+## Agent/client ergonomics
+
+- Make a fresh compatible ChatGPT/Work or external MCP client able to discover
+  provider/workload choices, select an authorized source, carry internal IDs,
+  and follow the same authenticated lifecycle without manual run-ID invention.
+- Treat plain-language intent as the product interface. Tool schemas and
+  descriptions should lead the agent through capability discovery, bounded
+  prepare, one exact execution confirmation at the client boundary, submit,
+  polling, result/artifact retrieval, and cleanup verification.
+- Keep provider additions behind the common lifecycle contract. A provider is
+  not usable merely because it has an OAuth connection, health route, or
+  separate MCP server; its budget, ownership, idempotency, results, and cleanup
+  must be visible in the same agent flow.
+- Validate these requirements with scenario-driven tool-contract tests and
+  real client acceptance before advertising a route. Source checks do not prove
+  that an ordinary chat has the integration enabled or deployed.
+
 ## P0 — release truth and runnable ChatGPT path
 
 ### A0. Reconcile branch, review, deployment and provider acceptance
