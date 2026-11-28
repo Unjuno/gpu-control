@@ -283,7 +283,7 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence:** at source head `5315da7`, `worker/index.js` is 816 lines and
+- **Evidence:** at source head `c6c69c2`, `worker/index.js` is 816 lines and
   remains the transport and composition root for authentication, owner identity,
   routing and provider
   workflows. MCP schemas/descriptions, experiment input contracts, GitHub
@@ -345,8 +345,8 @@ duplicate source and provider reads in the ordinary run path.
 ### A8. Split test fixtures by contract and reuse domain builders
 
 - **Evidence:** Sites `index.test.js` measured 3,444 lines at source candidate
-  `615e039`; at head `5315da7` it is 2,684 lines after contract and source
-  tests were extracted. It still combines route, capability, provider,
+  `615e039`; at head `c6c69c2` it is 2,636 lines after contract, source, and
+  MCP request-auth route tests were extracted. It still combines route, capability, provider,
   cancellation, artifact and run-list integration concerns. Gateway
   store/worker tests are also large. The suite has valuable runtime contracts.
 - **Work:** partition tests by domain and lifecycle; extract only stable test
@@ -360,6 +360,12 @@ duplicate source and provider reads in the ordinary run path.
   needs. It is 680 lines at current head. The full suite has grown to 163 tests
   and the Worker graph to 52 modules. Further lifecycle groups and repeated
   fixture shapes still need inventory before introducing shared builders.
+- **Progress (2026-11-28):** moved the public anonymous-request challenge and
+  OAuth bearer audience/scope HTTP route tests into
+  `worker/mcp_request_auth.integration.test.js`. Its local D1 fixture is
+  purpose-built for token lookup and empty run listing, so it no longer depends
+  on the broad `index.test.js` environment builder. Focused tests pass (2/2),
+  the full suite remains 163/163, and `index.test.js` shrank by 48 lines.
 
 ### A9. Consolidate Python/Gateway provider runtime duplication by consumer
 
@@ -566,11 +572,11 @@ acyclic Worker graph contains 50 runtime modules. Independent Security Review
 found no actionable findings.
 
 **Progress (2026-11-28):** moved public MCP schema/description assertions to
-`worker/mcp_tool_contract.test.js` and GitHub source pinning cases to
+`worker/mcp_tool_contract.test.js`, GitHub source pinning cases to
 `worker/training_source.test.js`. `worker/index.test.js` shrank from 3,445 to
-3,326 lines at that checkpoint without dropping coverage. At head `5315da7`,
-it is 2,684 lines; all 163 Worker tests pass locally and the graph is acyclic
-across 52 runtime modules. Exact-head GitHub checks are queued.
+3,326 lines at that checkpoint without dropping coverage. At head `c6c69c2`,
+it is 2,636 lines; all 163 Worker tests pass locally and the graph is acyclic
+across 52 runtime modules. The 2-test request-auth route slice passes alone.
 
 **Progress (2026-11-28):** the shared `MAP_TRAINING_CONTROL_PLANE_SHA`
 authorization identity now has one Worker binding reader in

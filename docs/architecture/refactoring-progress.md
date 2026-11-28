@@ -1309,6 +1309,25 @@ existing control-plane identity and fail-closed validation are preserved across
 capability, plan, and confirmation paths.
 
 
+## 2026-11-28 — A8: isolate MCP request-auth route integration tests
+
+**Problem:** two HTTP-level OAuth authentication tests lived inside the broad
+Worker integration test file and depended on its provider-oriented environment
+fixture, obscuring the authentication boundary and its minimal requirements.
+
+**Change:** moved the anonymous challenge and OAuth bearer audience/scope route
+cases to `worker/mcp_request_auth.integration.test.js`. The new test file owns
+a small D1 mock for only token lookup and empty run listing. Production code and
+the tested assertions are unchanged.
+
+**Validation:** focused route tests pass (2/2); all 163 Worker tests pass; the
+52-module graph remains acyclic. `worker/index.test.js` shrank by 48 lines to
+2,636 lines. No provider operation or deployment occurred.
+
+**Review:** test-only extraction; old and new assertions were compared and
+focused plus full suites pass.
+
+
 ## 2026-11-28 — A13: exercise external MCP OAuth over Worker HTTP
 
 **Problem:** OAuth protocol functions had focused unit coverage, but no test
