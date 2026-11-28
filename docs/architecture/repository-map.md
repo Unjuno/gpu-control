@@ -81,8 +81,9 @@ reports the current module count. `experiment_input_contract.js` owns exact
 MCP argument validation and environment-bound plan normalization separately
 from public schemas in `mcp_tool_contract.js`; `provider_capabilities.js`
 owns the read-only provider/workload capability projection and derives common
-workload metadata from the generated registry; and `github_tools.js` owns
-owner-scoped GitHub MCP operations.
+workload metadata from the generated workload registry and provider route
+catalog; `provider_budget_policy.js` owns the D1-backed budget projection;
+and `github_tools.js` owns owner-scoped GitHub MCP operations.
 
 The intended product flow is Sites-first. The Gateway links above represent a
 separately maintained source tree, not proof it is deployed or the live
@@ -95,7 +96,8 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 | Area | Canonical responsibility | Main source | Boundary / status |
 | --- | --- | --- | --- |
 | Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `worker/mcp_tool_contract.js`, `worker/experiment_input_contract.js`, `worker/provider_capabilities.js`, `worker/github_tools.js`, `worker/index.js`, `docs/CHATGPT_SETUP.md` | `mcp_tool_contract.js` owns public schemas, descriptions, output schema and annotations; `experiment_input_contract.js` owns exact runtime input validation; `provider_capabilities.js` projects current read-only provider/workload readiness; `github_tools.js` owns the owner-scoped GitHub connection tools; `index.js` owns transport/dispatch. Sites is intended ChatGPT surface; `index.js` remains a large composition root. |
-| Fixed workload definitions | IDs, provider, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator drift check is the established single-source pattern. |
+| Fixed workload definitions | IDs, provider route, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator validates provider route compatibility. |
+| Provider and route identity | Provider billing class, credit eligibility, canonical route IDs, GPU/adapter-host flags and fixed route metadata | `sites/gpu-control-sites/workloads/provider-catalog.json` | Generated into `worker/provider_catalog.js`; MCP filters, capability projection, budget route mapping and adapter-route selection consume this copy. D1/provider evidence still owns current readiness, limits and execution state. |
 | Owner-selected source identity | GitHub App install selection, one-time OAuth+PKCE owner proof, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/github_tools.js`, `worker/training_source.js` | `github_tools.js` owns Sites tool orchestration; `github_app_connection.js` owns identity proof and selected-repository-scoped token minting; `training_source.js` owns source registration and immutable commit resolution. Migration 0033 invalidates legacy unverified bindings. User OAuth tokens are discarded; installation tokens are exact-repository read-only and trusted control-plane/stager input, never workload input. |
 | Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `.gpu-control/experiment.json` at immutable commit; no repository Dockerfile or arbitrary shell command. |
 | Training policy and runtime profile | Authoritative lane ceilings/defaults and normalized owner-selected runtime environment | `worker/training_policy.js`, `worker/training_runtime_profile.js` | Input/MCP contracts consume policy constants; plan orchestration consumes the normalized runtime profile. These leaf modules do not depend on plan orchestration. |

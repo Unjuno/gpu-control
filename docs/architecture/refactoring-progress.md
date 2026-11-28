@@ -547,6 +547,34 @@ stdio server must be verified independently; the local README does not claim
 ChatGPT web support.
 
 
+## 2026-11-28 — A5/A7: canonicalize provider and route identities
+
+**Problem:** provider route IDs, billing classes, credit eligibility, adapter
+host support, budget provider IDs and MCP provider filters were separately
+hard-coded. A new route could drift between capability output, validation and
+budget reporting.
+
+**Change:** added `workloads/provider-catalog.json` as the authority for
+provider billing semantics and route metadata. The workload registry
+generator validates workload/route GPU and adapter-manifest compatibility and
+generates `worker/provider_catalog.js`. Capability rows, provider budget IDs,
+Modal route reporting, delegated adapter route selection, MCP provider enums
+and provider filters now consume that generated catalog. Provider-specific
+readiness and live budget state remain owned by the capability projection and
+D1 policy; the catalog does not claim that a configured adapter can execute a
+workload. Existing public route and budget order is preserved.
+
+**Validation:** all 120 Sites tests pass, the 26-module runtime graph is
+acyclic, generated registries are current, Worker build and artifact
+validation pass, and `git diff --check` passes. No provider, production
+setting, admission or credential was changed; no experiment was started.
+
+**Remaining:** exact-head hosted CI, review, merge, deployment and live
+ChatGPT/provider acceptance remain separate release gates. RunPod, Kaggle,
+Hugging Face and Colab still lack owner-selected arbitrary-source execution;
+this catalog refactor makes their actual routes clearer without adding
+execution capability.
+
 ## 2026-11-28 — A5/A7: derive workload discovery from the canonical registry
 
 **Problem:** the `experiment_capabilities.workloads` response repeated names,
@@ -567,8 +595,7 @@ acyclic architecture check, Worker build, artifact validation, and
 the stable public order was restored before the passing run. No provider,
 production setting, admission or credential was changed.
 
-**Remaining:** static provider roles/budget IDs are still repeated across
-provider policy, tool validation and adapter/runtime contracts; consolidating
-those is a separate A5 design slice. Arbitrary repository execution remains
+**Remaining:** route-specific execution contracts and provider adapters still
+need independent compatibility work. Arbitrary repository execution remains
 Modal-only in the unmerged candidate; this discovery refactor does not make
 RunPod, Kaggle, Hugging Face or Colab arbitrary-source routes available.

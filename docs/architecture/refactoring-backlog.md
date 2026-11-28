@@ -200,18 +200,19 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   route-specific enablement; additional entries remain visible but disabled
   until explicitly supported. Response order is preserved. This removes a
   duplicate inventory without treating provider configuration as execution
-  support. Static provider roles and identifiers remain duplicated across
-  provider policy, tool validation, and adapter/runtime contracts.
+  support. The generated provider catalog now owns route/provider IDs, billing
+  class, credit eligibility, adapter hosting and fixed route metadata;
+  capability readiness remains dynamic and does not imply execution support.
 - **MAP account gate:** ADR 0007 adds a separate L4 Workspace evidence contract
   to prevent the Sites reservation from being mistaken for the actual Modal
   account cap. The candidate rejects a MAP monthly configuration above $1 and
   binds/rechecks the exact account evidence at submit. This evidence remains
   operator-supplied and does not replace verification of the provider-side
   usage limit.
-- **Work:** define a versioned provider/workload capability contract with
-  provider identity, compute-vs-host role, task compatibility, quote/quota
-  freshness, ceilings, paid/free semantics, cancellation and cleanup evidence.
-  Generate client/server constants where runtime parity is required.
+- **Work:** extend the canonical contract only for concrete cross-runtime
+  needs: quote/quota freshness, task compatibility, cancellation and cleanup
+  evidence. Avoid static catalog fields that no consumer enforces. Generate
+  client/server constants where runtime parity is required.
 - **Done when:** adding/removing a provider or workload requires one canonical
   definition plus its adapter implementation and acceptance evidence; no
   provider can be advertised just because an adapter host is configured.
