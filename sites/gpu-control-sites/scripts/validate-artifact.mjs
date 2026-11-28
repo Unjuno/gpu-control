@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,17 +13,6 @@ assert.deepEqual(
   "built artifact hosting manifest must match its source bytes",
 );
 JSON.parse(readFileSync(artifactHostingManifest, "utf8"));
-assert.ok(statSync(join(root, "server/index.js")).size > 0);
-assert.ok(statSync(join(root, "server/provider_adapter_client.js")).size > 0);
-assert.ok(statSync(join(root, "server/github_app_connection.js")).size > 0);
-assert.ok(statSync(join(root, "server/provider_account_lease.js")).size > 0);
-assert.ok(statSync(join(root, "server/runpod_provider.js")).size > 0);
-assert.ok(statSync(join(root, "server/runpod_secret.js")).size > 0);
-assert.ok(statSync(join(root, "server/workload_registry.js")).size > 0);
-assert.ok(statSync(join(root, "server/training_contract.js")).size > 0);
-assert.ok(statSync(join(root, "server/provider_budget_policy.js")).size > 0);
-assert.ok(statSync(join(root, "server/training_inspection.js")).size > 0);
-assert.ok(statSync(join(root, "server/training_tools.js")).size > 0);
 const sourceMigrationNames = readdirSync(sourceMigrations)
   .filter((name) => name.endsWith(".sql"))
   .sort();

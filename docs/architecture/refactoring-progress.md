@@ -2310,3 +2310,19 @@ the populated forward replay.
 **Validation:** `python3 sites/gpu-control-sites/scripts/test_migrations.py`
 passes against all 36 migrations, and `git diff --check` passes. This changes
 only the local replay harness; no migration or live database was touched.
+
+## 2026-11-28 — A12: use the Worker graph as the artifact inventory
+
+**Finding:** `validate-artifact.mjs` listed selected Worker modules by name,
+duplicating the dependency graph that the build already uses to reject
+unreachable modules and copy every reachable module.
+
+**Change:** removed the hand-maintained module list. Artifact verification
+still imports the packaged entrypoint, compares the packaged hosting manifest
+with its source, and checks the exact source/artifact migration inventory and
+bytes. The dependency graph remains the single owner of Worker module
+reachability and packaging.
+
+**Validation:** Sites build, artifact validation, and `npm test` pass (2 graph
+tests, 187 Worker tests, acyclic graph across 67 modules, current generated
+registry). No runtime, deployment, provider, or credential behavior changed.
