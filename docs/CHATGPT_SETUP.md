@@ -89,6 +89,10 @@ GPU Controlのexperiment_capabilitiesを呼び出して、Modal、RunPod、Kaggl
 Hugging Faceの4プロバイダーについて、configured、enabled、blocker、予算、
 利用可能な登録済みworkloadを表にしてください。
 
+Google Colabを希望する場合はcolab_capabilitiesも呼び出してください。
+現在は接続とeligible GPU確認までで、GPU Controlの実行・結果・cleanupには
+まだ接続されていません。
+
 まだ実験は開始しないでください。秘密値を表示せず、Railway、Vercel、
 Neon、外部PostgreSQLが実行経路に含まれていないことも確認してください。
 ```

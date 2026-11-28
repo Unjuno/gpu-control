@@ -26,6 +26,12 @@ OAuth configuration, runtime allocation, or provider setting was changed.
 prepared, submitted, monitored, cancelled, or cleaned up through the shared
 Sites run lifecycle.
 
+**Agent routing follow-up:** the public `experiment_capabilities` description
+and operator Skill now direct Colab-specific requests to the separate
+`colab_capabilities` read path and explicitly prohibit presenting CLI runs as
+Sites-ledger runs. This closes the discovery/documentation gap without
+advertising an unsupported submit route or silently switching providers.
+
 ## 2026-11-28 — A6: validate Colab capability responses at the provider boundary
 
 **Problem:** the hosted Colab client bounded and parsed responses, but the

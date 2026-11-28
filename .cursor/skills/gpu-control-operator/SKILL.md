@@ -1,6 +1,6 @@
 ---
 name: gpu-control-operator
-description: Operates GPU Control through the authenticated ChatGPT Sites MCP lifecycle. Use when a user asks to inspect, register, run, monitor, cancel, recover, or retrieve a GPU experiment, including work from an owner-selected GitHub repository on Modal, RunPod, Kaggle, or Hugging Face when that route is supported.
+description: Operates GPU Control through the authenticated ChatGPT Sites MCP lifecycle. Use when a user asks to inspect, register, run, monitor, cancel, recover, or retrieve a GPU experiment, including work from an owner-selected GitHub repository on Modal, RunPod, Kaggle, Hugging Face, or Google Colab when that route is supported.
 ---
 
 # GPU Control Operator
@@ -23,6 +23,16 @@ PostgreSQL, local Keychain Runner, arbitrary shell, or direct provider route.
    independent call cannot be correlated with a server-generated key after a
    fully lost response. Existing explicit-parameter calls remain supported.
 4. Never request, accept, display, or pass a provider credential in chat.
+
+When the user specifically asks about Google Colab, call `colab_capabilities` in
+addition to `experiment_capabilities`. It reports the connected Google account's
+current subscription tier and eligible runtime specs, but its execution,
+monitoring, artifact, cancellation, and cleanup lifecycle is not yet wired into
+GPU Control. Treat Colab as unavailable for GPU Control submission until that
+tool returns an executable route. Do not silently substitute Modal or RunPod.
+The official Colab CLI can be used by a separately configured local/CI client;
+that path does not create a GPU Control run record and must not be presented as
+a ChatGPT Sites execution.
 
 Capabilities describes fixed workload routes; it does not by itself make an
 owner-selected repository executable. For a repository request, use the

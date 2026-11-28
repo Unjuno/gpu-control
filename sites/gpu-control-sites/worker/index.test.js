@@ -865,6 +865,8 @@ test("GitHub App connection tools are owner-scoped and fail closed until configu
     assert.ok(byName.has("github_connection_start"));
     assert.equal(byName.get("github_repositories").annotations.readOnlyHint, true);
     assert.equal(byName.get("github_connection_disconnect").annotations.destructiveHint, true);
+    assert.match(byName.get("experiment_capabilities").description, /colab_capabilities/);
+    assert.match(byName.get("experiment_capabilities").description, /not yet connected to the shared run lifecycle/);
   } finally { db.close(); }
 });
 
