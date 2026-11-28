@@ -2326,3 +2326,10 @@ reachability and packaging.
 **Validation:** Sites build, artifact validation, and `npm test` pass (2 graph
 tests, 187 Worker tests, acyclic graph across 67 modules, current generated
 registry). No runtime, deployment, provider, or credential behavior changed.
+
+## 2026-11-28 — Refresh architecture snapshot after source batches
+
+The map now points to `18311137da1a0801bff863971960585de699f418` and records
+the local Worker graph and test measurements. All seven exact-head CI checks
+passed for that source head. PR #70 remains open, unmerged, and in parked
+repository mode.
