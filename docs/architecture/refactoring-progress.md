@@ -2252,3 +2252,21 @@ Worker checks. Refreshed the repository architecture snapshot from the prior
 acyclic graph across 67 modules, generated registry check, and build copying
 all 67 reachable runtime modules. Exact-head hosted CI reports all seven
 checks successful. No provider execution or deployment occurred.
+
+## 2026-11-28 — A12: enforce append-only D1 migration history
+
+**Finding:** D1 migration replay and sequence checks proved the current files
+could build a schema, but did not prevent a change from editing or deleting an
+already deployed migration.
+
+**Change:** the Sites CI job now compares migration files with the event's
+base revision and rejects edits, deletions, renames, and newly inserted
+versions. New tail migrations remain allowed. The job fetches full history so
+the comparison is available for pull requests, pushes, and merge-queue runs.
+Five isolated Git-repository tests cover valid append, edit, delete, rename,
+and insertion cases.
+
+**Local validation:** all five focused Python tests pass; the guard sees 22
+base migrations and 15 branch additions against `origin/main`. The full Python
+suite passes, the Sites suite passes (2 graph and 187 Worker tests), and the
+Sites build copies all 67 reachable Worker modules. Hosted CI is pending.

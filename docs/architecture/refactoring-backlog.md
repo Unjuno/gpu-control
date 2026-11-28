@@ -608,7 +608,10 @@ and fails on cycles. Script-level fixtures now guard named/wildcard re-export
 edges and reject semicolonless re-export syntax.
 The build copies the modules reachable from `index.js` and fails if a runtime
 module is orphaned. This establishes Worker dependency and packaging rules;
-Python host direction, schema parity, and append-only migrations remain open.
+Python host direction and schema parity remain open. A D1 migration guard now
+compares the branch against its event base and rejects edits, removals, renames,
+or insertion before committed history; local regression fixtures cover these
+cases and appended migrations. Hosted verification is pending for this change.
 
 **Progress (2026-11-28):** `tests/test_package_boundaries.py` parses the reusable
 `src/gpu_control` package and rejects imports from Gateway or the Sites-owned
