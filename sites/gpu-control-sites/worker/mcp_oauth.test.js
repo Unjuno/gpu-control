@@ -89,6 +89,20 @@ test("Sites HTTP exposes OAuth discovery, public-client registration and owner c
   } finally { db.sqlite.close(); }
 });
 
+test("invalid MCP OAuth consent clears its one-time CSRF cookie", async () => {
+  const db = database();
+  try {
+    const response = await worker.fetch(new Request(`${origin}/oauth/authorize`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: "__Host-gpu-control-mcp-consent=stale" },
+      body: "csrf=forged",
+    }), { DB: db });
+    assert.equal(response.status, 400);
+    assert.match(response.headers.get("set-cookie") || "", /__Host-gpu-control-mcp-consent=; Max-Age=0/);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+  } finally { db.sqlite.close(); }
+});
+
 test("MCP OAuth authorizes one linked owner, binds audience, rotates refresh tokens, and revokes replayed families", async () => {
   const db = database();
   try {

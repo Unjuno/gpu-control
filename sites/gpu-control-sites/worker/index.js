@@ -8,15 +8,14 @@ import { beginGithubInstallationOAuth, completeGithubInstallationOAuth,
 import { MODAL_PRICING_CHECKED_AT, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { executionOrigin } from "./execution_origin.js";
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
-import { beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
-  createMcpOAuthConsent, exchangeMcpOAuthToken, isMcpOAuthGitHubState, mcpAuthorizationServerMetadata,
-  mcpOAuthError, mcpProtectedResourceMetadata, registerMcpOAuthClient, revokeMcpOAuthToken,
+import { completeMcpOAuthGitHubLogin, isMcpOAuthGitHubState,
   READ_SCOPE, EXECUTE_SCOPE } from "./mcp_oauth.js";
 import { authenticateMcpPrincipal, mcpAuthorizationChallenge, sitesOwnerFromRequest,
   sitesPlatformIdentityPresent } from "./mcp_request_auth.js";
 import { trainingControlPlaneSha } from "./training_security_configuration.js";
 import { dispatchMcpTool, modalGpuProviderEvidence } from "./mcp_tool_dispatch.js";
 import { createGoogleColabOAuthRoutes } from "./google_colab_oauth_routes.js";
+import { createMcpOAuthRoutes } from "./mcp_oauth_routes.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -30,10 +29,6 @@ function json(data, status = 200, headers = {}) {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers },
   });
-}
-
-function oauthJson(data, status = 200) {
-  return json(data, status, { pragma: "no-cache", "x-content-type-options": "nosniff" });
 }
 
 function hasMediaType(request, expected) {
@@ -96,6 +91,7 @@ function htmlPage(title, content, status = 200) {
 
 const { setup: handleGoogleColabSetup, callback: handleGoogleColabOAuthCallback } =
   createGoogleColabOAuthRoutes({ htmlPage, escapeHtml });
+const mcpOAuthRoutes = createMcpOAuthRoutes({ htmlPage, escapeHtml, readJson, readUrlEncodedForm });
 
 function authorizationUrl(_request, runId, fingerprint) {
   const url = new URL("/authorize", SITE_PUBLIC_ORIGIN);
@@ -370,85 +366,6 @@ async function handleGithubOAuthCallback(request, env) {
   }
 }
 
-function clearCookie(name) {
-  return `${name}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`;
-}
-
-async function handleMcpOAuthAuthorization(request, env) {
-  if (!env.DB) return htmlPage("GPU Control OAuthを利用できません", "<p>owner-scoped storage is not configured.</p>", 503);
-  if (request.method === "GET") {
-    try {
-      const url = new URL(request.url);
-      const getOne = (name) => url.searchParams.getAll(name).length === 1 ? url.searchParams.get(name) : null;
-      const consent = await createMcpOAuthConsent(env.DB, {
-        client_id: getOne("client_id"), redirect_uri: getOne("redirect_uri"), response_type: getOne("response_type"),
-        scope: getOne("scope"), state: getOne("state"), code_challenge: getOne("code_challenge"),
-        code_challenge_method: getOne("code_challenge_method"), resource: getOne("resource"),
-      }, url.origin);
-      return consent.response;
-    } catch (error) {
-      const message = mcpOAuthError(error);
-      return htmlPage("GPU Controlへの接続を開始できません",
-        `<p>OAuth要求を確認できませんでした（${escapeHtml(message)}）。MCPクライアント設定を確認してください。</p>`, 400);
-    }
-  }
-  if (request.method !== "POST") return htmlPage("Method Not Allowed", "<p>GETまたはPOSTを使用してください。</p>", 405);
-  try {
-    const form = await readUrlEncodedForm(request);
-    const csrf = form.get("csrf") || "";
-    const cookie = request.headers.get("cookie") || "";
-    const savedCsrf = cookie.split(";").map((item) => item.trim())
-      .find((item) => item.startsWith("__Host-gpu-control-mcp-consent="))
-      ?.slice("__Host-gpu-control-mcp-consent=".length) || "";
-    if (!csrf || csrf !== savedCsrf) throw new Error("MCP_OAUTH_CONSENT_CSRF_INVALID");
-    const login = await beginMcpOAuthGitHubLogin(env.DB, csrf, env);
-    return new Response(null, { status: 302, headers: { location: login.authorization_url,
-      "set-cookie": login.cookie, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
-  } catch (error) {
-    const message = mcpOAuthError(error);
-    const detail = message === "MCP_OAUTH_OWNER_LINK_REQUIRED"
-      ? "先にChatGPTのGPU ControlでGitHub接続を完了してください。"
-      : `認可を開始できませんでした（${escapeHtml(message)}）。最初のMCP接続からやり直してください。`;
-    return htmlPage("GPU Controlへの接続を完了できません", `<p>${detail}</p>`, 400,
-      { "set-cookie": clearCookie("__Host-gpu-control-mcp-consent") });
-  }
-}
-
-async function handleMcpOAuthRegistration(request, env) {
-  if (request.method !== "POST") return oauthJson({ error: "invalid_request" }, 405);
-  if (!env.DB || !hasMediaType(request, "application/json")) {
-    return oauthJson({ error: "invalid_client_metadata" }, 400);
-  }
-  try {
-    const body = await readJson(request, 16 * 1024);
-    const result = await registerMcpOAuthClient(env.DB, body, request.headers.get("cf-connecting-ip"));
-    return oauthJson(result, 201);
-  } catch (error) {
-    const code = mcpOAuthError(error);
-    const status = code === "MCP_OAUTH_REGISTRATION_RATE_LIMITED" ? 429
-      : ["MCP_OAUTH_REGISTRATION_RATE_LIMIT_UNAVAILABLE", "MCP_OAUTH_REGISTRATION_STORAGE_UNAVAILABLE"].includes(code) ? 503 : 400;
-    return oauthJson({ error: status === 429 ? "temporarily_unavailable" : "invalid_client_metadata" }, status);
-  }
-}
-
-async function handleMcpOAuthToken(request, env) {
-  if (request.method !== "POST") return oauthJson({ error: "invalid_request" }, 405);
-  if (!env.DB || request.headers.has("authorization") || !hasMediaType(request, "application/x-www-form-urlencoded")) {
-    return oauthJson({ error: "invalid_request" }, 400);
-  }
-  try { return await exchangeMcpOAuthToken(env.DB, await readUrlEncodedForm(request), new URL(request.url).origin); }
-  catch { return oauthJson({ error: "server_error" }, 500); }
-}
-
-async function handleMcpOAuthRevoke(request, env) {
-  if (request.method !== "POST") return oauthJson({ error: "invalid_request" }, 405);
-  if (!env.DB || request.headers.has("authorization") || !hasMediaType(request, "application/x-www-form-urlencoded")) {
-    return oauthJson({ error: "invalid_request" }, 400);
-  }
-  try { return await revokeMcpOAuthToken(env.DB, await readUrlEncodedForm(request)); }
-  catch { return oauthJson({ error: "server_error" }, 500); }
-}
-
 async function readJson(request, limit = MAX_BODY_BYTES) {
   const declared = Number(request.headers.get("content-length") || 0);
   if (declared > limit) throw new Error("BODY_TOO_LARGE");
@@ -586,17 +503,15 @@ export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
     if (url.pathname === "/.well-known/oauth-protected-resource" && request.method === "GET") {
-      try { return json(mcpProtectedResourceMetadata(url.origin)); }
-      catch { return json({ error: "NOT_FOUND" }, 404); }
+      return mcpOAuthRoutes.protectedResourceMetadata(request);
     }
     if (url.pathname === "/.well-known/oauth-authorization-server" && request.method === "GET") {
-      try { return json(mcpAuthorizationServerMetadata(url.origin)); }
-      catch { return json({ error: "NOT_FOUND" }, 404); }
+      return mcpOAuthRoutes.authorizationServerMetadata(request);
     }
-    if (url.pathname === "/oauth/register") return handleMcpOAuthRegistration(request, env);
-    if (url.pathname === "/oauth/authorize") return handleMcpOAuthAuthorization(request, env);
-    if (url.pathname === "/oauth/token") return handleMcpOAuthToken(request, env);
-    if (url.pathname === "/oauth/revoke") return handleMcpOAuthRevoke(request, env);
+    if (url.pathname === "/oauth/register") return mcpOAuthRoutes.registration(request, env);
+    if (url.pathname === "/oauth/authorize") return mcpOAuthRoutes.authorization(request, env);
+    if (url.pathname === "/oauth/token") return mcpOAuthRoutes.token(request, env);
+    if (url.pathname === "/oauth/revoke") return mcpOAuthRoutes.revoke(request, env);
     if (url.pathname === "/" && request.method === "GET") {
       return htmlPage("GPU Control", `<p>ChatGPT Sites MCP control plane for registered GPU experiments.</p>
         <p>Viewing this page does not grant execution authority. Stateful tools require an authenticated, allowlisted Sites owner.</p>
