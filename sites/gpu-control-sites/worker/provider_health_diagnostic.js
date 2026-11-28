@@ -1,5 +1,6 @@
 import { modalConfigured, providerHealth } from "./modal_http_client.js";
 import { MODAL_HEALTH_CHECK_COOLDOWN_SECONDS } from "./provider_health_policy.js";
+import { modalCpuAdmissionEnabled } from "./modal_cpu_policy.js";
 
 async function runProviderHealthDiagnostic(env, owner, runId, fingerprint, authorizationValidated) {
   if (!env.DB) return {
@@ -9,7 +10,7 @@ async function runProviderHealthDiagnostic(env, owner, runId, fingerprint, autho
   };
   if (!modalConfigured(env)) return {
     schema_version: 2, status: "blocked", human_summary: "Modal接続設定が不足しています。Sandboxは起動していません。",
-    machine_state: { configured: false, sandbox_started: false, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" },
+    machine_state: { configured: false, sandbox_started: false, admission_enabled: modalCpuAdmissionEnabled(env) },
     next_allowed_actions: [], blocking_reason: "MODAL_PROVIDER_NOT_CONFIGURED",
   };
   const now = Math.floor(Date.now() / 1000);
@@ -34,7 +35,7 @@ async function runProviderHealthDiagnostic(env, owner, runId, fingerprint, autho
       next_allowed_actions: [], blocking_reason: "HUMAN_AUTHORIZATION_REQUIRED",
     };
   }
-  if (env.CPU_WORKLOAD_ADMISSION_ENABLED !== "true") return {
+  if (!modalCpuAdmissionEnabled(env)) return {
     schema_version: 2, status: "blocked", human_summary: "CPU Admissionは停止中です。Modal healthには接続していません。",
     machine_state: { configured: true, admission_enabled: false, sandbox_started: false, inference_started: false },
     next_allowed_actions: [], blocking_reason: "CPU_WORKLOAD_ADMISSION_DISABLED",
@@ -100,7 +101,7 @@ async function runProviderHealthDiagnostic(env, owner, runId, fingerprint, autho
       : "Modalのhealth確認に失敗したか、登録済みworkload identityと一致しません。Sandboxと推論は開始していません。",
     machine_state: {
       configured: true, ready, checks: result.checks,
-      admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true",
+      admission_enabled: modalCpuAdmissionEnabled(env),
       sandbox_started: false, inference_started: false,
       control_function_cost_included_in_sandbox_ceiling: false,
     },

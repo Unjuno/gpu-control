@@ -64,6 +64,12 @@ const runpodAdmissionSources = modulesReadingBindingsOutside(runpodAdmissionBoun
 assert.deepEqual(runpodAdmissionSources, [],
   "RunPod admission and completion transport settings may only be read by runpod_admission.js");
 
+const modalCpuPolicyBoundary = join(workerRoot, "modal_cpu_policy.js");
+const modalCpuAdmissionSources = modulesReadingBindingsOutside(modalCpuPolicyBoundary,
+  ["CPU_WORKLOAD_ADMISSION_ENABLED"]);
+assert.deepEqual(modalCpuAdmissionSources, [],
+  "Modal CPU admission may only be interpreted by modal_cpu_policy.js");
+
 // The reviewed MAP workload profile has one environment parser as well. The
 // live admission decision remains separate from profile validity, and the
 // shared control-plane signing key has its own identity/security concern.

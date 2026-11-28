@@ -1,6 +1,6 @@
 import { normalizeTrainingArguments, validToolArguments } from "./experiment_input_contract.js";
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
-import { estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
+import { estimateModalSandboxCostUsd, modalCpuAdmissionEnabled } from "./modal_cpu_policy.js";
 import { prepareModalComputeBudgetReservation, utcMonthKey } from "./provider_budget_policy.js";
 import { providerHealthDiagnosticForAuthorizedSubmit } from "./provider_health_diagnostic.js";
 import { modalConfigured } from "./modal_http_client.js";
@@ -76,7 +76,7 @@ export async function submitModalCpuRun(env, owner, args, request, services) {
       human_summary: "Modal接続設定が不足しています。Sandboxは起動していません。",
       machine_state: { run_id: args.run_id, available: false, sandbox_started: false },
       next_allowed_actions: [], blocking_reason: "MODAL_PROVIDER_NOT_CONFIGURED" };
-    if (env.CPU_WORKLOAD_ADMISSION_ENABLED !== "true") return { schema_version: 2, status: "blocked",
+    if (!modalCpuAdmissionEnabled(env)) return { schema_version: 2, status: "blocked",
       human_summary: "CPU実行Admissionは停止中です。Modalには接続していません。",
       machine_state: { run_id: args.run_id, admission_enabled: false, sandbox_started: false },
       next_allowed_actions: [], blocking_reason: "CPU_WORKLOAD_ADMISSION_DISABLED" };

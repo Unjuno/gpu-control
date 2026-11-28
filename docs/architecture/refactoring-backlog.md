@@ -719,6 +719,10 @@ modules; the exact pushed head and CI are recorded in the progress log.
   price, and quote-expiry profile. Other provider configuration still needs
   the wider inventory. Modal packaging tests now enforce those two established
   configuration ownership boundaries with an AST check over runtime modules.
+  The Worker Modal CPU Admission flag is also interpreted once by
+  `modal_cpu_policy.js`; capability, health, and submit paths consume the same
+  fail-closed predicate, and the Worker architecture check rejects direct
+  reads elsewhere.
 
 ### A12. Add architecture checks only after rules have an owner
 

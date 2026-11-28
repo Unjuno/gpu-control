@@ -10,6 +10,7 @@ import { googleColabConnectionConfigured, googleColabConnectionStatus } from "./
 import { googleColabLifecycleConfigured } from "./google_colab_tools.js";
 import { googleColabAdmissionEnabled } from "./google_colab_policy.js";
 import { runpodAdmissionBlocker } from "./runpod_admission.js";
+import { modalCpuAdmissionEnabled } from "./modal_cpu_policy.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -102,7 +103,7 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
   // after the exact plan's one-use human authorization has been verified.
   const modalCpuBudgetAvailable = Number.isSafeInteger(modalProviderBudget?.monthly_remaining_microusd) &&
     modalProviderBudget.monthly_remaining_microusd >= 10_000;
-  const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady &&
+  const available = modalCpuAdmissionEnabled(env) && providerConfigured && authorizationStoreReady &&
     providerBudgetPolicyReady && modalCpuBudgetAvailable;
   const providers = Object.values(PROVIDER_ROUTES).map(providerRouteCapability);
   const providerByRoute = new Map(providers.map((provider) => [provider.id, provider]));
@@ -146,7 +147,7 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     human_summary: available
       ? "Capabilitiesを確認しました。Modal CPUは1 core / 512 MiB、最大30秒です。実際の接続確認はplan確認後に行います。Sandbox使用料は利用可能なクレジットがあれば充当されます。"
       : "Capabilitiesを確認しました。Modal CPU routeは停止中です。他provider/workloadの可否は各enabledとblockerを参照してください。",
-    machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: PROVIDER_ROUTES.modal_cpu.id, workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_inflight: 1, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
+    machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: modalCpuAdmissionEnabled(env), provider: PROVIDER_ROUTES.modal_cpu.id, workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_inflight: 1, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
     blocking_reason: available ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" :
       !modalCpuBudgetAvailable ? "PROVIDER_BUDGET_EXHAUSTED" :
       !authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" :

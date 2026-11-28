@@ -23,6 +23,21 @@ passes (214), the Worker graph remains acyclic across 78 modules, and
 `git diff --check` passes. No provider, credential, admission, deployment, or
 billing state was touched.
 
+## 2026-11-29 — A11: centralize Modal CPU admission parsing
+
+**Finding:** capability projection, provider-health diagnostics, and Modal CPU
+submission each interpreted `CPU_WORKLOAD_ADMISSION_ENABLED === "true"` on
+their own. The behavior matched but had no setting owner and could drift.
+
+**Change:** `modal_cpu_policy.js` now owns the literal-true predicate. All three
+callers use it, and `check-worker-architecture.mjs` fails if another Worker
+module reads the raw binding. A unit test covers missing and malformed values.
+
+**Validation:** 47 focused Worker tests pass; the complete Sites suite passes
+(215); the Worker graph remains acyclic across 78 modules; and `git diff
+--check` passes. No provider, credential, admission, deployment, or billing
+state was changed.
+
 ## 2026-11-29 — A11: share MAP Modal profile parsing
 
 **Finding:** the MAP function entrypoint validated source, image, and runtime

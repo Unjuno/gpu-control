@@ -1,5 +1,10 @@
 import { WORKLOADS } from "./workload_registry.js";
 
+/** One fail-closed interpretation for the live Modal CPU execution gate. */
+export function modalCpuAdmissionEnabled(env) {
+  return env?.CPU_WORKLOAD_ADMISSION_ENABLED === "true";
+}
+
 export const MODAL_MAX_RUNTIME_SECONDS = WORKLOADS.tiny_stories.runtime_seconds;
 export const MODAL_SANDBOX_CPU_LIMIT_CORES = 1;
 export const MODAL_SANDBOX_MEMORY_LIMIT_MIB = 512;
