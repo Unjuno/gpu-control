@@ -99,16 +99,19 @@ back to a paid provider or claim GPU availability from subscription tier alone.
 1. **In progress:** Google OAuth connection, callback, owner binding, encrypted
    token storage, refresh, disconnect/revocation, and account-isolation tests.
    The current implementation is local to Sites and is not deployed.
-2. **In progress:** a narrowly scoped hosted-MCP client enforces endpoint
-   allowlisting, request/response limits, deadlines, OAuth refresh, and a
-   fixed provider-tool allowlist. Full Google response-schema validation remains
-   part of provider lifecycle work.
+2. **In progress:** the hosted-MCP client enforces endpoint allowlisting,
+   bounded request/response sizes, OAuth refresh, and a fixed tool allowlist.
+   `google_colab_mcp_contract.js` validates exact runtime/session/execution
+   inputs and response identity. These operations have no public Sites caller
+   yet; Colab remains a read-only public capability surface. The current
+   request timeout is not suitable for runtime creation or long training.
 3. Add Colab capabilities and prepare logic with immutable source, eligible
    runtime spec, hard runtime/output bounds, and an explicit `cost_unknown`
    semantics until quota evidence is trustworthy.
-4. Add idempotent D1 submit, asynchronous operation/status reconciliation,
-   session execution recovery, cancellation, result retrieval, and confirmed
-   cleanup.
+4. Add an owner-scoped durable job mechanism supported by the Sites host, then
+   idempotent D1 submit, asynchronous operation/status reconciliation, session
+   execution recovery, cancellation, result retrieval, and confirmed session
+   cleanup. Do not delete a runtime unless the owner explicitly asks.
 5. Keep CI offline by default. Use mocks/contracts for routine CI; a separate
    owner-controlled live Colab acceptance workflow may be added only when its
    credential, quota, cost, and cleanup bounds are verified and the workflow

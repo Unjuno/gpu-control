@@ -1,14 +1,9 @@
 import { googleColabAccessToken } from "./google_colab_connection.js";
+import { validGoogleColabToolCall } from "./google_colab_mcp_contract.js";
 
 const COLAB_MCP_ENDPOINT = "https://colaboratory.googleapis.com/mcp";
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;
-// The current product surface is read-only. Runtime creation and code
-// execution stay unreachable until the owner-bound run lifecycle is wired.
-const READ_ONLY_MCP_TOOLS = new Set([
-  "get_subscription", "list_runtimes", "list_runtime_specs",
-]);
-
 async function readBoundedText(response) {
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) throw new Error("GOOGLE_COLAB_RESPONSE_TOO_LARGE");
@@ -67,7 +62,7 @@ function parseMcpResponse(text, contentType, id) {
 
 /** Call only the fixed Google Colab hosted MCP endpoint and its fixed tool set. */
 export async function callGoogleColabMcpTool(env, owner, name, argumentsValue = {}, options = {}) {
-  if (!READ_ONLY_MCP_TOOLS.has(name) || !argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) {
+  if (!validGoogleColabToolCall(name, argumentsValue)) {
     throw new Error("GOOGLE_COLAB_TOOL_INVALID");
   }
   const auth = await googleColabAccessToken(env.DB, env, owner, { fetchImpl: options.fetchImpl });

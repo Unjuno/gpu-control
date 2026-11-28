@@ -28,6 +28,34 @@ and quota contract, exact-plan binding, asynchronous operation recovery,
 run-owned session/runtime cleanup, and output/artifact bounds. Colab remains
 unavailable until those paths are integrated and accepted end to end.
 
+## 2026-11-28 — A6: define the narrow Colab runtime operation contract
+
+**Finding:** Google requires stable UUID request IDs for runtime-create retry,
+stable session IDs for session recovery, and a new UUID execution ID per
+execution. A timed-out execution must be reattached with the identical session
+and execution ID. Session deletion aborts its running code; deleting a runtime
+also destroys all user data and is documented only when the user requests it.
+The existing Sites client had a generic 30-second request deadline and only a
+read-only tool allowlist, so neither runtime allocation nor long-running
+training could safely be routed through it as-is.
+
+**Change:** added one Colab MCP contract module for exact tool arguments and
+owner-run-bound runtime/session/execution response validation. The hosted MCP
+client accepts only that narrow lifecycle allowlist and rejects runtime-wide
+deletion. The public Sites tool surface remains read-only for Colab; no
+runtime, session, or experiment was started.
+
+**Validation:** the full Sites Worker suite passes (165 tests), the import
+graph is acyclic across 54 runtime modules, and the workload registry check
+passes.
+
+**Remaining:** an owner-scoped durable job must outlive the chat request,
+persist the Google operation/runtime/session handles before the next step,
+resume the exact Colab operation after transport ambiguity, and finalize the
+same training/run ledger. The current client timeout is not a job runner.
+Admission remains closed until that lifecycle, bounded quota semantics,
+artifacts, cancellation, and session cleanup are wired and verified.
+
 ## 2026-11-28 — A6: refresh Colab CLI boundary evidence
 
 **Finding:** the current official [`google-colab-cli` README](https://github.com/googlecolab/google-colab-cli)

@@ -250,6 +250,12 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   metadata, and terminal cleanup remain the single lifecycle authority. Modal's
   owner-selected plan construction has been separated from the shared training
   orchestrator as a first boundary; it is not evidence of Colab readiness.
+  Google runtime creation and execution can outlive an interactive MCP request:
+  use an owner-scoped durable job facility supported by the Sites host, not a
+  longer synchronous timeout or a second provider ledger. Persist stable Google
+  request/session/execution IDs before each remote call and reconcile the same
+  call after ambiguity. Colab runtime deletion remains an explicit owner action;
+  automated run cleanup closes only the session created by that run.
   Keep admission closed until exact-head CI, independent security review, and
   one bounded end-to-end GPU acceptance pass.
 - **Done when:** from ordinary ChatGPT chat/Work and at least one documented
