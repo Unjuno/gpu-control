@@ -1,10 +1,7 @@
+import { sha256Hex } from "./sha256.js";
+
 const RUN_ARTIFACT_ID = "result-json-v1";
 const RUN_ARTIFACT_MAX_BYTES = 8 * 1024;
-
-async function sha256Bytes(bytes) {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 function base64(bytes) {
   let binary = "";
@@ -30,7 +27,7 @@ export async function persistRunResultArtifact(env, { runId, ownerId, sourceSha,
       !Number.isSafeInteger(now)) throw new Error("RUN_ARTIFACT_STORAGE_UNAVAILABLE");
   const bytes = runArtifactBytes(resultJson);
   if (bytes.byteLength < 1 || bytes.byteLength > RUN_ARTIFACT_MAX_BYTES) throw new Error("RUN_ARTIFACT_TOO_LARGE");
-  const digest = await sha256Bytes(bytes);
+  const digest = await sha256Hex(bytes);
   const key = artifactKey(runId, digest);
   await env.BUCKET.put(key, bytes, { customMetadata: {
     run_id: runId, sha256: digest, plan_fingerprint: planFingerprint, source_sha: sourceSha,
@@ -83,7 +80,7 @@ export async function readRunResultArtifact(env, ownerId, args) {
     throw new Error("ARTIFACT_METADATA_MISMATCH");
   }
   const bytes = new Uint8Array(await object.arrayBuffer());
-  if (bytes.length !== row.result_artifact_size || await sha256Bytes(bytes) !== row.result_artifact_sha256) {
+  if (bytes.length !== row.result_artifact_size || await sha256Hex(bytes) !== row.result_artifact_sha256) {
     throw new Error("ARTIFACT_CHECKSUM_MISMATCH");
   }
   if (args.offset > bytes.length) throw new Error("ARTIFACT_OFFSET_OUT_OF_RANGE");

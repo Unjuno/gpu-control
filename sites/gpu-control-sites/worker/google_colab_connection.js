@@ -1,3 +1,5 @@
+import { sha256Bytes, sha256Hex as sha256 } from "./sha256.js";
+
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
@@ -23,11 +25,7 @@ function randomHex(bytes = 32) {
   return [...crypto.getRandomValues(new Uint8Array(bytes))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 function randomBase64Url(bytes = 32) { return base64Url(crypto.getRandomValues(new Uint8Array(bytes))); }
-async function sha256(value) {
-  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(value)))]
-    .map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-async function pkceChallenge(verifier) { return base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(verifier)))); }
+async function pkceChallenge(verifier) { return base64Url(await sha256Bytes(utf8(verifier))); }
 function validOwner(owner) { return typeof owner === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$/.test(owner); }
 function validText(value, min = 1, max = 512) { return typeof value === "string" && value.length >= min && value.length <= max; }
 

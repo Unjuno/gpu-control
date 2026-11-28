@@ -1,4 +1,5 @@
 import { canonicalJson } from "./canonical_json.js";
+import { sha256Hex } from "./sha256.js";
 
 const RESULT_MARKER = "GPU_CONTROL_RESULT_JSON_V1:";
 const COMPLETION_MARKER = "GPU_CONTROL_COMPLETION_JSON_V3:";
@@ -39,10 +40,6 @@ function hex(bytes) {
   return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-async function sha256(bytes) {
-  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
-}
-
 function validateResult(result, expected) {
   const keys = ["compute_capability", "device_count", "device_name", "elapsed_wall_seconds", "execution_name",
     "free_vram_bytes", "gpu_used", "image_digest", "provider", "source_sha", "test", "total_vram_bytes"];
@@ -78,7 +75,7 @@ export async function verifyRunpodCompletion(lines, completionKeyBytes, expected
       completion.plan_fingerprint !== expected.planFingerprint || completion.execution_name !== expected.executionName ||
       completion.source_sha !== expected.sourceSha || completion.image_digest !== expected.imageDigest ||
       completion.process_exit_code !== 0 || !HEX_64.test(completion.result_sha256) || !HEX_64.test(completion.mac_sha256) ||
-      completion.result_sha256 !== await sha256(resultMarker.bytes)) {
+      completion.result_sha256 !== await sha256Hex(resultMarker.bytes)) {
     throw new RunpodCompletionError("RUNPOD_COMPLETION_IDENTITY_MISMATCH");
   }
   const { mac_sha256: suppliedMac, ...unsigned } = completion;

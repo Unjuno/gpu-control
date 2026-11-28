@@ -943,3 +943,21 @@ fixed resource/cost limits and idempotency behavior remain unchanged.
 plan idempotency and invalid ceiling cases; D1 forward migration tests pass;
 build packages all 39 reachable modules; Site artifact validation and
 `git diff --check` pass. `worker/index.js` is 1,854 lines.
+
+
+## 2026-11-28 — Normalize Worker SHA-256 operations
+
+**Problem:** independently implemented Web Crypto digest-to-hex logic was
+spread across authentication, artifact, provider, training and entrypoint
+modules, including different handling of text and raw bytes.
+
+**Change:** introduced `worker/sha256.js` as the one production digest
+implementation for text/byte input, raw digest bytes and lowercase hex output.
+Migrated all Worker production SHA-256 calls, including OAuth PKCE's
+base64url digest input, without changing token encodings, identifiers or
+checksums. Added known-vector and input-contract tests.
+
+**Validation:** all 148 Worker tests pass; D1 forward migration tests pass;
+build packages all 40 reachable modules; Site artifact validation and
+`git diff --check` pass. A source scan confirms only the shared utility calls
+`crypto.subtle.digest("SHA-256", ...)` in production Worker modules.

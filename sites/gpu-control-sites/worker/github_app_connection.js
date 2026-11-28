@@ -1,3 +1,5 @@
+import { sha256Bytes, sha256Hex as sha256 } from "./sha256.js";
+
 const API_ORIGIN = "https://api.github.com";
 const API_VERSION = "2022-11-28";
 const INSTALL_STATE_TTL_SECONDS = 600;
@@ -99,11 +101,6 @@ export async function createGithubAppJwt(env, now = Math.floor(Date.now() / 1000
   return `${unsigned}.${base64Url(new Uint8Array(signature))}`;
 }
 
-async function sha256(value) {
-  const digest = await crypto.subtle.digest("SHA-256", utf8(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 function randomHex(bytes = 32) {
   return [...crypto.getRandomValues(new Uint8Array(bytes))]
     .map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -114,7 +111,7 @@ function randomBase64Url(bytes = 32) {
 }
 
 async function pkceChallenge(verifier) {
-  return base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(verifier))));
+  return base64Url(await sha256Bytes(utf8(verifier)));
 }
 
 export async function createGithubInstallationUrl(db, owner, appSlug, now = Math.floor(Date.now() / 1000)) {

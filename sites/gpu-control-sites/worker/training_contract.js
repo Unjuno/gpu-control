@@ -1,4 +1,5 @@
 import { parseTrainingSource } from "./training_source.js";
+import { sha256Hex } from "./sha256.js";
 
 export const TRAINING_MANIFEST_PATH = ".gpu-control/experiment.json";
 const MANIFEST_PATH = TRAINING_MANIFEST_PATH;
@@ -83,8 +84,7 @@ export async function trainingRuntimeProfileFingerprint(executionConfig, now = M
   const fields = ["image_id", "hourly_microusd", "staging_hourly_microusd", "quote_expires_at",
     "max_runtime_seconds", "max_cost_microusd", "monthly_microusd", "control_plane_sha"];
   const canonical = JSON.stringify(fields.map((field) => executionConfig[field]));
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(canonical);
 }
 
 export function trainingControlPlaneConfigured(controlPlaneSha) {
@@ -215,13 +215,10 @@ export async function readPublicTrainingContract(repository, commit, fetchImpl =
     if (error?.message === "TRAINING_GITHUB_LOOKUP_FAILED") throw error;
     lockBytes = null;
   }
-  const lockSha256 = lockBytes
-    ? [...new Uint8Array(await crypto.subtle.digest("SHA-256", lockBytes))]
-      .map((byte) => byte.toString(16).padStart(2, "0")).join("") : null;
+  const lockSha256 = lockBytes ? await sha256Hex(lockBytes) : null;
   const readiness = manifestReadiness(manifest, lockBytes, executionConfig);
   return { repository: source.repository, commit: source.commit, manifest_path: MANIFEST_PATH,
-    manifest, manifest_sha256: [...new Uint8Array(await crypto.subtle.digest("SHA-256", manifestBytes))]
-      .map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+    manifest, manifest_sha256: await sha256Hex(manifestBytes),
     dependency_lock: lockBytes ? { path: manifest.dependencies_lock, size_bytes: lockBytes.byteLength,
       sha256: lockSha256 } : { path: manifest.dependencies_lock, state: "unavailable" },
     readiness, execution_available: readiness.ready,

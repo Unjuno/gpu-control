@@ -451,3 +451,12 @@ authorization lifetime has one authority in `worker/human_authorization_policy.j
 shared with the confirmation routes. Provider routing stays in the Worker
 dispatcher; CPU plan creation is now its own domain operation. `index.js` fell
 from 1,875 to 1,854 lines from parent `36935b3`.
+
+
+**Progress (2026-11-28):** all Worker production SHA-256 digest generation now
+uses `worker/sha256.js`, which defines the text-or-byte input contract and
+canonical lowercase hex encoding. PKCE callers use the same byte digest before
+base64url encoding. Removed parallel implementations from the entrypoint,
+OAuth, provider, artifact and training modules. Known-vector tests cover text,
+bytes, the empty digest and invalid input. The worker graph is acyclic across
+40 runtime modules; `index.js` is 1,850 lines.

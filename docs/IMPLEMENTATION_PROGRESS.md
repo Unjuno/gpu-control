@@ -4724,3 +4724,16 @@ confirmation flows. Entry point remains the provider dispatcher and is now
 Validation: 146 Worker tests pass; D1 forward migration tests pass; build
 packages all 39 Worker modules; artifact validation and `git diff --check`
 pass. No provider, migration or deployment was run.
+
+
+## 2026-11-28 architecture batch — Worker SHA-256 authority
+
+Standardized production SHA-256 hashing in `sites/gpu-control-sites/worker/sha256.js`.
+String and byte callers share one digest implementation; OAuth PKCE reuses its
+raw digest bytes before base64url encoding. Migrated owner-token hashing, run
+artifact checksums, plan fingerprints, provider evidence and training contract
+hashes. Added canonical vector and invalid-input tests.
+
+Validation: 148 Worker tests pass; D1 forward migrations pass; build packages
+all 40 Worker modules; artifact validation and `git diff --check` pass. A scan
+confirms the shared utility is the only production Worker SHA-256 digest call.

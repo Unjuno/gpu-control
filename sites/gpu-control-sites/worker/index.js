@@ -1,4 +1,5 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
+import { sha256Hex as sha256 } from "./sha256.js";
 import { isMcpToolReadOnly, listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
 import { normalizeTrainingArguments, safeJson, validGatewayApprovedPlan, validGatewayPrepare,
   validProviderApprovedPlan, validToolArguments } from "./experiment_input_contract.js";
@@ -103,11 +104,6 @@ function submitSummary(state) {
     cancelled: "この実験はキャンセル済みです。",
   };
   return summaries[state] || "この実験の保存済み状態を取得しました。";
-}
-
-async function sha256(text) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function randomHex(byteLength) {

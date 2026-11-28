@@ -8,6 +8,7 @@ import { DEFAULT_MAP_EXECUTION, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX
   OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
 import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
+import { sha256Hex } from "./sha256.js";
 
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -71,9 +72,7 @@ async function previewOwnerTrainingPlan(env, owner, args, source, getSourceToken
     machine_state: { ...inspected, estimated_cost_microusd: estimatedCost },
     next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_TOO_LOW" };
   const gpu = contract.manifest.gpu_profiles.find((profile) => ["T4", "L4"].includes(profile));
-  const executionSpecId = [...new Uint8Array(await crypto.subtle.digest("SHA-256",
-    new TextEncoder().encode(`${source.registration_id}:${contract.manifest_sha256}:${contract.dependency_lock.sha256}`)))]
-    .slice(0, 16).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const executionSpecId = (await sha256Hex(`${source.registration_id}:${contract.manifest_sha256}:${contract.dependency_lock.sha256}`)).slice(0, 32);
   if (args.execution_spec_id !== undefined && args.execution_spec_id !== executionSpecId) {
     return { schema_version: 2, status: "blocked",
       human_summary: "この固定commitとmanifestに一致するexecution specがありません。",
@@ -245,8 +244,7 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
 
   const { executable, ...plan } = preview.machine_state;
   const json = JSON.stringify(plan);
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([owner, json])));
-  const fingerprint = [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const fingerprint = await sha256Hex(JSON.stringify([owner, json]));
   const now = Math.floor(Date.now() / 1000);
   const expires = Math.min(now + 600, plan.quote_expires_at);
   if (expires <= now) throw new Error("TRAINING_PLAN_EXPIRED");

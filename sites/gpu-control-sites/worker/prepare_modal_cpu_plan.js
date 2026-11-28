@@ -1,13 +1,9 @@
 import { validPlan } from "./experiment_input_contract.js";
+import { sha256Hex as sha256 } from "./sha256.js";
 import { canonicalJson } from "./canonical_json.js";
 import { MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE, MODAL_SANDBOX_CPU_LIMIT_CORES,
   MODAL_SANDBOX_MEMORY_LIMIT_MIB, MODAL_SANDBOX_RESOURCES, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
-
-async function sha256(value) {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
-  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 export async function prepareModalCpuPlan(env, owner, prepareArgs) {
   if (!validPlan(prepareArgs, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");

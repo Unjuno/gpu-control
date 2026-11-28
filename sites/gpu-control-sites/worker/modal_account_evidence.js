@@ -1,4 +1,5 @@
 import { canonicalJson as canonical } from "./canonical_json.js";
+import { sha256Hex as sha256 } from "./sha256.js";
 
 const PRICE_SOURCE = "https://modal.com/pricing";
 const EVIDENCE_KEYS = ["charges_usd", "credits_used_usd", "environment", "evidence_id", "expires_at",
@@ -12,11 +13,6 @@ function usdToMicrousd(value, decimals) {
 
 function ceilMicrousdToCents(value) {
   return Math.floor((value + 9_999) / 10_000);
-}
-
-async function sha256(value) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** Validate short-lived, operator-observed Modal account evidence for one exact GPU lane. */

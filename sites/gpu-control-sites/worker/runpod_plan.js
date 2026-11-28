@@ -1,6 +1,7 @@
 import { runpodConfigured } from "./runpod_provider.js";
 import { WORKLOADS } from "./workload_registry.js";
 import { canonicalJson } from "./canonical_json.js";
+import { sha256Hex as sha256 } from "./sha256.js";
 
 export const RUNPOD_WORKLOAD = WORKLOADS.runpod_canary.id;
 export const RUNPOD_REPOSITORY = WORKLOADS.runpod_canary.repository;
@@ -13,11 +14,6 @@ export const RUNPOD_COST_CEILING_MICROUSD = Number(RUNPOD_COST_CEILING_USD) * 1_
 export const RUNPOD_PLAN_TTL_SECONDS = 600;
 
 function canonical(value) { return canonicalJson(value, "RUNPOD_PLAN_INVALID"); }
-
-async function sha256(value) {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
-  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 function imageDigest(image) {
   const match = typeof image === "string" ? image.match(/@(sha256:[0-9a-f]{64})$/) : null;

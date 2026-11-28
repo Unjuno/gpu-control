@@ -1,3 +1,5 @@
+import { sha256Hex } from "./sha256.js";
+
 const CHALLENGE_TTL_SECONDS = 600;
 
 function randomHex(bytes = 16) {
@@ -5,10 +7,7 @@ function randomHex(bytes = 16) {
     .map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function challengeHash(token) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-}
+async function challengeHash(token) { return sha256Hex(token); }
 
 export async function issueTrainingChallenge(db, owner, runId, fingerprint, controlPlaneSha, now) {
   const token = randomHex(32);

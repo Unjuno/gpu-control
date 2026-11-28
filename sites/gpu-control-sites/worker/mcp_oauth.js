@@ -1,4 +1,5 @@
 import { githubAppOAuthConfigured, readGithubOAuthIdentity } from "./github_app_connection.js";
+import { sha256Bytes, sha256Hex as sha256 } from "./sha256.js";
 
 const READ_SCOPE = "experiments:read";
 const EXECUTE_SCOPE = "experiments:execute";
@@ -22,13 +23,8 @@ function randomHex(length = 16) {
     .map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function sha256(value) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 async function pkceChallenge(verifier) {
-  return bytesToBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+  return bytesToBase64Url(await sha256Bytes(verifier));
 }
 
 function validOrigin(origin) {
