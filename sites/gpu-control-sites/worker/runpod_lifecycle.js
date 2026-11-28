@@ -204,7 +204,7 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
     machine_state: run, next_allowed_actions: ["experiment_status", ...(run.state === "running" ? ["experiment_cancel"] : [])], blocking_reason: null };
 }
 
-export async function synchronizeRunpodExperiment(env, owner, runId, { client = null, cancel = false } = {}) {
+export async function synchronizeRunpodExperiment(env, owner, runId, { client = null, cancel = false, now: suppliedNow = null } = {}) {
   const row = await env.DB.prepare(`SELECT r.*, p.fingerprint, p.source_sha, p.image_digest, p.runtime_seconds, p.provider_plan_json
     FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id=? AND r.owner_id=? AND p.provider='runpod_gpu'`)
     .bind(runId, owner).first();
@@ -248,7 +248,7 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
   }
   const provider = client ?? new RunpodV2Client(env, { owner });
-  const now = Math.floor(Date.now() / 1000);
+  const now = suppliedNow ?? Math.floor(Date.now() / 1000);
   if (row.provider_phase === "uncertain") {
     let recovered = null;
     try {
@@ -290,9 +290,10 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     }
   }
   if (!JOB_ID.test(row.provider_job_id || "")) return row;
-  if (cancel || now > row.provider_started_at + row.runtime_seconds + 60) {
-    await cancelAndRelease(env, provider, row, lease, { state: cancel ? "cancelled" : "failed",
-      failureCode: cancel ? "CALLER_CANCELLED" : "RUNPOD_RUNTIME_EXCEEDED" });
+  const cancellationRequested = cancel || row.cancel_requested === 1;
+  if (cancellationRequested || now > row.provider_started_at + row.runtime_seconds + 60) {
+    await cancelAndRelease(env, provider, row, lease, { state: cancellationRequested ? "cancelled" : "failed",
+      failureCode: cancellationRequested ? "CALLER_CANCELLED" : "RUNPOD_RUNTIME_EXCEEDED" });
     return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
   }
   const observed = validateJobStatus(await provider.getJob(row.provider_job_id,

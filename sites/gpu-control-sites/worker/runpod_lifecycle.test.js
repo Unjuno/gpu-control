@@ -86,9 +86,11 @@ test("an ambiguous relay response recovers the one claimed provider job without 
     const args = { run_id: prepared.run_id, plan_fingerprint: prepared.plan_fingerprint,
       provider_approved_plan: prepared.provider_approved_plan };
     await submitRunpodExperiment(env, "site-owner", args, { client, now: 101, reserveBudget: async () => true });
+    raw.prepare("UPDATE runs SET cancel_requested=1 WHERE id=?").run(prepared.run_id);
     receiptReady = true;
-    const recovered = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client });
+    const recovered = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client, now: 102 });
     assert.equal(recovered.provider_job_id, client.jobId);
+    assert.equal(recovered.state, "cancelled");
     assert.equal(recovered.provider_phase, "terminal");
     assert.equal(recovered.cleanup_state, "confirmed");
     assert.equal(client.creates, 1);

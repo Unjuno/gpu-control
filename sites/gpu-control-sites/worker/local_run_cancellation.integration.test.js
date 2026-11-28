@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "./index.js";
+import { cancelLocalRun } from "./local_run_cancellation.js";
 
 const sourceSha = "b".repeat(40);
 const imageDigest = `sha256:${"a".repeat(64)}`;
@@ -67,6 +68,38 @@ test("requests cooperative cancellation for an owned running run", async () => {
   assert.equal(result.machine_state.state, "running");
   assert.equal(result.machine_state.cancellation_requested, true);
   assert.equal(updates(), 1);
+});
+
+test("ambiguous RunPod cancellation stays pending and is retried after receipt recovery", async () => {
+  const run = { id: "e".repeat(32), owner_id: "test-owner", state: "running",
+    cancel_requested: 0, cleanup_state: "pending", provider_phase: "uncertain", provider_job_id: null };
+  const env = { DB: { prepare(sql) { return { bind(...values) { return { async first() {
+    if (sql.includes("FROM runs") && sql.includes("owner_id")) {
+      return values.includes(run.id) ? { ...run } : null;
+    }
+    if (sql.includes("SELECT p.provider")) return { provider: "runpod_gpu" };
+    if (sql.includes("UPDATE runs SET cancel_requested=1")) {
+      run.cancel_requested = 1;
+      return { id: run.id, state: run.state, cancel_requested: 1 };
+    }
+    return null;
+  } }; } }; } } };
+  let requestedCancel = false;
+  const result = await cancelLocalRun(env, run.owner_id, run.id, { synchronizeRunpod: async (_env, _owner, id, options) => {
+    assert.equal(id, run.id);
+    requestedCancel = options.cancel;
+    return { ...run };
+  } });
+
+  assert.equal(requestedCancel, true);
+  assert.equal(run.cancel_requested, 1, "cancellation intent is durable while the submission receipt is missing");
+  assert.equal(result.status, "pending");
+  assert.equal(result.machine_state.state, "uncertain");
+  assert.equal(result.machine_state.provider_resource_created, "unknown");
+  assert.equal(result.machine_state.cleanup_state, "pending");
+  assert.equal(result.machine_state.cancellation_requested, true);
+  assert.deepEqual(result.next_allowed_actions, ["experiment_status"]);
+  assert.match(result.human_summary, /not yet confirmed/);
 });
 
 test("does not let another Site user cancel an owned run", async () => {

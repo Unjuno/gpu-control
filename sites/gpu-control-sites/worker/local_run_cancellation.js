@@ -9,9 +9,26 @@ export async function cancelLocalRun(env, owner, runId, { synchronizeRunpod }) {
       WHERE r.id=? AND r.owner_id=?`).bind(runId, owner).first();
   } catch {}
   if (cancelProvider?.provider === "runpod_gpu") {
+    if (row.state === "running" && row.cancel_requested !== 1) {
+      const requested = await env.DB.prepare(`UPDATE runs SET cancel_requested=1, updated_at=?
+        WHERE id=? AND owner_id=? AND state='running' AND cancel_requested=0 RETURNING id, state, cancel_requested`)
+        .bind(Math.floor(Date.now() / 1000), runId, owner).first();
+      if (requested) row = requested;
+      else row = await selectRun();
+      if (!row) throw new Error("RUN_NOT_FOUND");
+    }
     const runpod = await synchronizeRunpod(env, owner, runId, { cancel: true });
-    return { schema_version: 2, status: "ok", human_summary: "Runpod cancellation and cleanup completed.",
-      machine_state: { run_id: runpod.id, state: runpod.state, cleanup_state: runpod.cleanup_state },
+    if (!runpod) throw new Error("RUN_NOT_FOUND");
+    const cleanupConfirmed = ["succeeded", "failed", "cancelled"].includes(runpod.state) && runpod.cleanup_state === "confirmed";
+    return { schema_version: 2, status: cleanupConfirmed ? "ok" : "pending",
+      human_summary: cleanupConfirmed
+        ? "Runpod reached a terminal state and cleanup was confirmed."
+        : "Runpod cancellation is not yet confirmed. The same run remains active or uncertain; check its status for provider receipt recovery and cleanup.",
+      machine_state: { run_id: runpod?.id || runId, state: runpod?.provider_phase === "uncertain" ? "uncertain" : runpod?.state,
+        provider_phase: runpod?.provider_phase || "uncertain",
+        cancellation_requested: runpod?.cancel_requested === 1 || runpod?.state === "cancelled",
+        provider_resource_created: runpod?.provider_job_id ? true : "unknown",
+        cleanup_state: runpod?.cleanup_state || "unknown" },
       next_allowed_actions: ["experiment_status"], blocking_reason: null };
   }
   const now = Math.floor(Date.now() / 1000);
