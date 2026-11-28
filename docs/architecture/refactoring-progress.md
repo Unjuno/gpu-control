@@ -1869,3 +1869,27 @@ UTF-8. The full Sites suite passes all 182 tests; the Worker graph is acyclic
 across 65 runtime modules; `git diff --check` passes. Independent read-only
 security review found no actionable issues. No provider, run, account,
 deployment, admission, or credential state was changed.
+
+
+## 2026-11-28 — A7: isolate ChatGPT browser authorization routes
+
+**Problem:** `worker/index.js` still contained the browser confirmation
+surface for both fixed CPU plans and owner-selected GPU plans. Authentication,
+exact plan rendering, challenge issuance, Origin/form checks, and one-use D1
+consumption formed one coherent HTTP boundary but were mixed with MCP route
+composition.
+
+**Change:** moved the complete `/authorize` and `/authorize-training` flow to
+`worker/training_authorization_routes.js`. The composition root supplies the
+shared renderer, escaping helper, public origin, and canonical authorization
+URL builder. Existing route registration and user-visible contracts remain
+unchanged.
+
+**Validation:** full Sites suite passes all 182 tests, including exact owner
+binding, sign-in return path, HTML escaping, cross-site/wrong-origin rejection,
+duplicate form rejection, single-use challenge consumption, and owner-scoped
+training authorization. The Worker graph is acyclic across 66 runtime
+modules; `git diff --check` passes. Independent read-only security review
+found no actionable issue with owner checks, exact plan binding, control-plane
+checks, one-use challenges, POST validation, or HTML protections. No live
+provider or deployment operation occurred.
