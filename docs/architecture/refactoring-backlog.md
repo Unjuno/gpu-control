@@ -232,7 +232,7 @@ acceptance.
   support. The generated provider catalog now owns route/provider IDs, billing
   class, credit eligibility, adapter hosting and fixed route metadata;
   capability readiness remains dynamic and does not imply execution support.
-- **MAP account gate:** ADR 0007 adds a separate L4 Workspace evidence contract
+- **MAP account gate:** ADR 0013 adds a separate L4 Workspace evidence contract
   to prevent the Sites reservation from being mistaken for the actual Modal
   account cap. The candidate rejects a MAP monthly configuration above $1 and
   binds/rechecks the exact account evidence at submit. This evidence remains

@@ -1,4 +1,4 @@
-# ADR 0007: Bind current Modal account evidence to MAP training plans
+# ADR 0013: Bind current Modal account evidence to MAP training plans
 
 - **Status:** accepted for the parked MAP acceptance lane
 - **Date:** 2026-11-28

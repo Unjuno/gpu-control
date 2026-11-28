@@ -734,7 +734,8 @@ name and verify the returned full repository identity. Modal staging and GPU
 Sandboxes now use explicit CPU/memory request-limit tuples. Staged wheels are
 readable by the unprivileged training user, wheel downloads target the manifest
 Python ABI, and the Worker delegation allowlist includes declared
-training_artifact retrieval. Added ADR 0007 and documented OAuth configuration
+training_artifact retrieval. Added the MAP account-evidence ADR (now ADR 0013
+after resolving a duplicate ADR number) and documented OAuth configuration
 and the one-time reconnect consequence.
 
 **Local evidence:** 117 Worker tests, acyclic 18-module graph, registry drift
@@ -895,7 +896,7 @@ remaining headroom for the confirmed plan ceiling plus one cent. The complete
 record is included in the immutable plan/fingerprint and shown on the owner
 confirmation page. Submit validates the evidence again before budget
 reservation, authorization consumption, or adapter dispatch. MAP's configured
-monthly ceiling is hard-bounded at `$1.00`. ADR 0007 records that this is
+monthly ceiling is hard-bounded at `$1.00`. ADR 0013 records that this is
 operator-supplied evidence, not a signed live billing API attestation.
 
 **Validation:** 120 Sites Worker tests pass, including fresh/stale/over-budget
@@ -2375,3 +2376,19 @@ and [Cloudflare Worker limits](https://developers.cloudflare.com/workers/platfor
 were reviewed on 2026-11-28. No runtime or provider call was made; no
 admission, credential, budget, or deployment setting changed. The current
 adapter remains read-only and the execution lifecycle is unimplemented.
+
+## 2026-11-28 — A12: make architecture decision identifiers unique
+
+**Finding:** two different decisions used ADR 0007, while the architecture
+index linked only one of them. References to the Modal MAP account-evidence
+decision were therefore ambiguous.
+
+**Change:** renumbered the MAP Modal account-evidence decision to ADR 0013,
+added it to the architecture index, and updated the backlog and historical
+progress references. The GitHub installation owner-proof decision remains ADR
+0007.
+
+**Validation:** searched the repository for the old MAP ADR reference, checked
+the decision index and file numbering, and ran `git diff --check`. This is a
+documentation-only change; no provider, runtime, credential, deployment, or
+admission state changed.

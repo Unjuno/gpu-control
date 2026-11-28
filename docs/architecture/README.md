@@ -33,6 +33,9 @@ conversations a reliable front end for external compute.
   hosted Colab API MCP through an owner-scoped Sites provider adapter.
 - [ADR 0012](decisions/0012-mcp-oauth-multi-client.md): authenticate
   compatible external MCP clients to the same owner-scoped experiment ledger.
+- [ADR 0013](decisions/0013-map-modal-account-evidence.md): bind current
+  Modal account usage evidence to MAP training plans without treating the
+  Sites reservation as a provider billing cap.
 - [Colab provider specification](google-colab-provider.md): OAuth, runtime,
   idempotency, quota, artifact and cleanup contracts for the integration.
 - [Google Colab CLI guide](../GOOGLE_COLAB_CLI.md): what the official CLI can
