@@ -54,6 +54,60 @@ def _assert_config_owner_reads(path: str, tree: ast.AST) -> None:
             )
 
 
+def _modal_import_graph(modal_root: Path) -> dict[str, set[str]]:
+    sources = [path for path in modal_root.glob("*.py") if not path.name.startswith("test_")]
+    sources.extend(path for path in (modal_root / "provider_runtime").glob("*.py"))
+    modules = {}
+    for path in sources:
+        relative = path.relative_to(modal_root).with_suffix("")
+        name = ".".join(relative.parts).removesuffix(".__init__")
+        modules[name] = path
+    graph = {name: set() for name in modules}
+    for name, path in modules.items():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                graph[name].update(alias.name for alias in node.names if alias.name in modules)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    package = name.rpartition(".")[0]
+                    parts = package.split(".") if package else []
+                    if node.level > 1:
+                        parts = parts[:-(node.level - 1)]
+                    base = ".".join([*parts, *(node.module.split(".") if node.module else [])])
+                else:
+                    base = node.module or ""
+                if base in modules:
+                    graph[name].add(base)
+                else:
+                    graph[name].update(
+                        f"{base}.{alias.name}" for alias in node.names
+                        if f"{base}.{alias.name}" in modules
+                    )
+    return graph
+
+
+def _assert_acyclic(graph: dict[str, set[str]]) -> None:
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visiting:
+            start = visiting.index(name)
+            cycle = " -> ".join([*visiting[start:], name])
+            raise AssertionError(f"Modal runtime import cycle: {cycle}")
+        if name in visited:
+            return
+        visiting.append(name)
+        for dependency in sorted(graph.get(name, ())):
+            visit(dependency)
+        visiting.pop()
+        visited.add(name)
+
+    for name in sorted(graph):
+        visit(name)
+
+
 def test_adapter_packages_sites_owned_provider_runtime() -> None:
     source = ADAPTER.read_text(encoding="utf-8")
     assert "PROVIDER_MODULES" not in source
@@ -103,6 +157,16 @@ def test_configuration_owner_guard_rejects_duplicate_interpretation() -> None:
     tree = ast.parse('import os\nos.environ.get("MAP_TRAINING_SOURCE_SHA")')
     with pytest.raises(AssertionError, match="owned by map_training_configuration.py"):
         _assert_config_owner_reads("map_training_backend.py", tree)
+
+
+def test_modal_runtime_import_graph_is_acyclic() -> None:
+    graph = _modal_import_graph(ADAPTER.parent)
+    _assert_acyclic(graph)
+
+
+def test_modal_import_cycle_check_reports_the_dependency_path() -> None:
+    with pytest.raises(AssertionError, match=r"a -> b -> a"):
+        _assert_acyclic({"a": {"b"}, "b": {"a"}})
 
 
 def test_modal_signed_payloads_share_one_canonical_byte_encoder() -> None:

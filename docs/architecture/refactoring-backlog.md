@@ -737,8 +737,12 @@ The check also enforces that only `runpod_admission.js` reads RunPod's live
 completion-transport and admission bindings; a direct read in another Worker
 module fails with a local actionable error.
 The build copies the modules reachable from `index.js` and fails if a runtime
-module is orphaned. This establishes Worker dependency and packaging rules;
-Python host direction and schema parity remain open. A D1 migration guard now
+module is orphaned. This establishes Worker dependency and packaging rules.
+Modal runtime packaging tests also build a static import graph across adapter
+modules and its packaged provider runtime, reject cycles with a path, and
+exercise the cycle failure using a synthetic two-module fixture. Dynamic imports
+and the broader legacy Gateway Python service graph remain outside this check;
+cross-runtime schema parity remains open. A D1 migration guard now
 compares the branch against its event base and rejects edits, removals, renames,
 or insertion before committed history; local regression fixtures cover these
 cases and appended migrations. Hosted verification is pending for this change.
