@@ -116,7 +116,7 @@ test("Sites HTTP exposes OAuth discovery, public-client registration and owner c
   } finally { db.sqlite.close(); }
 });
 
-test("an OAuth-authorized MCP client and ChatGPT share the current MCP contract and owner-scoped run ledger", async () => {
+test("independent OAuth MCP clients and ChatGPT share one owner ledger with separate revocable grants", async () => {
   const db = database({ currentSchema: true });
   try {
     db.sqlite.prepare("INSERT INTO github_owner_identities VALUES (?, ?, ?)").run("owner-1", "1234567", now);
@@ -137,8 +137,10 @@ test("an OAuth-authorized MCP client and ChatGPT share the current MCP contract 
       VALUES (?, ?, ?, 'succeeded', 'confirmed', '{}', ?, ?)`)
       .run("e".repeat(32), "owner-2", "e".repeat(32), now, now + 10);
 
-    const client = await registerMcpOAuthClient(db, { client_name: "Independent MCP client", redirect_uris: [callback] }, "192.0.2.55", now);
+    const client = await registerMcpOAuthClient(db, { client_name: "Independent MCP client A", redirect_uris: [callback] }, "192.0.2.55", now);
+    const secondClient = await registerMcpOAuthClient(db, { client_name: "Independent MCP client B", redirect_uris: [callback] }, "192.0.2.55", now + 1);
     const accessToken = await authorizeClientForLinkedOwner(db, client, now + 10);
+    const secondAccessToken = await authorizeClientForLinkedOwner(db, secondClient, now + 20);
     const env = { DB: db, GPU_CONTROL_ALLOWED_USER_IDS: "owner-1" };
     const rpc = (message, headers = {}) => worker.fetch(new Request(`${origin}/mcp`, {
       method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(message),
@@ -146,23 +148,37 @@ test("an OAuth-authorized MCP client and ChatGPT share the current MCP contract 
     const toolList = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
     const chatTools = await rpc(toolList, { "oai-authenticated-user-id": "owner-1" });
     const externalTools = await rpc(toolList, { authorization: `Bearer ${accessToken}` });
+    const secondExternalTools = await rpc(toolList, { authorization: `Bearer ${secondAccessToken}` });
     assert.equal(chatTools.status, 200);
     assert.equal(externalTools.status, 200);
-    assert.deepEqual((await externalTools.json()).result, (await chatTools.json()).result);
+    assert.equal(secondExternalTools.status, 200);
+    const chatToolsResult = (await chatTools.json()).result;
+    assert.deepEqual((await externalTools.json()).result, chatToolsResult);
+    assert.deepEqual((await secondExternalTools.json()).result, chatToolsResult);
 
     const listRuns = { jsonrpc: "2.0", id: 2, method: "tools/call",
       params: { name: "experiment_list", arguments: {} } };
     const chatRuns = await rpc(listRuns, { "oai-authenticated-user-id": "owner-1" });
     const externalRuns = await rpc(listRuns, { authorization: `Bearer ${accessToken}` });
+    const secondExternalRuns = await rpc(listRuns, { authorization: `Bearer ${secondAccessToken}` });
     assert.equal(chatRuns.status, 200);
     assert.equal(externalRuns.status, 200);
+    assert.equal(secondExternalRuns.status, 200);
     const chatResult = await chatRuns.json();
     const externalResult = await externalRuns.json();
+    const secondExternalResult = await secondExternalRuns.json();
     assert.deepEqual(externalResult.result, chatResult.result);
+    assert.deepEqual(secondExternalResult.result, chatResult.result);
     const visibleRuns = JSON.parse(chatResult.result.content[0].text).machine_state.experiments;
     assert.deepEqual(visibleRuns.map((run) => run.run_id), ["a".repeat(32)]);
     assert.ok(!JSON.stringify(externalResult).includes("e".repeat(32)),
       "an authenticated client cannot read a different owner's run");
+
+    await revokeMcpOAuthToken(db, new URLSearchParams({ token: accessToken, client_id: client.client_id }), now + 30);
+    assert.equal((await rpc(toolList, { authorization: `Bearer ${accessToken}` })).status, 401,
+      "revoking one client's grant removes that access token");
+    assert.equal((await rpc(toolList, { authorization: `Bearer ${secondAccessToken}` })).status, 200,
+      "revoking one client does not revoke another client's grant for the same owner");
   } finally { db.sqlite.close(); }
 });
 

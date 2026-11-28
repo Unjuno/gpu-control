@@ -13,11 +13,12 @@ shown entering the actual Worker MCP route and reading the same current-schema
 run ledger as the Sites identity path.
 
 **Change:** added an integration case using the complete forward-migration
-schema. It registers a public client, completes PKCE and the linked GitHub
-owner proof, exchanges the authorization code, then calls `tools/list` and
-`experiment_list` using that access token and the ChatGPT Sites identity for
-the same owner. The test compares both response contracts and confirms that
-the external client cannot read a second owner's run.
+schema. It registers two public clients, completes PKCE and linked GitHub
+owner proof for each, exchanges authorization codes, then calls `tools/list`
+and `experiment_list` through both independent access tokens and the ChatGPT
+Sites identity for the same owner. All three responses match, neither external
+client can read a second owner's run, and revoking one OAuth grant leaves the
+other client's grant usable.
 
 **Validation:** `node --test worker/mcp_oauth.test.js` passes all six cases.
 This proves local OAuth-to-MCP HTTP integration and D1 owner filtering. It does
