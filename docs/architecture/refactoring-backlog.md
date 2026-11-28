@@ -10,6 +10,13 @@ This backlog is a task pool, not authorization to enable paid compute, change
 provider accounts, deploy production, or remove externally used interfaces.
 Current mode is `parked` in `policies/repository-state.yaml`.
 
+The agent-facing MCP surface is intended to work from ordinary ChatGPT/Work
+and compatible external MCP clients. This is a product requirement, not proof
+that every client has been connected or that the current source candidate is
+deployed. Keep client compatibility, owner authentication, run discovery,
+budget/admission boundaries, and lifecycle evidence explicit in release
+acceptance.
+
 ## Ordering principles
 
 1. Establish true source/release status before refactoring.

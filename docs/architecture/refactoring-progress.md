@@ -1849,3 +1849,23 @@ review found no actionable issues for cookie handling, PKCE/state/code checks,
 callback matching, escaping, response headers, or failure paths. No provider
 request, experiment, account connection, credential operation, deployment, or
 admission change occurred.
+
+
+## 2026-11-28 — A7: centralize bounded HTTP request-body reading
+
+**Problem:** JSON and URL-encoded form readers duplicated the same bounded
+stream loop, UTF-8 decoding, and reader cleanup. Their error codes and default
+limits differ by format, but the byte-reading behavior has one authority.
+
+**Change:** moved bounded byte collection and strict UTF-8 decoding into
+`worker/http_request_body.js`. JSON and form parsers keep their existing
+format-specific size and empty-body errors. MCP OAuth routes import the shared
+parsers directly instead of accepting body-reader callbacks from the Worker
+composition root.
+
+**Validation:** the focused body-reader suite passes all four tests, including
+declared and streamed limits, stream cancellation, format decoding, and strict
+UTF-8. The full Sites suite passes all 182 tests; the Worker graph is acyclic
+across 65 runtime modules; `git diff --check` passes. Independent read-only
+security review found no actionable issues. No provider, run, account,
+deployment, admission, or credential state was changed.
