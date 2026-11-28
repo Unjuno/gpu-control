@@ -65,8 +65,21 @@ reuse also revokes the family.
 
 ## What remains a separate integration
 
-Google's standalone Colab CLI and Colab MCP do not become GPU Control clients
-by using their own Google login. They must connect to this GPU Control MCP to
-share its run ledger; Colab's provider lifecycle remains independently
-gated. Likewise, this OAuth flow authenticates an MCP client but does not
-enable a provider, create an experiment, or deploy the Site.
+Google's official `google-colab-cli` can run an ephemeral Colab job with
+`colab run`, including from automation, and tears down the runtime when the job
+finishes. CI still needs a Colab identity already available to that runner;
+the CLI's OAuth setup is separate from this GPU Control OAuth grant. A direct
+CLI or standalone Colab MCP run does not create a GPU Control plan, owner-bound
+run record, budget reservation, artifact entry, or cleanup receipt.
+
+For a conversation in ChatGPT or another compatible remote MCP client, use the
+GPU Control MCP. Its Colab provider adapter maps the run into the shared plan
+and ledger. Do not add a second direct-CLI run path to the conversation: that
+would split ownership, recovery, budget checks, and history. If CI-hosted CLI
+execution is later needed *inside* GPU Control, the CI runner must implement
+the same owner-bound job/lease and exact-plan protocol before it is exposed as
+a provider executor. Routine repository CI remains offline and must never
+allocate Colab compute.
+
+Likewise, this OAuth flow authenticates an MCP client but does not enable a
+provider, create an experiment, or deploy the Site.

@@ -486,6 +486,8 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const prepare = { ...preview, idempotency_key: "training-prepare-retry" };
     const saved = await call("test-owner", "training_prepare", prepare);
     assert.match(saved.machine_state.run_id, /^[0-9a-f]{32}$/);
+    assert.equal(saved.approved_plan.execution_kind, "map_training");
+    assert.equal(saved.approved_plan.control_plane_sha, env.MAP_TRAINING_CONTROL_PLANE_SHA);
     assert.ok(saved.machine_state.expires_at <= Math.floor(Date.now() / 1000) + 600);
     const run = { run_id: saved.machine_state.run_id };
     assert.equal((await call("other-owner", "training_cancel", run)).error, "RUN_NOT_FOUND");
@@ -578,7 +580,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       assert.equal(args.authorization.authorized_by, owner);
       assert.equal(args.authorization.run_id, submission.run_id);
       assert.equal(args.authorization.plan_fingerprint, submission.plan_fingerprint);
-      assert.equal(args.authorization.authorization_source, "site_owner_plan_confirmation");
+      assert.equal(args.authorization.authorization_source, "chatgpt_mcp_write_confirmation");
       assert.equal(Object.hasOwn(args.authorization, "consumed_at"), false);
       assert.deepEqual(Object.keys(args.authorization).sort(), [
         "authorization_id", "authorization_source", "authorization_reference", "decision_record_id",
@@ -601,11 +603,16 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       .blocking_reason, "TRAINING_RUNTIME_MISMATCH");
     assert.equal(sends, 0);
     env.MAP_TRAINING_RUNTIME_SECONDS = "120";
-    const unconfirmed = await submitTrainingPlan(env, "test-owner", submission, transport, () => true);
-    assert.equal(unconfirmed.blocking_reason, "TRAINING_AUTHORIZATION_REQUIRED");
-    assert.equal(unconfirmed.machine_state.authorization_state, "required");
-    assert.match(unconfirmed.machine_state.authorization_url, /authorize-training/);
-    assert.equal(sends, 0);
+    env.PROVIDER_ADAPTER_URL = "https://unjuno--gpu-control-provider-adapter-provider-adapter-api.us-east.modal.run";
+    env.PROVIDER_ADAPTER_HMAC_KEY_B64 = Buffer.alloc(32, 1).toString("base64");
+    env.PROVIDER_ADAPTER_KEY_ID = "test-adapter-key";
+    env.PROVIDER_ADAPTER_PROXY_TOKEN_ID = "wk-testtoken123";
+    env.PROVIDER_ADAPTER_PROXY_TOKEN_SECRET = "ws-testsecret123";
+    const readyStatus = await call("test-owner", "training_status", { run_id: submission.run_id });
+    assert.ok(readyStatus.next_allowed_actions.includes("training_submit"),
+      "an MCP-native exact-plan confirmation is available without a ChatGPT-only browser step");
+    assert.equal(readyStatus.machine_state.authorization_state, "required");
+    assert.equal(readyStatus.machine_state.authorization_url, undefined);
     env.MAP_TRAINING_ACCOUNT_EVIDENCE_JSON = JSON.stringify(modalAccountEvidence({
       gpu: "L4", usageLimitUsd: "1.00", hourlyPriceUsd: "0.400000",
       creditsUsedUsd: "0.80", verifiedAt: quoteNow, expiresAt: quoteNow + 1800,
@@ -614,7 +621,6 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       .blocking_reason, "MAP_TRAINING_ACCOUNT_EVIDENCE_STALE_OR_MISMATCHED");
     assert.equal(sends, 0);
     env.MAP_TRAINING_ACCOUNT_EVIDENCE_JSON = JSON.stringify(l4Evidence);
-    await authorizePlan(candidate.machine_state);
     assert.equal((await submitTrainingPlan(env, "test-owner", submission, transport, () => true))
       .machine_state.state, "uncertain");
     const modalReservation = db.prepare(`SELECT source, reserved_microusd FROM modal_compute_budget_reservations WHERE run_id=?`)
@@ -626,7 +632,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
       control_plane_sha, target_repository, target_sha, image_digest, provider, provider_resource_id,
       gpu_count, runtime_seconds, max_cost_microusd, authorized_at, expires_at, consumed_at
       FROM training_authorizations WHERE plan_id=?`).get(submission.run_id);
-    assert.equal(authorization.authorization_source, "site_owner_plan_confirmation");
+    assert.equal(authorization.authorization_source, "chatgpt_mcp_write_confirmation");
     assert.equal(authorization.decision_record_id,
       `training-plan:${submission.run_id}:${submission.plan_fingerprint}`);
     assert.equal(authorization.authorized_by, "test-owner");

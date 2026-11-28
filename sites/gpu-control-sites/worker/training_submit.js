@@ -1,4 +1,5 @@
-import { authorizeTrainingMcpSubmit, getTrainingAuthorization, trainingAuthorizationUrl } from "./training_authorization.js";
+import { authorizeTrainingMcpSubmit, getTrainingAuthorization, supportsMcpTrainingSubmit,
+  trainingAuthorizationUrl } from "./training_authorization.js";
 import { trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { assessModalTrainingBudget, readProviderBudgetPolicy } from "./provider_budget_policy.js";
 import { claimTrainingDispatch } from "./training_dispatch_claim.js";
@@ -19,6 +20,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     WHERE owner_id=? AND id=? AND fingerprint=?`).bind(owner, runId, fingerprint).first();
   if (!row) throw new Error("RUN_NOT_FOUND");
   const plan = JSON.parse(row.plan_json);
+  const mcpSubmitAuthorization = supportsMcpTrainingSubmit(plan);
   const { admission_token: _admissionToken, ...approvedPlan } = approved;
   if (canonical(approvedPlan, "INVALID_ARGUMENTS") !== canonical(plan, "INVALID_ARGUMENTS")) {
     throw new Error("INVALID_ARGUMENTS");
@@ -124,12 +126,12 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   }
   const now = Math.floor(Date.now() / 1000);
   let authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);
-  if (ownerSelected && (!authorization || authorization.expires_at <= now || authorization.consumed_at !== null)) {
+  if (mcpSubmitAuthorization && (!authorization || authorization.expires_at <= now || authorization.consumed_at !== null)) {
     const authorized = await authorizeTrainingMcpSubmit(env.DB, owner, runId, fingerprint,
       controlPlaneSha, now);
     if (authorized) authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);
   }
-  const validAuthorizationSource = ownerSelected
+  const validAuthorizationSource = mcpSubmitAuthorization
     ? ["site_owner_plan_confirmation", "chatgpt_mcp_write_confirmation"].includes(authorization?.authorization_source)
     : authorization?.authorization_source === "site_owner_plan_confirmation";
   const expectedAuthorization = authorization && validAuthorizationSource &&
@@ -141,7 +143,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     authorization.runtime_seconds === plan.runtime_seconds && authorization.max_cost_microusd === plan.max_cost_microusd &&
     authorization.authorized_at !== null && authorization.expires_at > now && authorization.consumed_at === null;
   if (!expectedAuthorization) return { schema_version: 2, status: "blocked",
-    human_summary: ownerSelected
+    human_summary: mcpSubmitAuthorization
       ? "このMCPのplan実行確認を安全に記録できませんでした。計算は開始していません。"
       : "このplanはまだSite上で有料実行の確認が済んでいません。authorization_urlを開いて確認してください。",
     machine_state: { run_id: runId, authorization_state: "required",

@@ -1,6 +1,11 @@
 import { sha256Hex } from "./sha256.js";
 
 const CHALLENGE_TTL_SECONDS = 600;
+const MCP_CONFIRMABLE_EXECUTION_KINDS = new Set(["owner_selected_python", "map_training"]);
+
+export function supportsMcpTrainingSubmit(plan) {
+  return MCP_CONFIRMABLE_EXECUTION_KINDS.has(plan?.execution_kind);
+}
 
 function randomHex(bytes = 16) {
   return [...crypto.getRandomValues(new Uint8Array(bytes))]
@@ -61,9 +66,10 @@ export async function confirmTrainingChallenge(db, owner, runId, fingerprint, co
   return Boolean(row);
 }
 
-// A destructive MCP call is the client-facing confirmation surface for
-// owner-selected runs. Bind that exact call to the persisted plan; do not send
-// the user to a separate browser confirmation page for each experiment.
+// A destructive MCP call is the client-facing confirmation surface for the
+// explicitly allowed training plan kinds. Bind that exact call to the
+// persisted plan; do not require a ChatGPT-only browser session from another
+// authenticated MCP client.
 // The persisted authorization_source value keeps its historical name because
 // it is part of the append-only migration contract; it applies to all MCP clients.
 export async function authorizeTrainingMcpSubmit(db, owner, runId, fingerprint, controlPlaneSha, now) {
@@ -86,7 +92,7 @@ export async function authorizeTrainingMcpSubmit(db, owner, runId, fingerprint, 
        json_extract(p.plan_json, '$.max_cost_microusd'), NULL
     FROM training_plans p WHERE p.owner_id=? AND p.id=? AND p.fingerprint=? AND p.expires_at>?
       AND p.cancelled_at IS NULL AND p.dispatch_claimed_at IS NULL
-      AND json_extract(p.plan_json, '$.execution_kind')='owner_selected_python'
+      AND json_extract(p.plan_json, '$.execution_kind') IN ('owner_selected_python', 'map_training')
       AND json_extract(p.plan_json, '$.control_plane_sha')=?
     ON CONFLICT(plan_id) DO UPDATE SET control_plane_sha=excluded.control_plane_sha,
        challenge_hash=excluded.challenge_hash, expires_at=excluded.expires_at,

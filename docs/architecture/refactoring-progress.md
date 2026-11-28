@@ -5,6 +5,55 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A1: synchronize operator guidance with current provider routes
+
+**Finding:** the operator Skill still said Colab had no execution lifecycle and
+that owner-selected Modal was categorically unavailable. The current source has
+a Colab owner-selected plan/run lifecycle and a dynamic Modal readiness
+contract; those statements would make agents refuse usable routes or report
+stale blockers without reading capabilities.
+
+**Change:** the Skill now checks current release state and provider
+capabilities, treats Colab admission separately from account/GPU eligibility,
+and describes its exact-plan CU attestation and recovery lifecycle. Owner-
+selected Modal follows `ready_to_prepare` and `training_prepare` rather than a
+static availability claim. The first verification prompt covers all five
+provider families and owner-selected readiness without initiating compute.
+Regression assertions reject the stale text.
+
+**Validation:** `uv run pytest tests/test_gpu_control_operator_skill.py` passes
+all five cases. The 208-test Sites suite, 76-module acyclic graph, Worker
+build/artifact validation, D1 forward migration replay, and `git diff --check`
+pass. This is source validation, not proof of a deployed release or enabled
+provider admission.
+
+## 2026-11-28 — A1: make MAP training authorization client-neutral
+
+**Finding:** MAP-44M `training_prepare` still required an authorization page
+that accepted only ChatGPT Sites identity headers. A different authenticated
+OAuth MCP client could inspect the same owner ledger but could not submit its
+prepared MAP plan, contradicting the shared-client contract.
+
+**Change:** MAP plans now carry the control-plane SHA and use the existing
+exact-plan, one-use MCP submit authorization already used for owner-selected
+training. Browser authorization remains available for execution kinds outside
+the explicit MCP-confirmable allowlist. Skill guidance no longer asks agents
+to open a ChatGPT-only page or repeat the user's run instruction. Updated the
+client guide to distinguish the official Colab CLI's standalone `colab run`
+and CI use from the hosted Colab provider that records in the shared ledger.
+
+**Validation:** the focused MAP authorization/registration tests pass, as does
+the complete 208-test Sites suite and the 76-module acyclic graph. No
+GPU/provider operation was called. Exact-head CI remains to be recorded before
+this batch is committed.
+
+**Colab CLI follow-up:** Google's official CLI supports ephemeral CI jobs, but
+direct CLI calls have independent Google identity and no GPU Control owner,
+budget, or cleanup record. Do not create a second product route. Any future
+CLI-backed executor must claim the same exact owner-bound plan and report into
+the same run journal; ordinary CI stays offline and no Colab runtime is
+allocated by this repository's CI.
+
 ## 2026-11-28 — A13: exercise a real OAuth token through the shared MCP route
 
 **Problem:** external OAuth issuance and ChatGPT/external tool parity were

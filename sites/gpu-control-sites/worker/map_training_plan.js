@@ -3,6 +3,7 @@ import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { DEFAULT_MAP_EXECUTION, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS,
   MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD } from "./training_policy.js";
 import { mapTrainingConfiguration } from "./map_training_configuration.js";
+import { trainingControlPlaneSha } from "./training_security_configuration.js";
 
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
 
@@ -101,9 +102,15 @@ export async function previewMapTrainingPlan(env, owner, args, source) {
     human_summary: "MAPのL4価格またはModal Workspaceの利用額・$1上限の短期証拠が未設定、期限切れ、または不一致です。GPUは起動していません。",
     machine_state: { ...machine, ...execution, account_evidence_valid: false, gpu_started: false },
     next_allowed_actions: [], blocking_reason: "MAP_TRAINING_ACCOUNT_EVIDENCE_REQUIRED" };
+  const controlPlaneSha = trainingControlPlaneSha(env);
+  if (!/^[0-9a-f]{40}$/.test(controlPlaneSha || "")) return { schema_version: 2, status: "blocked",
+    human_summary: "学習planを現在のGPU Control commitへ固定できません。",
+    machine_state: { ...machine, ...execution, ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}) },
+    next_allowed_actions: [], blocking_reason: "TRAINING_AUTHORIZATION_NOT_CONFIGURED" };
   return { schema_version: 2, status: "ok",
     human_summary: "MAP-44Mの学習条件を確認しました。実行計画を準備できます。",
-    machine_state: { ...machine, ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
+    machine_state: { ...machine, execution_kind: "map_training", control_plane_sha: controlPlaneSha,
+      ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
       ...execution, image_digest: imageIdentity, provider: "modal",
       provider_resource_id: "gpu-control-map-training/train_map",
       gpu: "L4", gpu_count: 1, runtime_seconds: args.runtime_seconds,

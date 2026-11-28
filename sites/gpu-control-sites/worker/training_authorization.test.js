@@ -48,6 +48,25 @@ test("native MCP submit confirmation is bound to one exact owner plan", async ()
     assert.notEqual(renewed.authorization_id, first.authorization_id);
     assert.equal(await authorizeTrainingMcpSubmit(bridge, "other-owner", runId, fingerprint, controlPlaneSha, now + 3), false);
     assert.equal(await authorizeTrainingMcpSubmit(bridge, owner, runId, fingerprint, "f".repeat(40), now + 3), false);
+
+    const mapRunId = "1".repeat(32);
+    const mapFingerprint = "2".repeat(64);
+    const mapPlan = { execution_kind: "map_training", control_plane_sha: controlPlaneSha,
+      repository: "unjuno/model-as-a-paper", commit: "3".repeat(40), image_digest: "im-Abcdefgh1234",
+      provider: "modal", provider_resource_id: "gpu-control-map-training/train_map",
+      gpu_count: 1, runtime_seconds: 120, max_cost_microusd: 100_000 };
+    db.prepare(`INSERT INTO training_plans
+      (id, owner_id, registration_id, idempotency_key, fingerprint, plan_json, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(mapRunId, owner, "e".repeat(32), "map-intent-key-1234", mapFingerprint,
+        JSON.stringify(mapPlan), now, now + 600);
+    assert.equal(await authorizeTrainingMcpSubmit(bridge, owner, mapRunId, mapFingerprint, controlPlaneSha, now), true);
+    const mapAuthorization = await getTrainingAuthorization(bridge, owner, mapRunId, mapFingerprint);
+    assert.equal(mapAuthorization.authorization_source, "chatgpt_mcp_write_confirmation");
+    assert.equal(mapAuthorization.target_repository, mapPlan.repository);
+    assert.equal(mapAuthorization.target_sha, mapPlan.commit);
+    assert.equal(mapAuthorization.provider_resource_id, mapPlan.provider_resource_id);
+    assert.equal(await authorizeTrainingMcpSubmit(bridge, owner, mapRunId, mapFingerprint, controlPlaneSha, now + 1), false);
   } finally {
     db.close();
   }

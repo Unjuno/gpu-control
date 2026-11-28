@@ -1,4 +1,4 @@
-import { getTrainingAuthorization, trainingAuthorizationUrl } from "./training_authorization.js";
+import { getTrainingAuthorization, supportsMcpTrainingSubmit, trainingAuthorizationUrl } from "./training_authorization.js";
 import { assessModalTrainingBudget, readProviderBudgetPolicy } from "./provider_budget_policy.js";
 import { ownerTrainingAdmissionEnabled } from "./training_runtime_profile.js";
 import { mapTrainingConfiguration } from "./map_training_configuration.js";
@@ -25,10 +25,10 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
     authorization?.consumed_at === null;
   let plan = {};
   try { plan = JSON.parse(row.plan_json); } catch {}
+  const mcpSubmitAuthorization = supportsMcpTrainingSubmit(plan);
   const ownerSelected = plan.execution_kind === "owner_selected_python";
   const admission = ownerSelected ? ownerTrainingAdmissionEnabled(env) : mapConfig.admission_enabled;
   const providerConfigured = isConfigured(env);
-  const siteConfirmationRequired = !ownerSelected;
   const budgetPolicy = state === "prepared" ? await readProviderBudgetPolicy(db) : null;
   const monthlyLimit = ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd;
   const budgetAssessment = budgetPolicy ? assessModalTrainingBudget(budgetPolicy, {
@@ -60,11 +60,11 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
       cleanup_state: row.dispatch_claimed_at === null ? "not_required"
         : row.cleanup_confirmed_at !== null ? "confirmed" : "unknown",
       authorization_state: state !== "prepared" ? "none" : !submitAdmissionReady ? "unavailable" : authorized ? "authorized" : "required",
-      ...(siteConfirmationRequired && submitAdmissionReady && providerConfigured && !authorized && state === "prepared"
+      ...(!mcpSubmitAuthorization && submitAdmissionReady && providerConfigured && !authorized && state === "prepared"
         ? { authorization_url: trainingAuthorizationUrl(runId, row.fingerprint) } : {}),
       ...(row.dispatch_rejection ? { reason: row.dispatch_rejection } : {}) },
     next_allowed_actions: state === "prepared"
-      ? [...(submitAdmissionReady && providerConfigured && (authorized || ownerSelected) ? ["training_submit"] : []), "training_cancel"] : [],
+      ? [...(submitAdmissionReady && providerConfigured && (authorized || mcpSubmitAuthorization) ? ["training_submit"] : []), "training_cancel"] : [],
     blocking_reason: readinessBlocker };
 }
 
