@@ -10,7 +10,7 @@ handled by the Sites Worker and D1/R2.
 
 ## What this directory still contains
 
-This directory currently mixes three separately owned pieces:
+This directory contains two separately owned pieces:
 
 1. **Legacy FastAPI/PostgreSQL Gateway:** `gpu_gateway/app.py`, OAuth, API,
    SQLAlchemy store, queue worker, recovery supervisor and `deploy/` service
@@ -18,15 +18,16 @@ This directory currently mixes three separately owned pieces:
    compatibility tests. No current production deployment is established by
    these files. Do not deploy the Caddy/systemd/PostgreSQL templates as part of
    GPU Control Sites.
-2. **GitHub Issue bridge helpers:** `gpu_gateway/ci_bridge.py` and related
-   modules are imported by `gateway/scripts/comment_bridge.py` and the
-   separate Project Checks workflow. This is not the ChatGPT GPU experiment
-   control plane.
-3. **Provider-runtime compatibility imports:** several `gpu_gateway` modules
+2. **Provider-runtime compatibility imports:** several `gpu_gateway` modules
    wrap the canonical implementation under
    `sites/gpu-control-sites/modal/provider_runtime/`. The current
    `gateway-ci.yml` exercises those provider-runtime modules and packaging
    contracts; it does not run or deploy the legacy FastAPI/PostgreSQL service.
+
+The retired comment-to-Gateway bridge was removed from the source tree. The
+separate Project Checks workflow is owned by `project_control/`; see
+[`project_control/README.md`](../project_control/README.md). Its history is
+summarized in [`COMMENT_BRIDGE.md`](COMMENT_BRIDGE.md).
 
 The provider-runtime package is the authoritative implementation for the
 Kaggle/Hugging Face adapter protocols. Keep the compatibility imports while

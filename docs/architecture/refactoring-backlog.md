@@ -173,23 +173,27 @@ acceptance.
   systemd deployment templates, plus their historical service tests. Current
   `gateway-ci.yml` runs only the Sites-owned provider-runtime contract tests and
   compatibility imports; it does not build or test the Gateway service.
-  `project-checks.yml` uses the separate `project_control/runner.py`. The CLI
-  `gateway/scripts/comment_bridge.py` imports `gpu_gateway.ci_bridge`, but the
-  workflow path declared in `ci_policy.json` is absent from this checkout.
-  These source facts do not prove that nobody outside this repository uses the
-  legacy package or deployment files.
-- **Decision:** do not treat Gateway as a production deployment. Keep its three
-  concerns separate: GitHub Issue bridge, provider-runtime compatibility
-  imports, and legacy Gateway service code. The Sites transport is named
+  `.github/workflows/project-checks-ci.yml` uses only `project_control/`.
+  The retired comment-to-Gateway bridge had no active workflow and its disabled
+  CLI, FastAPI routes, policy and tests have now been removed. These source
+  facts do not prove that nobody outside this repository uses the legacy
+  package or deployment files.
+- **Decision:** do not treat Gateway as a production deployment. Keep its two
+  remaining concerns separate: provider-runtime compatibility imports and
+  legacy Gateway service code. The Sites transport is named
   `provider_adapter_client.js` because it calls the authenticated Modal provider
   adapter. Historical D1 table names and `GATEWAY_DELEGATION_*` error codes are
   retained for compatibility; they do not imply a runtime dependency on the
   legacy Gateway service.
-- **Work:** inventory exact app/service tests and imports; either move the
-  Issue bridge to its own package or keep its narrow import with ownership
-  documented. Remove or archive the legacy API/OAuth/store/queue/deploy stack
-  only after its required contracts and historical evidence are preserved and
-  the now-unused tests/build dependencies are migrated or retired.
+- **Progress:** the separate Project Checks workflow remains owned by
+  `project_control/runner.py`; the retired legacy bridge has been deleted from
+  active source while its decision/history note remains in `gateway/COMMENT_BRIDGE.md`.
+  The Python control library, Sites-owned provider runtime, and Project Checks
+  no longer import the bridge package.
+- **Work:** continue inventorying exact service/deployment callers. Remove or
+  archive the legacy API/OAuth/store/queue/deploy stack only after its required
+  contracts and historical evidence are preserved and the now-unused tests
+  and build dependencies are migrated or retired.
 - **Done when:** no current doc suggests deploying Gateway for ChatGPT GPU
   Control; CI names the behavior it truly checks; each retained module has a
   caller or an explicit archival reason.
