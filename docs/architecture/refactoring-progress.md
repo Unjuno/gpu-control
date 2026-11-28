@@ -54,6 +54,27 @@ valid callback with query values, wrong path/host, and malformed configuration.
 `git diff --check` passes. No OAuth credentials or external accounts were
 accessed or changed.
 
+## 2026-11-29 — A15: isolate training MCP argument policy
+
+**Finding:** `experiment_input_contract.js` mixed provider/workload argument
+routing with MAP defaults, owner-training limits, GitHub source registration,
+and checkpoint/artifact request validation. This pulled training policy and
+configuration into the shared input router and made unrelated tool changes
+coupled to the training contract.
+
+**Change:** moved normalization and all `training_*` input validation into
+`worker/training_input_contract.js`. The common validator now delegates the
+training tool namespace to that module and continues to own provider/workload
+tool dispatch. The established `normalizeTrainingArguments` export remains
+available through its old module path. A static architecture check prevents
+training policy/configuration from returning to the common router.
+
+**Validation:** focused architecture, MCP, entrypoint, and training tests pass
+(61/61); the full Sites suite passes 217 tests. The runtime graph remains
+acyclic across 80 modules. Worker build, artifact validation, D1 forward
+migration replay, and `git diff --check` pass. No provider API, credential,
+admission, deployment, or experiment was accessed or changed.
+
 ## 2026-11-29 — A11: share MAP Modal profile parsing
 
 **Finding:** the MAP function entrypoint validated source, image, and runtime

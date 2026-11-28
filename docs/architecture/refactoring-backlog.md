@@ -66,6 +66,12 @@ acceptance.
   now checks advertisement, accepted empty input, and rejected extra input;
   an authenticated Worker-level test verifies the routes remain owner-scoped
   and fail closed when OAuth is not configured.
+- **A15 — Separate training argument ownership:** completed in this batch.
+  The central
+  MCP argument router owns provider/workload dispatch; the training module
+  owns MAP defaults, registration validation and training-specific bounds.
+  Existing imports remain compatible while the training contract moves behind
+  that boundary.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct

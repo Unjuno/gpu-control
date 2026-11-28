@@ -71,6 +71,11 @@ const runpodConfigurationSources = modulesReadingBindingsOutside(runpodConfigura
 assert.deepEqual(runpodConfigurationSources, [],
   "RunPod provider profile settings may only be parsed by runpod_configuration.js");
 
+const sharedInputBoundary = join(workerRoot, "experiment_input_contract.js");
+assert.doesNotMatch(readFileSync(sharedInputBoundary, "utf8"),
+  /mapTrainingConfiguration|MAP_TRAINING_|OWNER_TRAINING_/,
+  "Shared experiment input routing must delegate training policy and defaults to training_input_contract.js");
+
 const modalCpuPolicyBoundary = join(workerRoot, "modal_cpu_policy.js");
 const modalCpuAdmissionSources = modulesReadingBindingsOutside(modalCpuPolicyBoundary,
   ["CPU_WORKLOAD_ADMISSION_ENABLED"]);

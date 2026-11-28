@@ -1,11 +1,13 @@
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
 import { PROVIDER_ROUTES, PROVIDER_ROUTE_IDS } from "./provider_catalog.js";
-import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_policy.js";
-import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
-import { mapTrainingConfiguration } from "./map_training_configuration.js";
 import { RUNPOD_WORKLOAD, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
 import { canonicalJson } from "./canonical_json.js";
 import { validGoogleColabApprovedPlan, validGoogleColabPrepare } from "./google_colab_plan.js";
+import { validTrainingToolArguments } from "./training_input_contract.js";
+
+// Keep the established import contract while training argument defaults live
+// beside the training tool validators.
+export { normalizeTrainingArguments } from "./training_input_contract.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -22,11 +24,6 @@ const MODAL_SANDBOX_CPU_LIMIT_CORES = 1;
 const MODAL_SANDBOX_MEMORY_LIMIT_MIB = 512;
 
 function canonical(value) { return canonicalJson(value, "INVALID_ARGUMENTS"); }
-
-function randomHex(byteLength) {
-  const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 export function validPlan(input, env) {
   return input && typeof input === "object" && !Array.isArray(input) &&
@@ -124,85 +121,11 @@ export function validProviderApprovedPlan(value) {
   return validGatewayApprovedPlan(value) || validRunpodApprovedPlan(value) || validGoogleColabApprovedPlan(value);
 }
 
-export function normalizeTrainingArguments(name, input, env) {
-  const args = { ...input };
-  const canonicalRepository = typeof args.repository === "string"
-    ? args.repository.replace(/^https:\/\/github\.com\//i, "").toLowerCase() : "";
-  if (name === "training_register" && args.commit === undefined &&
-      canonicalRepository === MAP_TRAINING_REPOSITORY) {
-    args.commit = mapTrainingConfiguration(env).source_sha;
-  }
-  if (["training_preview", "training_prepare"].includes(name)) {
-    if (name === "training_prepare" && args.idempotency_key === undefined) args.idempotency_key = `map-${randomHex(16)}`;
-  }
-  return args;
-}
-
 export function validToolArguments(name, args, env) {
+  if (typeof name === "string" && name.startsWith("training_")) return validTrainingToolArguments(name, args, env);
   if (["github_connection_start", "github_connection_status", "github_connection_disconnect",
     "github_repositories", "colab_connection_start", "colab_connection_status",
     "colab_connection_disconnect", "colab_capabilities"].includes(name)) return Object.keys(args).length === 0;
-  if (name === "training_checkpoint") return Object.keys(args).sort().join(",") === "max_bytes,offset,run_id" &&
-    typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
-    Number.isSafeInteger(args.offset) && args.offset >= 0 &&
-    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 && args.max_bytes <= 24576;
-  if (name === "training_artifact") return Object.keys(args).sort().join(",") === "artifact_id,max_bytes,offset,run_id" &&
-    typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
-    typeof args.artifact_id === "string" && /^[0-9a-f]{64}$/.test(args.artifact_id) &&
-    Number.isSafeInteger(args.offset) && args.offset >= 0 &&
-    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 && args.max_bytes <= 24576;
-  if (name === "training_submit") return Object.keys(args).sort().join(",") === "approved_plan,plan_fingerprint,run_id" &&
-    typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
-    typeof args.plan_fingerprint === "string" && /^[0-9a-f]{64}$/.test(args.plan_fingerprint) &&
-    args.approved_plan && typeof args.approved_plan === "object" && !Array.isArray(args.approved_plan) &&
-    Object.keys(args.approved_plan).length <= 32;
-  if (name === "training_prepare") {
-    const { idempotency_key: key, ...inputs } = args;
-    return typeof key === "string" && /^[A-Za-z0-9_-]{16,128}$/.test(key) &&
-      validToolArguments("training_preview", inputs, env);
-  }
-  if (name === "training_preview") {
-    const keys = Object.keys(args).sort().join(",");
-    const byRegistration = keys === "registration_id" &&
-      typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
-    const bySpec = keys === "execution_spec_id,max_cost_microusd,registration_id,runtime_seconds" &&
-      typeof args.execution_spec_id === "string" && /^[0-9a-f]{32}$/.test(args.execution_spec_id) &&
-      typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
-    const byId = keys === "max_cost_microusd,registration_id,runtime_seconds" &&
-      typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
-    const bySource = keys === "commit,max_cost_microusd,repository,runtime_seconds" &&
-      typeof args.repository === "string" && args.repository.length <= 159 &&
-      typeof args.commit === "string" && args.commit.length === 40;
-    if (byRegistration) return true;
-    return (byId || bySource || bySpec) &&
-      (!bySpec || (args.runtime_seconds === MAP_TRAINING_MAX_RUNTIME_SECONDS &&
-        args.max_cost_microusd <= MAP_TRAINING_MAX_COST_MICROUSD)) &&
-      Number.isSafeInteger(args.runtime_seconds) &&
-      args.runtime_seconds >= 120 && args.runtime_seconds <= 3000 &&
-      Number.isSafeInteger(args.max_cost_microusd) && args.max_cost_microusd >= 1 &&
-      args.max_cost_microusd <= 1_000_000;
-  }
-  if (name === "training_list") return Object.keys(args).length === 0;
-  if (name === "training_inspect") return Object.keys(args).join(",") === "registration_id" &&
-    typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
-  if (name === "training_register") {
-    const mapConfig = mapTrainingConfiguration(env);
-    const keys = Object.keys(args);
-    const allowed = new Set(["repository", "commit", "dataset", "run_name", "steps"]);
-    const canonicalRepository = typeof args.repository === "string"
-      ? args.repository.replace(/^https:\/\/github\.com\//i, "").toLowerCase() : "";
-    const hasPinnedMapCommit = args.commit === mapConfig.source_sha &&
-      canonicalRepository === MAP_TRAINING_REPOSITORY;
-    return keys.includes("repository") && keys.every(key => allowed.has(key)) &&
-      typeof args.repository === "string" && args.repository.length <= 159 &&
-      (args.commit === undefined || (typeof args.commit === "string" && /^[0-9a-f]{40}$/.test(args.commit)) || hasPinnedMapCommit) &&
-      (args.dataset === undefined || (typeof args.dataset === "string" &&
-        /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(args.dataset))) &&
-      (args.run_name === undefined || (typeof args.run_name === "string" &&
-        /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(args.run_name))) &&
-      (args.steps === undefined || (Number.isSafeInteger(args.steps) && args.steps >= 1 && args.steps <= 100000));
-  }
-
   if (name === "experiment_prepare") return validGoogleColabPrepare(args) || validPlan(args, env) || validRunpodPrepare(args, env) ||
     validGatewayPrepare(args) || validRegisteredPrepare(args) || validRegisteredZeroGpuPrepare(args);
   if (name === "experiment_submit" && args.provider_approved_plan !== undefined) return Object.keys(args).sort().join(",") === "plan_fingerprint,provider_approved_plan,run_id" &&
@@ -237,7 +160,7 @@ export function validToolArguments(name, args, env) {
     (args.state === undefined || ["prepared", "queued", "running", "succeeded", "failed", "cancelled", "expired", "uncertain"].includes(args.state)) &&
     (args.limit === undefined || (Number.isSafeInteger(args.limit) && args.limit >= 1 && args.limit <= 50)) &&
     (args.cursor === undefined || (typeof args.cursor === "string" && /^[0-9]{1,12}:[0-9a-f]{32}$/.test(args.cursor)));
-  if (["training_status", "training_cancel", "experiment_status", "experiment_result", "experiment_cancel"].includes(name)) return Object.keys(args).join(",") === "run_id" &&
+  if (["experiment_status", "experiment_result", "experiment_cancel"].includes(name)) return Object.keys(args).join(",") === "run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id);
   if (name === "experiment_artifact") return Object.keys(args).sort().join(",") === "artifact_id,max_bytes,offset,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) && typeof args.artifact_id === "string" &&
