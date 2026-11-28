@@ -77,6 +77,49 @@ async function releaseManagedTerminal(env, row, lease, terminal, providerStatus)
     evidenceType: "pod_termination_confirmed", evidenceSha256: await sha256Hex(canonical(receipt)), now });
 }
 
+function cleanupReceipt(row) {
+  try {
+    const receipt = JSON.parse(row.cleanup_receipt_json);
+    return receipt?.provider === "runpod_gpu" ? receipt : null;
+  } catch { return null; }
+}
+
+async function resumeTerminalAccountLease(env, row, lease, accountScopeSha256, now) {
+  const receipt = cleanupReceipt(row);
+  if (!receipt || row.cleanup_state !== "confirmed") throw new Error("RUNPOD_TERMINAL_CLEANUP_EVIDENCE_MISSING");
+  if (lease.state === "released") return lease;
+  const evidenceSha256 = await sha256Hex(row.cleanup_receipt_json);
+  if (lease.state === "reserved" && receipt.termination === "not_submitted") {
+    return transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: lease.lease_token,
+      generation: lease.generation, revision: lease.revision, toState: "released",
+      evidenceType: "provider_create_not_started", evidenceSha256, now });
+  }
+  if (lease.state === "submitting" && receipt.termination === "submit_rejected") {
+    return transitionProviderAccountLease(env.DB, { accountScopeSha256, leaseToken: lease.lease_token,
+      generation: lease.generation, revision: lease.revision, toState: "released",
+      evidenceType: "provider_create_rejected", evidenceSha256, now });
+  }
+
+  let cleanup = lease;
+  if (lease.state === "active") {
+    const providerJobId = JOB_ID.test(row.provider_job_id || "") ? row.provider_job_id : lease.provider_job_id;
+    if (!JOB_ID.test(providerJobId || "")) throw new Error("RUNPOD_TERMINAL_PROVIDER_JOB_ID_MISSING");
+    cleanup = await transitionProviderAccountLease(env.DB, { accountScopeSha256,
+      leaseToken: lease.lease_token, generation: lease.generation, revision: lease.revision,
+      toState: "cleanup_pending", providerJobId, evidenceType: "cleanup_resume", evidenceSha256, now });
+  } else if (lease.state === "uncertain" &&
+      receipt.termination === "job_ttl_elapsed_after_ambiguous_submit" && receipt.serverless_job_id === null) {
+    cleanup = await transitionProviderAccountLease(env.DB, { accountScopeSha256,
+      leaseToken: lease.lease_token, generation: lease.generation, revision: lease.revision,
+      toState: "cleanup_pending", providerJobId: `unknown-${row.id}`,
+      evidenceType: "serverless_job_ttl_elapsed", evidenceSha256, now });
+  }
+  if (cleanup.state !== "cleanup_pending") throw new Error("RUNPOD_TERMINAL_LEASE_RECOVERY_UNSUPPORTED");
+  return transitionProviderAccountLease(env.DB, { accountScopeSha256,
+    leaseToken: cleanup.lease_token, generation: cleanup.generation, revision: cleanup.revision,
+    toState: "released", evidenceType: "pod_termination_confirmed", evidenceSha256, now });
+}
+
 export async function submitRunpodExperiment(env, owner, args, { reserveBudget, client = null, now = null } = {}) {
   const timestamp = now ?? Math.floor(Date.now() / 1000);
   const row = await planRow(env, owner, args);
@@ -223,6 +266,14 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
         row.cleanup_state === "confirmed" && row.cleanup_receipt_json) return row;
     throw new Error("RUNPOD_ACCOUNT_LEASE_MISSING");
   }
+  if (!["queued", "running"].includes(row.state)) {
+    if (["succeeded", "failed", "cancelled"].includes(row.state) && row.cleanup_state === "confirmed") {
+      await resumeTerminalAccountLease(env, row, lease, accountScopeSha256,
+        suppliedNow ?? Math.floor(Date.now() / 1000));
+      return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
+    }
+    return row;
+  }
   if (lease.state === "active" && !JOB_ID.test(row.provider_job_id || "") && JOB_ID.test(lease.provider_job_id || "")) {
     const recovered = await env.DB.prepare(`UPDATE runs SET provider_job_id=?, provider_phase='provisioning', updated_at=?
       WHERE id=? AND owner_id=? AND state='running' AND provider_job_id IS NULL RETURNING id`)
@@ -230,23 +281,6 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     if (!recovered) throw new Error("RUNPOD_PROVIDER_JOB_RECOVERY_FAILED");
     row.provider_job_id = lease.provider_job_id;
     row.provider_phase = "provisioning";
-  }
-  if (!["queued", "running"].includes(row.state)) {
-    if (["succeeded", "failed", "cancelled"].includes(row.state) && row.cleanup_state === "confirmed" &&
-        ["active", "cleanup_pending"].includes(lease.state) && JOB_ID.test(row.provider_job_id || "")) {
-      const now = Math.floor(Date.now() / 1000);
-      const evidence = await sha256Hex(row.cleanup_receipt_json || canonical({ run_id: runId, cleanup: "confirmed" }));
-      if (lease.state === "active") lease = await transitionProviderAccountLease(env.DB, {
-        accountScopeSha256, leaseToken: lease.lease_token, generation: lease.generation, revision: lease.revision,
-        toState: "cleanup_pending", providerJobId: row.provider_job_id, evidenceType: "cleanup_resume",
-        evidenceSha256: evidence, now,
-      });
-      await transitionProviderAccountLease(env.DB, {
-        accountScopeSha256, leaseToken: lease.lease_token, generation: lease.generation, revision: lease.revision,
-        toState: "released", evidenceType: "pod_termination_confirmed", evidenceSha256: evidence, now,
-      });
-    }
-    return env.DB.prepare(`SELECT * FROM runs WHERE id=? AND owner_id=?`).bind(runId, owner).first();
   }
   const provider = client ?? new RunpodV2Client(env, { owner });
   const now = suppliedNow ?? Math.floor(Date.now() / 1000);
