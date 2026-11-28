@@ -5,6 +5,27 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A6: isolate Colab capability validation and projection
+
+**Problem:** `google_colab_tools.js` owned OAuth/tool routing, provider-response
+validation, and the public capability projection. That mixed the Sites use case
+with Colab's external response contract and made later lifecycle work harder to
+review independently.
+
+**Change:** moved strict subscription/runtime validation and the minimal
+capability projection into `worker/google_colab_capabilities.js`. The module
+returns only tier, runtime counts, and allowlisted GPU spec fields; provider
+tokens, URLs, and unrelated response fields cannot pass through. The tool
+handler now owns orchestration and user-facing lifecycle status only.
+
+**Validation:** the focused Colab capability tests and full Sites Worker suite
+pass; the import graph remains acyclic across 33 runtime modules. No Google API,
+OAuth configuration, runtime allocation, or provider setting was changed.
+
+**Limit:** this is a read-only provider boundary. Colab still cannot be
+prepared, submitted, monitored, cancelled, or cleaned up through the shared
+Sites run lifecycle.
+
 ## 2026-11-28 — A6: validate Colab capability responses at the provider boundary
 
 **Problem:** the hosted Colab client bounded and parsed responses, but the

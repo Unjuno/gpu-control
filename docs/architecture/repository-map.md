@@ -46,8 +46,9 @@ fixed-workload routes and the current PR #70 owner-selected Modal candidate.
 Do not infer the latter is deployed. The intended ChatGPT journey must discover
 the authorized source and currently compatible external GPU route from current
 capabilities, keep provider IDs internal, and return verified result and
-cleanup. Google Colab remains a proposed provider integration, and a direct
-external Colab MCP call would bypass the Sites owner, budget, run-history, and
+cleanup. Google Colab currently has owner-bound connection and read-only
+capability discovery only; its execution lifecycle is not integrated. A direct
+external Colab MCP call bypasses the Sites owner, budget, run-history, and
 cleanup ledger.
 
 ## Module dependency graph

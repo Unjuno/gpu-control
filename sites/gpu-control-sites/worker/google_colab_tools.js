@@ -1,39 +1,11 @@
 import { createGoogleColabConnectionUrl, disconnectGoogleColab, googleColabConnectionConfigured,
   googleColabConnectionStatus } from "./google_colab_connection.js";
 import { callGoogleColabMcpTool, googleColabStructuredResult } from "./google_colab_mcp_client.js";
+import { projectGoogleColabCapabilities } from "./google_colab_capabilities.js";
 
 const COLAB_TOOLS = new Set([
   "colab_connection_start", "colab_connection_status", "colab_connection_disconnect", "colab_capabilities",
 ]);
-const COLAB_SUBSCRIPTION_TIERS = new Set([
-  "SUBSCRIPTION_TIER_FREE", "SUBSCRIPTION_TIER_PRO", "SUBSCRIPTION_TIER_PRO_PLUS",
-]);
-const COLAB_RUNTIME_VARIANTS = new Set(["VARIANT_CPU", "VARIANT_GPU", "VARIANT_TPU"]);
-const COLAB_RUNTIME_SHAPES = new Set(["SHAPE_STANDARD", "SHAPE_HIGHMEM"]);
-
-function validRuntimeKey(value) {
-  return value && typeof value === "object" && !Array.isArray(value) &&
-    COLAB_RUNTIME_VARIANTS.has(value.variant) &&
-    typeof value.accelerator === "string" && /^[A-Za-z0-9._-]{1,32}$/.test(value.accelerator) &&
-    COLAB_RUNTIME_SHAPES.has(value.shape);
-}
-
-function validatedCapabilities(subscription, specData, runtimeData) {
-  const { runtimeSpecs } = specData;
-  const { runtimes } = runtimeData;
-  if (!COLAB_SUBSCRIPTION_TIERS.has(subscription.tier) ||
-      !Array.isArray(runtimeSpecs) || runtimeSpecs.length > 200 ||
-      !Array.isArray(runtimes) || runtimes.length > 1_000 ||
-      runtimeSpecs.some((item) => !item || typeof item !== "object" || Array.isArray(item) ||
-        !validRuntimeKey(item.key) || typeof item.eligible !== "boolean") ||
-      runtimes.some((runtime) => !runtime || typeof runtime !== "object" || Array.isArray(runtime) ||
-        typeof runtime.name !== "string" || !/^runtimes\/[A-Za-z0-9-]{1,128}$/.test(runtime.name) ||
-        !validRuntimeKey(runtime.runtimeSpec?.key))) {
-    throw new Error("GOOGLE_COLAB_RESPONSE_INVALID");
-  }
-  return { tier: subscription.tier, runtimeSpecs, runtimes };
-}
-
 export function isGoogleColabTool(name) { return COLAB_TOOLS.has(name); }
 
 /** Manage the authenticated owner's Google Colab identity connection. */
@@ -54,17 +26,13 @@ export async function handleGoogleColabTool(name, env, owner, options = {}) {
     const subscription = googleColabStructuredResult(subscriptionResponse);
     const specData = googleColabStructuredResult(specResponse);
     const runtimeData = googleColabStructuredResult(runtimeResponse);
-    const { tier, runtimeSpecs, runtimes } = validatedCapabilities(subscription, specData, runtimeData);
-    const gpuSpecs = runtimeSpecs.filter((item) => item?.key?.variant === "VARIANT_GPU" &&
-      typeof item.key.accelerator === "string" && /^[A-Za-z0-9._-]{1,32}$/.test(item.key.accelerator) &&
-      new Set(["SHAPE_STANDARD", "SHAPE_HIGHMEM"]).has(item.key.shape) && typeof item.eligible === "boolean")
-      .map((item) => ({ accelerator: item.key.accelerator, shape: item.key.shape, eligible: item.eligible }));
-    const existingGpuRuntimes = runtimes.filter((runtime) => runtime?.runtimeSpec?.key?.variant === "VARIANT_GPU").length;
+    const { tier, activeRuntimeCount, activeGpuRuntimeCount, eligibleGpuSpecs } =
+      projectGoogleColabCapabilities(subscription, specData, runtimeData);
     return { schema_version: 2, status: "ok",
       human_summary: "Google ColabアカウントとGoogleのGPU eligibilityを読み取りました。GPU Controlからの実験実行ライフサイクルはまだ無効です。",
       machine_state: { configured: true, connected: true, account_email: connection.account_email,
-        subscription_tier: tier, eligible_gpu_specs: gpuSpecs.slice(0, 100), active_runtime_count: runtimes.length,
-        active_gpu_runtime_count: existingGpuRuntimes, execution_lifecycle_enabled: false,
+        subscription_tier: tier, eligible_gpu_specs: eligibleGpuSpecs, active_runtime_count: activeRuntimeCount,
+        active_gpu_runtime_count: activeGpuRuntimeCount, execution_lifecycle_enabled: false,
         cost_terms: { per_run_usd: null, remaining_quota: null,
           semantics: "google_account_entitlement_not_quantified_per_run", paid_fallback_allowed: false },
         blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED", exact_run_cost_available: false },

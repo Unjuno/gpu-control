@@ -1,12 +1,14 @@
 # Google Colab provider integration
 
-Status: in progress. The selected product path is the official hosted Colab API
+Status: in progress. The selected ChatGPT path is the official hosted Colab API
 MCP behind the existing GPU Control Sites MCP. ChatGPT Sites remains the
 conversation-facing control plane; Colab is intended to become one provider in
 the same owner-bound plan, run, budget, result, and cleanup lifecycle. The
-current code adds owner-bound OAuth storage and a bounded Google MCP client;
-provider execution, unified run records, and live availability are not yet
-implemented. `colab_capabilities` currently reports this blocker explicitly.
+current code includes owner-bound OAuth storage, a bounded Google MCP client,
+and read-only capability discovery. Provider execution, unified run records,
+and live availability are not yet implemented. `colab_capabilities` reports
+this blocker explicitly. The official Colab CLI is a separate local/CI entry
+point; it does not create Sites ledger records or substitute for this lifecycle.
 
 ## Product and client paths
 
