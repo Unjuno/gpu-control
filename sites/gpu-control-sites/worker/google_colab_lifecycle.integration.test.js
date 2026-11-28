@@ -4,13 +4,15 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { canonicalJson } from "./canonical_json.js";
 import { createGoogleColabOperation, readGoogleColabOperation } from "./google_colab_operation_store.js";
-import { googleColabRunTool } from "./google_colab_lifecycle.js";
+import { googleColabRunTool, submitGoogleColabExperiment } from "./google_colab_lifecycle.js";
 
 const owner = "colab-lifecycle-owner";
 const runId = "a".repeat(32);
 const fingerprint = "b".repeat(64);
 const cancelRunId = "f".repeat(32);
 const cancelFingerprint = "1".repeat(64);
+const missingRunId = "e".repeat(32);
+const missingFingerprint = "2".repeat(64);
 const runtimeRequestId = "12345678-1234-4234-8234-123456789abc";
 const runtimeName = `runtimes/gpu-control-${runId.slice(0, 24)}`;
 const sessionName = `${runtimeName}/sessions/gpu-control-${runId.slice(0, 24)}`;
@@ -201,6 +203,35 @@ test("Colab recovers create and cleanup response loss without rerunning or confi
     assert.equal(cancelled.machine_state.runtime_deleted, true);
     assert.equal(cancelDeleteCalls, 2);
     assert.equal((await readGoogleColabOperation(db, owner, cancelRunId, cancelFingerprint)).state, "terminal");
+
+    await sqlite.prepare(`INSERT INTO gateway_delegated_plans
+      (id,owner_id,fingerprint,workload,approved_plan_json,state,expires_at,submit_attempted_at,provider_state)
+      VALUES (?,?,?,?,?,'submitted',5000,107,'running')`)
+      .run(missingRunId, owner, missingFingerprint, plan.workload, canonicalJson(plan));
+    let providerToolCalls = 0;
+    const originalFetch = fetchImpl;
+    const countedFetch = async (...args) => {
+      if (new URL(args[0]).hostname !== "oauth2.googleapis.com") providerToolCalls += 1;
+      return originalFetch(...args);
+    };
+    const before = providerToolCalls;
+    const missingStatus = await googleColabRunTool(env, owner, "experiment_status", missingRunId,
+      { fetchImpl: countedFetch, now: 108 });
+    assert.equal(missingStatus.machine_state.state, "uncertain");
+    assert.equal(missingStatus.machine_state.cleanup_state, "unknown");
+    assert.equal(missingStatus.blocking_reason, "GOOGLE_COLAB_OPERATION_RECORD_MISSING");
+    assert.equal(missingStatus.machine_state.operation_state, "missing");
+    assert.equal(missingStatus.machine_state.provider_resource_created, "unknown");
+    const missingCancel = await googleColabRunTool(env, owner, "experiment_cancel", missingRunId,
+      { fetchImpl: countedFetch, now: 109 });
+    assert.equal(missingCancel.machine_state.state, "uncertain");
+    assert.equal(missingCancel.blocking_reason, "GOOGLE_COLAB_OPERATION_RECORD_MISSING");
+    const missingSubmit = await submitGoogleColabExperiment(env, owner, {
+      run_id: missingRunId, plan_fingerprint: missingFingerprint, provider_approved_plan: plan,
+    }, { fetchImpl: countedFetch, now: 110 });
+    assert.equal(missingSubmit.machine_state.state, "uncertain");
+    assert.equal(missingSubmit.blocking_reason, "GOOGLE_COLAB_OPERATION_RECORD_MISSING");
+    assert.equal(providerToolCalls, before, "a missing submitted journal never calls Colab or creates another runtime");
   } finally {
     sqlite.close();
   }

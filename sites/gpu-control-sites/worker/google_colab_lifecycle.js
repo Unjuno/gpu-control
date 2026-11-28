@@ -20,6 +20,13 @@ function result(status, summary, runId, state, cleanup, actions, blocker = null,
       state, cleanup_state: cleanup, ...details }, next_allowed_actions: actions, blocking_reason: blocker };
 }
 
+function missingOperationRecord(runId) {
+  return result("pending", "Colabのrun操作記録がありません。provider実行とcleanupの状態を確定できないため、新しいruntimeは作成せず同じrunを不確定状態で保持します。",
+    runId, "uncertain", "unknown", ["experiment_status", "experiment_cancel"],
+    "GOOGLE_COLAB_OPERATION_RECORD_MISSING",
+    { operation_state: "missing", provider_resource_created: "unknown" });
+}
+
 async function readPlan(env, owner, runId) {
   return env.DB.prepare(`SELECT id, owner_id, fingerprint, approved_plan_json, state, expires_at,
       cancelled_at, submit_attempted_at, provider_state, provider_response_json
@@ -107,6 +114,9 @@ export async function submitGoogleColabExperiment(env, owner, args, options = {}
     "Colab成果物を安全に保存するR2がありません。runtimeは作成していません。", args.run_id,
     "prepared", "not_required", [], "ARTIFACT_STORAGE_NOT_CONFIGURED");
   let operation = await readGoogleColabOperation(env.DB, owner, args.run_id, args.plan_fingerprint);
+  if (!operation && (planRow.state !== "prepared" || planRow.submit_attempted_at !== null)) {
+    return missingOperationRecord(args.run_id);
+  }
   if (!operation) {
     let authorization = await env.DB.prepare(`SELECT authorization_id, expires_at, positive_compute_units_attested FROM gateway_delegated_authorizations
       WHERE owner_id=? AND plan_id=? AND fingerprint=? AND authorization_source='chatgpt_mcp_write_confirmation'`)
@@ -293,6 +303,9 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
     let operation = await readGoogleColabOperation(env.DB, owner, runId, row.fingerprint);
     if (!operation) {
       const now = options.now ?? Math.floor(Date.now() / 1000);
+      if (row.state !== "prepared" || row.submit_attempted_at !== null) {
+        return missingOperationRecord(runId);
+      }
       const cancelled = await env.DB.prepare(`UPDATE gateway_delegated_plans SET cancelled_at=?, updated_at=?
         WHERE owner_id=? AND id=? AND state='prepared' AND cancelled_at IS NULL`).bind(now, now, owner, runId).run();
       if (cancelled?.meta?.changes === 1) return result("ok", "Colab planを実行前に取り消しました。runtimeは作成されていません。", runId,
@@ -359,11 +372,14 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
       try { return JSON.parse(row.provider_response_json); } catch {}
     }
     const operation = await readGoogleColabOperation(env.DB, owner, runId, row.fingerprint);
-    if (!operation) return result(row.cancelled_at ? "ok" : "ok",
-      row.cancelled_at ? "Colab planを送信前に取り消しました。" : "Colab planは準備済みです。runtimeは作成されていません。",
-      runId, row.cancelled_at ? "cancelled" : "prepared", "not_required",
-      row.cancelled_at ? [] : ["experiment_submit", "experiment_cancel"], null,
-      { expires_at: row.expires_at, runtime_allocated: false });
+    if (!operation) {
+      if (row.cancelled_at) return result("ok", "Colab planを送信前に取り消しました。runtimeは作成されていません。",
+        runId, "cancelled", "not_required", [], null, { expires_at: row.expires_at, runtime_allocated: false });
+      if (row.state === "prepared" && row.submit_attempted_at === null) return result("ok",
+        "Colab planは準備済みです。runtimeは作成されていません。", runId, "prepared", "not_required",
+        ["experiment_submit", "experiment_cancel"], null, { expires_at: row.expires_at, runtime_allocated: false });
+      return missingOperationRecord(runId);
+    }
     if (operation.state !== "terminal") return advanceGoogleColabRun(env, owner, row, plan, operation, {
       ...options, now: options.now ?? Math.floor(Date.now() / 1000),
     });
