@@ -7,7 +7,7 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `bcb5cfac24c94c030f4ef7a1fec4ca746aac2587`
+**Current source snapshot:** code head `70e0f0d122e640ad76f7383b1b320264987cce48`
 on PR #70. The local Python suite at the previous source snapshot passes 616
 tests, five subtests and has one skip; the Sites Worker suite at this code head
 passes 166 tests and its graph is acyclic across 55 runtime modules. GitHub
@@ -214,17 +214,18 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (current source at `bcb5cfa`):**
+5. **Large files (current source at `70e0f0d`):**
    `worker/index.js` 816 lines;
    `worker/delegated_experiment_lifecycle.js` 391 lines;
    `worker/modal_cpu_lifecycle.js` 165 lines; Worker integration test
    `worker/index.test.js` 2,435 lines; owner-selected training registration
    lifecycle coverage is in `worker/training_registration.integration.test.js`
-   (680 lines). `worker/training_plan.js` is now 488 lines and still combines
-   shared D1 plan/authorization coordination with Modal-specific budget and
-   readiness checks. MAP-specific plan construction is isolated in
-   `worker/map_training_plan.js` (115 lines); the existing Modal owner-selected
-   builder remains in `worker/modal_owner_training_plan.js`. Colab's capability
+   (680 lines). `worker/training_plan.js` is now 414 lines and coordinates
+   prepare/submit/state across shared plan records. MAP-specific plan
+   construction is isolated in `worker/map_training_plan.js` (115 lines), the
+   atomic D1 authorization/budget/dispatch claim in
+   `worker/training_dispatch_claim.js` (78 lines), and the existing Modal
+   owner-selected builder in `worker/modal_owner_training_plan.js`. Colab's capability
    handler is 82 lines and its transport
    client is 101 lines; no Colab plan or run lifecycle caller exists yet. MCP
    tool schema and GitHub source tests also live beside their module contracts.
