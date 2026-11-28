@@ -961,3 +961,24 @@ checksums. Added known-vector and input-contract tests.
 build packages all 40 reachable modules; Site artifact validation and
 `git diff --check` pass. A source scan confirms only the shared utility calls
 `crypto.subtle.digest("SHA-256", ...)` in production Worker modules.
+
+
+## 2026-11-28 — A7: isolate the experiment-list read model
+
+**Problem:** the Worker composition root queried and merged the local D1 run
+ledger with delegated provider records, interpreted uncertain/prepared and
+cleanup states, applied filters/cursors, and projected one shared list
+contract. This mixed a provider-neutral read model into transport dispatch.
+
+**Change:** moved list queries, local execution-origin evidence, delegated
+state projection, merge/deduplication, filters and cursor output into
+`worker/experiment_list.js`. `index.js` now supplies the authenticated owner
+and dispatches the existing operation. The tool schema, owner-scoped SQL,
+legacy-row handling, ordering, output shape, and provider adapter indicator
+remain unchanged. This does not add or activate a provider route.
+
+**Validation:** all 148 Worker tests pass, including delegated and local
+experiment listing and cursor/filter behavior; D1 forward migration tests
+pass; build and artifact validation pass; the Worker graph remains acyclic
+across 41 reachable runtime modules. No deployment or provider operation was
+performed.

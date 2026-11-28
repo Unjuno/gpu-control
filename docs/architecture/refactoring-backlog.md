@@ -460,3 +460,10 @@ base64url encoding. Removed parallel implementations from the entrypoint,
 OAuth, provider, artifact and training modules. Known-vector tests cover text,
 bytes, the empty digest and invalid input. The worker graph is acyclic across
 40 runtime modules; `index.js` is 1,850 lines.
+
+**Progress (2026-11-28):** `worker/experiment_list.js` now owns the shared
+read model that merges owner-scoped local and delegated-provider runs, projects
+their lifecycle/cleanup evidence, and applies filters and cursors. The MCP
+contract and persisted state are unchanged; this reduces dispatch composition
+without creating a second provider lifecycle. All 148 Worker tests pass and
+the Worker import graph remains acyclic across 41 runtime modules.
