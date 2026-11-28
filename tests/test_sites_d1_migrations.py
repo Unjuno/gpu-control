@@ -108,7 +108,8 @@ def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
         "completion_nonce",
     }
     assert {row[1] for row in db.execute("PRAGMA table_info(github_app_installations)")} == {
-        "owner_id", "installation_id", "account_login", "repository_selection", "connected_at",
+        "owner_id", "installation_id", "account_login", "repository_selection",
+        "user_authorized_repositories_json", "connected_at",
     }
     assert "cleanup_confirmed_at" in {
         row[1] for row in db.execute("PRAGMA table_info(training_plans)")
