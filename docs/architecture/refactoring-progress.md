@@ -473,8 +473,22 @@ RunPod plan validator dependency remains allowed. Refreshed the measured
 Worker and test-file sizes in the repository map and backlog.
 
 **Validation:** `npm test` passes all 120 Worker tests, registry drift check,
-and architecture check across 23 runtime modules. `git diff --check` passes.
+and architecture check across 23 runtime modules. Worker build copied all 23
+reachable modules and artifact validation passed. `git diff --check` passes.
 The first version of the new architecture rule also rejected the legitimate
 RunPod provider-plan validator; narrowed it to the actual forbidden dependency
-before the passing run. Build and exact-head CI for this source change remain
-to be checked. No provider or production configuration was touched.
+before the passing run. Exact-head CI passed all seven checks on
+`e615b395f62fb70c28c37701dc66300ffc1c79b9`. No provider or production
+configuration was touched.
+
+**Review limitation:** attempted the independent Codex Security diff scan for
+PR #70's exact `main...e615b395` range. The scan setup rejected the linked
+Git worktree with “requires a non-bare Git worktree with a resolvable HEAD” and
+returned no scan ID. No substitute scan or report was fabricated. Independent
+security review of PR #70 remains open.
+
+**Current source/release state:** PR #70 is open and unmerged at
+`e615b395f62fb70c28c37701dc66300ffc1c79b9`, 115 files (+11,472/−575); all
+seven exact-head checks pass. Owner-selected execution remains Modal-only in
+the candidate; RunPod custom execution and the published ChatGPT end-to-end
+path remain unfinished.
