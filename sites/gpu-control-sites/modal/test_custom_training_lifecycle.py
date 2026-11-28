@@ -34,10 +34,10 @@ def test_one_start_bound_to_owner_and_cancel_until_terminal():
     with pytest.raises(ValueError, match="run_identity_mismatch"):
         call("status", "other")
     assert call("cancel") == {"state": "cancel_requested"}
-    assert call("cancel") == {"state": "cancel_requested"}
+    assert call("cancel") == {"state": "cancelled", "cleanup": "confirmed"}
     assert call("status") == {"state": "cancelled", "cleanup": "confirmed"}
     assert call("status") == {"state": "cancelled", "cleanup": "confirmed"}
-    assert len(starts) == 1 and starts[0][1] is None and cancels == [f"custom-training-{run}"]
+    assert len(starts) == 1 and starts[0][1] is None and cancels == [f"custom-training-{run}"] * 2
 
 
 def test_ambiguous_start_never_retries():
@@ -122,20 +122,31 @@ def test_cancel_during_cpu_staging_finishes_without_gpu_start():
     plan = {"run_id": run}
     args = {"run_id": run, "plan_fingerprint": fingerprint, "plan": plan,
             "approved_plan": plan, "authorization_expires_at": int(time.time()) + 60}
-    starts, inspections = [], []
+    starts, inspections, cancellations = [], [], []
+    store = Store()
+
+    def cancel(handle):
+        assert store[f"custom-training:{run}"]["state"] == "cancel_requested"
+        cancellations.append(handle)
+        if len(cancellations) == 1:
+            return {"state": "uncertain"}
+        return {"state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
+
     backend = SimpleNamespace(
         start=lambda *_args, **_kwargs: starts.append("stage") or f"custom-training-{run}",
-        cancel=lambda _handle: {"state": "cancelled", "cleanup": "confirmed", "gpu_used": False},
+        cancel=cancel,
         inspect=lambda *_args: inspections.append("inspect") or pytest.fail("cancel already completed"),
     )
-    store = Store()
     assert dispatch(store, backend, "owner", "submit", args, validate=lambda *_: None,
                     admission_enabled=True) == {"state": "staging"}
     status_args = {"run_id": run, "plan_fingerprint": fingerprint}
     assert dispatch(store, backend, "owner", "cancel", status_args, validate=lambda *_: None,
+                    admission_enabled=True) == {"state": "cancel_requested"}
+    assert dispatch(store, backend, "owner", "status", status_args, validate=lambda *_: None,
                     admission_enabled=True) == {
                         "state": "cancelled", "cleanup": "confirmed", "gpu_used": False}
     assert starts == ["stage"] and inspections == []
+    assert cancellations == [f"custom-training-{run}"] * 2
 
 
 def test_adapter_argument_projection_preserves_checkpoint_and_artifact_chunks():

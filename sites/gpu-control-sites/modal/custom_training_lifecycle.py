@@ -113,15 +113,19 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
                 run_id, artifact, args.get("offset"), args.get("max_bytes"))}
         return result
     if action == "cancel" and record["state"] != "cancel_requested":
+        # Persist cancellation before the provider call. If cleanup is
+        # ambiguous, recovery must never inspect staging as an uncancelled run
+        # and allocate the GPU.
+        record = {**record, "state": "cancel_requested"}
+        store.put(key, record)
+    if record["state"] == "cancel_requested":
         cancelled = backend.cancel(record["handle"])
         if isinstance(cancelled, dict) and cancelled.get("state") == "uncertain":
-            return {"state": "uncertain"}
+            return {"state": "cancel_requested"}
         if (isinstance(cancelled, dict) and cancelled.get("state") == "cancelled" and
                 cancelled.get("cleanup") == "confirmed"):
             store.put(key, {**record, "state": "cancelled", "terminal": cancelled})
             return cancelled
-        store.put(key, {**record, "state": "cancel_requested"})
-        return {"state": "cancel_requested"}
     result = backend.inspect(record["handle"], record["plan"], record.get("state") == "cancel_requested")
     if not isinstance(result, dict) or result.get("state") not in {"staging", "running", "cancel_requested", "cleanup_pending", "succeeded", "failed", "cancelled"}:
         raise ValueError("invalid_provider_state")
