@@ -1,8 +1,9 @@
-# ADR 0006: Chat-first experiments on external compute
+# ADR 0006: Conversation-first experiments on external compute
 
 - **Status:** accepted product direction; provider rollout is incomplete.
 - **Date:** 2026-11-28
-- **Scope:** experiments initiated in ordinary ChatGPT or Work conversation.
+- **Scope:** experiments initiated in ordinary ChatGPT/Work or another
+  authenticated compatible MCP client.
 
 ## Context
 
@@ -48,7 +49,7 @@ itself.
    source-read scope; separate owner/provider authorization and budget bound
    compute. Internal prepare/submit protocol steps must not make the agent ask
    the user to repeat an already explicit request. Product code cannot bypass
-   native client write confirmations imposed by ChatGPT.
+   a connected client's native write-confirmation policy.
 
 ## Consequences
 
@@ -70,5 +71,5 @@ itself.
 
 - A provider cannot meet the shared execution, recovery or cleanup contract;
 - the owner wants an explicitly separate direct-provider MCP path; or
-- ChatGPT's native write confirmation behavior changes the supported user
-  experience.
+- a supported client's native write-confirmation behavior changes the
+  supported user experience.

@@ -280,7 +280,7 @@ scoped to that one repository and is never returned to MCP or passed to
 training code.
 
 The source candidate continues through manifest inspection, preview, expiring
-plan preparation, exact ChatGPT MCP write confirmation, owner/monthly and
+plan preparation, exact MCP-client write confirmation, owner/monthly and
 per-run reservation, authenticated Modal adapter dispatch, trusted source
 staging, isolated GPU execution, bounded result retrieval and cleanup evidence.
 The source manifest contract is `.gpu-control/experiment.json`; the workload

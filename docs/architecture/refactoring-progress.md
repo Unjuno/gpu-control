@@ -69,6 +69,24 @@ and `git diff --check` passes. This documentation/comment batch does not change
 runtime behavior or prove OAuth deployment, external client handshake, or
 Colab execution readiness.
 
+## 2026-11-28 — A13: remove remaining client-specific architecture language
+
+**Finding:** ADR 0006 and selected-repository/README descriptions still
+treated ChatGPT write confirmation as a product requirement. The repository
+map also assigned owner-selected MCP authorization to a browser route that
+handles the legacy MAP/fixed-CPU flow.
+
+**Change:** the ADR now defines conversation-first use across authenticated
+compatible clients and leaves native confirmation to each client. README and
+selected-source docs use client-neutral confirmation language. The module map
+assigns browser confirmation only to the legacy MAP/fixed-CPU path and MCP
+submit authorization to owner-selected plans.
+
+**Validation:** source semantics were checked against `training_plan.js`,
+`training_authorization_routes.js`, and the owner-bound OAuth dispatcher. This
+batch does not change runtime behavior or prove OAuth deployment, external
+client handshake, or Colab execution readiness.
+
 ## 2026-11-28 — Normalize the client-neutral MCP product boundary
 
 **Finding:** the owner-bound OAuth design, MCP client guide, and provider

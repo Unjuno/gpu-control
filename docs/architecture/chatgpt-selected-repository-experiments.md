@@ -129,10 +129,10 @@ Every run checks and atomically reserves that lease. The user's current chat
 request supplies intent to run the requested experiment within the lease; the
 agent must not ask the same conversational question again after prepare.
 The exact plan, source commit, image, provider/resource, runtime, and maximum
-charge are still shown in chat. ChatGPT's native write-action confirmation, if
-the client requires it, remains a client boundary and cannot be bypassed by
-Site code. A request outside the lease is blocked with the specific limit and
-the smallest action needed to change it.
+charge are still shown in chat. The connected MCP client's native write-action
+confirmation, if its policy requires it, remains a client boundary and cannot
+be bypassed by Site code. A request outside the lease is blocked with the
+specific limit and the smallest action needed to change it.
 
 ## Security boundaries
 
