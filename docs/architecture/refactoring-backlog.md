@@ -214,12 +214,24 @@ acceptance.
   without calling Colab or creating a replacement runtime. This prevents a
   false `prepared` result and duplicate allocation; it cannot reconstruct lost
   provider evidence, so manual reconciliation remains necessary.
+- **Modal journal-loss audit (2026-11-28):** the fixed delegated Modal path
+  retains `submit_attempted_at` in Sites D1, reconstructs only its deterministic
+  provider handle, and never retries submit during status/cancel. If Modal Dict
+  has lost the matching claim, the adapter rejects the handle; Sites returns
+  `SUBMISSION_OUTCOME_UNCONFIRMED`. The existing integration test covers this
+  missing-claim path. Owner-selected custom training has a separate D1
+  dispatch claim: a repeated submit returns the saved local plan state, while
+  status/cancel maps an adapter `not_found` to `uncertain`, so the route also
+  fails closed. A new integration test verifies that missing custom-training
+  adapter state reports provider allocation and cleanup as unknown, does not
+  claim cancellation, and does not repeat submit.
 - **RunPod cancellation evidence (2026-11-28):** a cancel request during an
   ambiguous submit is now persisted on the owner-bound D1 run. If the same
   provider receipt later becomes available, status synchronization cancels
   that job and confirms cleanup. Until then, `experiment_cancel` reports
-  `pending`/`uncertain` instead of claiming completion. This does not resolve
-  lost account-lease records or prove the live relay contract.
+  `pending`/`uncertain` instead of claiming completion. Missing account lease
+  and provider-job recovery now surface as stable bounded MCP errors. This does
+  not resolve lost account-lease records or prove the live relay contract.
 
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 

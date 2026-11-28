@@ -347,6 +347,30 @@ messages.
 passes. No Colab CLI job, provider call, experiment, credential, deployment,
 or admission change was made.
 
+## 2026-11-28 — A3: audit Modal adapter-journal loss paths
+
+**Finding:** Modal has two distinct submit paths, so the missing-record case
+must be checked at both boundaries. For the fixed delegated route, Sites D1's
+`submit_attempted_at` is the durable dispatch claim; a status/cancel request
+reconstructs only the deterministic handle, never retries submit, and maps a
+missing Modal Dict claim to `SUBMISSION_OUTCOME_UNCONFIRMED`. For owner-selected
+training, D1's `dispatch_claimed_at` prevents a repeated `training_submit` from
+dispatching again. A missing adapter record makes status/cancel return
+`uncertain` through the existing not-found mapping.
+
+**Evidence:** `worker/delegated_experiment_lifecycle.js`,
+`worker/training_submit.js`, `worker/training_tools.js`, and
+`modal/provider_adapter.py`. `worker/index.test.js` covers a missing fixed-lane
+adapter claim. A new `worker/training_tools.integration.test.js` covers the
+owner-selected custom-training path through Sites' D1 state projection and a
+missing adapter journal. Status/cancel return
+`SUBMISSION_OUTCOME_UNCONFIRMED`, provider allocation and cleanup `unknown`,
+and status-only recovery; repeated submit remains local to D1.
+
+**Validation:** the new training-tools integration test and existing source
+registration integration test pass (2/2). No provider call, experiment,
+deployment, credential, or admission change was made.
+
 
 ## 2026-11-28 — A7: centralize the MCP tool-result projection
 

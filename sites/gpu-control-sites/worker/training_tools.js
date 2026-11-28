@@ -49,7 +49,8 @@ export async function handleTrainingTool(name, args, { env, owner, delegate, isC
     const remote = await delegate(env, owner, name, {
       run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
     });
-    const state = remote?.state === "not_found" ? "uncertain" : remote?.state;
+    const missingAdapterRecord = remote?.state === "not_found";
+    const state = missingAdapterRecord ? "uncertain" : remote?.state;
     if (!["staging", "running", "cleanup_pending", "cancel_requested", "cancelled", "succeeded", "failed", "uncertain"].includes(state)) {
       throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
     }
@@ -64,10 +65,14 @@ export async function handleTrainingTool(name, args, { env, owner, delegate, isC
       (remote?.cleanup_state === "confirmed" || remote?.cleanup === "confirmed");
     if (cleanupConfirmed) await confirmTrainingCleanup(env.DB, owner, args.run_id,
       local.machine_state.plan_fingerprint, state, "confirmed", Math.floor(Date.now() / 1000));
-    return { ...local, human_summary: "Modalの学習実行状態です。",
+    return { ...local, human_summary: missingAdapterRecord
+        ? "Modal adapterの受付記録が見つからないため、実行・provider resource・cleanup状態を確定できません。二重実行を避けて同じrunの照合を続けます。"
+        : "Modalの学習実行状態です。",
       machine_state: { ...local.machine_state, ...remote, state,
+        ...(missingAdapterRecord ? { provider_resource_created: "unknown", cleanup_state: "unknown" } : {}),
         ...(cleanupConfirmed ? { cleanup_state: "confirmed" } : {}) },
-      next_allowed_actions: nextActions };
+      next_allowed_actions: nextActions,
+      ...(missingAdapterRecord ? { blocking_reason: "SUBMISSION_OUTCOME_UNCONFIRMED" } : {}) };
   }
   if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegate,
     isConfigured, getSourceToken);
