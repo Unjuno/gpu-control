@@ -924,3 +924,22 @@ rate-limit, oversized response, parallel submit and lost-response cases. D1
 forward migration tests pass; build packages all 37 reachable modules; Site
 artifact validation and `git diff --check` pass. `worker/index.js` is now
 1,875 lines. No live provider request or deployment occurred.
+
+
+## 2026-11-28 — A7: isolate Modal CPU plan creation
+
+**Problem:** the Worker dispatcher validated and fingerprinted the Modal CPU
+plan, persisted its owner/idempotency record, and formatted cost/resource
+approval details inline. The shared human authorization TTL was also owned by
+the composition root despite being consumed by several flows.
+
+**Change:** moved CPU plan creation to `worker/prepare_modal_cpu_plan.js`;
+provider selection and admission remain at dispatch. Centralized the 600-second
+single-use authorization lifetime in `worker/human_authorization_policy.js`
+and shared it with the plan/confirmation flows. Existing MCP response shape,
+fixed resource/cost limits and idempotency behavior remain unchanged.
+
+**Validation:** all 146 Worker tests pass, including registered CPU prepare,
+plan idempotency and invalid ceiling cases; D1 forward migration tests pass;
+build packages all 39 reachable modules; Site artifact validation and
+`git diff --check` pass. `worker/index.js` is 1,854 lines.

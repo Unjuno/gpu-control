@@ -1,7 +1,7 @@
 import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_authorization.js";
 import { isMcpToolReadOnly, listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
 import { normalizeTrainingArguments, safeJson, validGatewayApprovedPlan, validGatewayPrepare,
-  validPlan, validProviderApprovedPlan, validToolArguments } from "./experiment_input_contract.js";
+  validProviderApprovedPlan, validToolArguments } from "./experiment_input_contract.js";
 import { handleGithubTool, isGithubTool } from "./github_tools.js";
 import { completeGoogleColabOAuth, beginGoogleColabOAuth, googleColabOAuthConfigured } from "./google_colab_connection.js";
 import { handleGoogleColabTool, isGoogleColabTool } from "./google_colab_tools.js";
@@ -16,12 +16,12 @@ import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
 import { registeredPrepareArguments, resolveZeroGpuPrepare } from "./registered_prepare.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
 import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, usdFromMicrousd, utcMonthKey } from "./provider_budget_policy.js";
-import { MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE,
-  MODAL_SANDBOX_CPU_LIMIT_CORES, MODAL_SANDBOX_MEMORY_LIMIT_MIB,
-  MODAL_SANDBOX_RESOURCES, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
+import { MODAL_PRICING_CHECKED_AT, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { getExperimentCapabilities } from "./provider_capabilities.js";
 import { modalConfigured, modalPayload, modalRequest } from "./modal_http_client.js";
 import { providerHealthDiagnostic, providerHealthDiagnosticForAuthorizedSubmit } from "./provider_health_diagnostic.js";
+import { prepareModalCpuPlan } from "./prepare_modal_cpu_plan.js";
+import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
 import { persistRunResultArtifact, readRunResultArtifact, runArtifactBytes, RUN_ARTIFACT_MAX_BYTES } from "./run_artifacts.js";
 import { authenticateMcpAccessToken, beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
@@ -54,7 +54,6 @@ const RUNPOD_PER_RUN_BUDGET_USD = WORKLOADS.runpod_canary.cost_ceiling_usd;
 const MODAL_MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin";
 const MODAL_MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a";
 const MODAL_TOKENIZER_SHA256 = "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361";
-const HUMAN_AUTHORIZATION_TTL_SECONDS = 600;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 function json(data, status = 200, headers = {}) {
@@ -1291,26 +1290,7 @@ async function callTool(name, args, request, env, context = null, principal = nu
       return prepareRunpodExperiment(env, owner, prepareArgs);
     }
     if (validGatewayPrepare(prepareArgs)) return prepareDelegatedExperiment(env, owner, prepareArgs);
-    if (!validPlan(prepareArgs, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");
-    const fingerprint = await sha256(canonical({
-      workload: prepareArgs.workload, repository: prepareArgs.repository, source_sha: prepareArgs.commit,
-      parameters: prepareArgs.parameters, runtime_seconds: prepareArgs.runtime_seconds, max_cost_usd: prepareArgs.max_cost_usd,
-      image_digest: env.CPU_WORKLOAD_IMAGE_DIGEST,
-      image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null,
-    }));
-    const planId = crypto.randomUUID().replaceAll("-", "");
-    const now = Math.floor(Date.now() / 1000);
-    const expires = now + HUMAN_AUTHORIZATION_TTL_SECONDS;
-    await env.DB.prepare(`INSERT OR IGNORE INTO plans
-      (id, owner_id, idempotency_key, fingerprint, workload, repository, source_sha, image_digest, parameters_json, runtime_seconds, max_cost_usd, state, created_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)`)
-      .bind(planId, owner, prepareArgs.idempotency_key, fingerprint, prepareArgs.workload, prepareArgs.repository, prepareArgs.commit,
-        env.CPU_WORKLOAD_IMAGE_DIGEST, JSON.stringify(prepareArgs.parameters), prepareArgs.runtime_seconds, prepareArgs.max_cost_usd, now, expires).run();
-    const persisted = await env.DB.prepare("SELECT id, fingerprint, image_digest, state, expires_at FROM plans WHERE owner_id = ? AND idempotency_key = ?")
-      .bind(owner, prepareArgs.idempotency_key).first();
-    if (!persisted || persisted.fingerprint !== fingerprint || persisted.image_digest !== env.CPU_WORKLOAD_IMAGE_DIGEST) throw new Error("IDEMPOTENCY_KEY_CONFLICT");
-    const estimatedCost = estimateModalSandboxCostUsd(prepareArgs.runtime_seconds);
-    return { schema_version: 2, status: "ok", human_summary: `登録済みTinyStories推論planを準備しました。ここではまだ実行していません。ChatGPTでこのplanを確認し、experiment_submitの実行確認を承認した場合だけ開始します。別のブラウザーでサインインする必要はありません。CPU request/limitは1 physical core、メモリrequest/limitは512 MiB、最大実行時間は30秒です。現在の料金表でSandbox CPU・メモリ使用料の最大見積もりは約$${estimatedCost}です。CPU超過時はthrottle、メモリ超過時はOOMで実験が失敗します。Modal制御関数料金は含みません。`, run_id: persisted.id, plan_fingerprint: persisted.fingerprint, state: persisted.state, expires_at: persisted.expires_at, provider: "modal_cpu", approved_plan: { workload: prepareArgs.workload, repository: prepareArgs.repository, commit: prepareArgs.commit, prompt: prepareArgs.parameters.prompt, max_new_tokens: prepareArgs.parameters.max_new_tokens, seed: prepareArgs.parameters.seed, runtime_seconds: prepareArgs.runtime_seconds, estimated_sandbox_cost_usd: estimatedCost, max_cost_usd: prepareArgs.max_cost_usd, cpu_limit_physical_cores: MODAL_SANDBOX_CPU_LIMIT_CORES, memory_limit_mib: MODAL_SANDBOX_MEMORY_LIMIT_MIB, gpu_allowed: false, control_function_cost_included: false }, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_sandbox_cost_usd: estimatedCost, max_sandbox_cost_usd: prepareArgs.max_cost_usd, control_function_cost_included: false, cost_is_estimate: true, credit_eligible: true, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, approval_required: true, authorization_surface: "chatgpt_mcp_write_confirmation", authorization_validity_seconds: HUMAN_AUTHORIZATION_TTL_SECONDS, max_runs_per_authorization: 1 };
+    return prepareModalCpuPlan(env, owner, prepareArgs);
   }
   if (name === "experiment_submit") {
     if (!validToolArguments(name, args, env)) throw new Error("INVALID_ARGUMENTS");

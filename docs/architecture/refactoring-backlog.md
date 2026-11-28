@@ -442,3 +442,12 @@ provider probe and persisted readiness result; submit can reuse a successful
 plan health check. The existing submit contract is adapted at the caller so its
 error codes remain compatible. `worker/index.js` fell from 2,022 to 1,875
 lines from parent `30c77fc`; the 37-module graph remains acyclic.
+
+
+**Progress (2026-11-28):** bounded Modal CPU plan validation, fingerprinting,
+owner/idempotency persistence and response projection now live in
+`worker/prepare_modal_cpu_plan.js`. The 10-minute single-use human
+authorization lifetime has one authority in `worker/human_authorization_policy.js`
+shared with the confirmation routes. Provider routing stays in the Worker
+dispatcher; CPU plan creation is now its own domain operation. `index.js` fell
+from 1,875 to 1,854 lines from parent `36935b3`.

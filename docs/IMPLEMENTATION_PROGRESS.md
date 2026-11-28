@@ -4710,3 +4710,17 @@ oversized provider response and ambiguous submit recovery; D1 forward migration
 tests pass; Worker build packages all 37 runtime modules; artifact validation
 and `git diff --check` pass. Entry point is 1,875 lines. No live provider call,
 deploy or migration occurred.
+
+
+## 2026-11-28 architecture batch — Modal CPU plan authority
+
+Moved registered Modal CPU plan validation, immutable fingerprint generation,
+owner/idempotency persistence, expiry and approved response projection into
+`sites/gpu-control-sites/worker/prepare_modal_cpu_plan.js`. Shared the 600-second
+human authorization TTL from `human_authorization_policy.js` between plan and
+confirmation flows. Entry point remains the provider dispatcher and is now
+1,854 lines.
+
+Validation: 146 Worker tests pass; D1 forward migration tests pass; build
+packages all 39 Worker modules; artifact validation and `git diff --check`
+pass. No provider, migration or deployment was run.
