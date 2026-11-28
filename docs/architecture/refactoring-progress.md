@@ -1674,6 +1674,11 @@ canonical serialization, plan, lifecycle, capability, workload, result, and
 provider-finalization tests pass. `git diff --check` passes. No provider or
 deployment operation occurred.
 
+**Independent review:** the read-only security review found no actionable
+issues. It confirmed the existing sorted compact ASCII representation is
+preserved for validated model values and authorization/budget decisions are
+unchanged.
+
 **Limit:** the Sites Worker has its own runtime-local serializer. Persisted
 cross-runtime contract fixtures still need a separate audit; this change
 centralizes Python behavior only.
