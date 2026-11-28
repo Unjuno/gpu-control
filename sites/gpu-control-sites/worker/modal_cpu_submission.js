@@ -26,7 +26,7 @@ export async function submitModalCpuRun(env, owner, args, request, services) {
         parameters.prompt !== approved.prompt || parameters.max_new_tokens !== approved.max_new_tokens || parameters.seed !== approved.seed ||
         plan.runtime_seconds !== approved.runtime_seconds || plan.max_cost_usd !== approved.max_cost_usd ||
         estimateModalSandboxCostUsd(plan.runtime_seconds) !== approved.estimated_sandbox_cost_usd) {
-      return { schema_version: 2, status: "blocked", human_summary: "ChatGPTの確認内容が、このownerの現在有効なplanと完全一致しません。新しいplanを準備して内容を確認してください。",
+      return { schema_version: 2, status: "blocked", human_summary: "MCPクライアントからの実行要求が、このownerの現在有効なplanと完全一致しません。新しいplanを準備して内容を確認してください。",
         machine_state: { run_id: args.run_id, plan_valid: false, authorization_required: true, sandbox_started: false },
         next_allowed_actions: [], blocking_reason: "APPROVED_PLAN_MISMATCH_OR_EXPIRED" };
     }
@@ -52,7 +52,7 @@ export async function submitModalCpuRun(env, owner, args, request, services) {
             approved.prompt, approved.max_new_tokens, approved.seed, approved.runtime_seconds,
             approved.max_cost_usd, env.CPU_WORKLOAD_IMAGE_DIGEST, now).run();
       } catch {
-        return { schema_version: 2, status: "blocked", human_summary: "ChatGPT承認をplanに安全に記録できませんでした。Sandboxは起動していません。",
+        return { schema_version: 2, status: "blocked", human_summary: "MCP実行認可をplanに安全に記録できませんでした。Sandboxは起動していません。",
           machine_state: { run_id: args.run_id, authorization_valid: false, sandbox_started: false },
           next_allowed_actions: [], blocking_reason: "CHATGPT_AUTHORIZATION_PERSISTENCE_FAILED" };
       }
@@ -60,7 +60,7 @@ export async function submitModalCpuRun(env, owner, args, request, services) {
         WHERE owner_id=? AND plan_id=? AND fingerprint=?`).bind(owner, args.run_id, args.plan_fingerprint).first();
     }
     if (!authorization || authorization.fingerprint !== args.plan_fingerprint) {
-      return { schema_version: 2, status: "blocked", human_summary: "このplanのowner-bound承認を確認できません。新しいplanを準備し、ChatGPTで再確認してください。",
+      return { schema_version: 2, status: "blocked", human_summary: "このplanのowner-bound実行認可を確認できません。新しいplanを準備し、接続中のMCPクライアントから実行要求をやり直してください。",
         machine_state: { run_id: args.run_id, authorization_required: true, authorization_valid: false },
         next_allowed_actions: [], blocking_reason: "HUMAN_AUTHORIZATION_REQUIRED" };
     }

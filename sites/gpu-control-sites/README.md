@@ -2,10 +2,11 @@
 
 Public ChatGPT MCP Site source for `Unjuno/gpu-control`.
 
-ChatGPT remains the primary client. Source also includes owner-bound OAuth for
-compatible external MCP clients; see [MCP_CLIENTS.md](MCP_CLIENTS.md). That
-path requires the OAuth migration and deployment and is not live just because
-it is present in this repository.
+ChatGPT Sites and compatible external MCP clients connect to one owner-scoped
+control plane. External clients use owner-bound OAuth and share plans, budgets,
+runs, artifacts, and cleanup records; see [MCP_CLIENTS.md](MCP_CLIENTS.md).
+That path requires the OAuth migration and deployment and is not live just
+because it is present in this repository.
 
 ## Source and release status — 2026-11-28
 
@@ -89,14 +90,16 @@ used to infer today's live Site, billing, provider readiness, or acceptance.
   [Modal deployment acceptance](../../docs/acceptance/2026-11-13-modal-main-deploy.md),
   and [latest Modal local smoke and live gate](../../docs/acceptance/2026-11-14-modal-local-smoke-and-live-gate.md).
 
-## ChatGPT-native approval and owner-training source — PR #70 candidate
+## MCP write authorization and owner-training source — PR #70 candidate
 
-PR #70 retains the ChatGPT-native destructive `experiment_submit` authorization
-and adds an owner-selected GitHub repository training path. The current source
+PR #70 uses a destructive MCP write action for exact-plan authorization and
+adds an owner-selected GitHub repository training path. A client may show its
+own native write approval UI; the backend binds the resulting tool call to the
+exact owner plan and one-use authorization. The current source
 pins a repository commit, validates its `.gpu-control/experiment.json` and
 hash-locked requirements, prepares a bounded Modal GPU plan, and binds submit to
 the authenticated Site owner and one-use authorization. The tool descriptions
-and the operator Skill are intended to let ChatGPT carry registration IDs
+and the operator Skill are intended to let the agent carry registration IDs
 internally. PR #70 remains an unmerged source candidate; the historical Site
 snapshot above does not prove this path is deployed or accepted. See the
 [architecture map](../../docs/architecture/repository-map.md) and [ChatGPT
@@ -105,10 +108,11 @@ its remaining release gates.
 
 ## Target execution architecture
 
-The Site remains the only ChatGPT-facing product and control plane. The compute
-providers are exactly Modal, RunPod, Kaggle, and Hugging Face. Each stays behind
-separate authorization, pricing or free-quota, availability, result-integrity,
-and cleanup gates. D1/R2 lifecycle data is authoritative.
+The Site is the shared MCP product and control plane for ChatGPT and compatible
+authenticated clients. The compute providers are exactly Modal, RunPod,
+Kaggle, and Hugging Face. Each stays behind separate authorization, pricing or
+free-quota, availability, result-integrity, and cleanup gates. D1/R2 lifecycle
+data is authoritative.
 
 ### Modal provider adapter (source candidate, disabled by repository policy)
 
@@ -128,15 +132,15 @@ name, exact arguments, a 60-second validity window, and a random nonce. The
 adapter rejects replay before dispatch. Transport authentication alone is
 deliberately insufficient for `experiment_submit`. Sites stores the exact
 owner-bound provider plan and opaque provider handle in D1, creates one
-short-lived ChatGPT write authorization, and binds it to the run before the
+short-lived MCP write authorization, and binds it to the run before the
 provider can queue work. Transport retries reuse that same authorization and
 cannot bind it to another run. Do not advertise live Kaggle/Hugging Face before
 deployment, quota checks, private artifact/Space checks, and end-to-end
 recovery acceptance are complete.
 
 ```text
-ChatGPT -> Sites MCP Worker -> owner-scoped D1/R2
-                    -> exact-plan ChatGPT write approval -> one-use D1 authorization
+MCP client -> Sites MCP Worker -> owner-scoped D1/R2
+                    -> exact-plan destructive write action -> one-use D1 authorization
                                     -> authenticated Modal CPU function
                                     -> fixed Modal T4 canary function
                                     -> RunPod REST v2 after paid gates pass
@@ -153,7 +157,7 @@ separately deployed Modal app embeds one reviewed CUDA vector-add kernel, fixes
 the GPU to one T4, blocks networking, attaches no secrets, uses single-use
 containers, pins the amd64 Debian base manifest, binds a deterministic build
 digest into the plan/result, and has a 30-second timeout. Sites prepares an
-owner-bound exact plan, requires ChatGPT write confirmation, binds a maximum
+owner-bound exact plan, requires a destructive MCP write action, binds a maximum
 one-hour Workspace usage/charge/limit/T4-price evidence record, and reserves
 `$0.01` from the shared Sites D1 Modal-compute ceiling of `$30` per UTC month
 and `$1` per run. Migration `0032_modal_compute_budget.sql` carries forward
@@ -194,7 +198,7 @@ untouched.
 
 - `worker/mcp_tool_contract.js`: canonical MCP names, schemas, descriptions,
   output contract, and tool annotations.
-- `worker/index.js`: ChatGPT MCP transport, authentication, and composition
+- `worker/index.js`: MCP transport, authentication, and composition
   root for D1/R2 domain modules.
 - `drizzle/`: append-only D1 schema migrations.
 - `modal/`: authenticated Modal control API, fixed GPU canary, provider adapter,

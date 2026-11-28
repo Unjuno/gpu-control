@@ -217,7 +217,9 @@ test("MCP tool annotations distinguish read, execution, and lifecycle operations
   assert.match(submitTool.description, /do not ask a second conversational confirmation/);
   assert.match(submitTool.description, /continue status monitoring, terminal result retrieval, and required cleanup verification/);
   assert.equal(trainingSubmitTool.annotations.destructiveHint, true);
-  assert.match(trainingSubmitTool.description, /ChatGPT MCP write confirms/);
+  assert.match(trainingSubmitTool.description, /destructive MCP write action/);
+  assert.match(trainingSubmitTool.description, /client may also show its own native write-approval UI/);
+  assert.doesNotMatch(trainingSubmitTool.description, /ChatGPT/);
   assert.match(trainingSubmitTool.description, /No separate GPU Control browser confirmation or Modal login is needed/);
   assert.deepEqual(trainingArtifactTool.inputSchema.required, ["run_id", "artifact_id", "offset", "max_bytes"]);
   assert.equal(trainingArtifactTool.annotations.readOnlyHint, true);
@@ -1321,7 +1323,7 @@ test("prepare idempotency keys are isolated by Site owner", async () => {
 
   assert.equal(first.state, "prepared");
   assert.equal(first.approval_required, true);
-  assert.equal(first.authorization_surface, "chatgpt_mcp_write_confirmation");
+  assert.equal(first.authorization_surface, "mcp_destructive_write_action");
   assert.equal(first.approved_plan.prompt, "A");
   assert.equal(first.approved_plan.max_cost_usd, "0.01");
   assert.equal(first.approved_plan.estimated_sandbox_cost_usd, "0.0005");

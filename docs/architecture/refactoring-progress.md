@@ -25,6 +25,30 @@ reports an acyclic graph across 67 runtime modules. This exercises mocked
 D1/OAuth state and the local Sites Worker only; it does not verify a deployed
 external-client handshake or execute a provider.
 
+## 2026-11-28 — A13: make MCP write guidance client-neutral
+
+**Finding:** the shared OAuth and run ledger support multiple authenticated
+MCP clients, but several tool descriptions and owner-training response messages
+still framed exact-plan execution authorization as a ChatGPT-only action. This
+made a shared capability appear unavailable from other clients.
+
+**Change:** public tool descriptions, plan authorization surfaces, runtime
+summaries, and architecture docs now describe a destructive MCP write action
+and leave any native confirmation UI to the connected client. The server still
+binds the request to the authenticated owner, exact plan, one-use authorization,
+and budget reservation. The historical `chatgpt_mcp_write_confirmation`
+database value remains unchanged because it is part of the append-only
+migration contract; comments identify it as shared by authenticated MCP
+clients. OAuth deployment and account linking remain separate release/setup
+requirements.
+
+**Validation:** `npm test` passes all 187 Sites Worker tests; the import graph
+is acyclic across 67 runtime modules and the workload registry is current.
+`git diff --check` also passes. This validates the local source contract only;
+it does not establish an external OAuth release or live client handshake. No
+provider execution, credential, admission, budget, OAuth deployment, or live
+Site configuration was changed.
+
 ## 2026-11-28 — Normalize the client-neutral MCP product boundary
 
 **Finding:** the owner-bound OAuth design, MCP client guide, and provider

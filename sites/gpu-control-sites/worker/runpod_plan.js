@@ -147,7 +147,7 @@ function runpodPreparedResponse(persisted, plan, now, replay) {
     blocking_reason: expired ? "PLAN_EXPIRED_OR_ALREADY_USED" : null,
     run_id: persisted.id, plan_fingerprint: persisted.fingerprint, expires_at: persisted.expires_at,
     provider_approved_plan: plan, approval_required: submitAllowed,
-    authorization_surface: "chatgpt_mcp_write_confirmation", authorization_validity_seconds: 600,
+    authorization_surface: "mcp_destructive_write_action", authorization_validity_seconds: 600,
     max_runs_per_authorization: 1,
   };
 }

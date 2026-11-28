@@ -1,5 +1,5 @@
 import { findOwnedTrainingSource, getOwnedTrainingSource, MAP_TRAINING_REPOSITORY } from "./training_source.js";
-import { authorizeTrainingChatSubmit, getTrainingAuthorization, trainingAuthorizationUrl } from "./training_authorization.js";
+import { authorizeTrainingMcpSubmit, getTrainingAuthorization, trainingAuthorizationUrl } from "./training_authorization.js";
 import { trainingRuntimeProfileFingerprint } from "./training_contract.js";
 import { previewModalOwnerTrainingPlan } from "./modal_owner_training_plan.js";
 import { previewMapTrainingPlan } from "./map_training_plan.js";
@@ -120,7 +120,7 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
       : authorized
       ? "学習計画を保存しました。所有者確認済みなので、このplanを送信できます。"
       : ownerSelected
-      ? "学習計画を保存しました。ChatGPTから送信するときに、この固定commit・GPU・予算上限を1回だけ確認します。"
+      ? "学習計画を保存しました。このMCPクライアントから送信するときに、固定commit・GPU・予算上限を1回だけ確認します。"
       : "学習計画を保存しました。送信前にauthorization_urlを開き、このplanの有料実行を確認してください。Modalへのログインは不要です。",
     machine_state: { ...plan, executable: executableNow, run_id: existing.id,
       plan_fingerprint: fingerprint, idempotency_key: key, expires_at: existing.expires_at, state,
@@ -240,7 +240,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   const now = Math.floor(Date.now() / 1000);
   let authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);
   if (ownerSelected && (!authorization || authorization.expires_at <= now || authorization.consumed_at !== null)) {
-    const authorized = await authorizeTrainingChatSubmit(env.DB, owner, runId, fingerprint,
+    const authorized = await authorizeTrainingMcpSubmit(env.DB, owner, runId, fingerprint,
       controlPlaneSha, now);
     if (authorized) authorization = await getTrainingAuthorization(env.DB, owner, runId, fingerprint);
   }
@@ -257,7 +257,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
     authorization.authorized_at !== null && authorization.expires_at > now && authorization.consumed_at === null;
   if (!expectedAuthorization) return { schema_version: 2, status: "blocked",
     human_summary: ownerSelected
-      ? "ChatGPTのこのplan確認を安全に記録できませんでした。計算は開始していません。"
+      ? "このMCPのplan実行確認を安全に記録できませんでした。計算は開始していません。"
       : "このplanはまだSite上で有料実行の確認が済んでいません。authorization_urlを開いて確認してください。",
     machine_state: { run_id: runId, authorization_state: "required",
       ...(!ownerSelected ? { authorization_url: trainingAuthorizationUrl(runId, fingerprint) } : {}) },

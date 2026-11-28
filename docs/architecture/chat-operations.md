@@ -2,11 +2,11 @@
 
 ## Architecture decision
 
-Keep ChatGPT Sites MCP and D1 as the product boundary and owner scoped record. ChatGPT and Codex choose a registered workload from ordinary language; they do not construct provider credentials, source pins, runtime limits, or provider-specific request bodies. Sites resolves those values from the versioned workload registry and persists the exact plan before any external submit.
+Keep the authenticated Sites MCP and D1 as the product boundary and owner-scoped record. ChatGPT, Codex, and other compatible MCP clients choose a registered workload from ordinary language; they do not construct provider credentials, source pins, runtime limits, or provider-specific request bodies. Sites resolves those values from the versioned workload registry and persists the exact plan before any external submit.
 
 ```mermaid
 flowchart LR
-  U[User request] --> C[ChatGPT or Codex]
+  U[User request] --> C[ChatGPT, Codex, or compatible MCP client]
   C --> M[Authenticated Sites MCP]
   M --> R[Versioned workload registry]
   M --> D[(D1 owner scoped plans and runs)]
@@ -49,9 +49,9 @@ operational.
 
 `experiment_prepare` resolves a workload name or ID to a plan. The short workload ID is system metadata, not something a user must create or remember. The agent creates an opaque idempotency key per distinct user intent and retains it for recovery; it never asks the user to provide or remember the key. A repeated prepare with the same owner and key returns the same plan, including a RunPod price plan, before refreshing volatile quotes. If the response is completely lost and the key was omitted, a later independent call cannot be proven to represent the same intent. Existing explicit inputs remain supported for compatibility. ZeroGPU preparation records the selected Kaggle parent and immutable artifact reference; later status polling cannot change which completed run is considered newest.
 
-`experiment_submit` checks that the live user request and exact stored plan agree. It durably records submission intent before calling a provider. A response loss becomes `uncertain`/recoverable, not a false claim that no provider resource exists. Provider adapters use a durable per-run claim so recovery observes or returns the same run. A new run requires a distinct intent. Native ChatGPT write confirmation remains available.
+`experiment_submit` checks that the live user request and exact stored plan agree. It durably records submission intent before calling a provider. A response loss becomes `uncertain`/recoverable, not a false claim that no provider resource exists. Provider adapters use a durable per-run claim so recovery observes or returns the same run. A new run requires a distinct intent. MCP clients may display their own native write confirmation; the server-side owner, plan, budget, and one-use authorization checks are shared.
 
-Cancellation has two contracts: a prepared plan is cancelled by a guarded D1 marker without creating a resource; an accepted provider run is cancelled through its provider adapter and remains pending until terminal state and cleanup evidence are observed. A provider without a reliable cancel operation reports that limitation and continues bounded observation.
+Cancellation has two contracts: a prepared plan is cancelled by a guarded D1 marker without creating a resource; an accepted provider run is cancelled through its provider adapter and remains pending until terminal state and cleanup evidence are observed. A provider without a reliable cancel operation reports that limitation and continues bounded observation. MCP clients may apply their own native confirmation UI to destructive tool calls; those UI policies do not change the shared server-side owner and plan checks.
 
 ## Provider and cost policy
 

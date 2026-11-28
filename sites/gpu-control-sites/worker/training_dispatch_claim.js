@@ -1,8 +1,10 @@
 import { prepareModalComputeBudgetReservation, utcMonthKey } from "./provider_budget_policy.js";
 import { MAP_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
 
-// Authorization must already be established. This single write reserves the
-// whole plan ceiling and prevents concurrent or duplicate dispatch claims.
+// The persisted chatgpt_mcp_write_confirmation enum is a legacy schema value
+// shared by all authenticated MCP clients. Authorization must already be
+// established. This single write reserves the whole plan ceiling and prevents
+// concurrent or duplicate dispatch claims.
 export async function claimTrainingDispatch(db, owner, runId, fingerprint, now, monthlyLimit, authorization,
   maxMonthlyLimit = MAP_TRAINING_MAX_MONTHLY_MICROUSD, modalReservation = null) {
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1 ||

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { authorizeTrainingChatSubmit, getTrainingAuthorization } from "./training_authorization.js";
+import { authorizeTrainingMcpSubmit, getTrainingAuthorization } from "./training_authorization.js";
 
-test("native ChatGPT submit confirmation is bound to one exact owner plan", async () => {
+test("native MCP submit confirmation is bound to one exact owner plan", async () => {
   const db = new DatabaseSync(":memory:");
   try {
     for (const file of ["0022_training_registrations.sql", "0023_training_plans.sql",
@@ -31,7 +31,7 @@ test("native ChatGPT submit confirmation is bound to one exact owner plan", asyn
       first: async () => db.prepare(sql).get(...values),
     }; } }; } };
 
-    assert.equal(await authorizeTrainingChatSubmit(bridge, owner, runId, fingerprint, controlPlaneSha, now), true);
+    assert.equal(await authorizeTrainingMcpSubmit(bridge, owner, runId, fingerprint, controlPlaneSha, now), true);
     const first = await getTrainingAuthorization(bridge, owner, runId, fingerprint);
     assert.equal(first.authorization_source, "chatgpt_mcp_write_confirmation");
     assert.equal(first.authorized_by, owner);
@@ -40,14 +40,14 @@ test("native ChatGPT submit confirmation is bound to one exact owner plan", asyn
     assert.equal(first.control_plane_sha, controlPlaneSha);
     assert.equal(first.max_cost_microusd, plan.max_cost_microusd);
     assert.equal(first.consumed_at, null);
-    assert.equal(await authorizeTrainingChatSubmit(bridge, owner, runId, fingerprint, controlPlaneSha, now + 1), false);
+    assert.equal(await authorizeTrainingMcpSubmit(bridge, owner, runId, fingerprint, controlPlaneSha, now + 1), false);
 
     db.prepare("UPDATE training_authorizations SET authorized_at=NULL, expires_at=? WHERE plan_id=?").run(now, runId);
-    assert.equal(await authorizeTrainingChatSubmit(bridge, owner, runId, fingerprint, controlPlaneSha, now + 2), true);
+    assert.equal(await authorizeTrainingMcpSubmit(bridge, owner, runId, fingerprint, controlPlaneSha, now + 2), true);
     const renewed = await getTrainingAuthorization(bridge, owner, runId, fingerprint);
     assert.notEqual(renewed.authorization_id, first.authorization_id);
-    assert.equal(await authorizeTrainingChatSubmit(bridge, "other-owner", runId, fingerprint, controlPlaneSha, now + 3), false);
-    assert.equal(await authorizeTrainingChatSubmit(bridge, owner, runId, fingerprint, "f".repeat(40), now + 3), false);
+    assert.equal(await authorizeTrainingMcpSubmit(bridge, "other-owner", runId, fingerprint, controlPlaneSha, now + 3), false);
+    assert.equal(await authorizeTrainingMcpSubmit(bridge, owner, runId, fingerprint, "f".repeat(40), now + 3), false);
   } finally {
     db.close();
   }

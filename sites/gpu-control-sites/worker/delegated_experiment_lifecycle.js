@@ -87,7 +87,7 @@ export async function prepareDelegatedExperiment(env, owner, args, services) {
   return { ...response,
     machine_state: { ...response.machine_state, ...(sourceRunId ? { source_run_id: sourceRunId } : {}) },
     provider_approved_plan: plan, expires_at: persisted.expires_at,
-    approval_required: true, authorization_surface: "chatgpt_mcp_write_confirmation",
+    approval_required: true, authorization_surface: "mcp_destructive_write_action",
     authorization_validity_seconds: HUMAN_AUTHORIZATION_TTL_SECONDS,
     max_runs_per_authorization: 1 };
 }
@@ -99,7 +99,7 @@ export async function submitDelegatedExperiment(env, owner, args, services) {
   if (!plan || plan.cancelled_at || plan.fingerprint !== args.plan_fingerprint || plan.approved_plan_json !== approvedPlanJson ||
       plan.expires_at < now || !["prepared", "submitted"].includes(plan.state)) {
     return { schema_version: 2, status: "blocked",
-      human_summary: "ChatGPTの確認内容が、このownerの現在有効なprovider planと完全一致しません。新しいplanを準備してください。",
+      human_summary: "MCPクライアントからの実行要求が、このownerの現在有効なprovider planと完全一致しません。新しいplanを準備してください。",
       machine_state: { run_id: args.run_id, plan_valid: false }, next_allowed_actions: [],
       blocking_reason: "APPROVED_PLAN_MISMATCH_OR_EXPIRED" };
   }

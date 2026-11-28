@@ -61,10 +61,12 @@ export async function confirmTrainingChallenge(db, owner, runId, fingerprint, co
   return Boolean(row);
 }
 
-// A destructive ChatGPT MCP call is the human-facing confirmation surface for
+// A destructive MCP call is the client-facing confirmation surface for
 // owner-selected runs. Bind that exact call to the persisted plan; do not send
 // the user to a separate browser confirmation page for each experiment.
-export async function authorizeTrainingChatSubmit(db, owner, runId, fingerprint, controlPlaneSha, now) {
+// The persisted authorization_source value keeps its historical name because
+// it is part of the append-only migration contract; it applies to all MCP clients.
+export async function authorizeTrainingMcpSubmit(db, owner, runId, fingerprint, controlPlaneSha, now) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}$/.test(owner || "") ||
       !/^[0-9a-f]{32}$/.test(runId || "") || !/^[0-9a-f]{64}$/.test(fingerprint || "") ||
       !/^[0-9a-f]{40}$/.test(controlPlaneSha || "") || !Number.isSafeInteger(now)) return false;
