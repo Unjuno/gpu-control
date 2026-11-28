@@ -21,6 +21,20 @@ RunPod-key configurations remain accepted.
 **Validation:** pending focused and complete Sites validation. No provider,
 credential, admission, deployment, or billing state was touched.
 
+## 2026-11-29 — A11: give Modal health cooldown one policy owner
+
+**Finding:** the workspace health-check cooldown was an inline constant in the
+diagnostic implementation, while the integration test repeated the 61-second
+assumption. A policy change could leave either runtime behavior or its test out
+of sync.
+
+**Change:** moved the 60-second cooldown to `provider_health_policy.js`; both
+the diagnostic and its integration test consume the same named policy value.
+No cooldown duration or database behavior changed.
+
+**Validation:** pending focused and complete Sites validation. No provider,
+credential, admission, deployment, or billing state was touched.
+
 ## 2026-11-29 — A10: make signing fixtures share the canonical JSON authority
 
 **Finding:** four Worker test files carried local recursive key-sorting

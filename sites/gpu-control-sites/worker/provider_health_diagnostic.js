@@ -1,6 +1,5 @@
 import { modalConfigured, providerHealth } from "./modal_http_client.js";
-
-const MODAL_HEALTH_CHECK_COOLDOWN_SECONDS = 60;
+import { MODAL_HEALTH_CHECK_COOLDOWN_SECONDS } from "./provider_health_policy.js";
 
 async function runProviderHealthDiagnostic(env, owner, runId, fingerprint, authorizationValidated) {
   if (!env.DB) return {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "./index.js";
+import { MODAL_HEALTH_CHECK_COOLDOWN_SECONDS } from "./provider_health_policy.js";
 
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const sourceSha = "b".repeat(40);
@@ -187,7 +188,7 @@ test("Modal health diagnostic is owner-scoped and performs one authenticated GET
     assert.equal(called, true, "rate limited repeat must not call Modal");
 
     const originalNow = Date.now;
-    Date.now = () => originalNow() + 61000;
+    Date.now = () => originalNow() + (MODAL_HEALTH_CHECK_COOLDOWN_SECONDS + 1) * 1000;
     try {
       const duplicateResponse = await toolCall(env, "test-owner", "experiment_provider_health", healthArgs);
       const duplicate = JSON.parse((await duplicateResponse.json()).result.content[0].text);
