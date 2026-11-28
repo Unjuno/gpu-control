@@ -7,7 +7,7 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `70e0f0d122e640ad76f7383b1b320264987cce48`
+**Current source snapshot:** code head `c374df4b5d1ab7b6b76682bc33b3b57949db244c`
 on PR #70. The local Python suite at the previous source snapshot passes 616
 tests, five subtests and has one skip; the Sites Worker suite at this code head
 passes 166 tests and its graph is acyclic across 55 runtime modules. GitHub
@@ -214,7 +214,7 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (current source at `70e0f0d`):**
+5. **Large files (current source at `c374df4`):**
    `worker/index.js` 816 lines;
    `worker/delegated_experiment_lifecycle.js` 391 lines;
    `worker/modal_cpu_lifecycle.js` 165 lines; Worker integration test
