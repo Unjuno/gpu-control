@@ -9,12 +9,9 @@ const TOOL_ARGUMENTS = {
   list_runtimes: (args) => exactKeys(args, []),
   create_runtime: (args) => exactKeys(args, ["runtime", "requestId"]) && UUID_V4.test(args.requestId) &&
     exactKeys(args.runtime, ["runtimeSpec"]) && validRuntimeSpec(args.runtime.runtimeSpec),
-  create_session: (args) => exactKeys(args, ["parent", "sessionId"]) &&
-    RUNTIME_NAME.test(args.parent) && new RegExp(`^${RESOURCE_ID}$`).test(args.sessionId),
   execute_code: (args) => exactKeys(args, ["code", "executionId", "session"]) &&
     typeof args.code === "string" && args.code.length > 0 && new TextEncoder().encode(args.code).byteLength <= 256 * 1024 &&
     UUID_V4.test(args.executionId) && SESSION_NAME.test(args.session),
-  delete_session: (args) => exactKeys(args, ["name"]) && SESSION_NAME.test(args.name),
   get_runtime: (args) => exactKeys(args, ["name"]) && RUNTIME_NAME.test(args.name),
 };
 
@@ -34,9 +31,31 @@ function validRuntimeSpec(spec) {
 
 /** Validate the narrow Google Colab MCP surface required by the shared run lifecycle. */
 export function validGoogleColabToolCall(name, args, options = {}) {
+  if (name === "create_session") {
+    return exactKeys(args, ["parent", "sessionId"]) && RUNTIME_NAME.test(args.parent) &&
+      new RegExp(`^${RESOURCE_ID}$`).test(args.sessionId) &&
+      options.expectedRuntimeName === args.parent && options.expectedSessionId === args.sessionId;
+  }
+  if (name === "list_sessions") {
+    return exactKeys(args, ["parent"]) && RUNTIME_NAME.test(args.parent) &&
+      typeof options.expectedRuntimeName === "string" && options.expectedRuntimeName === args.parent;
+  }
+  if (name === "delete_session") {
+    return exactKeys(args, ["name"]) && SESSION_NAME.test(args.name) &&
+      typeof options.expectedSessionName === "string" && options.expectedSessionName === args.name;
+  }
   if (name === "delete_runtime") {
     return exactKeys(args, ["name"]) && RUNTIME_NAME.test(args.name) &&
       typeof options.expectedRuntimeName === "string" && options.expectedRuntimeName === args.name;
+  }
+  if (name === "get_runtime") {
+    return exactKeys(args, ["name"]) && RUNTIME_NAME.test(args.name) &&
+      typeof options.expectedRuntimeName === "string" && options.expectedRuntimeName === args.name;
+  }
+  if (name === "execute_code") {
+    return TOOL_ARGUMENTS[name]?.(args) === true &&
+      typeof options.expectedSessionName === "string" && options.expectedSessionName === args.session &&
+      typeof options.expectedExecutionId === "string" && options.expectedExecutionId === args.executionId;
   }
   return TOOL_ARGUMENTS[name]?.(args) === true;
 }

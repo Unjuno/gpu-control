@@ -3,7 +3,9 @@ import { validGoogleColabToolCall } from "./google_colab_mcp_contract.js";
 import { readBoundedResponseBytes } from "./http_response_body.js";
 
 const COLAB_MCP_ENDPOINT = "https://colaboratory.googleapis.com/mcp";
-const MAX_REQUEST_BYTES = 64 * 1024;
+// execute_code accepts up to 256 KiB of UTF-8 source. Leave room for JSON
+// escaping and MCP envelope fields while retaining one bounded request cap.
+const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 async function readBoundedText(response) {
   const bytes = await readBoundedResponseBytes(response, {

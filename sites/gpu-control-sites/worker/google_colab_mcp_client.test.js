@@ -82,6 +82,22 @@ test("Google Colab MCP client is pinned to the hosted endpoint, allowlists tool 
         },
       });
     assert.deepEqual(deletion, { structuredContent: { done: true } });
+    const executionId = "7b21ceba-679e-4fd9-b1e7-cd53202b87f0";
+    const sessionName = "runtimes/run-owned/sessions/run-1";
+    const execution = await callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "execute_code", {
+      code: "print('x')\n".repeat(12_000), executionId, session: sessionName,
+    }, { expectedSessionName: sessionName, expectedExecutionId: executionId,
+      fetchImpl: async (url, init) => {
+        if (String(url) === "https://oauth2.googleapis.com/token") {
+          return response({ access_token: "short-lived-access", scope: colabScope, expires_in: 3600 });
+        }
+        const request = JSON.parse(init.body);
+        assert.equal(request.params.name, "execute_code");
+        assert.ok(new TextEncoder().encode(init.body).byteLength > 64 * 1024);
+        return response({ jsonrpc: "2.0", id: request.id, result: { structuredContent: { accepted: true } } });
+      },
+    });
+    assert.deepEqual(execution, { structuredContent: { accepted: true } });
     await assert.rejects(callGoogleColabMcpTool({ ...env, DB: db }, "owner-1", "get_subscription", {}, {
       fetchImpl: async (url) => String(url) === "https://oauth2.googleapis.com/token"
         ? response({ access_token: "short-lived-access", scope: colabScope, expires_in: 3600 })

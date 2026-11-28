@@ -2454,3 +2454,41 @@ runtime cleanup.
 for the explicit lifecycle blocker, reviewed Google's current official CLI
 commands/authentication docs, and ran `git diff --check`. This records scope
 and ordering; it does not implement Colab execution or enable a provider.
+
+## 2026-11-28 — A6: bind Colab lifecycle tools to run-owned identities
+
+**Finding:** the provider contract validated the shape of runtime, session, and
+execution identifiers, but allowed an internal caller to list sessions or
+delete any syntactically valid Colab session. It also allowed `get_runtime`,
+`create_session`, and `execute_code` without proving they referred to the
+identities persisted for the current run. Google's API explicitly warns that
+sessions may belong to user notebooks and that deleting a session interrupts
+its active execution.
+
+**Change:** `list_sessions` and `delete_session` now require the exact expected
+run-owned runtime/session; `get_runtime`, `create_session`, and `execute_code`
+require their exact expected runtime/session/execution identities. The
+capability remains read-only and there are still no public Colab run actions.
+
+**Validation:** focused Colab contract tests pass (2), the complete Sites suite
+passes 188 Worker tests, two graph tests pass, and the runtime graph remains
+acyclic across 69 modules. This establishes identifier fencing only; it does
+not validate live Google calls, runtime proxy URL safety, or the full run
+lifecycle.
+
+## 2026-11-28 — A6: align bounded Colab execution request sizes
+
+**Finding:** the MCP contract accepted `execute_code` source up to 256 KiB,
+but the hosted-MCP client capped the complete serialized request at 64 KiB.
+Ordinary larger training entrypoints would pass validation and then fail before
+reaching Colab.
+
+**Change:** raised the total serialized-request ceiling to 2 MiB, leaving room
+for the contract's maximum source plus JSON/MCP framing and escaping. Responses
+remain independently capped at 64 KiB. Added a client test that sends more than
+64 KiB through the bounded transport.
+
+**Validation:** the Sites suite passes all 188 Worker tests and two graph tests;
+the architecture graph remains acyclic across 69 modules, the registry check
+passes, and `git diff --check` passes. No Google runtime was created and no
+provider credentials or admission settings changed.
