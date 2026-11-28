@@ -99,9 +99,10 @@ acceptance.
   are verified.
 - **Remaining:** independent security review, migration/deploy, production
   settings, admission, and a real ChatGPT end-to-end GPU lifecycle remain
-  unverified. The latest PR #70 implementation commit is `5b4410a`; all seven
-  checks pass there. Later PR commits only refresh documentation. Source/tests
-  do not close product acceptance.
+  unverified. Current PR head, implementation commit, and exact-head CI are
+  maintained in [Project status](../STATUS.md); do not copy transient SHA or
+  check state into this task pool. Source/tests do not close product
+  acceptance.
 - **Work:** from a request such as “try training this repository,” discover
   repositories selected in the owner's GitHub App, pin the current default
   commit, inspect the contract, and select only a currently compatible and
@@ -126,9 +127,9 @@ acceptance.
   using the owner-bound Google connection and the same Sites plan/run ledger.
   Colab's unknown account-level compute-unit balance, unrestricted runtime
   egress, long-call recovery, and destructive runtime cleanup are represented
-  in its plan and lifecycle. All seven exact-head CI checks pass at PR tip
-  `5b4410a`; independent security review, production configuration/migration
-  and one live acceptance run remain release gates.
+  in its plan and lifecycle. Independent security review, production
+  configuration/migration and one live acceptance run remain release gates.
+  Current CI status is in [Project status](../STATUS.md).
   The official `google-colab-cli` remains a local/CI client for
   compatible authenticated agents; direct CLI jobs do not form a second Sites
   provider route or run ledger. Ordinary PR CI stays offline and does not

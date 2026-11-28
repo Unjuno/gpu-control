@@ -4,7 +4,12 @@ This directory describes the source architecture, the shared authenticated
 MCP product boundary, and the staged work needed to make ordinary agent
 conversations a reliable front end for external compute.
 
-## Current source snapshot
+## Current architecture and release references
+
+- [Project status](../STATUS.md) is the current-state entry point. GitHub PR
+  and deployment records remain authoritative for live review, CI, and hosted
+  state; architecture documents link to them instead of copying volatile
+  checkpoints.
 
 - [Repository map](repository-map.md): module ownership, runtime/data flow,
   state authority, duplicated concepts, and measured complexity hotspots.

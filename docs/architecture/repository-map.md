@@ -1,31 +1,23 @@
 # Repository architecture map
 
 **Snapshot:** 2026-11-28 (Asia/Tokyo)  
-**Source under inspection:** PR #70, `codex/owner-training-workloads`, current
-head and exact-head CI recorded in `refactoring-progress.md`.
-**Release status:** PR #70 is open and unmerged. Neither passing checks nor
-mergeability proves deployment or provider acceptance. Repository mode
-remains `parked`.
+**Source and release checkpoint:** PR #70 source and release evidence are
+maintained in [Project status](../STATUS.md); that file is authoritative for
+the changing PR head, CI, review, deployment, and provider acceptance. This map
+describes module ownership and architecture, not release readiness.
 
-**Current code snapshot:** PR #70 implementation commit `5b4410a03b5f5f890a1923f53f4c65631c8d2e73`.
-All seven GitHub Actions checks pass at this implementation commit. The previous
-full local Sites validation at `748ac11` passed 206 tests; its graph was
-acyclic across 76 runtime modules, and the Sites build and D1 forward
-migration replay passed. The current public error-contract change passes its
-focused 3-test suite. The root
-Python suite last passed 624 tests, one skipped, and five subtests at an earlier
-recorded source checkpoint; it was not rerun for this head. These measurements
-describe this source candidate only and do not prove hosted release.
-`worker/index.js` is 147 lines,
-while `worker/index.test.js` is 1,867 lines and remains the largest integration
-fixture. Dedicated integration tests cover ChatGPT authorization (125 lines),
-Modal health (277 lines), local cancellation (102 lines), and artifact retrieval
-(67 lines); the
-owner-training registration integration test is 682 lines, the
-experiment read-model route test is 222 lines, and the MCP request-auth route
-test is 43 lines. The Gateway provider-runtime CI selection, including five
-compatibility-module identity checks, passes locally. These measurements
-describe this source candidate only.
+The latest measured structural and test observations are dated entries in
+[`refactoring-progress.md`](refactoring-progress.md). They describe only the
+specific commit and validation listed there; do not infer current hosted
+behavior from them.
+**Measured at source checkpoint `748ac11`:** `worker/index.js` was 147 lines,
+and `worker/index.test.js` was 1,867 lines. Dedicated integration tests then
+covered ChatGPT authorization (125 lines), Modal health (277 lines), local
+cancellation (102 lines), and artifact retrieval (67 lines); owner-training
+registration (682 lines), experiment read-model (222 lines), and MCP
+request-auth (43 lines) were separate suites. The Gateway provider-runtime CI
+selection, including five compatibility-module identity checks, passed locally
+at that checkpoint. These are dated observations, not live size or CI claims.
 
 This is an evidence-backed map of the current repository, not a claim that all
 listed source paths are active in the hosted product.
@@ -201,7 +193,7 @@ Sites Worker.
 | Kaggle GPU | Sites -> authenticated Modal adapter -> fixed registered Kaggle workload | Fixed workload route has historical live acceptance; free quota and exact current account state must be refreshed. |
 | Hugging Face ZeroGPU/artifacts | Sites -> Modal adapter -> fixed Space/private artifact path | Fixed workload and immutable artifact round trip have historical evidence; not general arbitrary-code execution. |
 | Owner-selected repository on Modal | Sites GitHub App selection -> immutable SHA -> strict manifest/lock -> trusted Modal stager -> isolated Modal GPU Sandbox | PR #70 source has a separate `training_*` capability; owner admission is separate and repository policy remains parked. Not released/accepted by this map. |
-| Google Colab owner-selected repository | Sites owner-scoped Google OAuth -> hosted Colab API MCP -> D1 operation journal -> private R2 verified artifacts -> run-owned runtime deletion | Integrated in PR #70 source behind the shared `experiment_*` lifecycle. Admission is closed by default; full local validation passes at `748ac11`, and exact-head CI passes at `5b4410a`. Fake-provider coverage includes invalid deletion receipts and missing submitted operation journals; both preserve uncertainty/cleanup state and avoid rerunning or reallocating. Production OAuth/configuration, migration, independent security review and live GPU acceptance remain open. |
+| Google Colab owner-selected repository | Sites owner-scoped Google OAuth -> hosted Colab API MCP -> D1 operation journal -> private R2 verified artifacts -> run-owned runtime deletion | Implemented in PR #70 source behind shared `experiment_*` lifecycle. Admission is closed by default. Lifecycle and release evidence, including source checkpoints, are maintained in [Project status](../STATUS.md) and the dated progress log. Production OAuth/configuration, migration, independent security review and live GPU acceptance remain open. |
 | Google Colab CLI/local MCP | Direct terminal CLI or browser-session local MCP | Optional for authenticated terminal clients and CI. These sessions are outside the GPU Control owner/run ledger and are not a second Sites provider route. |
 
 ## Technology and contract inventory

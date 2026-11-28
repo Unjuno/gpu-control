@@ -2958,3 +2958,21 @@ all 206 Sites tests pass; the Worker graph is acyclic across 76 modules; build
 and D1 forward migration replay pass; `git diff --check` passes. All seven
 exact-head GitHub Actions checks pass on code commit `748ac11`. No live RunPod
 job, provider credential, or account state was used.
+
+## 2026-11-28 — A0: make release state single-source
+
+**Finding:** PR, CI and validation facts had drifted across STATUS,
+RELEASE_MATRIX, the architecture map and the prioritized backlog. Several
+documents still cited old PR #70 SHAs and test counts as current. The release
+matrix also mixed a stale candidate snapshot with dated production acceptance.
+
+**Change:** made `docs/STATUS.md` the current source/release entry point and
+linked volatile GitHub review and exact-head checks to PR #70 as their live
+authority. Removed the duplicate candidate table from RELEASE_MATRIX and
+explicitly dated its retained production table. The architecture map now
+labels measured sizes as checkpoint-specific; the backlog points to STATUS
+instead of copying mutable SHA/check facts.
+
+**Validation:** checked references and stale-SHA matches in active release and
+architecture summaries; `git diff --check` passes. Documentation-only batch:
+no provider call, credential, admission, deployment, or runtime state changed.

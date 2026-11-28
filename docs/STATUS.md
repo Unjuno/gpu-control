@@ -2,11 +2,11 @@
 
 ## Source/release checkpoint — 2026-11-28
 
-- The current source candidate is PR #70 branch
-  `codex/owner-training-workloads`, latest implementation commit
-  `74a8bde`. PR #70 remains open and unmerged with review required. All seven
-  exact-head GitHub Actions checks passed at `8b1c609`; checks for `74a8bde`
-  are pending. The 208-test Sites suite, five root Skill/client checks, Worker
+- The current source candidate is [PR #70](https://github.com/Unjuno/gpu-control/pull/70),
+  branch `codex/owner-training-workloads`; latest implementation commit
+  `74a8bde`. GitHub is the live authority for PR head, review and exact-head
+  CI; these volatile values are not copied into architecture documents. The
+  208-test Sites suite, five root Skill/client checks, Worker
   build/artifact validation, and D1 forward migration replay pass locally.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
@@ -33,8 +33,7 @@
   graph was acyclic across 76 modules, and build and D1 migration replay
   passed. Focused tests for RunPod public errors and custom-training journal
   loss pass 5/5 across their two suites; the latest full local validation is
-  recorded above. Exact-head CI passes at `8b1c609` and is pending for
-  `74a8bde`.
+  recorded above. Exact-head CI and review are visible on [PR #70](https://github.com/Unjuno/gpu-control/pull/70).
   The Colab
   lifecycle integration test covers same-request-ID recovery after lost
   mocked runtime-create and cleanup responses on both status and cancellation.
