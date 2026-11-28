@@ -9,6 +9,8 @@ import { googleColabRunTool } from "./google_colab_lifecycle.js";
 const owner = "colab-lifecycle-owner";
 const runId = "a".repeat(32);
 const fingerprint = "b".repeat(64);
+const cancelRunId = "f".repeat(32);
+const cancelFingerprint = "1".repeat(64);
 const runtimeRequestId = "12345678-1234-4234-8234-123456789abc";
 const runtimeName = `runtimes/gpu-control-${runId.slice(0, 24)}`;
 const sessionName = `${runtimeName}/sessions/gpu-control-${runId.slice(0, 24)}`;
@@ -103,6 +105,7 @@ test("Colab recovers create and cleanup response loss without rerunning or confi
     let createCalls = 0;
     let executionCalls = 0;
     let deleteCalls = 0;
+    let cancelDeleteCalls = 0;
     const fetchImpl = async (url, init = {}) => {
       if (new URL(url).hostname === "oauth2.googleapis.com") {
         return Response.json({ access_token: "access-token-for-test", expires_in: 3600 });
@@ -135,9 +138,16 @@ test("Colab recovers create and cleanup response loss without rerunning or confi
           stderr: "", result: "", outputTruncated: false });
       }
       if (name === "delete_runtime") {
+        if (args.name === `runtimes/gpu-control-${cancelRunId.slice(0, 24)}`) {
+          cancelDeleteCalls += 1;
+          return mcpResponse(request.id, cancelDeleteCalls === 1 ? { deleted: false } : {});
+        }
         deleteCalls += 1;
         return mcpResponse(request.id, deleteCalls === 1 ? { deleted: false } : {});
       }
+      if (name === "list_runtimes") return mcpResponse(request.id, {
+        runtimes: [{ name: `runtimes/gpu-control-${cancelRunId.slice(0, 24)}` }],
+      });
       throw new Error(`unexpected Colab tool: ${name}`);
     };
 
@@ -167,6 +177,30 @@ test("Colab recovers create and cleanup response loss without rerunning or confi
     assert.equal(executionCalls, 1);
     assert.equal(deleteCalls, 2, "cleanup retries until Google's empty success response is observed");
     assert.equal((await readGoogleColabOperation(db, owner, runId, fingerprint)).state, "terminal");
+
+    await sqlite.prepare(`INSERT INTO gateway_delegated_plans
+      (id,owner_id,fingerprint,workload,approved_plan_json,state,expires_at,provider_state)
+      VALUES (?,?,?,?,?,'prepared',5000,'running')`)
+      .run(cancelRunId, owner, cancelFingerprint, plan.workload, canonicalJson(plan));
+    await createGoogleColabOperation(db, { owner, runId: cancelRunId, fingerprint: cancelFingerprint,
+      runtimeRequestId: "22345678-1234-4234-8234-123456789abc", now: 104 });
+    await sqlite.prepare("UPDATE gateway_delegated_plans SET state='submitted' WHERE owner_id=? AND id=?")
+      .run(owner, cancelRunId);
+
+    const cancelPending = await googleColabRunTool(env, owner, "experiment_cancel", cancelRunId,
+      { fetchImpl, now: 105 });
+    assert.equal(cancelPending.machine_state.state, "cancelling");
+    assert.equal(cancelPending.machine_state.cleanup_state, "unknown");
+    assert.equal((await readGoogleColabOperation(db, owner, cancelRunId, cancelFingerprint)).state, "cleanup_pending");
+    assert.equal(cancelDeleteCalls, 1);
+
+    const cancelled = await googleColabRunTool(env, owner, "experiment_cancel", cancelRunId,
+      { fetchImpl, now: 106 });
+    assert.equal(cancelled.machine_state.state, "cancelled");
+    assert.equal(cancelled.machine_state.cleanup_state, "confirmed");
+    assert.equal(cancelled.machine_state.runtime_deleted, true);
+    assert.equal(cancelDeleteCalls, 2);
+    assert.equal((await readGoogleColabOperation(db, owner, cancelRunId, cancelFingerprint)).state, "terminal");
   } finally {
     sqlite.close();
   }

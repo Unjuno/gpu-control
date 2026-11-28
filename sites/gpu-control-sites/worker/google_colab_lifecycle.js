@@ -333,8 +333,9 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
         { runtime_deleted: true, operation_state: "terminal" });
     }
     try {
-      await call(env, owner, "delete_runtime", { name: operation.runtime_name, allowMissing: true },
+      const cleanup = await call(env, owner, "delete_runtime", { name: operation.runtime_name, allowMissing: true },
         { expectedRuntimeName: operation.runtime_name, fetchImpl: options.fetchImpl || fetch });
+      if (!validGoogleColabRuntimeDeletion(cleanup)) throw new Error("GOOGLE_COLAB_CLEANUP_UNCONFIRMED");
       const now = options.now ?? Math.floor(Date.now() / 1000);
       await env.DB.prepare(`UPDATE gateway_delegated_plans SET provider_state='cancelled', terminal_at=?, updated_at=?
         WHERE owner_id=? AND id=? AND fingerprint=?`).bind(now, now, owner, runId, row.fingerprint).run();
