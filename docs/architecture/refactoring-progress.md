@@ -111,6 +111,12 @@ Keychain Runner warning to remain explicit. Both statements are preserved
 without restoring a ChatGPT-only control flow. The focused Skill suite now
 passes all three tests; a new exact-head CI run is required for the correction.
 
+**Single-source correction:** the Skill now points to `MCP_CLIENTS.md` for the
+current external OAuth release state instead of hard-coding a PR-specific
+status that would go stale after deployment. The existing Skill contract test
+now protects the shared owner boundary, release-status source, and connected-
+client confirmation wording.
+
 ## 2026-11-28 — Normalize the client-neutral MCP product boundary
 
 **Finding:** the owner-bound OAuth design, MCP client guide, and provider

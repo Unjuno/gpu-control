@@ -7,9 +7,9 @@ description: Operates GPU Control through its authenticated MCP lifecycle from C
 
 Use only the authenticated **GPU Control MCP** tools available to the current
 client. ChatGPT Sites and compatible authenticated OAuth clients share the same
-owner-scoped control plane and run ledger after the OAuth route is deployed.
-The current external-client OAuth implementation is source-only in PR #70;
-check the release state before claiming that a non-ChatGPT client can connect.
+owner-scoped control plane and run ledger. Before claiming that a non-ChatGPT
+client can connect, check the current release state in
+[`MCP_CLIENTS.md`](../../../sites/gpu-control-sites/MCP_CLIENTS.md).
 In ChatGPT, this MCP app is named **GPU Control — ChatGPT実験管理**; another
 client connects to the same MCP endpoint when the deployed OAuth flow is
 available. Do not recreate a Vercel, Neon, Railway, external PostgreSQL, the

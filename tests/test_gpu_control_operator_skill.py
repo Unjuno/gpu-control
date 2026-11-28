@@ -18,6 +18,9 @@ def test_gpu_control_operator_skill_is_discoverable_and_bounded() -> None:
     assert raw_text.startswith("---\nname: gpu-control-operator\n")
     assert "disable-model-invocation" not in text
     assert "GPU Control — ChatGPT実験管理" in text
+    assert "ChatGPT Sites and compatible authenticated OAuth clients share the same owner-scoped control plane" in text
+    assert "current release state in [`MCP_CLIENTS.md`]" in text
+    assert "connected host's native confirmation" in text
     assert "current user instruction" in text
     assert "without asking" in text
     assert "do not submit a second run" in text
