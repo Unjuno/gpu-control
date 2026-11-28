@@ -7,13 +7,13 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** implementation head `d4872931fa18bd6f5ebaf406f9d2eb6a60e8e856` on PR #70. The
-Sites Worker suite passes 188 tests, its graph is acyclic across 67 runtime
-modules, and two dependency-graph script tests pass. The exact-head hosted CI
-for this commit is running; earlier commit results do not substitute for it.
+**Current source snapshot:** implementation head `0af5bd25c32396013076518b8674e469cd09ed17` on PR #70. The
+Sites Worker suite passes 188 tests, its graph is acyclic across 69 runtime
+modules, and two dependency-graph script tests pass. Exact-head hosted CI is
+queued or in progress; earlier commit results do not substitute for it.
 The root Python suite last passed 624 tests, one skipped, and five subtests at
 the preceding recorded source checkpoint. The Sites CI enforces append-only
-migration history, and the build copies all 67 reachable Worker modules.
+migration history, and the build copies all 69 reachable Worker modules.
 These measurements describe this source candidate only and do not prove hosted
 release.
 `worker/index.js` is 147 lines,
