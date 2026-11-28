@@ -4790,3 +4790,21 @@ five-item response order and all route enablement rules remain unchanged.
 Validation: registry generation check, Sites Worker tests, build, migration
 replay, architecture graph, and `git diff --check`. No provider, credential,
 admission, deployment, or live compute state was used or changed.
+
+
+## 2026-11-29 architecture batch — Colab artifact ownership
+
+Moved Colab artifact download, D1 index persistence, and owner-scoped retrieval
+out of the run-state lifecycle into `google_colab_artifacts.js`. Raw R2
+read/write access remains in the established `run_artifacts.js` storage
+boundary, preserving the architecture guard. The common 24 KiB MCP artifact
+chunk maximum now has one owner in `artifact_transfer_policy.js`, consumed by
+the MCP schema, both argument validators, and Colab object reads. The Worker
+architecture check rejects duplicate literals. Run transitions and recovery
+semantics did not change.
+
+Validation: focused artifact and Colab lifecycle suites pass (10/10); full
+Sites `npm test` passes 221 tests and the Worker graph is acyclic across 84
+runtime modules. Worker build, artifact validation, D1 forward migration
+replay, and `git diff --check` pass. No provider API, credential, admission,
+deployment, or live compute state was used.

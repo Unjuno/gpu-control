@@ -1,4 +1,5 @@
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
+import { MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES } from "./artifact_transfer_policy.js";
 import { PROVIDER_ROUTES, PROVIDER_ROUTE_IDS } from "./provider_catalog.js";
 import { RUNPOD_WORKLOAD, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
 import { canonicalJson } from "./canonical_json.js";
@@ -165,7 +166,8 @@ export function validToolArguments(name, args, env) {
   if (name === "experiment_artifact") return Object.keys(args).sort().join(",") === "artifact_id,max_bytes,offset,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) && typeof args.artifact_id === "string" &&
     /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(args.artifact_id) && Number.isSafeInteger(args.offset) && args.offset >= 0 &&
-    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 && args.max_bytes <= 24576;
+    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 &&
+    args.max_bytes <= MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES;
   return false;
 }
 

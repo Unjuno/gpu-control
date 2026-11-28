@@ -6,11 +6,10 @@ import { createGoogleColabOperation, readGoogleColabOperation, transitionGoogleC
 import { encryptGoogleColabOperationData, decryptGoogleColabOperationData } from "./google_colab_connection.js";
 import { buildGoogleColabExecutionCode } from "./google_colab_execution_code.js";
 import { parseGoogleColabExecutionReceipt } from "./google_colab_result.js";
-import { readGoogleColabRuntimeFile } from "./google_colab_runtime_files.js";
+import { persistGoogleColabArtifacts } from "./google_colab_artifacts.js";
 import { validGoogleColabExecution, validGoogleColabRuntime, validGoogleColabRuntimeDeletion,
   validGoogleColabSession } from "./google_colab_mcp_contract.js";
 import { sha256Hex } from "./sha256.js";
-import { putVerifiedRunArtifactObject, readVerifiedRunArtifactObjectChunk } from "./run_artifacts.js";
 
 const MAX_RESULT_BYTES = 64 * 1024;
 
@@ -44,25 +43,6 @@ function validResultJson(value) {
 
 async function call(env, owner, name, args, options = {}) {
   return googleColabStructuredResult(await callGoogleColabMcpTool(env, owner, name, args, options));
-}
-
-async function persistArtifacts(env, owner, runId, fingerprint, runtime, receipt, fetchImpl, now) {
-  if (!receipt.artifacts.length) return [];
-  const saved = [];
-  for (let index = 0; index < receipt.artifacts.length; index++) {
-    const artifact = receipt.artifacts[index];
-    const artifactId = `artifact-${String(index + 1).padStart(2, "0")}`;
-    const bytes = await readGoogleColabRuntimeFile(runtime, artifact, { expectedRuntimeName: runtime.name, fetchImpl });
-    const key = `colab/runs/${runId}/${fingerprint}/${artifactId}`;
-    await putVerifiedRunArtifactObject(env, { key, bytes, metadata: { run_id: runId, owner_id: owner,
-      plan_fingerprint: fingerprint, artifact_id: artifactId, sha256: artifact.sha256 } });
-    await env.DB.prepare(`INSERT OR IGNORE INTO google_colab_run_artifacts
-      (run_id, owner_id, plan_fingerprint, artifact_id, path, object_key, sha256, size_bytes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(runId, owner, fingerprint, artifactId, artifact.path, key, artifact.sha256, bytes.byteLength, now).run();
-    saved.push({ artifact_id: artifactId, path: artifact.path, sha256: artifact.sha256, size_bytes: bytes.byteLength });
-  }
-  return saved;
 }
 
 async function finish(env, owner, plan, operation, receipt, artifacts, state, now) {
@@ -259,7 +239,8 @@ async function advanceGoogleColabRun(env, owner, planRow, plan, operation, optio
         ? JSON.parse(operation.execution_result_json) : operation.execution_result_json;
       receipt = stored?.run_id === runId ? stored : null;
       if (!receipt) throw new Error("GOOGLE_COLAB_EXECUTION_RESULT_INVALID");
-      artifacts = await persistArtifacts(env, owner, runId, fingerprint, runtime, receipt, fetchImpl, options.now);
+      artifacts = await persistGoogleColabArtifacts(env, owner, runId, fingerprint, runtime, receipt,
+        fetchImpl, options.now);
       await transitionGoogleColabOperation(env.DB, { owner, runId, fingerprint,
         fromState: "execution_complete", toState: "cleanup_pending", now: options.now });
       operation = await readGoogleColabOperation(env.DB, owner, runId, fingerprint);
@@ -388,40 +369,4 @@ export async function googleColabRunTool(env, owner, name, runId, options = {}) 
       "COLAB_RUN_OUTCOME_UNCONFIRMED", { operation_state: operation.state, provider_resource_created: Boolean(operation.runtime_name) });
   }
   return null;
-}
-
-function base64(bytes) {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  }
-  return btoa(binary);
-}
-
-/** Return a bounded, owner-scoped artifact chunk after independent checksum verification. */
-export async function readGoogleColabArtifact(env, owner, args) {
-  const row = await env.DB.prepare(`SELECT a.run_id, a.artifact_id, a.object_key, a.sha256, a.size_bytes,
-      p.fingerprint, p.provider_state FROM google_colab_run_artifacts a
-    JOIN gateway_delegated_plans p ON p.id=a.run_id AND p.owner_id=a.owner_id AND p.fingerprint=a.plan_fingerprint
-    WHERE a.owner_id=? AND a.run_id=? AND a.artifact_id=?`)
-    .bind(owner, args.run_id, args.artifact_id).first();
-  if (!row) {
-    const colabRun = await env.DB.prepare(`SELECT id FROM gateway_delegated_plans
-      WHERE owner_id=? AND id=? AND workload=?`).bind(owner, args.run_id, GOOGLE_COLAB_WORKLOAD).first();
-    return colabRun ? result("blocked", "このColab runには該当artifactがありません。",
-      args.run_id, "unknown", "unknown", ["experiment_result"], "ARTIFACT_NOT_READY") : null;
-  }
-  if (row.provider_state !== "succeeded") {
-    return result("blocked", "Colab artifactはまだ取得できません。", args.run_id,
-      row.provider_state || "unknown", "unknown", ["experiment_status"], "ARTIFACT_NOT_READY");
-  }
-  const chunk = await readVerifiedRunArtifactObjectChunk(env, { key: row.object_key,
-    expected: { run_id: args.run_id, owner_id: owner, plan_fingerprint: row.fingerprint,
-      artifact_id: row.artifact_id, sha256: row.sha256, size_bytes: row.size_bytes },
-    offset: args.offset, maxBytes: args.max_bytes });
-  return { schema_version: 2, status: "ok", human_summary: "Colab artifact chunk retrieved and checksum verified.",
-    machine_state: { run_id: args.run_id, artifact_id: row.artifact_id, sha256: row.sha256,
-      size_bytes: chunk.size_bytes, offset: args.offset, next_offset: chunk.next_offset, eof: chunk.eof,
-      encoding: "base64", data: base64(chunk.bytes) },
-    next_allowed_actions: [], blocking_reason: null };
 }

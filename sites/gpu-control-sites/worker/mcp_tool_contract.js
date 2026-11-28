@@ -2,6 +2,7 @@ import { OWNER_TRAINING_MAX_COST_MICROUSD } from "./training_policy.js";
 import { RUNPOD_WORKLOAD } from "./runpod_plan.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
 import { PROVIDER_ROUTE_IDS } from "./provider_catalog.js";
+import { MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES } from "./artifact_transfer_policy.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -129,7 +130,7 @@ export const schemas = {
       run_id: { type: "string", pattern: "^[0-9a-f]{32}$" },
       artifact_id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" },
       offset: { type: "integer", minimum: 0 },
-      max_bytes: { type: "integer", minimum: 1, maximum: 24576 },
+      max_bytes: { type: "integer", minimum: 1, maximum: MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES },
     }, required: ["run_id", "artifact_id", "offset", "max_bytes"], additionalProperties: false,
   },
   experiment_cancel: {

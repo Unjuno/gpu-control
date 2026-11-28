@@ -1,8 +1,9 @@
 import { sha256Hex } from "./sha256.js";
+import { GOOGLE_COLAB_MAX_ARTIFACT_BYTES } from "./google_colab_execution_limits.js";
+import { MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES } from "./artifact_transfer_policy.js";
 
 const RUN_ARTIFACT_ID = "result-json-v1";
 const RUN_ARTIFACT_MAX_BYTES = 8 * 1024;
-const EXTERNAL_ARTIFACT_MAX_BYTES = 50 * 1024 * 1024;
 
 function base64(bytes) {
   let binary = "";
@@ -21,10 +22,10 @@ export function runArtifactBytes(resultJson) {
   return new TextEncoder().encode(resultJson);
 }
 
-/** Shared immutable object write boundary for provider-owned run artifacts. */
+/** Shared immutable R2 write boundary for provider-owned run artifacts. */
 export async function putVerifiedRunArtifactObject(env, { key, bytes, metadata }) {
   if (!env?.BUCKET || typeof env.BUCKET.put !== "function" || !(bytes instanceof Uint8Array) ||
-      bytes.byteLength < 1 || bytes.byteLength > EXTERNAL_ARTIFACT_MAX_BYTES ||
+      bytes.byteLength < 1 || bytes.byteLength > GOOGLE_COLAB_MAX_ARTIFACT_BYTES ||
       typeof key !== "string" || !/^colab\/runs\/[0-9a-f]{32}\/[0-9a-f]{64}\/artifact-[0-9]{2}$/.test(key) ||
       !metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
       !/^[0-9a-f]{32}$/.test(metadata.run_id || "") || typeof metadata.owner_id !== "string" ||
@@ -37,14 +38,17 @@ export async function putVerifiedRunArtifactObject(env, { key, bytes, metadata }
     plan_fingerprint: metadata.plan_fingerprint, artifact_id: metadata.artifact_id, sha256: metadata.sha256 } });
 }
 
-/** Shared bounded chunk read with metadata binding and a full-object checksum check. */
+/** Bounded chunk read with owner/plan metadata binding and a full-object checksum check. */
 export async function readVerifiedRunArtifactObjectChunk(env, { key, expected, offset, maxBytes }) {
   if (!env?.BUCKET || typeof env.BUCKET.get !== "function" ||
       typeof key !== "string" || !/^colab\/runs\/[0-9a-f]{32}\/[0-9a-f]{64}\/artifact-[0-9]{2}$/.test(key) ||
       !expected || typeof expected !== "object" || Array.isArray(expected) ||
-      !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 24576 ||
-      !Number.isSafeInteger(expected.size_bytes) || expected.size_bytes < 1 || expected.size_bytes > EXTERNAL_ARTIFACT_MAX_BYTES ||
-      !/^[0-9a-f]{64}$/.test(expected.sha256 || "")) throw new Error("RUN_ARTIFACT_OBJECT_INVALID");
+      !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxBytes) || maxBytes < 1 ||
+      maxBytes > MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES ||
+      !Number.isSafeInteger(expected.size_bytes) || expected.size_bytes < 1 ||
+      expected.size_bytes > GOOGLE_COLAB_MAX_ARTIFACT_BYTES || !/^[0-9a-f]{64}$/.test(expected.sha256 || "")) {
+    throw new Error("RUN_ARTIFACT_OBJECT_INVALID");
+  }
   const object = await env.BUCKET.get(key);
   if (!object || object.size !== expected.size_bytes || object.customMetadata?.run_id !== expected.run_id ||
       object.customMetadata?.owner_id !== expected.owner_id ||

@@ -76,7 +76,9 @@ acceptance.
   `google_colab_execution_limits.js` owns the maximum runtime, per-file and
   aggregate artifact sizes, receipt size, and artifact count. Plan validation,
   generated runtime code, artifact retrieval, and receipt validation consume
-  the same values. Provider API request/response limits remain separate because
+  the same values. The separate 24 KiB MCP artifact response chunk limit is
+  owned by `artifact_transfer_policy.js` and shared with artifact schemas and
+  validators. Provider API request/response limits remain separate because
   they bound different trust and transport surfaces.
 - **A17 — One Modal GPU admission interpretation:** completed in this batch.
   Capability projection and delegated submit both consume
@@ -90,6 +92,11 @@ acceptance.
   in this batch. The fixed T4 and $30.00 account evidence constraints now live
   beside Modal GPU admission policy; the MCP composition layer only forwards
   the provider evidence operation.
+- **A20 — Give Colab artifacts one lifecycle owner:** completed in this batch.
+  Artifact download, D1 index persistence, owner-scoped retrieval and chunk
+  encoding now live outside Colab run-state transitions. Raw R2 reads/writes
+  remain in the established artifact storage boundary; the public artifact
+  chunk limit has one owner across MCP schema and validators.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct
@@ -370,6 +377,13 @@ acceptance.
   support. The generated provider catalog now owns route/provider IDs, billing
   class, credit eligibility, adapter hosting and fixed route metadata;
   capability readiness remains dynamic and does not imply execution support.
+  **Colab artifact boundary (2026-11-29):** download, D1 index persistence,
+  and owner-scoped chunk retrieval now live in
+  `worker/google_colab_artifacts.js`. Raw R2 reads/writes stay in the existing
+  artifact storage owner. One `artifact_transfer_policy.js` value now owns the
+  24 KiB MCP response chunk limit across schemas, validation, and storage, with
+  an architecture guard against reintroducing copies. Run-state and provider
+  recovery remain in the Colab lifecycle owner.
   **Capability ordering (2026-11-29):** the public capability response order
   is now owned by `workloads/registry.json` as unique `capability_order`
   metadata. Sites no longer repeats the five workload IDs in a presentation

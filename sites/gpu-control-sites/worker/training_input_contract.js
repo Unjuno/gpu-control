@@ -1,6 +1,7 @@
 import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_policy.js";
 import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { mapTrainingConfiguration } from "./map_training_configuration.js";
+import { MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES } from "./artifact_transfer_policy.js";
 
 function randomHex(byteLength) {
   const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
@@ -27,12 +28,14 @@ export function validTrainingToolArguments(name, args, env) {
   if (name === "training_checkpoint") return Object.keys(args).sort().join(",") === "max_bytes,offset,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     Number.isSafeInteger(args.offset) && args.offset >= 0 &&
-    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 && args.max_bytes <= 24576;
+    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 &&
+    args.max_bytes <= MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES;
   if (name === "training_artifact") return Object.keys(args).sort().join(",") === "artifact_id,max_bytes,offset,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     typeof args.artifact_id === "string" && /^[0-9a-f]{64}$/.test(args.artifact_id) &&
     Number.isSafeInteger(args.offset) && args.offset >= 0 &&
-    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 && args.max_bytes <= 24576;
+    Number.isSafeInteger(args.max_bytes) && args.max_bytes >= 1 &&
+    args.max_bytes <= MAX_EXPERIMENT_ARTIFACT_CHUNK_BYTES;
   if (name === "training_submit") return Object.keys(args).sort().join(",") === "approved_plan,plan_fingerprint,run_id" &&
     typeof args.run_id === "string" && /^[0-9a-f]{32}$/.test(args.run_id) &&
     typeof args.plan_fingerprint === "string" && /^[0-9a-f]{64}$/.test(args.plan_fingerprint) &&

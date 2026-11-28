@@ -106,6 +106,15 @@ const duplicateGoogleColabExecutionLimits = colabExecutionLimitConsumers.filter(
 assert.deepEqual(duplicateGoogleColabExecutionLimits, [],
   "Colab execution and artifact limits must be imported from google_colab_execution_limits.js");
 
+const artifactTransferPolicy = join(workerRoot, "artifact_transfer_policy.js");
+const artifactChunkLiterals = /(?:24\s*\*\s*1024|24576)/;
+const artifactChunkConsumers = ["run_artifacts.js", "experiment_input_contract.js",
+  "training_input_contract.js", "mcp_tool_contract.js"].map((name) => join(workerRoot, name));
+const duplicateArtifactChunkLimits = artifactChunkConsumers.filter((file) =>
+  file !== artifactTransferPolicy && artifactChunkLiterals.test(readFileSync(file, "utf8")));
+assert.deepEqual(duplicateArtifactChunkLimits, [],
+  "MCP artifact chunk limits must be imported from artifact_transfer_policy.js");
+
 // The reviewed MAP workload profile has one environment parser as well. The
 // live admission decision remains separate from profile validity, and the
 // shared control-plane signing key has its own identity/security concern.

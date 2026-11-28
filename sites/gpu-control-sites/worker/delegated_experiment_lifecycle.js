@@ -7,7 +7,8 @@ import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js
 import { prepareModalComputeBudgetReservation, utcMonthKey } from "./provider_budget_policy.js";
 import { WORKLOADS } from "./workload_registry.js";
 import { GOOGLE_COLAB_WORKLOAD } from "./google_colab_plan.js";
-import { googleColabRunTool, readGoogleColabArtifact } from "./google_colab_lifecycle.js";
+import { googleColabRunTool } from "./google_colab_lifecycle.js";
+import { readGoogleColabArtifact } from "./google_colab_artifacts.js";
 import { modalGpuWorkloadAdmissionEnabled } from "./modal_gpu_policy.js";
 
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
