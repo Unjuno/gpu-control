@@ -392,7 +392,9 @@ duplicate source and provider reads in the ordinary run path.
   `worker/training_runtime_profile.js`. The training plan consumes that
   normalized object, and the architecture check forbids raw reads elsewhere.
   Focused validation covers configured and missing values. MAP-specific
-  settings and other provider configuration still need the same inventory.
+  source, image, quote, runtime, and monthly settings now have the same
+  normalization boundary and guard. MAP admission/control-plane keys and other
+  provider configuration still need the wider inventory.
 
 ### A12. Add architecture checks only after rules have an owner
 

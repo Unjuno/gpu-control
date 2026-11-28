@@ -2,6 +2,7 @@ import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
 import { PROVIDER_ROUTES, PROVIDER_ROUTE_IDS } from "./provider_catalog.js";
 import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_policy.js";
 import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
+import { mapTrainingConfiguration } from "./map_training_configuration.js";
 import { RUNPOD_WORKLOAD, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
 import { canonicalJson } from "./canonical_json.js";
 
@@ -128,7 +129,7 @@ export function normalizeTrainingArguments(name, input, env) {
     ? args.repository.replace(/^https:\/\/github\.com\//i, "").toLowerCase() : "";
   if (name === "training_register" && args.commit === undefined &&
       canonicalRepository === MAP_TRAINING_REPOSITORY) {
-    args.commit = env.MAP_TRAINING_SOURCE_SHA;
+    args.commit = mapTrainingConfiguration(env).source_sha;
   }
   if (["training_preview", "training_prepare"].includes(name)) {
     if (name === "training_prepare" && args.idempotency_key === undefined) args.idempotency_key = `map-${randomHex(16)}`;
@@ -183,11 +184,12 @@ export function validToolArguments(name, args, env) {
   if (name === "training_inspect") return Object.keys(args).join(",") === "registration_id" &&
     typeof args.registration_id === "string" && /^[0-9a-f]{32}$/.test(args.registration_id);
   if (name === "training_register") {
+    const mapConfig = mapTrainingConfiguration(env);
     const keys = Object.keys(args);
     const allowed = new Set(["repository", "commit", "dataset", "run_name", "steps"]);
     const canonicalRepository = typeof args.repository === "string"
       ? args.repository.replace(/^https:\/\/github\.com\//i, "").toLowerCase() : "";
-    const hasPinnedMapCommit = args.commit === env.MAP_TRAINING_SOURCE_SHA &&
+    const hasPinnedMapCommit = args.commit === mapConfig.source_sha &&
       canonicalRepository === MAP_TRAINING_REPOSITORY;
     return keys.includes("repository") && keys.every(key => allowed.has(key)) &&
       typeof args.repository === "string" && args.repository.length <= 159 &&

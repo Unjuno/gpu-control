@@ -28,6 +28,16 @@ const ownerRuntimeProfileSources = workerFiles.filter((file) =>
 assert.deepEqual(ownerRuntimeProfileSources, [],
   "Owner training runtime profile values may only be read by training_runtime_profile.js");
 
+// The reviewed MAP workload profile has one environment parser as well. Keep
+// the shared control-plane signing key and live admission gate as separate
+// concerns, but never duplicate source/image/price/runtime parsing.
+const mapTrainingConfigBoundary = join(workerRoot, "map_training_configuration.js");
+const mapTrainingConfigSources = workerFiles.filter((file) =>
+  file !== mapTrainingConfigBoundary &&
+    /\benv\??\.(?:MAP_TRAINING_SOURCE_SHA|MAP_TRAINING_MODAL_IMAGE_ID|MAP_TRAINING_IMAGE_DIGEST|MAP_TRAINING_HOURLY_MICROUSD|MAP_TRAINING_QUOTE_EXPIRES_AT|MAP_TRAINING_RUNTIME_SECONDS|MAP_TRAINING_MONTHLY_MICROUSD)\b/.test(readFileSync(file, "utf8")));
+assert.deepEqual(mapTrainingConfigSources, [],
+  "MAP training source, image, quote and runtime settings may only be read by map_training_configuration.js");
+
 const artifactStorageSources = workerFiles.filter((file) =>
   file !== join(workerRoot, "run_artifacts.js") && /\bBUCKET\.(?:get|put|delete)\s*\(/.test(readFileSync(file, "utf8")));
 assert.deepEqual(artifactStorageSources, [],

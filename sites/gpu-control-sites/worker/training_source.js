@@ -1,3 +1,5 @@
+import { mapTrainingConfiguration } from "./map_training_configuration.js";
+
 export const MAP_TRAINING_REPOSITORY = "unjuno/model-as-a-paper";
 
 // Parse a source reference without accepting arbitrary network destinations.
@@ -167,10 +169,11 @@ export async function registerTrainingSource(db, owner, input, { resolveCommit =
 }
 
 function hasConfiguredExecutionProfile(row, env) {
-  if (row.repository !== MAP_TRAINING_REPOSITORY || row.commit !== env.MAP_TRAINING_SOURCE_SHA) return false;
-  const imageId = env.MAP_TRAINING_MODAL_IMAGE_ID;
+  const config = mapTrainingConfiguration(env);
+  if (row.repository !== MAP_TRAINING_REPOSITORY || row.commit !== config.source_sha) return false;
+  const imageId = config.image_id;
   if (imageId) return /^im-[A-Za-z0-9]{8,128}$/.test(imageId);
-  return /^sha256:[0-9a-f]{64}$/.test(env.MAP_TRAINING_IMAGE_DIGEST || "");
+  return /^sha256:[0-9a-f]{64}$/.test(config.image_digest || "");
 }
 
 export async function listTrainingSources(db, owner, env = {}) {

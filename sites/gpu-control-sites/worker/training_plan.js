@@ -7,6 +7,7 @@ import { DEFAULT_MAP_EXECUTION, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX
   MAP_TRAINING_MAX_RUNTIME_SECONDS, MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD,
   OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
 import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
+import { mapTrainingConfiguration } from "./map_training_configuration.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
 import { sha256Hex } from "./sha256.js";
 
@@ -99,6 +100,7 @@ async function previewOwnerTrainingPlan(env, owner, args, source, getSourceToken
 
 export async function previewTrainingPlan(env, owner, args, getSourceToken = async () => null) {
   const ownerConfig = ownerTrainingExecutionConfig(env);
+  const mapConfig = mapTrainingConfiguration(env);
   const source = args.registration_id
     ? await getOwnedTrainingSource(env.DB, owner, args.registration_id)
     : await findOwnedTrainingSource(env.DB, owner, args);
@@ -126,7 +128,7 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
       provider_budget_policy_state: "unavailable" },
     next_allowed_actions: ["experiment_capabilities"], blocking_reason: "PROVIDER_BUDGET_POLICY_UNAVAILABLE" };
   const laneMonthlyLimit = source.repository === MAP_TRAINING_REPOSITORY
-    ? Number(env.MAP_TRAINING_MONTHLY_MICROUSD)
+    ? mapConfig.monthly_microusd
     : ownerConfig.monthly_microusd;
   const laneMonthlyMaximum = source.repository === MAP_TRAINING_REPOSITORY
     ? MAP_TRAINING_MAX_MONTHLY_MICROUSD : OWNER_TRAINING_MAX_MONTHLY_MICROUSD;
@@ -178,13 +180,13 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
       ...(executionSpecId ? { execution_spec_id: executionSpecId } : {}),
       max_cost_ceiling_microusd: MAP_TRAINING_MAX_COST_MICROUSD },
     next_allowed_actions: [], blocking_reason: "TRAINING_BUDGET_TOO_HIGH" };
-  const imageId = env.MAP_TRAINING_MODAL_IMAGE_ID;
-  const imageIdentity = imageId || env.MAP_TRAINING_IMAGE_DIGEST;
+  const imageId = mapConfig.image_id;
+  const imageIdentity = imageId || mapConfig.image_digest;
   const imagePattern = imageId ? /^im-[A-Za-z0-9]{8,128}$/ : /^sha256:[0-9a-f]{64}$/;
   // These values are set by the operator after reviewing the commit and building
   // the image. A registration alone never gives a commit execution authority.
   if (source.repository !== MAP_TRAINING_REPOSITORY ||
-      source.commit !== env.MAP_TRAINING_SOURCE_SHA ||
+      source.commit !== mapConfig.source_sha ||
       !imagePattern.test(imageIdentity || "")) {
     return { schema_version: 2, status: "blocked",
       human_summary: "このコミットに対応する検証済みの学習イメージが設定されていません。",
@@ -193,8 +195,8 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
       next_allowed_actions: [], blocking_reason: "TRAINING_PROFILE_UNAVAILABLE" };
   }
   const now = Math.floor(Date.now() / 1000);
-  const hourlyRate = Number(env.MAP_TRAINING_HOURLY_MICROUSD);
-  const quoteExpires = Number(env.MAP_TRAINING_QUOTE_EXPIRES_AT);
+  const hourlyRate = mapConfig.hourly_microusd;
+  const quoteExpires = mapConfig.quote_expires_at;
   if (!Number.isSafeInteger(hourlyRate) || hourlyRate <= 0 || hourlyRate > 1000000000 ||
       !Number.isSafeInteger(quoteExpires) || quoteExpires <= now || quoteExpires > now + MAX_PRICING_AGE_SECONDS) {
     return { schema_version: 2, status: "blocked",
@@ -239,6 +241,7 @@ export async function previewTrainingPlan(env, owner, args, getSourceToken = asy
 }
 
 export async function prepareTrainingPlan(env, owner, args, getSourceToken = async () => null, isConfigured = () => true) {
+  const mapConfig = mapTrainingConfiguration(env);
   const { idempotency_key: key, ...inputs } = args;
   const preview = await previewTrainingPlan(env, owner, inputs, getSourceToken);
   if (preview.status !== "ok") return preview;
@@ -269,14 +272,14 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
     ? env.OWNER_TRAINING_ADMISSION_ENABLED === "true" &&
       ownerConfig.max_runtime_seconds >= plan.runtime_seconds
     : env.MAP_TRAINING_ADMISSION_ENABLED === "true" &&
-      Number(env.MAP_TRAINING_RUNTIME_SECONDS) === plan.runtime_seconds;
+      mapConfig.runtime_seconds === plan.runtime_seconds;
   const actions = state === "prepared" ? ["training_status", "training_cancel"] : ["training_status"];
   // Owner-selected plans are authorized by the exact destructive ChatGPT MCP
   // submit call. The host presents its native confirmation once for that run.
   const providerConfigured = isConfigured(env);
   const currentBudgetPolicy = await readProviderBudgetPolicy(env.DB);
   const modalBudget = currentBudgetPolicy.provider_budgets.find((item) => item.provider === "modal");
-  const planMonthlyBudget = plan.monthly_budget_microusd ?? Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
+  const planMonthlyBudget = plan.monthly_budget_microusd ?? mapConfig.monthly_microusd;
   const gpuBudgetReady = currentBudgetPolicy.state === "ready" &&
     modalBudget?.modal_gpu_admission_enabled === true &&
     plan.max_cost_microusd <= modalBudget.per_run_limit_microusd &&
@@ -305,6 +308,7 @@ export async function prepareTrainingPlan(env, owner, args, getSourceToken = asy
 
 export async function trainingPlanState(env, owner, runId, cancel = false, isConfigured = () => true) {
   const db = env.DB;
+  const mapConfig = mapTrainingConfiguration(env);
   const now = Math.floor(Date.now() / 1000);
   if (cancel) {
     await db.prepare(`UPDATE training_plans SET cancelled_at=?
@@ -331,7 +335,7 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
   const siteConfirmationRequired = !ownerSelected;
   const budgetPolicy = state === "prepared" ? await readProviderBudgetPolicy(db) : null;
   const modalBudget = budgetPolicy?.provider_budgets.find((item) => item.provider === "modal");
-  const monthlyLimit = ownerSelected ? plan.monthly_budget_microusd : Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
+  const monthlyLimit = ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd;
   const modalPolicyReady = budgetPolicy?.state === "ready" && modalBudget;
   const gpuAdmissionReady = modalBudget?.modal_gpu_admission_enabled === true;
   const budgetWithinPolicy = modalPolicyReady && Number.isSafeInteger(plan.max_cost_microusd) &&
@@ -470,6 +474,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   }
   const ownerSelected = plan.execution_kind === "owner_selected_python";
   const ownerConfig = ownerTrainingExecutionConfig(env);
+  const mapConfig = mapTrainingConfiguration(env);
   {
     const budgetPolicy = await readProviderBudgetPolicy(env.DB);
     const modalProviderPolicy = budgetPolicy.provider_budgets.find((item) => item.provider === "modal");
@@ -485,8 +490,8 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       blocking_reason: "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED" };
     if (!Number.isSafeInteger(plan.max_cost_microusd) ||
         plan.max_cost_microusd > modalProviderPolicy.per_run_limit_microusd ||
-        !Number.isSafeInteger(ownerSelected ? plan.monthly_budget_microusd : Number(env.MAP_TRAINING_MONTHLY_MICROUSD)) ||
-        (ownerSelected ? plan.monthly_budget_microusd : Number(env.MAP_TRAINING_MONTHLY_MICROUSD)) > modalProviderPolicy.monthly_limit_microusd) return { schema_version: 2, status: "blocked",
+        !Number.isSafeInteger(ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd) ||
+        (ownerSelected ? plan.monthly_budget_microusd : mapConfig.monthly_microusd) > modalProviderPolicy.monthly_limit_microusd) return { schema_version: 2, status: "blocked",
       human_summary: "実験上限がModal計算ルート共通の予算上限を超えています。",
       machine_state: { run_id: runId, provider: "modal", budget_policy_available: true },
       next_allowed_actions: ["experiment_capabilities", "training_status"],
@@ -501,7 +506,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   }
   const configuredRuntime = ownerSelected
     ? ownerConfig.max_runtime_seconds
-    : Number(env.MAP_TRAINING_RUNTIME_SECONDS);
+    : mapConfig.runtime_seconds;
   if (ownerSelected ? configuredRuntime < plan.runtime_seconds
     : configuredRuntime !== plan.runtime_seconds) {
     return { schema_version: 2, status: "blocked",
@@ -589,7 +594,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   // source stager and is never written to the D1 plan or run record.
   const monthlyLimit = ownerSelected
     ? ownerConfig.monthly_microusd
-    : Number(env.MAP_TRAINING_MONTHLY_MICROUSD);
+    : mapConfig.monthly_microusd;
   const claimed = await claimTrainingDispatch(env.DB, owner, runId, fingerprint, now,
     monthlyLimit, authorization, ownerSelected ? OWNER_TRAINING_MAX_MONTHLY_MICROUSD : MAP_TRAINING_MAX_MONTHLY_MICROUSD,
     { source: ownerSelected ? "owner_selected_training" : "map_training",

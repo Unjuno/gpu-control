@@ -1246,6 +1246,28 @@ missing settings still fail closed and the normalization preserves existing
 runtime/budget semantics.
 
 
+## 2026-11-28 — A11: normalize the reviewed MAP runtime configuration
+
+**Problem:** the fixed MAP training source SHA, image identity, price quote,
+runtime, and monthly budget were read and numerically converted across input
+validation, source readiness, planning, and submit checks. This made it harder
+to tell which code owned the current fixed execution configuration.
+
+**Change:** added `worker/map_training_configuration.js` as the parser for
+those values and migrated each consumer. The architecture check now rejects
+raw reads outside that module. MAP admission and the shared control-plane
+signing key remain separate settings with different owners.
+
+**Validation:** added tests for normalized values and missing-setting behavior.
+All 161 Worker tests pass and the runtime graph remains acyclic across 51
+modules; D1 migration, Worker build, artifact validation, and diff checks pass.
+No provider operation or deployment occurred.
+
+**Independent review:** no actionable findings. Review confirmed that
+source/image pinning, quote validation, runtime limits, and budget checks are
+unchanged and malformed or missing settings still block execution.
+
+
 ## 2026-11-28 — A13: exercise external MCP OAuth over Worker HTTP
 
 **Problem:** OAuth protocol functions had focused unit coverage, but no test
