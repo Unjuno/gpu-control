@@ -84,6 +84,13 @@ def _modal_import_graph(modal_root: Path) -> dict[str, set[str]]:
                         f"{base}.{alias.name}" for alias in node.names
                         if f"{base}.{alias.name}" in modules
                     )
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and
+                  isinstance(node.func.value, ast.Name) and node.func.value.id == "importlib" and
+                  node.func.attr == "import_module" and node.args and
+                  isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
+                imported = node.args[0].value
+                if imported in modules:
+                    graph[name].add(imported)
     return graph
 
 
@@ -167,6 +174,16 @@ def test_modal_runtime_import_graph_is_acyclic() -> None:
 def test_modal_import_cycle_check_reports_the_dependency_path() -> None:
     with pytest.raises(AssertionError, match=r"a -> b -> a"):
         _assert_acyclic({"a": {"b"}, "b": {"a"}})
+
+
+def test_literal_dynamic_local_imports_are_included_but_external_imports_are_not(tmp_path: Path) -> None:
+    (tmp_path / "adapter.py").write_text(
+        'import importlib\nimportlib.import_module("runtime_config")\n'
+        'importlib.import_module("huggingface_hub")\n', encoding="utf-8",
+    )
+    (tmp_path / "runtime_config.py").write_text("VALUE = 1\n", encoding="utf-8")
+    graph = _modal_import_graph(tmp_path)
+    assert graph["adapter"] == {"runtime_config"}
 
 
 def test_modal_signed_payloads_share_one_canonical_byte_encoder() -> None:

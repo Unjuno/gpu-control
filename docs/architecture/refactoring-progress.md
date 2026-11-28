@@ -80,12 +80,13 @@ outside their designated configuration modules. The check ignores test files
 and string-only forwarding of bindings; it guards only actual `os.environ`
 reads.
 
-**Validation:** packaging guard suite passes (11), full Modal Python suite
-passes (109), full Sites suite passes (214), Worker graph is acyclic across
-78 modules, and Modal's static runtime import graph is acyclic. Synthetic
-duplicate-read and two-module-cycle fixtures are both rejected. `git diff
---check` passes. No provider, credential, admission, deployment, or billing
-state was touched.
+**Validation:** packaging guard suite passes (12), full Modal Python suite
+passes (110), full Sites suite passes (214), Worker graph is acyclic across
+78 modules, and Modal's runtime import graph is acyclic. Literal local dynamic
+imports are included and a test confirms external imports stay out of the
+graph; synthetic duplicate-read and two-module-cycle fixtures are rejected.
+`git diff --check` passes. No provider, credential, admission, deployment, or
+billing state was touched.
 
 ## 2026-11-29 — A10: make signing fixtures share the canonical JSON authority
 
