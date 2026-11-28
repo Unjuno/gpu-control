@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareRunpodExperiment, validRunpodPrepare } from "./runpod_plan.js";
+import { prepareRunpodExperiment, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
 
 function environment() {
   const rows = new Map();
@@ -41,7 +41,13 @@ test("prepares one immutable owner-bound Runpod price plan without allocating", 
   assert.equal(validRunpodPrepare(args(), env), true);
   const result = await prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 });
   assert.equal(offers, 1);
-  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.020334");
+  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.048334");
+  assert.equal(result.provider_approved_plan.estimated_initialization_seconds, 420);
+  assert.equal(result.provider_approved_plan.estimated_execution_seconds, 300);
+  assert.equal(result.provider_approved_plan.estimated_idle_seconds, 5);
+  assert.equal(result.provider_approved_plan.provider_charge_hard_capped, false);
+  assert.equal(validRunpodApprovedPlan({ ...result.provider_approved_plan, schema_version: 1 }), false,
+    "a stale plan using the former undercounted estimate must not submit");
   assert.equal(result.provider_approved_plan.max_cost_usd, "1.00");
   assert.equal(result.provider_approved_plan.image_digest, `sha256:${"a".repeat(64)}`);
   assert.equal(result.machine_state.state, "prepared");
@@ -61,11 +67,12 @@ test("default prepare uses the pinned maximum without management API access", as
   }, { now: 1000 });
   assert.equal(result.provider_approved_plan.hourly_price_usd, "0.240000");
   assert.equal(result.provider_approved_plan.pricing_source, "sites-operator-pinned-serverless-maximum");
-  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.020334");
+  assert.equal(result.provider_approved_plan.estimated_cost_usd, "0.048334");
   assert.equal(result.provider_approved_plan.pricing_valid_until, 1600);
   assert.equal(result.expires_at, 1600);
   assert.equal(result.authorization_validity_seconds, 600);
   assert.match(result.human_summary, /承認窓は10分/);
+  assert.match(result.human_summary, /RunPod側の請求上限ではありません/);
 });
 
 test("rejects floating images, wrong source, and estimates above the ceiling", async () => {

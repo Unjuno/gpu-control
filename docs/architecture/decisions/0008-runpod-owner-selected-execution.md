@@ -21,15 +21,16 @@ owner-selected execution adapter or evidence for the isolation properties of
 such a runtime. RunPod queue result retention is also finite, so GPU Control
 must persist results and artifacts in its own store before that window expires.
 
-The current RunPod fixed-canary plan also estimates billable time as 300 seconds
-of job TTL plus 5 seconds of idle time (`RUNPOD_BILLABLE_CEILING_SECONDS = 305`).
-RunPod documents that workers are billed during initialization and that the
-default initialization timeout is 420 seconds. Current offer validation does
-not bind or validate `workers.initTimeout`, and the estimate omits that phase.
-This undercounts even before retry behavior is considered. Adding one maximum
-initialization window would make the modeled duration at least 725 seconds, but
-that alone is not a hard bound: retry attempts and worker starts also need a
-documented, enforced maximum before the plan can claim a per-run maximum charge.
+The fixed-canary plan estimates 725 seconds using RunPod's documented default
+420-second initialization timeout, the submitted 300-second job TTL, and the
+configured 5-second idle timeout. It does not read or bind the live endpoint's
+`workers.initTimeout` or retry policy. Therefore this is an estimate, not a
+provider-side charge ceiling. A larger endpoint initialization timeout, worker
+restarts, or automatic retries can raise actual charges. GPU Control's $1.00
+reservation is only an internal admission/accounting boundary and cannot stop
+RunPod billing. The plan labels this distinction explicitly and refuses to
+call the estimate a hard cap. A true per-run cap requires a provider-enforced
+maximum across initialization, execution, idle and all retry attempts.
 
 ## Proposed contract
 
@@ -51,9 +52,9 @@ documented, enforced maximum before the plan can claim a per-run maximum charge.
 4. Treat a lost submit response and provider retry separately. The same
    owner-bound run must not create duplicate GPU allocations or produce
    unaccounted billed attempts. Establish RunPod's exact retry behavior and
-   include initialization, execution, idle time and the maximum billable
-   attempts in the signed plan's cost bound. Until enforced, the fixed canary's
-   current quote is an estimate, not a hard maximum provider charge.
+   bind observed endpoint initialization and idle settings. Until a
+   provider-enforced maximum covers every attempt, the signed plan must call
+   the amount an estimate, not a maximum provider charge.
    Never blindly resubmit an ambiguous request.
 5. Persist terminal status, bounded metrics, checkpoint/artifact bytes and
    immutable digests into GPU Control's durable owner-scoped ledger before
@@ -88,7 +89,8 @@ documented, enforced maximum before the plan can claim a per-run maximum charge.
   documents request policy, result retention, `/retry`, and duplicate-job risk
   when resubmitting after a timeout or server error.
 - Repository evidence: `sites/gpu-control-sites/worker/runpod_provider.js`,
-  `worker/runpod_plan.js` (currently models 305 seconds and omits initialization),
+  `worker/runpod_plan.js` (models 725 seconds from documented defaults while
+  exposing that endpoint overrides/retries are outside a hard cap),
   `worker/runpod_lifecycle.js`, and
   `policies/repository-state.yaml`.
 

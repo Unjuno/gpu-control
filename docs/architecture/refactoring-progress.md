@@ -3513,3 +3513,28 @@ not an open PR, is authoritative.
 
 **Validation:** `git diff --check` passes. Documentation only; no runtime,
 provider, authorization or deployment state changed.
+
+## 2026-11-29 — A6/A13: separate RunPod reservation from provider billing
+
+**Finding:** RunPod plan preparation priced only the 300-second request TTL
+and 5-second idle window, omitting the documented default 420-second worker
+initialization window. Its Japanese summary also called the estimate a worst
+window and the GPU Control reservation a loss cap, which could be read as a
+provider-enforced charge limit. Endpoint-specific initialization overrides and
+automatic retry attempts are not currently bound into the plan.
+
+**Change:** plans now estimate 725 seconds from the documented default
+initialization timeout, actual submitted job TTL, and configured idle timeout.
+They mark `provider_charge_hard_capped: false`, state the assumptions, and
+distinguish the $1.00 Sites reservation from RunPod billing. The plan schema is
+versioned so old 305-second plans cannot be submitted after rollout. ADR 0008
+records that a true hard cap remains blocked on provider-enforced retry and
+endpoint bounds. The hosted Colab MCP remains the single Colab provider path;
+the standalone CLI remains suitable for direct local/CI use, not a second
+GPU Control ledger.
+
+**Validation:** focused RunPod and MCP contract tests pass (16/16); all Sites
+tests pass (221/221); the Worker graph is acyclic across 84 modules; registry
+freshness, Worker build, artifact validation, D1 forward-migration replay,
+and `git diff --check` pass. No RunPod job, Colab runtime, credential, provider
+setting, or deployment was changed. Exact-head CI is pending after push.

@@ -9,7 +9,14 @@ export const RUNPOD_REPOSITORY = WORKLOADS.runpod_canary.repository;
 export const RUNPOD_RUNTIME_SECONDS = WORKLOADS.runpod_canary.runtime_seconds;
 // Runpod may bill worker initialization and automatic retries. The job TTL is
 // the provider-managed hard window; add the exact endpoint idle timeout.
-export const RUNPOD_BILLABLE_CEILING_SECONDS = 305;
+// Documented default initialization timeout (420s) + job TTL (300s) +
+// configured idle timeout (5s). This is an estimate only: endpoint overrides
+// and automatic retries can increase actual provider charges.
+export const RUNPOD_ESTIMATED_BILLABLE_SECONDS = 725;
+const RUNPOD_DEFAULT_INITIALIZATION_SECONDS = 420;
+const RUNPOD_JOB_TTL_SECONDS = 300;
+const RUNPOD_IDLE_SECONDS = 5;
+const RUNPOD_COST_ESTIMATE_ASSUMPTIONS = "RunPod documented default initTimeout 420s + job TTL 300s + configured idle 5s; endpoint overrides and automatic retries may increase charges";
 export const RUNPOD_COST_CEILING_USD = WORKLOADS.runpod_canary.cost_ceiling_usd;
 export const RUNPOD_COST_CEILING_MICROUSD = Number(RUNPOD_COST_CEILING_USD) * 1_000_000;
 export const RUNPOD_PLAN_TTL_SECONDS = 600;
@@ -35,7 +42,7 @@ export function validRunpodPrepare(input, env) {
 
 export function validRunpodApprovedPlan(plan) {
   const sha256Digest = /^[0-9a-f]{64}$/;
-  if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.schema_version !== 1 ||
+  if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.schema_version !== 2 ||
       plan.provider !== "runpod_gpu" || plan.workload !== RUNPOD_WORKLOAD || plan.max_cost_usd !== "1.00" ||
       plan.cost_ceiling_microusd !== RUNPOD_COST_CEILING_MICROUSD || plan.gpu_count !== 1 ||
       plan.cloud !== "SERVERLESS" || plan.paid !== true || plan.credit_eligible !== false ||
@@ -44,13 +51,17 @@ export function validRunpodApprovedPlan(plan) {
       typeof plan.source_sha !== "string" || !/^[0-9a-f]{40}$/.test(plan.source_sha) ||
       typeof plan.data_center_id !== "string" || !/^[A-Za-z0-9_-]{4,128}$/.test(plan.data_center_id) ||
       typeof plan.hourly_price_usd !== "string" || !/^[0-9]+\.[0-9]{6}$/.test(plan.hourly_price_usd) ||
+      plan.estimated_initialization_seconds !== RUNPOD_DEFAULT_INITIALIZATION_SECONDS ||
+      plan.estimated_execution_seconds !== RUNPOD_JOB_TTL_SECONDS ||
+      plan.estimated_idle_seconds !== RUNPOD_IDLE_SECONDS || plan.provider_charge_hard_capped !== false ||
+      plan.cost_estimate_assumptions !== RUNPOD_COST_ESTIMATE_ASSUMPTIONS ||
       !Number.isSafeInteger(plan.pricing_valid_until) || !Number.isSafeInteger(plan.estimated_cost_microusd) ||
       plan.estimated_cost_microusd < 1 || plan.estimated_cost_microusd > RUNPOD_COST_CEILING_MICROUSD) return false;
   try { return new TextEncoder().encode(canonical(plan)).byteLength <= 4096; } catch { return false; }
 }
 
 function estimatedCost(hourlyPriceUsd) {
-  const microusd = Math.ceil(hourlyPriceUsd * RUNPOD_BILLABLE_CEILING_SECONDS * 1_000_000 / 3600);
+  const microusd = Math.ceil(hourlyPriceUsd * RUNPOD_ESTIMATED_BILLABLE_SECONDS * 1_000_000 / 3600);
   if (!Number.isSafeInteger(microusd) || microusd < 1 || microusd > RUNPOD_COST_CEILING_MICROUSD) {
     throw new Error("RUNPOD_ESTIMATED_COST_OUT_OF_BOUNDS");
   }
@@ -106,12 +117,16 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
   const cost = estimatedCost(offer.hourlyPriceUsd);
   const digest = imageDigest(configuration.image);
   const plan = {
-    schema_version: 1, workload: RUNPOD_WORKLOAD, provider: "runpod_gpu",
+    schema_version: 2, workload: RUNPOD_WORKLOAD, provider: "runpod_gpu",
     repository: RUNPOD_REPOSITORY, source_sha: configuration.sourceSha,
     image: configuration.image, image_digest: digest, parameters: {},
     runtime_seconds: RUNPOD_RUNTIME_SECONDS, max_cost_usd: RUNPOD_COST_CEILING_USD,
     cost_ceiling_microusd: RUNPOD_COST_CEILING_MICROUSD,
     estimated_cost_usd: cost.usd, estimated_cost_microusd: cost.microusd,
+    estimated_initialization_seconds: RUNPOD_DEFAULT_INITIALIZATION_SECONDS,
+    estimated_execution_seconds: RUNPOD_JOB_TTL_SECONDS,
+    estimated_idle_seconds: RUNPOD_IDLE_SECONDS, provider_charge_hard_capped: false,
+    cost_estimate_assumptions: RUNPOD_COST_ESTIMATE_ASSUMPTIONS,
     gpu_id: offer.gpuId, gpu_count: 1, cloud: offer.cloud,
     data_center_id: offer.dataCenterId, hourly_price_usd: offer.hourlyPriceUsd.toFixed(6),
     pricing_checked_at: offer.checkedAt, pricing_valid_until: offer.checkedAt + offer.validForSeconds,
@@ -155,7 +170,7 @@ function runpodPreparedResponse(persisted, plan, now, replay) {
   const cost = { usd: plan.estimated_cost_usd };
   return {
     schema_version: 2, status: "ok",
-    human_summary: `Runpodの登録済みServerless GPU canary planを${expired ? "再取得しましたが期限切れです" : "準備しました"}。まだジョブは送信していません。承認窓は10分、送信後のprovider側実行TTLは5分、5秒idleを含む最悪窓見積りは$${cost.usd}、損失上限は$1.00です。`,
+    human_summary: `Runpodの登録済みServerless GPU canary planを${expired ? "再取得しましたが期限切れです" : "準備しました"}。まだジョブは送信していません。承認窓は10分です。見積り$${cost.usd}は初期化420秒・TTL 300秒・idle 5秒の仮定です。endpoint設定と自動retryで増額し得るためRunPod側の請求上限ではありません。GPU Controlの$1.00は予約上限です。`,
     machine_state: { run_id: persisted.id, state: expired ? "expired" : persisted.state, provider: "runpod_gpu",
       plan_fingerprint: persisted.fingerprint, idempotent_replay: replay },
     next_allowed_actions: submitAllowed ? ["experiment_submit"] : persisted.state === "prepared" ? [] : ["experiment_status"],

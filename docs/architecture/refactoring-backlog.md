@@ -97,6 +97,14 @@ acceptance.
   encoding now live outside Colab run-state transitions. Raw R2 reads/writes
   remain in the established artifact storage boundary; the public artifact
   chunk limit has one owner across MCP schema and validators.
+- **A21 — Make RunPod's cost semantics honest:** source contract completed in
+  this batch. Its estimate
+  includes the documented default initialization window, submitted job TTL,
+  and configured idle timeout. The plan explicitly says this is not a hard
+  provider billing cap because endpoint overrides and automatic retries are
+  not yet bound. Do not describe the Sites reservation as a RunPod charge
+  limit. A provider-enforced all-attempt bound remains a release requirement
+  before advertising a maximum RunPod spend.
 - **Next:** continue identifying duplicated ownership at provider boundaries
   and split oversized composition modules only where a stable contract and
   clear behavior owner can be established. Do not merge or collapse distinct
