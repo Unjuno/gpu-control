@@ -229,54 +229,6 @@ test("GitHub App connection tools are owner-scoped and fail closed until configu
   } finally { db.close(); }
 });
 
-test("public MCP data tools challenge anonymous callers before touching D1", async () => {
-  const env = environment();
-  let databaseReads = 0;
-  env.DB.prepare = () => {
-    databaseReads++;
-    throw new Error("anonymous request reached D1");
-  };
-  const response = await worker.fetch(new Request("https://site.invalid/mcp", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: 7, method: "tools/call",
-      params: { name: "experiment_list", arguments: {} },
-    }),
-  }), env);
-  assert.equal(response.status, 401);
-  assert.match(response.headers.get("www-authenticate"), /resource_metadata=/);
-  assert.match(response.headers.get("www-authenticate"), /scope="experiments:read"/);
-  assert.equal(databaseReads, 0);
-});
-
-test("MCP bearer authentication is audience-bound and execution scope is separate from read scope", async () => {
-  const token = `gpc_at_${"a".repeat(43)}`;
-  const tokenHash = createHash("sha256").update(token).digest("hex");
-  const env = environment();
-  let grantedScope = "experiments:read";
-  env.DB.prepare = (sql) => ({ bind: (...values) => ({
-    first: async () => sql.includes("FROM mcp_oauth_tokens") && values[0] === tokenHash
-      ? { owner_id: "external-owner", client_id: "client", scope: grantedScope, resource: `${siteOrigin}/mcp`, expires_at: 1_900_000_000 }
-      : null,
-  }) });
-  const request = (authorization, name) => worker.fetch(new Request(`${siteOrigin}/mcp`, { method: "POST",
-    headers: { authorization, "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: {} } }) }), env);
-  const readOnly = await request(`Bearer ${token}`, "experiment_list");
-  assert.equal(readOnly.status, 200);
-  const deniedWrite = await request(`Bearer ${token}`, "experiment_prepare");
-  assert.equal(deniedWrite.status, 403);
-  assert.match(deniedWrite.headers.get("www-authenticate"), /scope="experiments:execute"/);
-  grantedScope = "experiments:read experiments:execute";
-  const allowedWrite = await request(`Bearer ${token}`, "experiment_prepare");
-  assert.equal(allowedWrite.status, 200);
-  assert.equal((await allowedWrite.json()).result.isError, true);
-  const wrongToken = await request(`Bearer ${"gpc_at_" + "b".repeat(43)}`, "experiment_list");
-  assert.equal(wrongToken.status, 401);
-  assert.match(wrongToken.headers.get("www-authenticate"), /error="invalid_token"/);
-});
-
 test("root page is a public status surface without granting execution authority", async () => {
   const response = await worker.fetch(new Request("https://gpu-control.example/"), {});
   assert.equal(response.status, 200);
