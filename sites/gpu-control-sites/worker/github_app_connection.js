@@ -333,8 +333,11 @@ async function currentGithubUserToken(env, db, owner, connection, githubUserId, 
 export async function completeGithubInstallationOAuth(env, db, oauthState, tokens, fetchImpl = fetch,
   now = Math.floor(Date.now() / 1000)) {
   if (typeof oauthState !== "string" || !/^[a-f0-9]{64}$/.test(oauthState) ||
-      !tokens || typeof tokens.access_token !== "string" || typeof tokens.refresh_token !== "string" ||
-      !Number.isSafeInteger(tokens.access_expires_in) || !Number.isSafeInteger(tokens.refresh_expires_in) ||
+      !tokens || typeof tokens.access_token !== "string" || !/^ghu_[A-Za-z0-9_]{16,508}$/.test(tokens.access_token) ||
+      typeof tokens.refresh_token !== "string" || !/^ghr_[A-Za-z0-9_]{16,508}$/.test(tokens.refresh_token) ||
+      !Number.isSafeInteger(tokens.access_expires_in) || tokens.access_expires_in < 60 || tokens.access_expires_in > 28_800 ||
+      !Number.isSafeInteger(tokens.refresh_expires_in) || tokens.refresh_expires_in < 60 ||
+      tokens.refresh_expires_in > 15_897_600 ||
       !Number.isSafeInteger(now)) throw new Error("GITHUB_CONNECTION_INVALID");
   const stateHash = await sha256(oauthState);
   const intent = await db.prepare(`SELECT owner_id, pending_installation_id, pending_account_login,
