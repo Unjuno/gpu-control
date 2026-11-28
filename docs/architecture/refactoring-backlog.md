@@ -99,8 +99,8 @@ acceptance.
   are verified.
 - **Remaining:** independent security review, migration/deploy, production
   settings, admission, and a real ChatGPT end-to-end GPU lifecycle remain
-  unverified. Exact-head CI currently passes at `2842bd9`; a later source push
-  requires a fresh run. Source/tests do not close product acceptance.
+  unverified. The latest code change is `31bc183`; all seven exact-head CI
+  checks pass on PR tip `644f507`. Source/tests do not close product acceptance.
 - **Work:** from a request such as “try training this repository,” discover
   repositories selected in the owner's GitHub App, pin the current default
   commit, inspect the contract, and select only a currently compatible and
@@ -125,9 +125,9 @@ acceptance.
   using the owner-bound Google connection and the same Sites plan/run ledger.
   Colab's unknown account-level compute-unit balance, unrestricted runtime
   egress, long-call recovery, and destructive runtime cleanup are represented
-  in its plan and lifecycle. Exact-head CI passes at `2842bd9`; independent
-  security review, production configuration/migration and one live acceptance
-  run remain release gates.
+  in its plan and lifecycle. All seven exact-head CI checks pass at PR tip
+  `644f507`; independent security review, production configuration/migration
+  and one live acceptance run remain release gates.
   The official `google-colab-cli` remains a local/CI client for
   compatible authenticated agents; direct CLI jobs do not form a second Sites
   provider route or run ledger. Ordinary PR CI stays offline and does not

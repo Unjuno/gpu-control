@@ -2787,3 +2787,25 @@ registry check. This does not establish Google's live create-runtime
 idempotency behavior, provider terminal-state mismatch handling, durable
 journal-loss recovery, or real Colab GPU acceptance; those A3/A6 release gaps
 remain open. No live provider runtime or provider setting was touched.
+
+## 2026-11-28 — A3: fail closed when the Colab operation journal is missing
+
+**Finding:** when D1 retained a submitted Colab plan but the corresponding
+`google_colab_run_operations` row was missing, status could report the plan as
+prepared. That hid uncertainty about provider allocation and could encourage
+an agent to submit again. Cancellation also lacked a stable missing-record
+outcome.
+
+**Change:** status, cancellation, and repeated submit now return the same
+owner-bound `uncertain` result with provider allocation and cleanup unknown.
+They do not call Colab or recreate a journal for a submitted plan. A genuinely
+prepared plan with no submit attempt retains its pre-run behavior. This is a
+fail-closed recovery boundary, not reconstruction: provider evidence lost with
+the journal still requires manual reconciliation.
+
+**Validation:** the SQLite-backed lifecycle integration test covers all three
+entry points and asserts that the fake Colab endpoint receives no request.
+All 205 Sites tests, the 76-module acyclic architecture check, build, D1
+forward-migration replay, and `git diff --check` pass. Exact-head CI passed all
+seven checks at PR tip `644f507`. Code is in `31bc183`; the latest tip contains
+documentation updates only. No live provider/runtime or credential was used.
