@@ -22,6 +22,7 @@ import { MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE,
 import { getExperimentCapabilities } from "./provider_capabilities.js";
 import { modalConfigured, modalPayload, modalRequest, providerHealth } from "./modal_http_client.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
+import { persistRunResultArtifact, readRunResultArtifact, runArtifactBytes, RUN_ARTIFACT_MAX_BYTES } from "./run_artifacts.js";
 import { authenticateMcpAccessToken, beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
   createMcpOAuthConsent, exchangeMcpOAuthToken, isMcpOAuthGitHubState, mcpAuthorizationServerMetadata,
   mcpOAuthError, mcpProtectedResourceMetadata, registerMcpOAuthClient, revokeMcpOAuthToken,
@@ -32,7 +33,6 @@ const MCP_VERSION = "2026-07-28";
 const MCP_VERSIONS = [...LEGACY_VERSIONS, MCP_VERSION];
 const META_PREFIX = "io.modelcontextprotocol/";
 const MAX_BODY_BYTES = 16 * 1024;
-const MAX_RESULT_BYTES = 8 * 1024;
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
 const ZERO_GPU_WORKLOAD = WORKLOADS.huggingface_evaluation.id;
@@ -49,7 +49,6 @@ const MODAL_STATUS_CHECK_MAX_PER_WINDOW = 20;
 // Hold a lost submit reservation beyond Modal's documented 150s Web Function
 // request window and the fixed Sandbox runtime before releasing a missing run.
 const MODAL_NOT_FOUND_RECOVERY_GRACE_SECONDS = 300;
-const MODAL_MAX_RESULT_BYTES = 8 * 1024;
 const RUNPOD_PER_RUN_BUDGET_USD = WORKLOADS.runpod_canary.cost_ceiling_usd;
 const MODAL_MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin";
 const MODAL_MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a";
@@ -109,11 +108,6 @@ function submitSummary(state) {
 
 async function sha256(text) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function sha256Bytes(bytes) {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -554,14 +548,6 @@ async function handleMcpOAuthRevoke(request, env) {
   }
   try { return await revokeMcpOAuthToken(env.DB, await readUrlEncodedForm(request)); }
   catch { return oauthJson({ error: "server_error" }, 500); }
-}
-
-function base64(bytes) {
-  let binary = "";
-  for (let start = 0; start < bytes.length; start += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
-  }
-  return btoa(binary);
 }
 
 async function resolveZeroGpuPrepare(env, owner, input) {
@@ -1057,31 +1043,15 @@ async function synchronizeModalRun(env, runId, ownerId, { submit = false, cancel
       WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
     return;
   }
-  const resultBytes = new TextEncoder().encode(canonical(result));
-  if (resultBytes.byteLength > MODAL_MAX_RESULT_BYTES) {
+  const resultJson = canonical(result);
+  const resultBytes = runArtifactBytes(resultJson);
+  if (resultBytes.byteLength > RUN_ARTIFACT_MAX_BYTES) {
     await env.DB.prepare(`UPDATE runs SET state='failed', failure_code='MODAL_RESULT_TOO_LARGE', cleanup_state='confirmed', updated_at=?
       WHERE id=? AND owner_id=? AND state IN ('queued','running')`).bind(now, runId, ownerId).run();
     return;
   }
-  const digest = await sha256Bytes(resultBytes);
-  const artifactId = "result-json-v1";
-  const artifactKey = `runs/${runId}/${digest}/${artifactId}`;
-  await env.BUCKET.put(artifactKey, resultBytes, { customMetadata: {
-    run_id: runId, sha256: digest, plan_fingerprint: row.fingerprint, source_sha: row.source_sha,
-  } });
-  const finalized = await env.DB.prepare(`UPDATE runs SET state='succeeded', result_json=?, result_artifact_id=?, result_artifact_sha256=?,
-      result_artifact_size=?, failure_code=NULL, cleanup_state='confirmed', updated_at=?
-    WHERE id=? AND owner_id=? AND state IN ('queued','running') AND cancel_requested=0`)
-    .bind(new TextDecoder().decode(resultBytes), artifactId, digest, resultBytes.byteLength, now, runId, ownerId).run();
-  if (finalized.meta?.changes === 0) {
-    // A cancel request may win while the immutable artifact is being written.
-    // Only remove it after re-reading the row and proving success did not win.
-    const latest = await env.DB.prepare("SELECT state, cancel_requested FROM runs WHERE id=? AND owner_id=?")
-      .bind(runId, ownerId).first();
-    if (latest && latest.state !== "succeeded" && (latest.state === "cancelled" || latest.cancel_requested === 1)) {
-      await env.BUCKET.delete(artifactKey);
-    }
-  }
+  await persistRunResultArtifact(env, { runId, ownerId, sourceSha: row.source_sha,
+    planFingerprint: row.fingerprint, resultJson, now });
 }
 
 async function delegatedPlan(env, owner, runId) {
@@ -1936,33 +1906,7 @@ async function callTool(name, args, request, env, context = null, principal = nu
   if (name === "experiment_artifact") {
     const delegated = await maybeDelegateRunTool(env, owner, name, args);
     if (delegated) return delegated;
-    if (!env.BUCKET) return { schema_version: 2, status: "blocked", human_summary: "Artifact storage is not configured.", machine_state: { run_id: args.run_id }, next_allowed_actions: ["experiment_status"], blocking_reason: "ARTIFACT_STORAGE_NOT_CONFIGURED" };
-    const row = await env.DB.prepare(`SELECT r.id, r.state, r.result_artifact_id, r.result_artifact_sha256, r.result_artifact_size,
-        p.fingerprint, p.source_sha
-      FROM runs r JOIN plans p ON p.id=r.plan_id WHERE r.id = ? AND r.owner_id = ?`).bind(args.run_id, owner).first();
-    if (!row) throw new Error("RUN_NOT_FOUND");
-    if (row.state !== "succeeded" || row.result_artifact_id !== args.artifact_id ||
-        typeof row.result_artifact_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(row.result_artifact_sha256) ||
-        !Number.isSafeInteger(row.result_artifact_size) || row.result_artifact_size < 1 || row.result_artifact_size > MAX_RESULT_BYTES) {
-      return { schema_version: 2, status: "blocked", human_summary: "Artifact is not ready for this run.", machine_state: { run_id: args.run_id, state: row.state }, next_allowed_actions: ["experiment_status"], blocking_reason: "ARTIFACT_NOT_READY" };
-    }
-    const object = await env.BUCKET.get(`runs/${args.run_id}/${row.result_artifact_sha256}/${row.result_artifact_id}`);
-    if (!object || object.size !== row.result_artifact_size || object.customMetadata?.run_id !== args.run_id ||
-        object.customMetadata?.sha256 !== row.result_artifact_sha256 ||
-        object.customMetadata?.plan_fingerprint !== row.fingerprint || object.customMetadata?.source_sha !== row.source_sha) {
-      throw new Error("ARTIFACT_METADATA_MISMATCH");
-    }
-    const bytes = new Uint8Array(await object.arrayBuffer());
-    if (bytes.length !== row.result_artifact_size || await sha256Bytes(bytes) !== row.result_artifact_sha256) {
-      throw new Error("ARTIFACT_CHECKSUM_MISMATCH");
-    }
-    if (args.offset > bytes.length) throw new Error("ARTIFACT_OFFSET_OUT_OF_RANGE");
-    const end = Math.min(bytes.length, args.offset + args.max_bytes);
-    return { schema_version: 2, status: "ok", human_summary: "Artifact chunk retrieved and verified.",
-      machine_state: { run_id: args.run_id, artifact_id: row.result_artifact_id, sha256: row.result_artifact_sha256,
-        size_bytes: bytes.length, offset: args.offset, next_offset: end, eof: end === bytes.length,
-        encoding: "base64", data: base64(bytes.subarray(args.offset, end)) },
-      next_allowed_actions: [], blocking_reason: null };
+    return readRunResultArtifact(env, owner, args);
   }
   if (name === "experiment_list") {
     const limit = args.limit || 20;

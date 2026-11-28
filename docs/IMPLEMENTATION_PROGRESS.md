@@ -4666,3 +4666,18 @@ branch and refs remain unchanged.
   `e225a66d9c30d974ab8a0b32707dcad87181c89e` passed all 7 exact-head CI checks.
   PR #70 is still open, review-required and merge-blocked; no deployment or
   live ChatGPT acceptance was performed. Related backlog: A5.
+
+
+## 2026-11-28 architecture batch — run artifact boundary
+
+Moved immutable R2 result storage, owner-scoped retrieval and checksum-verified
+chunk reads from the Sites Worker entrypoint into `worker/run_artifacts.js`.
+The module owns D1 finalization and cleanup when cancellation wins the race; a
+static architecture rule prevents other Worker modules from issuing R2 object
+operations. Existing stored artifact IDs continue to resolve. The entrypoint
+now measures 2,119 lines.
+
+Validation: 142 Worker tests pass; D1 forward-migration tests pass; build
+packages all 35 reachable runtime modules; Site artifact validation and
+`git diff --check` pass. This is source-only; no live migration, deployment, or
+provider run occurred.

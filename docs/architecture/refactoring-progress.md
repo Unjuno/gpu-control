@@ -867,3 +867,22 @@ experiment was performed.
 **Release limit:** repository source is not a live second-client connection.
 Migration 0036, deployed discovery/callback routes, and a fresh no-compute
 handshake from an independent OAuth-capable MCP client remain required.
+
+
+## 2026-11-28 — A7: isolate immutable run artifacts
+
+**Problem:** Worker result persistence and MCP artifact retrieval directly
+handled R2 objects in the large entrypoint, splitting ownership, integrity
+checks and cancellation-race cleanup across transport and lifecycle code.
+
+**Change:** introduced `worker/run_artifacts.js` as the authority for bounded
+result serialization, immutable R2 writes, D1 terminal finalization,
+cancellation-winner cleanup, owner-scoped artifact lookup, metadata/checksum
+verification and chunk encoding. The entrypoint delegates to this interface.
+The Worker architecture checker forbids R2 object calls outside the module.
+Historic safe artifact IDs remain readable.
+
+**Validation:** all 142 Worker tests pass; D1 forward migrations pass; Worker
+build copied all 35 reachable runtime modules; artifact validation and
+`git diff --check` pass. No deployment, migration application, or provider
+operation was performed.

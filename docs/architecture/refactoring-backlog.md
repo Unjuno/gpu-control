@@ -428,3 +428,6 @@ not enable GPU admission or add a provider. The composition root remains large;
 next A7 work should extract coherent domain operations with explicit ports,
 while the end-to-end external-GPU acceptance and provider security gates stay
 separate completion requirements.
+
+
+**Progress (2026-11-28):** D1/R2 result artifact persistence, cancellation-race cleanup, owner-bound lookup, metadata/checksum verification, and bounded base64 chunk reads now live in `worker/run_artifacts.js`. The entrypoint delegates both Modal result finalization and `experiment_artifact`; a static architecture check keeps direct R2 get/put/delete calls inside this module. Existing artifact identifiers remain readable for stored runs. Focused module tests cover writes, cancellation cleanup, integrity, chunking, and size bounds. `index.js` is now 2,119 lines; the import graph is acyclic across 35 Worker runtime modules.

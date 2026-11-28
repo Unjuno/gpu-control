@@ -16,6 +16,11 @@ const platformIdentitySources = workerFiles.filter((file) =>
 assert.deepEqual(platformIdentitySources, [],
   "ChatGPT platform identity and owner allowlist may only be read by the Worker entrypoint");
 
+const artifactStorageSources = workerFiles.filter((file) =>
+  file !== join(workerRoot, "run_artifacts.js") && /\bBUCKET\.(?:get|put|delete)\s*\(/.test(readFileSync(file, "utf8")));
+assert.deepEqual(artifactStorageSources, [],
+  "R2 run artifact reads, writes, and cleanup must stay inside run_artifacts.js");
+
 for (const [file, dependencies] of graph) {
   assert.ok(workerFiles.includes(file));
   assert.ok(!dependencies.includes(entrypoint), `${file}: domain modules must not import the Worker entrypoint`);
