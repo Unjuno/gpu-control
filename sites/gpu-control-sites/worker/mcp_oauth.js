@@ -115,7 +115,6 @@ export async function registerMcpOAuthClient(db, body, remoteAddress, now = Math
   const day = new Date(now * 1000).toISOString().slice(0, 10);
   const globalHash = await sha256("gpu-control-mcp-client-registration:global");
   const retentionDay = new Date((now - 30 * 24 * 60 * 60) * 1000).toISOString().slice(0, 10);
-  let globalLimit;
   let limit;
   try {
     await Promise.all([
@@ -124,17 +123,30 @@ export async function registerMcpOAuthClient(db, body, remoteAddress, now = Math
       db.prepare("DELETE FROM mcp_oauth_authorization_codes WHERE expires_at<=?").bind(now).run(),
       db.prepare("DELETE FROM mcp_oauth_tokens WHERE expires_at<=?").bind(now).run(),
     ]);
-    globalLimit = await db.prepare(`INSERT INTO mcp_oauth_registration_limits (ip_hash, period_day, registration_count)
-      VALUES (?, ?, 1) ON CONFLICT(ip_hash, period_day) DO UPDATE SET registration_count=registration_count+1
-      WHERE registration_count<200 RETURNING registration_count`).bind(globalHash, day).first();
   } catch { throw new Error("MCP_OAUTH_REGISTRATION_STORAGE_UNAVAILABLE"); }
-  if (!globalLimit) throw new Error("MCP_OAUTH_REGISTRATION_RATE_LIMITED");
   try {
+    // Spend the caller-specific allowance first. Requests beyond this limit
+    // never touch the shared global quota.
     limit = await db.prepare(`INSERT INTO mcp_oauth_registration_limits (ip_hash, period_day, registration_count)
       VALUES (?, ?, 1) ON CONFLICT(ip_hash, period_day) DO UPDATE SET registration_count=registration_count+1
       WHERE registration_count<10 RETURNING registration_count`).bind(ipHash, day).first();
   } catch { throw new Error("MCP_OAUTH_REGISTRATION_STORAGE_UNAVAILABLE"); }
   if (!limit) throw new Error("MCP_OAUTH_REGISTRATION_RATE_LIMITED");
+  let globalLimit;
+  try {
+    globalLimit = await db.prepare(`INSERT INTO mcp_oauth_registration_limits (ip_hash, period_day, registration_count)
+      VALUES (?, ?, 1) ON CONFLICT(ip_hash, period_day) DO UPDATE SET registration_count=registration_count+1
+      WHERE registration_count<200 RETURNING registration_count`).bind(globalHash, day).first();
+  } catch {
+    await db.prepare(`UPDATE mcp_oauth_registration_limits SET registration_count=registration_count-1
+      WHERE ip_hash=? AND period_day=? AND registration_count>1`).bind(ipHash, day).run();
+    throw new Error("MCP_OAUTH_REGISTRATION_STORAGE_UNAVAILABLE");
+  }
+  if (!globalLimit) {
+    await db.prepare(`UPDATE mcp_oauth_registration_limits SET registration_count=registration_count-1
+      WHERE ip_hash=? AND period_day=? AND registration_count>1`).bind(ipHash, day).run();
+    throw new Error("MCP_OAUTH_REGISTRATION_RATE_LIMITED");
+  }
   const clientId = `gpc_client_${randomBase64Url(24)}`;
   try {
     await db.prepare(`INSERT INTO mcp_oauth_clients (client_id, client_name, redirect_uris_json, created_at, revoked_at)
@@ -208,7 +220,7 @@ export function isMcpOAuthGitHubState(db, state) {
 }
 
 export async function completeMcpOAuthGitHubLogin(db, state, userToken, fetchImpl = fetch,
-  now = Math.floor(Date.now() / 1000)) {
+  now = Math.floor(Date.now() / 1000), isOwnerAllowed = null) {
   if (!db || typeof state !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(state) ||
       typeof userToken !== "string" || !Number.isSafeInteger(now)) throw new Error("MCP_OAUTH_LOGIN_INVALID");
   const githubStateHash = await sha256(state);
@@ -224,6 +236,9 @@ export async function completeMcpOAuthGitHubLogin(db, state, userToken, fetchImp
   const owner = await db.prepare("SELECT owner_id FROM github_owner_identities WHERE github_user_id=?")
     .bind(identity.id).first();
   if (!owner) throw new Error("MCP_OAUTH_OWNER_LINK_REQUIRED");
+  if (isOwnerAllowed !== null && (typeof isOwnerAllowed !== "function" || !isOwnerAllowed(owner.owner_id))) {
+    throw new Error("MCP_OAUTH_OWNER_NOT_ALLOWED");
+  }
   const code = `gpc_code_${randomBase64Url(32)}`;
   const codeHash = await sha256(code);
   const consumedAt = now;
@@ -397,6 +412,7 @@ export function mcpOAuthError(error) {
     "MCP_OAUTH_AUTHORIZATION_REQUEST_INVALID", "MCP_OAUTH_SCOPE_INVALID",
     "MCP_OAUTH_CLIENT_UNKNOWN", "MCP_OAUTH_REDIRECT_URI_INVALID", "MCP_OAUTH_LOGIN_NOT_CONFIGURED",
     "MCP_OAUTH_AUTHORIZATION_REQUEST_EXPIRED", "MCP_OAUTH_AUTHORIZATION_REQUEST_REPLAYED",
+    "MCP_OAUTH_OWNER_NOT_ALLOWED",
     "MCP_OAUTH_LOGIN_INVALID", "MCP_OAUTH_OWNER_LINK_REQUIRED", "GITHUB_USER_IDENTITY_INVALID",
     "GITHUB_USER_AUTHORIZATION_INVALID", "GITHUB_USER_AUTHORIZATION_FAILED", "GITHUB_APP_API_FAILED",
     "GITHUB_APP_API_RESPONSE_INVALID"]);

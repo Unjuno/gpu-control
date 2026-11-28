@@ -7,6 +7,7 @@ import {
   verifyGithubInstallation,
 } from "./github_app_connection.js";
 import { completeMcpOAuthGitHubLogin, isMcpOAuthGitHubState } from "./mcp_oauth.js";
+import { isMcpOwnerAllowed } from "./mcp_request_auth.js";
 
 function finish(response, oauthKind = "github") {
   response.headers.append("set-cookie", "__Host-gpu-control-oauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax");
@@ -75,7 +76,8 @@ export function createGithubOAuthRoutes({ htmlPage, escapeHtml }) {
     try {
       const tokens = await exchangeGithubOAuthCode(env, code, codeVerifier);
       if (mcpOAuth) {
-        const completed = await completeMcpOAuthGitHubLogin(env.DB, state, tokens.access_token);
+        const completed = await completeMcpOAuthGitHubLogin(env.DB, state, tokens.access_token,
+          fetch, Math.floor(Date.now() / 1000), (owner) => isMcpOwnerAllowed(owner, env));
         return finish(completed.response, "mcp");
       }
       const connected = await completeGithubInstallationOAuth(env, env.DB, state, tokens);

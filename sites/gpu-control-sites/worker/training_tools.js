@@ -73,8 +73,10 @@ export async function handleTrainingTool(name, args, { env, owner, delegate, isC
     }
     const cleanupConfirmed = ["succeeded", "failed", "cancelled"].includes(state) &&
       (remote?.cleanup_state === "confirmed" || remote?.cleanup === "confirmed");
+    const persistedResult = cleanupConfirmed ? { ...remote,
+      execution_kind: local.machine_state.execution_kind || "map_training", cleanup: "confirmed" } : remote;
     if (cleanupConfirmed && !await persistTrainingTerminalResult(env.DB, owner, args.run_id,
-      local.machine_state.plan_fingerprint, remote, Math.floor(Date.now() / 1000))) {
+      local.machine_state.plan_fingerprint, persistedResult, Math.floor(Date.now() / 1000))) {
       throw new Error("TRAINING_RESULT_PERSIST_FAILED");
     }
     return { ...local, human_summary: adapterOutcomeUnknown

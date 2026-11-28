@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { handleTrainingTool } from "./training_tools.js";
 
@@ -78,4 +79,50 @@ test("a durable terminal training result survives adapter journal loss", async (
   assert.equal(response.machine_state.gpu_used, true);
   assert.equal(delegateCalls, 0);
 
+});
+
+test("MAP terminal status persists the adapter cleanup_state and native checkpoint result", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`CREATE TABLE training_plans (
+      owner_id TEXT NOT NULL, id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, plan_json TEXT NOT NULL,
+      expires_at INTEGER NOT NULL, cancelled_at INTEGER, dispatch_claimed_at INTEGER,
+      dispatch_rejection TEXT, cleanup_confirmed_at INTEGER, provider_result_json TEXT
+    );
+    CREATE TABLE training_authorizations (
+      plan_id TEXT, owner_id TEXT, fingerprint TEXT, authorization_id TEXT, authorization_source TEXT,
+      authorization_reference TEXT, decision_record_id TEXT, authorized_by TEXT, control_plane_sha TEXT,
+      target_repository TEXT, target_sha TEXT, image_digest TEXT, provider TEXT, provider_resource_id TEXT,
+      gpu_count INTEGER, runtime_seconds INTEGER, max_cost_microusd INTEGER, authorized_at INTEGER,
+      expires_at INTEGER, consumed_at INTEGER
+    );`);
+    const runId = "a".repeat(32);
+    const fingerprint = "b".repeat(64);
+    db.prepare(`INSERT INTO training_plans
+      (owner_id,id,fingerprint,plan_json,expires_at,dispatch_claimed_at)
+      VALUES (?,?,?,?,?,?)`).run("owner", runId, fingerprint,
+        JSON.stringify({ execution_kind: "map_training" }), Math.floor(Date.now() / 1000) + 300, 1);
+    const DB = { prepare(sql) { return { bind(...values) { const statement = db.prepare(sql); return {
+      first: async () => statement.get(...values),
+      run: async () => { const result = statement.run(...values); return { meta: { changes: Number(result.changes) } }; },
+    }; } }; } };
+    const response = await handleTrainingTool("training_status", { run_id: runId }, {
+      env: { DB }, owner: "owner", isConfigured: () => true,
+      delegate: async () => ({ state: "succeeded", cleanup_state: "confirmed", gpu_used: true,
+        steps: 100, dataset: "papers", run_name: "map44m", source_sha: "c".repeat(40),
+        image_digest: "sha256:" + "d".repeat(64),
+        checkpoint: { filename: "step-000000100-abcdef12.pt", size_bytes: 2048, sha256: "e".repeat(64) } }),
+    });
+    assert.equal(response.machine_state.state, "succeeded");
+    assert.equal(response.machine_state.cleanup_state, "confirmed");
+    const stored = db.prepare("SELECT provider_result_json,cleanup_confirmed_at FROM training_plans WHERE id=?")
+      .get(runId);
+    assert.equal(stored.cleanup_confirmed_at > 0, true);
+    assert.deepEqual(JSON.parse(stored.provider_result_json), {
+      state: "succeeded", cleanup: "confirmed", execution_kind: "map_training", gpu_used: true,
+      steps: 100, dataset: "papers", run_name: "map44m", source_sha: "c".repeat(40),
+      image_digest: "sha256:" + "d".repeat(64),
+      checkpoint: { filename: "step-000000100-abcdef12.pt", size_bytes: 2048, sha256: "e".repeat(64) },
+    });
+  } finally { db.close(); }
 });

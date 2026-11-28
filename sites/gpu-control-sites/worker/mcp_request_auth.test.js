@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { authenticateMcpPrincipal, mcpAuthorizationChallenge, sitesOwnerFromRequest } from "./mcp_request_auth.js";
@@ -28,6 +29,28 @@ test("unallowlisted platform identity is denied and malformed bearer never touch
   assert.equal(await authenticateMcpPrincipal(request({ authorization: "Bearer invalid" }), {
     DB: { prepare() { throw new Error("must not inspect storage"); } },
   }), null);
+});
+
+test("OAuth bearer access is revoked immediately when its owner leaves the current allowlist", async () => {
+  const token = `gpc_at_${"a".repeat(43)}`;
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const DB = {
+    prepare(sql) {
+      return { bind(...values) {
+        return { first: async () => {
+          if (!sql.includes("FROM mcp_oauth_tokens") || values[0] !== tokenHash) return null;
+          return { owner_id: "owner-a", client_id: "client", scope: "experiments:read experiments:execute",
+            resource: "https://gpu-control.example/mcp", expires_at: 2_000_000_000 };
+        } };
+      } };
+    },
+  };
+  const bearerRequest = request({ authorization: `Bearer ${token}` });
+  assert.equal((await authenticateMcpPrincipal(bearerRequest,
+    { DB, GPU_CONTROL_ALLOWED_USER_IDS: "owner-a" })).owner_id, "owner-a");
+  assert.deepEqual(await authenticateMcpPrincipal(bearerRequest,
+    { DB, GPU_CONTROL_ALLOWED_USER_IDS: "owner-b" }), { denied: "forbidden" });
+  assert.deepEqual(await authenticateMcpPrincipal(bearerRequest, { DB }), { denied: "forbidden" });
 });
 
 test("authorization challenges preserve resource discovery, scope and status semantics", () => {

@@ -3,10 +3,15 @@ import { authenticateMcpAccessToken, EXECUTE_SCOPE, READ_SCOPE } from "./mcp_oau
 export function sitesOwnerFromRequest(request, env) {
   const id = request.headers.get("oai-authenticated-user-id");
   if (!id || id.length > 256) return null;
-  const allowed = new Set(typeof env.GPU_CONTROL_ALLOWED_USER_IDS === "string"
+  return isMcpOwnerAllowed(id, env) ? id : null;
+}
+
+export function isMcpOwnerAllowed(owner, env) {
+  if (typeof owner !== "string" || owner.length > 256) return false;
+  const allowed = new Set(typeof env?.GPU_CONTROL_ALLOWED_USER_IDS === "string"
     ? env.GPU_CONTROL_ALLOWED_USER_IDS.split(",").map((value) => value.trim()).filter(Boolean)
     : []);
-  return allowed.has(id) ? id : null;
+  return allowed.has(owner);
 }
 
 export function sitesPlatformIdentityPresent(request) {
@@ -22,7 +27,9 @@ export async function authenticateMcpPrincipal(request, env) {
   const authorization = request.headers.get("authorization") || "";
   const match = authorization.match(/^Bearer (gpc_at_[A-Za-z0-9_-]{43})$/);
   if (!match || !env.DB) return null;
-  return authenticateMcpAccessToken(env.DB, match[1], `${new URL(request.url).origin}/mcp`);
+  const principal = await authenticateMcpAccessToken(env.DB, match[1], `${new URL(request.url).origin}/mcp`);
+  if (!principal) return null;
+  return isMcpOwnerAllowed(principal.owner_id, env) ? principal : { denied: "forbidden" };
 }
 
 export function mcpAuthorizationChallenge(request, { error = null, scope = READ_SCOPE } = {}) {

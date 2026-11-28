@@ -54,3 +54,30 @@ test("terminal provider result is owner/fingerprint bound, write-once, and size 
     db.close();
   }
 });
+
+test("MAP terminal result keeps its native checkpoint contract and cleanup evidence", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`CREATE TABLE training_plans (
+      owner_id TEXT NOT NULL, id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
+      plan_json TEXT NOT NULL, dispatch_claimed_at INTEGER, cleanup_confirmed_at INTEGER,
+      provider_result_json TEXT CHECK (provider_result_json IS NULL OR length(provider_result_json) <= 65536)
+    )`);
+    const runId = "a".repeat(32);
+    const fingerprint = "b".repeat(64);
+    db.prepare(`INSERT INTO training_plans (owner_id,id,fingerprint,plan_json,dispatch_claimed_at)
+      VALUES (?,?,?,?,?)`).run("owner", runId, fingerprint,
+        JSON.stringify({ execution_kind: "map_training" }), 1);
+    const result = { execution_kind: "map_training", state: "succeeded", cleanup: "confirmed",
+      gpu_used: true, steps: 100, dataset: "papers", run_name: "map44m",
+      source_sha: "c".repeat(40), image_digest: "sha256:" + "d".repeat(64),
+      checkpoint: { filename: "step-000000100-abcdef12.pt", size_bytes: 2048, sha256: "e".repeat(64) } };
+    assert.equal(await persistTrainingTerminalResult(dbBinding(db), "owner", runId, fingerprint, result, 10), true);
+    const stored = db.prepare("SELECT provider_result_json,cleanup_confirmed_at FROM training_plans WHERE id=?")
+      .get(runId);
+    assert.deepEqual(JSON.parse(stored.provider_result_json), result);
+    assert.equal(stored.cleanup_confirmed_at, 10);
+    assert.equal(await persistTrainingTerminalResult(dbBinding(db), "owner", runId, fingerprint,
+      { ...result, checkpoint: { ...result.checkpoint, filename: "checkpoint.pt" } }, 11), false);
+  } finally { db.close(); }
+});

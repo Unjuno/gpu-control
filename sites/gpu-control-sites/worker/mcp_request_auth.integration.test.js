@@ -59,7 +59,7 @@ test("MCP bearer authentication binds audience and separates read and execute sc
   const token = `gpc_at_${"a".repeat(43)}`;
   const tokenHash = createHash("sha256").update(token).digest("hex");
   let grantedScope = "experiments:read";
-  const env = { DB: { prepare(sql) {
+  const env = { GPU_CONTROL_ALLOWED_USER_IDS: "external-owner", DB: { prepare(sql) {
     return { bind(...values) {
       const tokenRow = sql.includes("FROM mcp_oauth_tokens") && values[0] === tokenHash
         ? { owner_id: "external-owner", client_id: "client", scope: grantedScope,
@@ -83,6 +83,10 @@ test("MCP bearer authentication binds audience and separates read and execute sc
   const allowedWrite = await send(token, "experiment_prepare");
   assert.equal(allowedWrite.status, 200);
   assert.equal((await allowedWrite.json()).result.isError, true);
+
+  env.GPU_CONTROL_ALLOWED_USER_IDS = "different-owner";
+  const removedOwner = await send(token, "experiment_list");
+  assert.equal(removedOwner.status, 403);
 
   const wrongToken = await send(`gpc_at_${"b".repeat(43)}`, "experiment_list");
   assert.equal(wrongToken.status, 401);

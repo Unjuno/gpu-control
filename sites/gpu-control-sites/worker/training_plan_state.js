@@ -61,7 +61,8 @@ export async function trainingPlanState(env, owner, runId, cancel = false, isCon
       : readinessBlocker === "TRAINING_PROVIDER_ADAPTER_NOT_CONFIGURED"
       ? "保存済み計画は確認できましたが、実行アダプターが設定されていません。"
       : "保存済みの学習計画の状態です。",
-    machine_state: { run_id: runId, state, plan_fingerprint: row.fingerprint,
+    machine_state: { run_id: runId, state, execution_kind: plan.execution_kind || "map_training",
+      plan_fingerprint: row.fingerprint,
       expires_at: row.expires_at, cancelled_at: row.cancelled_at,
       cleanup_state: row.dispatch_claimed_at === null ? "not_required"
         : row.cleanup_confirmed_at !== null ? "confirmed" : "unknown",
@@ -79,7 +80,9 @@ function readProviderResult(value) {
   try {
     const result = JSON.parse(value);
     return result && ["succeeded", "failed", "cancelled"].includes(result.state) &&
-      result.cleanup === "confirmed" ? result : null;
+      (result.cleanup === "confirmed" || result.cleanup_state === "confirmed") ? {
+        ...result, cleanup: "confirmed",
+      } : null;
   } catch { return null; }
 }
 
@@ -96,8 +99,9 @@ export async function loadApprovedTrainingPlan(db, owner, runId, fingerprint) {
 }
 
 const TERMINAL_TRAINING_STATES = new Set(["succeeded", "failed", "cancelled"]);
-const PERSISTED_PROVIDER_RESULT_FIELDS = ["state", "exit_code", "gpu_used", "gpu", "checkpoint", "metrics",
-  "artifacts", "cleanup", "failure_code", "output", "output_truncated"];
+const PERSISTED_PROVIDER_RESULT_FIELDS = ["state", "execution_kind", "exit_code", "gpu_used", "gpu", "checkpoint", "metrics",
+  "artifacts", "cleanup", "failure_code", "output", "output_truncated", "steps", "dataset", "run_name",
+  "source_sha", "image_digest"];
 
 function validDigest(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
@@ -107,6 +111,13 @@ function validCheckpoint(value) {
   return value && typeof value === "object" && !Array.isArray(value) &&
     value.filename === "checkpoint.pt" && Number.isInteger(value.size_bytes) &&
     value.size_bytes > 0 && value.size_bytes <= 1024 ** 3 && validDigest(value.sha256);
+}
+
+function validMapCheckpoint(value) {
+  return value && typeof value === "object" && !Array.isArray(value) &&
+    /^step-[0-9]{9}-[a-f0-9]{8}\.pt$/.test(value.filename || "") &&
+    Number.isInteger(value.size_bytes) && value.size_bytes > 0 && value.size_bytes <= 1024 ** 3 &&
+    validDigest(value.sha256);
 }
 
 function validMetrics(value) {
@@ -136,6 +147,7 @@ async function validArtifacts(value) {
 
 export async function persistTrainingTerminalResult(db, owner, runId, fingerprint, result, now) {
   if (!result || !TERMINAL_TRAINING_STATES.has(result.state) || result.cleanup !== "confirmed") return false;
+  const mapTraining = result.execution_kind === "map_training";
   if (result.exit_code !== undefined && result.exit_code !== null &&
       (!Number.isInteger(result.exit_code) || result.exit_code < 0 || result.exit_code > 255)) return false;
   if (result.gpu_used !== undefined && typeof result.gpu_used !== "boolean") return false;
@@ -144,8 +156,13 @@ export async function persistTrainingTerminalResult(db, owner, runId, fingerprin
   if (result.output !== undefined && typeof result.output !== "string") return false;
   if (result.output_truncated !== undefined && typeof result.output_truncated !== "boolean") return false;
   if (result.artifacts !== undefined && !await validArtifacts(result.artifacts)) return false;
-  if (result.state === "succeeded" && (result.exit_code !== 0 || result.gpu_used !== true ||
-      !validCheckpoint(result.checkpoint) || !validMetrics(result.metrics) || !await validArtifacts(result.artifacts))) return false;
+  if (result.state === "succeeded" && (result.gpu_used !== true ||
+      (mapTraining
+        ? (typeof result.steps !== "number" || !Number.isInteger(result.steps) || result.steps < 1 ||
+          result.steps > 10_000_000 || !validMapCheckpoint(result.checkpoint) ||
+          result.metrics !== undefined || (result.artifacts !== undefined && !await validArtifacts(result.artifacts)))
+        : (result.exit_code !== 0 || !validCheckpoint(result.checkpoint) || !validMetrics(result.metrics) ||
+          !await validArtifacts(result.artifacts))))) return false;
   const bounded = Object.fromEntries(PERSISTED_PROVIDER_RESULT_FIELDS
     .filter((key) => Object.hasOwn(result, key)).map((key) => [key, result[key]]));
   if (typeof bounded.output === "string" && new TextEncoder().encode(bounded.output).byteLength > 8192) return false;

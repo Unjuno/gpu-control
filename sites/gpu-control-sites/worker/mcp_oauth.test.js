@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
@@ -220,8 +221,11 @@ test("MCP OAuth authorizes one linked owner, binds audience, rotates refresh tok
     assert.equal(githubUrl.searchParams.get("code_challenge_method"), "S256");
 
     db.sqlite.exec("INSERT INTO github_owner_identities VALUES ('owner-1','1234567',1)");
-    const completed = await completeMcpOAuthGitHubLogin(db, githubState, "ghu_abcdefghijklmnop", async () =>
-      new Response(JSON.stringify({ id: 1234567, login: "owner" }), { status: 200 }), now + 1);
+    const identityFetch = async () => new Response(JSON.stringify({ id: 1234567, login: "owner" }), { status: 200 });
+    await assert.rejects(completeMcpOAuthGitHubLogin(db, githubState, "ghu_abcdefghijklmnop",
+      identityFetch, now + 1, (ownerId) => ownerId === "owner-2"), /MCP_OAUTH_OWNER_NOT_ALLOWED/);
+    const completed = await completeMcpOAuthGitHubLogin(db, githubState, "ghu_abcdefghijklmnop",
+      identityFetch, now + 1, (ownerId) => ownerId === "owner-1");
     const authRedirect = new URL(completed.redirect_uri);
     assert.equal(authRedirect.searchParams.get("state"), "client-state");
     const code = authRedirect.searchParams.get("code");
@@ -275,6 +279,26 @@ test("MCP OAuth rejects unregistered redirects, insecure remote redirects, dupli
       refresh_token: "gpc_rt_" + "a".repeat(43), resource });
     duplicate.append("resource", resource);
     assert.equal((await exchangeMcpOAuthToken(db, duplicate, origin, now)).status, 400);
+  } finally { db.sqlite.close(); }
+});
+
+test("per-IP rejected DCR attempts do not consume the shared registration allowance", async () => {
+  const db = database({ currentSchema: true });
+  try {
+    const metadata = { client_name: "Example", redirect_uris: [callback] };
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await registerMcpOAuthClient(db, metadata, "192.0.2.80", now + attempt);
+    }
+    await assert.rejects(registerMcpOAuthClient(db, metadata, "192.0.2.80", now + 10),
+      /MCP_OAUTH_REGISTRATION_RATE_LIMITED/);
+    await registerMcpOAuthClient(db, metadata, "192.0.2.81", now + 11);
+
+    const globalHash = createHash("sha256")
+      .update("gpu-control-mcp-client-registration:global").digest("hex");
+    const count = db.sqlite.prepare(`SELECT registration_count FROM mcp_oauth_registration_limits
+      WHERE ip_hash=? AND period_day=?`).get(globalHash, new Date(now * 1000).toISOString().slice(0, 10));
+    assert.equal(count.registration_count, 11,
+      "only successfully registered clients consume the global allowance");
   } finally { db.sqlite.close(); }
 });
 

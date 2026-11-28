@@ -451,3 +451,25 @@ test("installation verification and repository listing never return app credenti
   assert.equal(seen[2].url, "https://api.github.com/installation/repositories?per_page=25&page=1");
   assert.equal(JSON.stringify([installation, repositories]).includes("ghs-"), false);
 });
+
+test("installation repository listing keeps response pages bounded for large accounts", async () => {
+  const seen = [];
+  const repositories = Array.from({ length: 60 }, (_, index) => ({ id: index + 1,
+    full_name: `Unjuno/repo-${index + 1}`, private: true, default_branch: "main",
+    description: "d".repeat(350) }));
+  const fetchImpl = async (url) => {
+    const parsed = new URL(url);
+    seen.push(parsed.toString());
+    if (parsed.pathname.endsWith("/access_tokens")) return mockResponse({ token: "ghs-list-token",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      permissions: { contents: "read", metadata: "read" } });
+    const page = Number(parsed.searchParams.get("page"));
+    const start = (page - 1) * 25;
+    return mockResponse({ total_count: repositories.length, repositories: repositories.slice(start, start + 25) });
+  };
+  const listed = await listGithubInstallationRepositories(env, "98765", { fetchImpl });
+  assert.equal(listed.length, 60);
+  assert.deepEqual(seen.slice(1).map((url) => new URL(url).search), [
+    "?per_page=25&page=1", "?per_page=25&page=2", "?per_page=25&page=3",
+  ]);
+});

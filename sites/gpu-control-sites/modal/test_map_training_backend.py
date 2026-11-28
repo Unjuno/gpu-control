@@ -101,6 +101,12 @@ def test_provider_rejects_bad_profile_before_claim_and_spawns_once(monkeypatch, 
         assert dispatch_training_tool(store, backend, "owner", "training_submit", args,
                                       admission_enabled=True) == {"state": "running"}
     assert starts == [plan]
+    mcp_store = Store()
+    mcp_authorization = {**authorization, "authorization_source": "chatgpt_mcp_write_confirmation"}
+    mcp_args = {**args, "authorization": mcp_authorization}
+    assert dispatch_training_tool(mcp_store, backend, "owner", "training_submit", mcp_args,
+                                  admission_enabled=True) == {"state": "running"}
+    assert len(starts) == 2
     with pytest.raises(ValueError, match="training_run_identity_mismatch"):
         dispatch_training_tool(store, backend, "other", "training_status", args,
                                admission_enabled=True)
