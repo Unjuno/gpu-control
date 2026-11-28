@@ -35,8 +35,9 @@ scope; the owner must reconnect before source reads.
   snapshot. Disconnect the GitHub App connection or reconnect after an access
   change. A future design needing immediate revocation must retain an encrypted
   renewable user authorization or revalidate the user on every source access.
-- The scope is capped at 500 repositories and 128 KiB; malformed, incomplete,
-  duplicate, or oversized responses fail closed.
+- The scope is capped at 500 repositories and 128 KiB. GitHub OAuth repository
+  responses use 25 items per page to stay under the shared 32 KiB response
+  limit. Malformed, incomplete, duplicate, or oversized responses fail closed.
 - This is a source-level security boundary. It does not enable arbitrary
   commands, expose provider credentials, enable admission, or publish a live
   execution route.

@@ -15,7 +15,8 @@ owner-selected status request could fall through to the fixed MAP handler.
 
 **Change:** GitHub OAuth now records the authenticated user's bounded
 installation repository set and gates repository discovery and one-repository
-token minting against it. Migration 0041 clears older unscoped connections.
+token minting against it. Pages are limited to 25 repositories to respect the
+shared 32 KiB response bound. Migration 0041 clears older unscoped connections.
 Colab persists cancellation before cleanup, retains a tombstone if the
 operation journal is missing, and routes status or repeated submit to cleanup
 recovery. Modal dispatch selects the custom lifecycle from its signed approved
@@ -23,9 +24,11 @@ plan when the local submission journal is absent. The changes are isolated in
 separate commits; ADR 0014 documents the repository-scope behavior and its
 revocation limits.
 
-**Validation:** Sites suite 223/223, D1 migration replay, the full Python
+**Validation:** Sites suite 224/224, D1 migration replay, the full Python
 suite, focused Modal routing/package/lifecycle tests (24), and `git diff
---check` pass. Exact-head GitHub checks pass for PR head `7ff8905`. No
+--check` pass. Exact-head GitHub checks passed for PR head `0d727e5`; the
+follow-up OAuth pagination change at `d67cec5` has the same focused tests and
+is awaiting its exact-head checks. No
 provider call, credential, admission, production migration, or deployment
 occurred. The connected ChatGPT MCP still exposes registered workloads; it is
 not yet the live owner-selected execution route. PR source and green CI do not

@@ -113,7 +113,8 @@ acceptance.
 - **A23 — Intersect GitHub App and user repository permissions:** completed
   in this batch. OAuth setup stores the authenticated user's bounded
   installation repository set; listing and read-token creation require the
-  exact repository to also be in that set. Migration 0041 clears older
+  exact repository to also be in that set. OAuth pages are bounded to 25
+  repositories so metadata fits the shared response limit. Migration 0041 clears older
   connections lacking this proof. Scope snapshot limitations are recorded in
   [ADR 0014](decisions/0014-github-user-repository-scope.md).
 - **A24 — Persist Colab cancellation through cleanup recovery:** completed in
