@@ -25,10 +25,10 @@ recovery; the 27-module Worker graph is acyclic, generated files are current,
 the build and artifact checks pass, and `git diff --check` passes. No provider
 settings, credentials or admission changed and no provider call was made.
 
-**Current PR/release state:** PR #70 remains open and unmerged at
-`d5888d104152a152ac644eb255a69b90f3e7437f`; its Project bridge check passes,
-while the other six exact-head checks are queued. Independent review is still
-required. The new Modal client extraction is local and not yet pushed.
+**PR/release boundary:** the extraction was pushed to PR #70. Exact-head CI
+and review remain independent from local validation; retrieve their current
+state from GitHub before making release claims. The PR remains unmerged and
+the new module is not deployed.
 
 ## 2026-11-28 — A5: shared Modal compute reservation
 

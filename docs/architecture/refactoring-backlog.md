@@ -24,17 +24,13 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 
 ### A0. Reconcile branch, review, deployment and provider acceptance
 
-- **Evidence (2026-11-28):** PR #70 is open and unmerged at
-  `397810aeb72e361e7ea05568e3fff970f36aaa60`. Seven exact-head CI checks were
-  queued after this push (Python 3.11–3.13, Trusted Reference Container,
-  Sites Worker/D1, Gateway, and Project Bridge); refresh before claiming a
-  result. The PR diff is 120 files (+11,898/−686). All inline
-  review threads have been reconciled, but an independent security review and
-  required GitHub review decision remain outstanding. GitHub's mergeable flag
-  does not establish deployment or provider acceptance. Repository mode
-  remains `parked`; owner-training admission and live D1 remain unchanged.
-  Source head, CI, review, migration and deployment evidence are tracked
-  separately in `refactoring-progress.md`.
+- **Evidence:** PR #70 is the active source candidate. Its head, diff size,
+  mergeability and check/review state change on every push. Refresh them from
+  GitHub immediately before release claims; this backlog is not the authority
+  for transient CI state. The PR remains separate from deployment and
+  provider acceptance. Repository mode remains `parked`; owner-training
+  admission and live D1 remain unchanged. Source, CI, review, migration and
+  deployment evidence must be reported as separate facts.
 - **Work:** maintain a compact release record that separately names source
   head, merge SHA, Sites deployment/version, applied D1 migration, live tool
   schema, provider configuration, and exact end-to-end acceptance run.
