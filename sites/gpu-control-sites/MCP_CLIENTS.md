@@ -10,6 +10,9 @@ MCP endpoint and signing in as the already linked owner. It does not mean an
 anonymous public API or a separate provider-specific integration. Each client
 has its own revocable OAuth grant, while the owner identity, authorization,
 budget checks, and run ledger remain shared.
+The client and its account/workspace policy must also allow the relevant MCP
+tools. A server-side OAuth grant cannot override a client-side restriction or
+the native confirmation policy for write-capable tools.
 
 ## Release status
 
