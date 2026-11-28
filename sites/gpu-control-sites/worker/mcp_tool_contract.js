@@ -1,6 +1,7 @@
 import { OWNER_TRAINING_MAX_COST_MICROUSD } from "./training_policy.js";
 import { RUNPOD_WORKLOAD } from "./runpod_plan.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
+import { PROVIDER_ROUTE_IDS } from "./provider_catalog.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -131,7 +132,7 @@ export const schemas = {
   experiment_reconcile: { type: "object", properties: {}, additionalProperties: false },
   experiment_list: { type: "object", properties: {
     workload: { type: "string", enum: [WORKLOAD, RUNPOD_WORKLOAD, KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD, MODAL_GPU_WORKLOAD] },
-    provider: { type: "string", enum: ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space", "retired_local_runner", "unknown"] },
+    provider: { type: "string", enum: [...PROVIDER_ROUTE_IDS, "retired_local_runner", "unknown"] },
     state: { type: "string", enum: ["prepared", "queued", "running", "succeeded", "failed", "cancelled", "expired", "uncertain"] },
     limit: { type: "integer", minimum: 1, maximum: 50 },
     cursor: { type: "string", pattern: "^[0-9]{1,12}:[0-9a-f]{32}$" },

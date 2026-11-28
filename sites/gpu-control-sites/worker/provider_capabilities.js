@@ -8,6 +8,7 @@ import { OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD }
 import { runpodConfigured } from "./runpod_provider.js";
 import { RUNPOD_WORKLOAD } from "./runpod_plan.js";
 import { WORKLOADS } from "./workload_registry.js";
+import { PROVIDERS, PROVIDER_ROUTES } from "./provider_catalog.js";
 import { MODAL_MAX_RUNTIME_SECONDS, MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE,
   MODAL_SANDBOX_COST_CEILING_USD, MODAL_SANDBOX_RESOURCES, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 
@@ -15,6 +16,23 @@ const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
 const ZERO_GPU_WORKLOAD = WORKLOADS.huggingface_evaluation.id;
 const MODAL_GPU_WORKLOAD = WORKLOADS.modal_gpu_canary.id;
+
+function providerRouteCapability(route) {
+  const provider = PROVIDERS[route.provider];
+  const free = provider.billing_model === "included_quota";
+  return {
+    id: route.id,
+    enabled: false,
+    configured: false,
+    free,
+    paid: !free,
+    credit_eligible: provider.credit_eligible,
+    ...(route.gpu_count ? { gpu_count: route.gpu_count } : {}),
+    ...(route.api_version ? { api_version: route.api_version } : {}),
+    ...(route.execution_interface ? { execution_interface: route.execution_interface } : {}),
+    ...(provider.paid_fallback_allowed === false ? { paid_fallback_allowed: false } : {}),
+  };
+}
 
 async function humanAuthorizationStoreReady(env) {
   try {
@@ -65,7 +83,7 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
   if (!env.DB) return { available: false, blocker: "D1_NOT_CONFIGURED", providers: [], workloads: [] };
   const budgetPolicy = await readProviderBudgetPolicy(env.DB);
   const providerBudgets = budgetPolicy.provider_budgets;
-  const modalProviderBudget = providerBudgets.find((item) => item.provider === "modal");
+  const modalProviderBudget = providerBudgets.find((item) => item.provider === PROVIDERS.modal.budget_provider);
   const providerBudgetPolicyReady = budgetPolicy.state === "ready";
   const authorizationStoreReady = await humanAuthorizationStoreReady(env);
   const providerConfigured = modalConfigured(env);
@@ -79,6 +97,27 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     modalProviderBudget.monthly_remaining_microusd >= 10_000;
   const available = env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" && providerConfigured && authorizationStoreReady &&
     providerBudgetPolicyReady && modalCpuBudgetAvailable;
+  const providers = Object.values(PROVIDER_ROUTES).map(providerRouteCapability);
+  const providerByRoute = new Map(providers.map((provider) => [provider.id, provider]));
+  Object.assign(providerByRoute.get(PROVIDER_ROUTES.modal_cpu.id), { enabled: available, configured: providerConfigured });
+  Object.assign(providerByRoute.get(PROVIDER_ROUTES.modal_gpu.id), {
+    blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED",
+    budget_scope: modalProviderBudget?.scope ?? null,
+    monthly_limit_usd: modalProviderBudget?.monthly_limit_usd ?? null,
+    per_run_limit_usd: modalProviderBudget?.per_run_limit_usd ?? null,
+  });
+  Object.assign(providerByRoute.get(PROVIDER_ROUTES.runpod_gpu.id), {
+    enabled: runpodEnabled,
+    configured: runpodProviderConfigured,
+    completion_transport_verified: runpodCompletionTransportVerified,
+    blocker: runpodEnabled ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" :
+      !runpodProviderConfigured ? "RUNPOD_PROVIDER_NOT_CONFIGURED" :
+      !runpodCompletionTransportVerified ? "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED" :
+      "RUNPOD_WORKLOAD_ADMISSION_DISABLED"),
+  });
+  for (const routeId of [PROVIDER_ROUTES.kaggle.id, PROVIDER_ROUTES.huggingface_space.id]) {
+    Object.assign(providerByRoute.get(routeId), { blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" });
+  }
   const enabledByWorkloadId = new Map([
     [WORKLOAD, available],
     [RUNPOD_WORKLOAD, runpodEnabled],
@@ -89,30 +128,12 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     human_summary: available
       ? "Capabilitiesを確認しました。Modal CPUは1 core / 512 MiB、最大30秒です。実際の接続確認はplan確認後に行います。Sandbox使用料は利用可能なクレジットがあれば充当されます。"
       : "Capabilitiesを確認しました。Modal CPU routeは停止中です。他provider/workloadの可否は各enabledとblockerを参照してください。",
-    machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: "modal_cpu", workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_inflight: 1, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
+    machine_state: { available, provider_configured: providerConfigured, provider_ready: null, provider_health_checks: { configured: providerConfigured, deferred_until_authorized_submit: true }, human_authorization_store_ready: authorizationStoreReady, explicit_plan_confirmation_required: true, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true", provider: PROVIDER_ROUTES.modal_cpu.id, workload: WORKLOAD, free: false, paid: true, credit_eligible: true, max_runtime_seconds: MODAL_MAX_RUNTIME_SECONDS, max_inflight: 1, sandbox_resources: { ...MODAL_SANDBOX_RESOURCES }, estimated_max_sandbox_cost_usd: estimateModalSandboxCostUsd(MODAL_MAX_RUNTIME_SECONDS), max_sandbox_cost_ceiling_usd: MODAL_SANDBOX_COST_CEILING_USD, control_function_cost_included: false, price_source: MODAL_PRICING_SOURCE, price_checked_at: MODAL_PRICING_CHECKED_AT, image_fingerprint: env.MODAL_WORKLOAD_IMAGE_FINGERPRINT || null },
     blocking_reason: available ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" :
       !modalCpuBudgetAvailable ? "PROVIDER_BUDGET_EXHAUSTED" :
       !authorizationStoreReady ? "HUMAN_AUTHORIZATION_STORAGE_NOT_CONFIGURED" :
       !providerConfigured ? "MODAL_PROVIDER_NOT_CONFIGURED" : "CPU_WORKLOAD_ADMISSION_DISABLED"),
-    providers: [
-      { id: "modal_cpu", enabled: available, configured: providerConfigured, free: false, paid: true, credit_eligible: true },
-      { id: "modal_gpu", enabled: false, configured: false, free: false, paid: true,
-        credit_eligible: true, gpu_count: 1, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED",
-        budget_scope: modalProviderBudget?.scope ?? null,
-        monthly_limit_usd: modalProviderBudget?.monthly_limit_usd ?? null,
-        per_run_limit_usd: modalProviderBudget?.per_run_limit_usd ?? null },
-      { id: "runpod_gpu", enabled: runpodEnabled, configured: runpodProviderConfigured, free: false, paid: true,
-        credit_eligible: false, gpu_count: 1, api_version: "v2", execution_interface: "registered_workload_only",
-        completion_transport_verified: runpodCompletionTransportVerified,
-        blocker: runpodEnabled ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" :
-          !runpodProviderConfigured ? "RUNPOD_PROVIDER_NOT_CONFIGURED" :
-          !runpodCompletionTransportVerified ? "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED" :
-          "RUNPOD_WORKLOAD_ADMISSION_DISABLED") },
-      { id: "kaggle", enabled: false, configured: false, free: true, paid: false,
-        paid_fallback_allowed: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" },
-      { id: "huggingface_space", enabled: false, configured: false, free: true, paid: false,
-        paid_fallback_allowed: false, blocker: "PROVIDER_ADAPTER_NOT_CONFIGURED" },
-    ],
+    providers,
     workloads: workloadCapabilityEntries(env, enabledByWorkloadId),
     provider_budget_policy_state: budgetPolicy.state,
     provider_budgets: providerBudgets,
@@ -224,27 +245,27 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     }
     const adapterProviders = Array.isArray(delegated?.machine_state?.providers)
       ? delegated.machine_state.providers : [];
-    const adapterWorkloads = new Map([
-      ["kaggle", KAGGLE_WORKLOAD],
-      ["huggingface_space", ZERO_GPU_WORKLOAD],
-      ["modal_gpu", MODAL_GPU_WORKLOAD],
-    ]);
+    const adapterWorkloads = new Map(Object.values(WORKLOADS)
+      .filter((workload) => workload.adapter_manifest && PROVIDER_ROUTES[workload.provider]?.adapter_hosted)
+      .map((workload) => [workload.provider, workload.id]));
     for (const [providerId, workloadId] of adapterWorkloads) {
       const adapterProvider = adapterProviders.find((item) => item?.id === providerId);
       const provider = result.providers.find((item) => item.id === providerId);
-      const budgetProvider = providerId === "modal_gpu" ? modalProviderBudget
-        : providerBudgets.find((item) => item.provider === providerId);
+      const modalGpuRoute = providerId === PROVIDER_ROUTES.modal_gpu.id;
+      const budgetProviderId = PROVIDERS[PROVIDER_ROUTES[providerId].provider].budget_provider;
+      const budgetProvider = modalGpuRoute ? modalProviderBudget
+        : providerBudgets.find((item) => item.provider === budgetProviderId);
       provider.configured = adapterProvider?.configured === true;
       provider.enabled = providerBudgetPolicyReady && provider.configured && adapterProvider?.paid_fallback === false &&
-        (providerId !== "modal_gpu" || Number.isSafeInteger(budgetProvider?.monthly_remaining_microusd) &&
+        (!modalGpuRoute || Number.isSafeInteger(budgetProvider?.monthly_remaining_microusd) &&
           budgetProvider.monthly_remaining_microusd >= 10_000 && env.MODAL_GPU_WORKLOAD_ADMISSION_ENABLED === "true" &&
           budgetProvider?.modal_gpu_admission_enabled === true);
-      if (providerId === "modal_gpu" && budgetProvider) {
+      if (modalGpuRoute && budgetProvider) {
         provider.budget_scope = budgetProvider.scope;
         provider.monthly_limit_usd = budgetProvider.monthly_limit_usd;
         provider.per_run_limit_usd = budgetProvider.per_run_limit_usd;
       }
-      provider.blocker = provider.enabled ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" : providerId === "modal_gpu"
+      provider.blocker = provider.enabled ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" : modalGpuRoute
         ? (!provider.configured ? "MODAL_GPU_PROVIDER_NOT_CONFIGURED"
           : (budgetProvider?.monthly_remaining_microusd ?? 0) < 10_000 ? "PROVIDER_BUDGET_EXHAUSTED"
             : "MODAL_GPU_WORKLOAD_ADMISSION_DISABLED")

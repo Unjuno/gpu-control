@@ -1,4 +1,5 @@
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
+import { PROVIDER_ROUTES, PROVIDER_ROUTE_IDS } from "./provider_catalog.js";
 import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_policy.js";
 import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { RUNPOD_WORKLOAD, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
@@ -108,13 +109,13 @@ export function validGatewayApprovedPlan(value) {
       value.schema_version !== 2 || ![KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD, MODAL_GPU_WORKLOAD].includes(value.workload)) return false;
   if (value.workload === MODAL_GPU_WORKLOAD) {
     if (value.repository !== GPU_CONTROL_REPOSITORY || value.source_sha !== MODAL_GPU_SOURCE_SHA ||
-        value.provider !== "modal_gpu" || value.max_cost_usd !== WORKLOADS.modal_gpu_canary.cost_ceiling_usd ||
+        value.provider !== PROVIDER_ROUTES.modal_gpu.id || value.max_cost_usd !== WORKLOADS.modal_gpu_canary.cost_ceiling_usd ||
         value.image_digest !== MODAL_GPU_IMAGE_DIGEST ||
         value.cost_classification !== "PAID_BOUNDED" || value.known_cost_usd !== null ||
         value.paid_fallback_allowed !== false || !value.provider_evidence ||
         typeof value.provider_evidence !== "object" || Array.isArray(value.provider_evidence)) return false;
   } else if (value.repository !== ORBITUNE_REPOSITORY || value.source_sha !== ORBITUNE_SOURCE_SHA ||
-      !["kaggle", "huggingface_space"].includes(value.provider)) return false;
+      ![PROVIDER_ROUTES.kaggle.id, PROVIDER_ROUTES.huggingface_space.id].includes(value.provider)) return false;
   try {
     const encoded = new TextEncoder().encode(canonical(value));
     return encoded.byteLength >= 1 && encoded.byteLength <= 12 * 1024;
@@ -234,7 +235,7 @@ export function validToolArguments(name, args, env) {
   if (name === "experiment_list") return Object.keys(args).every((key) =>
       ["workload", "provider", "state", "limit", "cursor"].includes(key)) &&
     (args.workload === undefined || WORKLOAD_IDS.includes(args.workload)) &&
-    (args.provider === undefined || ["modal_cpu", "modal_gpu", "runpod_gpu", "kaggle", "huggingface_space", "retired_local_runner", "unknown"].includes(args.provider)) &&
+    (args.provider === undefined || [...PROVIDER_ROUTE_IDS, "retired_local_runner", "unknown"].includes(args.provider)) &&
     (args.state === undefined || ["prepared", "queued", "running", "succeeded", "failed", "cancelled", "expired", "uncertain"].includes(args.state)) &&
     (args.limit === undefined || (Number.isSafeInteger(args.limit) && args.limit >= 1 && args.limit <= 50)) &&
     (args.cursor === undefined || (typeof args.cursor === "string" && /^[0-9]{1,12}:[0-9a-f]{32}$/.test(args.cursor)));

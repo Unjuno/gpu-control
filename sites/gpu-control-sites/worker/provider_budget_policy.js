@@ -1,6 +1,6 @@
-const PROVIDERS = Object.freeze([
-  "modal", "runpod_gpu", "kaggle", "huggingface_space",
-]);
+import { FREE_PROVIDER_BUDGET_IDS, PROVIDER_BUDGET_IDS, PROVIDERS, PROVIDER_ROUTES } from "./provider_catalog.js";
+
+const BUDGET_PROVIDERS = PROVIDER_BUDGET_IDS;
 const MODAL_COMPUTE_RESERVATION_SOURCES = new Set([
   "modal_cpu", "modal_gpu_canary", "map_training", "owner_selected_training",
 ]);
@@ -20,7 +20,7 @@ export function utcMonthKey(epochSeconds) {
 }
 
 function unavailable() {
-  return { schema_version: 1, state: "unavailable", provider_budgets: PROVIDERS.map((provider) => ({
+  return { schema_version: 1, state: "unavailable", provider_budgets: BUDGET_PROVIDERS.map((provider) => ({
     provider, policy_available: false, blocker: "PROVIDER_BUDGET_POLICY_UNAVAILABLE",
   })) };
 }
@@ -83,12 +83,12 @@ export async function readProviderBudgetPolicy(db) {
       db.prepare(`SELECT provider, max_cost_microusd, paid_fallback_allowed
         FROM provider_free_policies`).all(),
     ]);
-    const free = indexByProvider(rows(freeResult), ["kaggle", "huggingface_space"]);
+    const free = indexByProvider(rows(freeResult), FREE_PROVIDER_BUDGET_IDS);
     if (!modalGpuAdmission || ![0, 1].includes(modalGpuAdmission.admission_enabled) ||
         !modalUsage || !Number.isSafeInteger(modalUsage.monthly_reserved_microusd) || modalUsage.monthly_reserved_microusd < 0) {
       throw new TypeError("invalid_provider_budget_policy");
     }
-    const freeBudgets = ["kaggle", "huggingface_space"].map((provider) => {
+    const freeBudgets = FREE_PROVIDER_BUDGET_IDS.map((provider) => {
       const row = free.get(provider);
       if (!row || row.max_cost_microusd !== 0 || row.paid_fallback_allowed !== 0) {
         throw new TypeError("invalid_provider_budget_policy");
@@ -97,9 +97,9 @@ export async function readProviderBudgetPolicy(db) {
         per_run_limit_usd: "0.00", paid_fallback_allowed: false };
     });
     return { schema_version: 1, state: "ready", provider_budgets: [
-      { ...paidBudget("modal", { ...modal, monthly_reserved_microusd: modalUsage.monthly_reserved_microusd }), routes: ["modal_cpu", "modal_gpu"],
+      { ...paidBudget(PROVIDERS.modal.budget_provider, { ...modal, monthly_reserved_microusd: modalUsage.monthly_reserved_microusd }), routes: Object.values(PROVIDER_ROUTES).filter((route) => PROVIDERS[route.provider].budget_provider === PROVIDERS.modal.budget_provider).map((route) => route.id),
         modal_gpu_admission_enabled: modalGpuAdmission.admission_enabled === 1 },
-      paidBudget("runpod_gpu", runpod),
+      paidBudget(PROVIDERS.runpod_gpu.budget_provider, runpod),
       ...freeBudgets,
     ] };
   } catch {

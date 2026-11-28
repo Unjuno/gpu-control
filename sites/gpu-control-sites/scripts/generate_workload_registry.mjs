@@ -4,7 +4,31 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const registry = JSON.parse(readFileSync(`${root}/workloads/registry.json`, "utf8"));
+const providerCatalog = JSON.parse(readFileSync(`${root}/workloads/provider-catalog.json`, "utf8"));
 assert.equal(registry.schema_version, 1);
+assert.equal(providerCatalog.schema_version, 1);
+assert.ok(providerCatalog.providers && typeof providerCatalog.providers === "object");
+assert.ok(providerCatalog.routes && typeof providerCatalog.routes === "object");
+for (const [providerId, provider] of Object.entries(providerCatalog.providers)) {
+  assert.match(providerId, /^[a-z][a-z0-9_]*$/);
+  assert.equal(provider.budget_provider, providerId);
+  assert.ok(["usage_billed", "included_quota"].includes(provider.billing_model));
+  assert.equal(typeof provider.credit_eligible, "boolean");
+  if (provider.billing_model === "included_quota") assert.equal(provider.paid_fallback_allowed, false);
+}
+for (const [routeId, route] of Object.entries(providerCatalog.routes)) {
+  assert.match(routeId, /^[a-z][a-z0-9_]*$/);
+  assert.ok(providerCatalog.providers[route.provider], `${routeId}: unknown provider ${route.provider}`);
+  assert.equal(typeof route.requires_gpu, "boolean");
+  assert.equal(typeof route.adapter_hosted, "boolean");
+}
+for (const workload of Object.values(registry.workloads)) {
+  const route = providerCatalog.routes[workload.provider];
+  assert.ok(route, `${workload.id}: unknown provider route ${workload.provider}`);
+  assert.equal(workload.requires_gpu, route.requires_gpu, `${workload.id}: GPU capability disagrees with ${workload.provider}`);
+  assert.equal(Boolean(workload.adapter_manifest), route.adapter_hosted,
+    `${workload.id}: adapter manifest requirement disagrees with ${workload.provider}`);
+}
 assert.equal(Object.keys(registry.workloads).length, 5);
 const ids = Object.values(registry.workloads).map((item) => item.id);
 assert.equal(new Set(ids).size, ids.length, "workload ids must be unique");
@@ -24,6 +48,7 @@ for (const workload of Object.values(registry.workloads)) {
 
 const compact = JSON.stringify(registry.workloads);
 const js = `// Generated from workloads/registry.json by scripts/generate_workload_registry.mjs.\nexport const WORKLOADS = Object.freeze(${compact});\nexport const WORKLOAD_IDS = Object.freeze(Object.values(WORKLOADS).map((item) => item.id));\n`;
+const providerJs = `// Generated from workloads/provider-catalog.json by scripts/generate_workload_registry.mjs.\nexport const PROVIDER_CATALOG = Object.freeze(${JSON.stringify(providerCatalog)});\nexport const PROVIDERS = Object.freeze(Object.fromEntries(Object.entries(PROVIDER_CATALOG.providers).map(([id, provider]) => [id, Object.freeze({ id, ...provider })])));\nexport const PROVIDER_ROUTES = Object.freeze(Object.fromEntries(Object.entries(PROVIDER_CATALOG.routes).map(([id, route]) => [id, Object.freeze({ id, ...route })])));\nexport const PROVIDER_ROUTE_IDS = Object.freeze(Object.keys(PROVIDER_ROUTES));\nexport const PROVIDER_BUDGET_IDS = Object.freeze([...new Set(Object.values(PROVIDERS).map((provider) => provider.budget_provider))]);\nexport const FREE_PROVIDER_BUDGET_IDS = Object.freeze(Object.values(PROVIDERS).filter((provider) => provider.billing_model === "included_quota").map((provider) => provider.budget_provider));\n`;
 const pyJsonLiteral = JSON.stringify(JSON.stringify(registry.workloads));
 const py = `# Generated from workloads/registry.json by scripts/generate_workload_registry.mjs.\nimport json\n\nWORKLOADS = json.loads(${pyJsonLiteral})\n` +
   Object.entries({
@@ -33,6 +58,7 @@ const py = `# Generated from workloads/registry.json by scripts/generate_workloa
 
 const outputs = [
   [`${root}/worker/workload_registry.js`, js],
+  [`${root}/worker/provider_catalog.js`, providerJs],
   [`${root}/modal/workload_registry.py`, py],
 ];
 const check = process.argv.includes("--check");
