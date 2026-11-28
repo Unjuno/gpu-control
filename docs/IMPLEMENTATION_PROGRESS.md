@@ -4776,3 +4776,17 @@ Validation: focused cancellation and RunPod lifecycle suites pass 12/12; all
 206 Sites tests pass; Worker graph is acyclic across 76 modules; build and D1
 forward migration replay pass; `git diff --check` passes; seven exact-head CI
 checks pass at `748ac11`. No live RunPod call or account state was used.
+
+
+## 2026-11-29 architecture batch — Capability ordering authority
+
+Moved the stable public workload capability response order into the canonical
+`workloads/registry.json` as unique `capability_order` values. The Sites
+projection now sorts registry entries by that field and automatically includes
+new workloads without maintaining a parallel ordered-ID list. The registry
+generator rejects missing, duplicate, or invalid order values. The existing
+five-item response order and all route enablement rules remain unchanged.
+
+Validation: registry generation check, Sites Worker tests, build, migration
+replay, architecture graph, and `git diff --check`. No provider, credential,
+admission, deployment, or live compute state was used or changed.

@@ -33,6 +33,11 @@ for (const workload of Object.values(registry.workloads)) {
 assert.equal(Object.keys(registry.workloads).length, 5);
 const ids = Object.values(registry.workloads).map((item) => item.id);
 assert.equal(new Set(ids).size, ids.length, "workload ids must be unique");
+const capabilityOrders = Object.values(registry.workloads).map((item) => item.capability_order);
+assert.ok(capabilityOrders.every((order) => Number.isSafeInteger(order) && order >= 0),
+  "every workload needs a non-negative capability_order");
+assert.equal(new Set(capabilityOrders).size, capabilityOrders.length,
+  "workload capability_order values must be unique");
 for (const workload of Object.values(registry.workloads)) {
   assert.match(workload.id, /^[a-z0-9-]+$/);
   assert.match(workload.repository, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);

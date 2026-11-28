@@ -370,6 +370,12 @@ acceptance.
   support. The generated provider catalog now owns route/provider IDs, billing
   class, credit eligibility, adapter hosting and fixed route metadata;
   capability readiness remains dynamic and does not imply execution support.
+  **Capability ordering (2026-11-29):** the public capability response order
+  is now owned by `workloads/registry.json` as unique `capability_order`
+  metadata. Sites no longer repeats the five workload IDs in a presentation
+  array; new registry entries are automatically included in their declared
+  order. The generator validates that every entry has a unique non-negative
+  order. The existing response order is preserved.
 - **RunPod admission contract (2026-11-28):** transport verification and
   workload admission now share one `runpodAdmissionBlocker` decision across
   capability projection, plan creation, and submission. The dispatcher no

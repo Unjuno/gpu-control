@@ -53,11 +53,9 @@ function workloadCapabilityEntries(env, enabledByWorkloadId) {
   const byId = new Map(Object.values(WORKLOADS).map((workload) => [workload.id, workload]));
   // Keep the established response order stable; newly registered workloads
   // remain visible, but are appended and disabled until explicitly supported.
-  const orderedIds = [WORKLOAD, RUNPOD_WORKLOAD, MODAL_GPU_WORKLOAD, KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD];
-  const workloads = [
-    ...orderedIds.map((id) => byId.get(id)).filter(Boolean),
-    ...[...byId.values()].filter((workload) => !orderedIds.includes(workload.id)),
-  ];
+  const workloads = [...byId.values()].sort((left, right) =>
+    (left.capability_order ?? Number.MAX_SAFE_INTEGER) -
+    (right.capability_order ?? Number.MAX_SAFE_INTEGER));
   return workloads.map((workload) => {
     const capability = {
       id: workload.id,
