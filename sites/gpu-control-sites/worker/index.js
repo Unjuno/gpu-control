@@ -2,20 +2,17 @@ import { issueTrainingChallenge, confirmTrainingChallenge } from "./training_aut
 import { sha256Hex as sha256 } from "./sha256.js";
 import { isMcpToolReadOnly, listMcpTools, OUTPUT_SCHEMA, schemas } from "./mcp_tool_contract.js";
 import { normalizeTrainingArguments, validToolArguments } from "./experiment_input_contract.js";
-import { beginGithubInstallationOAuth, completeGithubInstallationOAuth,
-  exchangeGithubOAuthCode, githubAppOAuthConfigured,
-  verifyGithubInstallation } from "./github_app_connection.js";
 import { MODAL_PRICING_CHECKED_AT, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { executionOrigin } from "./execution_origin.js";
 import { HUMAN_AUTHORIZATION_TTL_SECONDS } from "./human_authorization_policy.js";
-import { completeMcpOAuthGitHubLogin, isMcpOAuthGitHubState,
-  READ_SCOPE, EXECUTE_SCOPE } from "./mcp_oauth.js";
+import { READ_SCOPE, EXECUTE_SCOPE } from "./mcp_oauth.js";
 import { authenticateMcpPrincipal, mcpAuthorizationChallenge, sitesOwnerFromRequest,
   sitesPlatformIdentityPresent } from "./mcp_request_auth.js";
 import { trainingControlPlaneSha } from "./training_security_configuration.js";
 import { dispatchMcpTool, modalGpuProviderEvidence } from "./mcp_tool_dispatch.js";
 import { createGoogleColabOAuthRoutes } from "./google_colab_oauth_routes.js";
 import { createMcpOAuthRoutes } from "./mcp_oauth_routes.js";
+import { createGithubOAuthRoutes } from "./github_oauth_routes.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -92,6 +89,7 @@ function htmlPage(title, content, status = 200) {
 const { setup: handleGoogleColabSetup, callback: handleGoogleColabOAuthCallback } =
   createGoogleColabOAuthRoutes({ htmlPage, escapeHtml });
 const mcpOAuthRoutes = createMcpOAuthRoutes({ htmlPage, escapeHtml, readJson, readUrlEncodedForm });
+const githubOAuthRoutes = createGithubOAuthRoutes({ htmlPage, escapeHtml });
 
 function authorizationUrl(_request, runId, fingerprint) {
   const url = new URL("/authorize", SITE_PUBLIC_ORIGIN);
@@ -294,78 +292,6 @@ async function handleAuthorizationRequest(request, env) {
   return htmlPage("このplanを承認しました", "<p>承認はこのplanに1回だけ有効です。チャットに戻り、実験を送信してください。</p>");
 }
 
-async function handleGithubSetup(request, env) {
-  if (request.method !== "GET") return htmlPage("GitHub接続", "<p>このcallbackはGETのみ受け付けます。</p>", 405);
-  if (!env.DB || !githubAppOAuthConfigured(env)) return htmlPage("GitHub接続を確認できません",
-    "<p>GPU Control側のGitHub App設定がまだ完了していません。</p>", 503);
-  const url = new URL(request.url);
-  const state = url.searchParams.get("state") || "";
-  const installationId = url.searchParams.get("installation_id") || "";
-  if (url.searchParams.get("setup_action") !== "install") return htmlPage("GitHub接続を完了できません",
-    "<p>GitHub Appの新規installから接続を開始してください。設定変更後はチャットで新しい接続linkを作成してください。</p>", 400);
-  try {
-    const installation = await verifyGithubInstallation(env, installationId);
-    const authorization = await beginGithubInstallationOAuth(env.DB, state, installationId,
-      installation, env);
-    return new Response(null, { status: 302, headers: { location: authorization.authorization_url,
-      "set-cookie": authorization.pkce_cookie, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
-  } catch {
-    return htmlPage("GitHub接続を完了できません",
-      "<p>接続linkが期限切れ、使用済み、またはAppのrepository権限が条件を満たしません。チャットで新しい接続linkを作成してください。</p>", 400);
-  }
-}
-
-async function handleGithubOAuthCallback(request, env) {
-  if (request.method !== "GET") return htmlPage("GitHub接続", "<p>このcallbackはGETのみ受け付けます。</p>", 405);
-  if (!env.DB || !githubAppOAuthConfigured(env)) return htmlPage("GitHub接続を確認できません",
-    "<p>GPU Control側のGitHub App設定がまだ完了していません。</p>", 503);
-  const url = new URL(request.url);
-  const finish = (response, oauthKind = "github") => {
-    response.headers.append("set-cookie", "__Host-gpu-control-oauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax");
-    if (oauthKind === "mcp") response.headers.append("set-cookie", "__Host-gpu-control-mcp-oauth=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax");
-    response.headers.set("cache-control", "no-store");
-    response.headers.set("referrer-policy", "no-referrer");
-    return response;
-  };
-  const callback = new URL(env.GITHUB_APP_OAUTH_CALLBACK_URL);
-  if (`${url.origin}${url.pathname}` !== `${callback.origin}${callback.pathname}`) {
-    return finish(htmlPage("GitHub接続を完了できません", "<p>接続先URLが設定と一致しません。</p>", 400));
-  }
-  const state = url.searchParams.get("state") || "";
-  if (url.searchParams.has("error")) {
-    const mcpOAuth = await isMcpOAuthGitHubState(env.DB, state);
-    return finish(htmlPage("GitHub接続をキャンセルしました",
-      "<p>接続を許可しませんでした。MCPクライアントへ戻ってください。</p>", 400), mcpOAuth ? "mcp" : "github");
-  }
-  const code = url.searchParams.get("code") || "";
-  const mcpOAuth = await isMcpOAuthGitHubState(env.DB, state);
-  const cookie = request.headers.get("cookie") || "";
-  const cookieName = mcpOAuth ? "__Host-gpu-control-mcp-oauth=" : "__Host-gpu-control-oauth=";
-  const cookieValue = cookie.split(";").map((item) => item.trim())
-    .find((item) => item.startsWith(cookieName))?.slice(cookieName.length) || "";
-  const [cookieState, codeVerifier, ...extra] = cookieValue.split(".");
-  if (!(mcpOAuth ? /^[A-Za-z0-9_-]{43}$/.test(state) : /^[a-f0-9]{64}$/.test(state)) || cookieState !== state || extra.length !== 0 ||
-      !/^[A-Za-z0-9._~-]{43,128}$/.test(codeVerifier || "")) {
-    return finish(htmlPage("GitHub接続を完了できません",
-      "<p>本人確認stateまたはPKCE verifierを確認できません。新しい接続linkを作成してください。</p>", 400));
-  }
-  try {
-    const userToken = await exchangeGithubOAuthCode(env, code, codeVerifier);
-    if (mcpOAuth) {
-      const completed = await completeMcpOAuthGitHubLogin(env.DB, state, userToken);
-      return finish(completed.response, "mcp");
-    }
-    const connected = await completeGithubInstallationOAuth(env.DB, state, userToken);
-    return finish(htmlPage("GitHub接続完了", `<p>${escapeHtml(connected.account_login)}の選択済みrepositoryをGPU Controlへ接続しました。</p>
-      <p>GitHub利用者本人がinstallationへアクセスできることを確認しました。短時間のuser tokenは保存せず破棄しました。</p>
-      <p>許可されたのは選択repositoryのContents readとMetadata readです。installation tokenもGPU Controlの実験コンテナへ渡しません。</p>
-      <p>チャットへ戻り、github_repositoriesで接続結果を確認できます。</p>`));
-  } catch {
-    return finish(htmlPage("GitHub接続を完了できません",
-      "<p>GitHub本人確認が期限切れ、使用済み、またはこのGPU Control ownerへリンク済みの本人確認を完了できません。必要ならChatGPTのGPU ControlでGitHub接続を確認し、MCP clientから最初の接続をやり直してください。</p>", 400), mcpOAuth ? "mcp" : "github");
-  }
-}
-
 async function readJson(request, limit = MAX_BODY_BYTES) {
   const declared = Number(request.headers.get("content-length") || 0);
   if (declared > limit) throw new Error("BODY_TOO_LARGE");
@@ -518,8 +444,8 @@ export default {
         <p><a href="/health">Service health</a></p>`);
     }
     if (url.pathname === "/health" && request.method === "GET") return json({ ok: true, service: "gpu-control-sites", storage: !!env.DB });
-    if (url.pathname === "/github/setup") return handleGithubSetup(request, env);
-    if (url.pathname === "/github/oauth/callback") return handleGithubOAuthCallback(request, env);
+    if (url.pathname === "/github/setup") return githubOAuthRoutes.setup(request, env);
+    if (url.pathname === "/github/oauth/callback") return githubOAuthRoutes.callback(request, env);
     if (url.pathname === "/google/setup") return handleGoogleColabSetup(request, env);
     if (url.pathname === "/google/oauth/callback") return handleGoogleColabOAuthCallback(request, env);
     if (url.pathname.startsWith("/runner/")) return json({ error: "NOT_FOUND" }, 404);
