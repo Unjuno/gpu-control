@@ -135,6 +135,28 @@ security review found no actionable issues and verified that provider text
 stays out of MCP output. No provider call, experiment, deployment, admission,
 or configuration change occurred.
 
+
+## 2026-11-28 — A7: isolate MCP protocol negotiation and scope validation
+
+**Problem:** `worker/index.js` mixed MCP version negotiation, protocol header
+and metadata matching, resource-name matching, and OAuth read/execute scope
+selection with tool dispatch and provider execution.
+
+**Change:** moved the MCP wire-level validation into
+`worker/mcp_protocol.js`. It owns supported-version constants, parsing result
+errors, current-version metadata/header checks, tool/resource name checks, and
+the scope decision derived from the canonical read-only tool classification.
+The entrypoint routes only requests accepted by this boundary. Tool routing,
+plan validation, and provider execution remain downstream.
+
+**Validation:** focused protocol tests cover legacy default negotiation,
+unsupported versions, current-version metadata mismatch, read-only calls and
+write-scope denial. All 175 Sites tests pass; the Worker graph is acyclic
+across 63 runtime modules. Independent read-only security review found no
+actionable issues and confirmed authorization and metadata validation precede
+dispatch. No provider call, experiment, deployment or admission change
+occurred.
+
 **Source correction (2026-11-28):** a follow-up check of the official CLI's
 current authentication reference found that OAuth credentials moved to the
 OS-native keyring on 2026-10-21. `~/.config/colab-cli/` still holds session,
