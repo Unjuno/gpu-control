@@ -221,11 +221,11 @@ Current mode is `parked` in `policies/repository-state.yaml`.
   subscription lookup. It supports Google OAuth/ADC but no dynamic client
   registration. The current official CLI supports headless Linux/macOS
   automation, ephemeral `colab run`, and `colab usage` account CU/balance
-  display. CLI credentials and session state live under the local
-  `~/.config/colab-cli/` directory and are separate from Sites D1; direct CLI
-  jobs do not create Sites run records. A Worker cannot launch the CLI. The
-  former macOS Runner, Keychain bearer and `/runner/*` path are explicitly
-  retired and must not be restored. Colab's documented hosted API does not
+  display. Current CLI OAuth tokens use the OS-native keyring, while session
+  metadata/history live under `~/.config/colab-cli/`; both are separate from
+  Sites D1. Direct CLI jobs do not create Sites run records. A Worker cannot
+  launch the CLI. The former macOS Runner, Keychain bearer and `/runner/*`
+  path are explicitly retired and must not be restored. Colab's documented hosted API does not
   provide a per-run dollar quote or CU balance.
 - **Decision:** GPU Control's owner-bound API/MCP is the one product control
   plane; ChatGPT chat/Work is the primary client, not the only client. ChatGPT,
