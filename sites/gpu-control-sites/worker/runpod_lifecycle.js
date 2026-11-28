@@ -5,6 +5,7 @@ import { RunpodProviderError, RunpodV2Client, validateJobStatus, validateSubmitt
 import { openCompletionKey, sealCompletionKey } from "./runpod_secret.js";
 import { canonicalJson } from "./canonical_json.js";
 import { sha256Hex } from "./sha256.js";
+import { runpodAdmissionBlocker } from "./runpod_admission.js";
 
 const JOB_ID = /^[A-Za-z0-9_-]{4,128}$/;
 
@@ -91,13 +92,13 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
   if (existing) return { schema_version: 2, status: ["queued", "running"].includes(existing.state) ? "pending" : "ok",
     human_summary: "Existing idempotent Runpod run returned.", machine_state: existing,
     next_allowed_actions: ["experiment_status"], blocking_reason: null };
-  if (env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED !== "true") return { schema_version: 2, status: "blocked",
-    human_summary: "Runpod completion transport is not verified; no Serverless job was submitted.",
+  const admissionBlocker = runpodAdmissionBlocker(env);
+  if (admissionBlocker) return { schema_version: 2, status: "blocked",
+    human_summary: admissionBlocker === "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED"
+      ? "Runpod completion transport is not verified; no Serverless job was submitted."
+      : "Runpod admission is disabled; no Serverless job was submitted.",
     machine_state: { run_id: row.id, job_submitted: false }, next_allowed_actions: [],
-    blocking_reason: "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED" };
-  if (env.RUNPOD_WORKLOAD_ADMISSION_ENABLED !== "true") return { schema_version: 2, status: "blocked",
-    human_summary: "Runpod admission is disabled; no Serverless job was submitted.", machine_state: { run_id: row.id, job_submitted: false },
-    next_allowed_actions: [], blocking_reason: "RUNPOD_ADMISSION_DISABLED" };
+    blocking_reason: admissionBlocker };
   if (typeof reserveBudget !== "function" || !await reserveBudget({ runId: row.id, provider: "runpod_gpu",
     requestedMicrousd: RUNPOD_COST_CEILING_MICROUSD, now: timestamp })) {
     return { schema_version: 2, status: "blocked", human_summary: "Runpod per-run budget unavailable; no Pod was created.",

@@ -9,6 +9,7 @@ import { getOwnerTrainingCapability } from "./owner_training_capabilities.js";
 import { googleColabConnectionConfigured, googleColabConnectionStatus } from "./google_colab_connection.js";
 import { googleColabLifecycleConfigured } from "./google_colab_tools.js";
 import { googleColabAdmissionEnabled } from "./google_colab_policy.js";
+import { runpodAdmissionBlocker } from "./runpod_admission.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -94,9 +95,9 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
   const colabLifecycleReady = colabConnected && await googleColabLifecycleConfigured(env);
   const colabAdmissionEnabled = googleColabAdmissionEnabled(env);
   const runpodProviderConfigured = runpodConfigured(env);
-  const runpodCompletionTransportVerified = env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED === "true";
-  const runpodEnabled = env.RUNPOD_WORKLOAD_ADMISSION_ENABLED === "true" &&
-    runpodProviderConfigured && authorizationStoreReady && runpodCompletionTransportVerified && providerBudgetPolicyReady;
+  const runpodBlocker = runpodAdmissionBlocker(env);
+  const runpodCompletionTransportVerified = runpodBlocker !== "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED";
+  const runpodEnabled = runpodBlocker === null && runpodProviderConfigured && authorizationStoreReady && providerBudgetPolicyReady;
   // Capabilities is read-only. Defer the billable live health probe until submit,
   // after the exact plan's one-use human authorization has been verified.
   const modalCpuBudgetAvailable = Number.isSafeInteger(modalProviderBudget?.monthly_remaining_microusd) &&
@@ -118,8 +119,7 @@ export async function getExperimentCapabilities(env, owner, { modalConfigured })
     completion_transport_verified: runpodCompletionTransportVerified,
     blocker: runpodEnabled ? null : (!providerBudgetPolicyReady ? "PROVIDER_BUDGET_POLICY_UNAVAILABLE" :
       !runpodProviderConfigured ? "RUNPOD_PROVIDER_NOT_CONFIGURED" :
-      !runpodCompletionTransportVerified ? "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED" :
-      "RUNPOD_WORKLOAD_ADMISSION_DISABLED"),
+      runpodBlocker ?? "RUNPOD_WORKLOAD_ADMISSION_DISABLED"),
   });
   Object.assign(providerByRoute.get(PROVIDER_ROUTES.google_colab.id), {
     configured: colabOAuthConfigured && await googleColabLifecycleConfigured(env),

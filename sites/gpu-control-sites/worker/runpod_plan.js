@@ -2,6 +2,7 @@ import { runpodConfigured } from "./runpod_provider.js";
 import { WORKLOADS } from "./workload_registry.js";
 import { canonicalJson } from "./canonical_json.js";
 import { sha256Hex as sha256 } from "./sha256.js";
+import { runpodAdmissionBlocker } from "./runpod_admission.js";
 
 export const RUNPOD_WORKLOAD = WORKLOADS.runpod_canary.id;
 export const RUNPOD_REPOSITORY = WORKLOADS.runpod_canary.repository;
@@ -76,6 +77,8 @@ function configuredOffer(env, checkedAt) {
 
 export async function prepareRunpodExperiment(env, owner, args, { client = null, now = null } = {}) {
   if (!validRunpodPrepare(args, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");
+  const admissionBlocker = runpodAdmissionBlocker(env);
+  if (admissionBlocker) return runpodPrepareBlocked(admissionBlocker);
   const checkedAt = now === null ? Math.floor(Date.now() / 1000) : now;
   // Resolve the owner-scoped idempotency record before sampling mutable price
   // evidence. A retry must return the exact accepted plan, even if the quote's
@@ -132,6 +135,18 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
     throw new Error("IDEMPOTENCY_KEY_CONFLICT");
   }
   return runpodPreparedResponse(persisted, plan, checkedAt, false);
+}
+
+function runpodPrepareBlocked(blocker) {
+  const transportUnverified = blocker === "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED";
+  return {
+    schema_version: 2, status: "blocked",
+    human_summary: transportUnverified
+      ? "Runpod completion transport is not verified; no plan was prepared and no Serverless job was submitted."
+      : "Runpod admission is disabled; no plan was prepared and no Serverless job was submitted.",
+    machine_state: { plan_prepared: false, job_submitted: false }, next_allowed_actions: [],
+    blocking_reason: blocker,
+  };
 }
 
 function runpodPreparedResponse(persisted, plan, now, replay) {

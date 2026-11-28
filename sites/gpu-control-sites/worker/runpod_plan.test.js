@@ -12,6 +12,8 @@ function environment() {
     RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "0.240000",
     RUNPOD_SERVERLESS_GPU_POOL_ID: "ADA_24",
     RUNPOD_WORKLOAD_SOURCE_SHA: "b".repeat(40),
+    RUNPOD_WORKLOAD_ADMISSION_ENABLED: "true",
+    RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED: "true",
     DB: { prepare(sql) { return { bind(...values) { return {
       async run() {
         if (sql.includes("INSERT OR IGNORE INTO plans") && !rows.has(values[2])) {
@@ -75,4 +77,21 @@ test("rejects floating images, wrong source, and estimates above the ceiling", a
     validForSeconds: 300, source: "runpod-serverless-endpoint-config" }; } };
   await assert.rejects(prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 }),
     /RUNPOD_ESTIMATED_COST_OUT_OF_BOUNDS/);
+});
+
+test("provider plan enforces the same admission gates without dispatcher mediation", async () => {
+  for (const [setting, value, expected] of [
+    ["RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED", "false", "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED"],
+    ["RUNPOD_WORKLOAD_ADMISSION_ENABLED", "false", "RUNPOD_ADMISSION_DISABLED"],
+  ]) {
+    const env = environment();
+    env[setting] = value;
+    env.DB.prepare = () => { throw new Error("blocked plans must not access D1"); };
+    const client = { async getVerifiedOffer() { throw new Error("blocked plans must not query RunPod"); } };
+    const result = await prepareRunpodExperiment(env, "owner-1", args(), { client, now: 1000 });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blocking_reason, expected);
+    assert.equal(result.machine_state.plan_prepared, false);
+    assert.equal(result.machine_state.job_submitted, false);
+  }
 });

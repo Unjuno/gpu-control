@@ -2,7 +2,7 @@ import { handleGithubTool, isGithubTool } from "./github_tools.js";
 import { handleGoogleColabTool, isGoogleColabTool } from "./google_colab_tools.js";
 import { handleTrainingTool, isTrainingTool } from "./training_tools.js";
 import { createOwnedRepositoryReadToken } from "./github_app_connection.js";
-import { prepareRunpodExperiment, RUNPOD_WORKLOAD, validRunpodPrepare } from "./runpod_plan.js";
+import { prepareRunpodExperiment, RUNPOD_WORKLOAD } from "./runpod_plan.js";
 import { submitRunpodExperiment, synchronizeRunpodExperiment } from "./runpod_lifecycle.js";
 import { registeredPrepareArguments, resolveZeroGpuPrepare } from "./registered_prepare.js";
 import { WORKLOADS } from "./workload_registry.js";
@@ -63,19 +63,6 @@ export async function dispatchMcpTool(name, args, request, env, context, princip
       if (!prepareArgs) throw new Error("REGISTERED_WORKLOAD_DEFAULTS_UNAVAILABLE");
     }
     if (prepareArgs.workload === RUNPOD_WORKLOAD) {
-      if (!validRunpodPrepare(prepareArgs, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");
-      if (env.RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED !== "true") return {
-        schema_version: 2, status: "blocked",
-        human_summary: "Runpod completion transport is not verified; no plan was prepared and no Serverless job was submitted.",
-        machine_state: { plan_prepared: false, job_submitted: false }, next_allowed_actions: [],
-        blocking_reason: "RUNPOD_LIVE_COMPLETION_TRANSPORT_UNVERIFIED",
-      };
-      if (env.RUNPOD_WORKLOAD_ADMISSION_ENABLED !== "true") return {
-        schema_version: 2, status: "blocked",
-        human_summary: "Runpod admission is disabled; no plan was prepared and no Serverless job was submitted.",
-        machine_state: { plan_prepared: false, job_submitted: false }, next_allowed_actions: [],
-        blocking_reason: "RUNPOD_ADMISSION_DISABLED",
-      };
       return prepareRunpodExperiment(env, owner, prepareArgs);
     }
     if (validGatewayPrepare(prepareArgs)) return prepareDelegatedExperiment(env, owner, prepareArgs, {
