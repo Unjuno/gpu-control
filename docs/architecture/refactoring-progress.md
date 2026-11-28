@@ -2581,3 +2581,16 @@ reject invalid source, path, profile and duration. The full Sites suite passes
 acyclic across 71 modules. This generator is not yet wired to public MCP plan,
 submit, status, artifact or cancellation tools and has not run on a live Colab
 GPU.
+
+## 2026-11-28 — A6: retrieve verified Colab runtime files
+
+**Change:** added `google_colab_runtime_files.js` to fetch one declared file
+only from a matching run-owned runtime. It validates relative paths, rejects
+redirects, caps the API response at 50 MiB, requires exact receipt size and
+SHA-256, and never exposes the short-lived proxy token in returned data.
+
+**Validation:** focused generated-code and runtime-file tests pass; the full
+Sites suite passes 196 Worker tests, D1 migration validation passes, and the
+Worker graph is acyclic across 72 modules. This does not yet persist bytes to
+R2 or expose them through the shared artifact MCP tool; no live Colab runtime
+was used.

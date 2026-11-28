@@ -259,6 +259,12 @@ The generator is still not connected to a public plan/submit/status lifecycle;
 it cannot currently be invoked by an MCP user and does not establish live
 Colab availability.
 
+`google_colab_runtime_files.js` implements the first artifact transport slice:
+GET one declared relative path from the exact run-owned runtime, reject
+redirects, enforce the API's 50 MiB per-file limit, and independently verify
+the receipt's exact size and SHA-256. It does not yet stream into R2 or expose
+the artifact through the shared chunked `experiment_artifact` tool.
+
 ## References
 
 - [Official Colab API MCP tools and schemas](https://developers.google.com/colab/api/reference/mcp)
