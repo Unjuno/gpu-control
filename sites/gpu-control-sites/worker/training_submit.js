@@ -147,7 +147,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
       ? "このMCPのplan実行確認を安全に記録できませんでした。計算は開始していません。"
       : "このplanはまだSite上で有料実行の確認が済んでいません。authorization_urlを開いて確認してください。",
     machine_state: { run_id: runId, authorization_state: "required",
-      ...(!ownerSelected ? { authorization_url: trainingAuthorizationUrl(runId, fingerprint) } : {}) },
+      ...(!mcpSubmitAuthorization ? { authorization_url: trainingAuthorizationUrl(runId, fingerprint) } : {}) },
     next_allowed_actions: ["training_status"],
     blocking_reason: "TRAINING_AUTHORIZATION_REQUIRED" };
   // Mint the read-only GitHub App token only after owner, exact plan, and

@@ -73,6 +73,8 @@ test("keeps MCP guidance and operation annotations client-neutral", () => {
   assert.match(trainingSubmit.description, /client may also show its own native write-approval UI/);
   assert.doesNotMatch(trainingSubmit.description, /ChatGPT/);
   assert.match(trainingSubmit.description, /No separate GPU Control browser confirmation or Modal login is needed/);
+  assert.match(trainingSubmit.description, /For MAP-44M and owner-selected GitHub sources/);
+  assert.doesNotMatch(trainingSubmit.description, /legacy MAP-44M lane, the Site confirmation link/);
   assert.deepEqual(trainingArtifact.inputSchema.required, ["run_id", "artifact_id", "offset", "max_bytes"]);
   assert.equal(trainingArtifact.annotations.readOnlyHint, true);
 

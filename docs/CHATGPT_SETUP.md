@@ -334,23 +334,17 @@ The explicit commit, runtime, budget, and idempotency-key inputs remain
 available for compatibility. The plan exposes the resolved GPU, dataset, run
 name, step ceiling, runtime, and estimated cost. When the user requests
 execution, submit that exact plan.
-`training_submit` is the one billable write action. This MAP-44M legacy lane
-uses the exact-plan `authorization_url`: open it and confirm the source, image,
-dataset, run name, step ceiling, GPU, runtime, and cost in the authenticated
-GPU Control Site. This is not another MCP or Modal login. After returning to
-ChatGPT, check `training_status` for `authorization_state=authorized` and
-continue with the exact `training_submit` plan; do not ask the user to repeat
-their run request. The Worker records short-lived evidence against the
-authenticated owner, exact plan fingerprint, current control-plane commit,
+`training_submit` is the one billable write action. For MAP-44M and
+owner-selected GitHub training, call it with the exact plan after the user has
+requested execution. The connected MCP client's native write confirmation is
+the per-run checkpoint; do not add a separate Site authorization page or ask
+the user to repeat the request. The Worker records short-lived evidence against
+the authenticated owner, exact plan fingerprint, current control-plane commit,
 source/image, Modal function, runtime, and budget, then consumes it with the
-dispatch reservation. Continue monitoring the same run after submission; do
-not resubmit after an ambiguous response.
-
-For owner-selected repositories, the connected MCP client's native
-confirmation on the exact `training_submit` write is the per-run checkpoint.
-Do not add the legacy Site confirmation step to that route. Each compatible
-client's policy must permit the write tool. Authentication grants access to the
-shared control plane but is not itself a spend approval.
+dispatch reservation. Each compatible client's policy must permit the write
+tool. Authentication grants access to the shared control plane but is not
+itself a spend approval. Continue monitoring the same run after submission;
+do not resubmit after an ambiguous response.
 
 After submission, preserve the run ID. Use it to check status or request
 cancellation. If the submit response is interrupted, check that run before

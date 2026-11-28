@@ -241,13 +241,13 @@ recovery.
 The returned plan binds source, image, GPU, dataset, run name, step ceiling,
 runtime, and cost ceiling before `training_submit` accepts its exact
 `approved_plan`, run ID, and fingerprint. `training_submit` is the single
-billable write action. Before it can dispatch, the authenticated owner confirms
-that exact plan once at the `authorization_url` returned by `training_prepare`.
-The Site records short-lived evidence bound to the owner, plan, control-plane
-SHA, source, image, Modal function, runtime, and budget, then consumes it with
-the one-use dispatch reservation. This confirmation is distinct from MCP
-login: do not ask the user to reconnect ChatGPT Sites or sign in to Modal for
-each run.
+billable write action. For MAP-44M and owner-selected GitHub training, the
+exact MCP submit call is the per-run authorization checkpoint; the connected
+MCP client may display its native write confirmation. The Site records
+short-lived evidence bound to the owner, plan, control-plane SHA, source,
+image, Modal function, runtime, and budget, then consumes it with the one-use
+dispatch reservation. No separate Site browser confirmation or Modal login
+is required for these plan kinds.
 
 Use `training_status` to recover a submitted run, including after an
 ambiguous submit. Avoid creating a new plan to retry an uncertain run.

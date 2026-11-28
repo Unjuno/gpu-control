@@ -68,11 +68,13 @@ def test_skill_covers_the_live_mcp_lifecycle_and_registered_workloads() -> None:
 
 
 def test_first_verification_prompt_reports_current_colab_and_owner_training_gates() -> None:
-    setup = CHATGPT_SETUP.read_text(encoding="utf-8")
+    setup = " ".join(CHATGPT_SETUP.read_text(encoding="utf-8").split())
     assert "Google Colabについてはcolab_capabilitiesも呼び出して" in setup
     assert "owner_selected_trainingのready_to_prepareとblocker" in setup
     assert "まだ実験は開始しないでください" in setup
     assert "GPU Controlの実行・結果・cleanupには" not in setup
+    assert "connected MCP client's native write confirmation" in setup
+    assert "This MAP-44M legacy lane" not in setup
 
 
 def test_mcp_client_guide_keeps_colab_cli_out_of_the_shared_run_ledger() -> None:
@@ -82,6 +84,10 @@ def test_mcp_client_guide_keeps_colab_cli_out_of_the_shared_run_ledger() -> None
     assert "CI still needs a Colab identity" in clients
     assert "owner-bound run record" in clients
     assert "same owner-bound job/lease and exact-plan protocol" in clients
+    site_readme = " ".join((ROOT / "sites" / "gpu-control-sites" / "README.md")
+                           .read_text(encoding="utf-8").split())
+    assert "the exact MCP submit call is the per-run authorization checkpoint" in site_readme
+    assert "authorization_url` returned by `training_prepare`" not in site_readme
 
 
 def test_skill_does_not_restore_retired_infrastructure_or_embed_secrets() -> None:

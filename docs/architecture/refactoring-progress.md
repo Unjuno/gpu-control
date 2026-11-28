@@ -7,6 +7,22 @@ experiment acceptance.
 
 ## 2026-11-28 — A1: synchronize operator guidance with current provider routes
 
+**Follow-up finding:** the Sites README, ChatGPT setup guide and public
+`training_submit` description still told MAP-44M users to open the legacy
+ChatGPT-only authorization URL. The submit failure response also used the
+owner-selected boolean instead of the shared MCP-confirmable plan allowlist,
+so an authorization write failure could leak that URL for MAP plans.
+
+**Change:** aligned these guides and MCP tool text with the exact-plan
+client-neutral submit authorization. The failure response now uses the same
+`supportsMcpTrainingSubmit` policy as prepare and status. Added contract checks
+that reject a return of MAP's obsolete browser-confirmation instruction.
+
+**Validation:** the Sites suite passes all 208 tests, root Skill/client checks
+pass all five cases, the Worker graph is acyclic across 76 modules, Worker
+build/artifact validation and D1 forward-migration replay pass, and
+`git diff --check` passes.
+
 **Finding:** the operator Skill still said Colab had no execution lifecycle and
 that owner-selected Modal was categorically unavailable. The current source has
 a Colab owner-selected plan/run lifecycle and a dynamic Modal readiness
