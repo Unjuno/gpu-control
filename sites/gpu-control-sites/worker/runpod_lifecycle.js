@@ -232,6 +232,11 @@ export async function synchronizeRunpodExperiment(env, owner, runId, { client = 
     hmacKeyB64: env.RUNPOD_ACCOUNT_SCOPE_HMAC_KEY_B64 });
   let lease = await currentLease(env, accountScopeSha256);
   if (!lease || lease.run_id !== runId) {
+    // A native prepared-plan cancellation creates no provider lease or job.
+    // Its exact failure code and empty provider handle are the durable proof
+    // that status can return the saved cancellation without reconciliation.
+    if (row.state === "cancelled" && row.failure_code === "caller_cancelled_before_submit" &&
+        row.cleanup_state === "confirmed" && row.provider_job_id == null && row.lease_id == null) return row;
     // The account-wide lease is intentionally reused after cleanup. A later
     // run therefore replaces its run_id; that must not make an older,
     // already-terminal result unreadable. Only unfinished runs require the
