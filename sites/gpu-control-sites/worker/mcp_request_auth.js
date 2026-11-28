@@ -8,10 +8,22 @@ export function sitesOwnerFromRequest(request, env) {
 
 export function isMcpOwnerAllowed(owner, env) {
   if (typeof owner !== "string" || owner.length > 256) return false;
-  const allowed = new Set(typeof env?.GPU_CONTROL_ALLOWED_USER_IDS === "string"
+  return configuredMcpOwners(env).has(owner);
+}
+
+export function mcpOwnerAllowlistStatus(env) {
+  const owners = configuredMcpOwners(env);
+  return {
+    configured: owners.size > 0,
+    allowed_owner_count: owners.size,
+    scope: owners.size === 0 ? "closed" : owners.size === 1 ? "single_owner" : "multiple_owners",
+  };
+}
+
+function configuredMcpOwners(env) {
+  return new Set(typeof env?.GPU_CONTROL_ALLOWED_USER_IDS === "string"
     ? env.GPU_CONTROL_ALLOWED_USER_IDS.split(",").map((value) => value.trim()).filter(Boolean)
     : []);
-  return allowed.has(owner);
 }
 
 export function sitesPlatformIdentityPresent(request) {

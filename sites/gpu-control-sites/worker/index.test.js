@@ -265,6 +265,7 @@ test("Modal status polling fails closed when the shared provider-call budget is 
 
 test("read-only capabilities do not call Modal", async () => {
   const env = environment({ admission: "true" });
+  env.GPU_CONTROL_ALLOWED_USER_IDS = "test-owner";
   env.MODAL_PROVIDER_ADMISSION_ENABLED = "true";
   env.MODAL_API_URL = modalApiUrl;
   env.MODAL_PROXY_TOKEN_ID = "wk-" + "t".repeat(16);
@@ -280,6 +281,9 @@ test("read-only capabilities do not call Modal", async () => {
     assert.equal(result.machine_state.provider_configured, true);
     assert.deepEqual(result.machine_state.provider_health_checks, { configured: true, deferred_until_authorized_submit: true });
     assert.equal(result.machine_state.available, true);
+    assert.deepEqual(result.machine_state.owner_access, {
+      configured: true, allowed_owner_count: 1, scope: "single_owner", current_owner_authorized: true,
+    });
     assert.deepEqual(result.machine_state.owner_selected_training, {
       execution_kind: "owner_selected_python",
       compute_provider: "modal_gpu",

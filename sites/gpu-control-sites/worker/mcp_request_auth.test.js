@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { authenticateMcpPrincipal, mcpAuthorizationChallenge, sitesOwnerFromRequest } from "./mcp_request_auth.js";
+import { authenticateMcpPrincipal, mcpAuthorizationChallenge, mcpOwnerAllowlistStatus,
+  sitesOwnerFromRequest } from "./mcp_request_auth.js";
 
 const request = (headers = {}) => new Request("https://gpu-control.example/mcp", { headers });
 
@@ -12,6 +13,18 @@ test("Sites identity resolves only an exact allowlisted owner within the header 
   assert.equal(sitesOwnerFromRequest(request({ "oai-authenticated-user-id": "owner-a,owner-b" }), env), null);
   assert.equal(sitesOwnerFromRequest(request({ "oai-authenticated-user-id": "x".repeat(257) }), env), null);
   assert.equal(sitesOwnerFromRequest(request({ "oai-authenticated-user-id": "owner-a" }), {}), null);
+});
+
+test("owner allowlist status exposes only a count and scope, never identities", () => {
+  assert.deepEqual(mcpOwnerAllowlistStatus({}), {
+    configured: false, allowed_owner_count: 0, scope: "closed",
+  });
+  assert.deepEqual(mcpOwnerAllowlistStatus({ GPU_CONTROL_ALLOWED_USER_IDS: "owner-a, owner-a" }), {
+    configured: true, allowed_owner_count: 1, scope: "single_owner",
+  });
+  assert.deepEqual(mcpOwnerAllowlistStatus({ GPU_CONTROL_ALLOWED_USER_IDS: "owner-a,owner-b" }), {
+    configured: true, allowed_owner_count: 2, scope: "multiple_owners",
+  });
 });
 
 test("ChatGPT Sites principal receives the existing read and execute scopes", async () => {
