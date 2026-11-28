@@ -63,6 +63,27 @@ test("Runpod submit fails closed when live completion transport is not verified"
   } finally { raw.close(); }
 });
 
+test("status reads a pre-submit Runpod cancellation without requiring a provider lease", async () => {
+  const { raw, env } = environment(); const client = new FakeRunpod();
+  try {
+    const prepared = await prepareRunpodExperiment(env, "site-owner", { repository: RUNPOD_REPOSITORY,
+      commit: SOURCE, workload: RUNPOD_WORKLOAD, parameters: {}, runtime_seconds: 30,
+      max_cost_usd: "1.00", idempotency_key: "runpod-cancel-before-submit" }, { client, now: 100 });
+    raw.prepare("UPDATE plans SET state='expired' WHERE id=?").run(prepared.run_id);
+    raw.prepare(`INSERT INTO runs (id, owner_id, plan_id, state, cleanup_state, failure_code, created_at, updated_at)
+      VALUES (?, 'site-owner', ?, 'cancelled', 'confirmed', 'caller_cancelled_before_submit', 100, 101)`)
+      .run(prepared.run_id, prepared.run_id);
+
+    const result = await synchronizeRunpodExperiment(env, "site-owner", prepared.run_id, { client });
+    assert.equal(result.state, "cancelled");
+    assert.equal(result.cleanup_state, "confirmed");
+    assert.equal(result.provider_job_id, null);
+    assert.equal(client.creates, 0);
+    assert.equal(client.terminated, 0);
+    assert.equal(raw.prepare("SELECT COUNT(*) AS count FROM provider_account_leases").get().count, 0);
+  } finally { raw.close(); }
+});
+
 class FakeRunpod {
   constructor() { this.creates = 0; this.terminated = 0; this.jobId = "job-test-123"; }
   async getVerifiedOffer() { return { gpuId: "NVIDIA RTX 2000 Ada Generation", cloud: "SERVERLESS", gpuCount: 1,

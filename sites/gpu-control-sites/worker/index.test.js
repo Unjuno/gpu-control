@@ -1376,6 +1376,44 @@ function cancellationEnvironment(initialState) {
   return { env, run, updates: () => updates };
 }
 
+test("cancels an owned native plan before submit and returns the same receipt on retry", async () => {
+  const env = environment();
+  const runId = "c".repeat(32);
+  let run = null;
+  let batchCount = 0;
+  env.DB.prepare = (sql) => ({
+    bind(...values) {
+      return {
+        sql, values,
+        async first() {
+          if (sql.includes("SELECT id FROM plans")) return { id: runId };
+          if (sql.includes("FROM runs") && sql.includes("failure_code")) return run;
+          return null;
+        },
+      };
+    },
+  });
+  env.DB.batch = async (statements) => {
+    batchCount++;
+    assert.equal(statements.length, 2);
+    assert.match(statements[0].sql, /FROM plans WHERE id=\? AND owner_id=\? AND state='prepared'/);
+    assert.deepEqual(statements[0].values.slice(2, 4), [runId, "test-owner"]);
+    assert.match(statements[1].sql, /SET state='expired'/);
+    run = { id: runId, state: "cancelled", cleanup_state: "confirmed",
+      failure_code: "caller_cancelled_before_submit" };
+  };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await toolCall(env, "test-owner", "experiment_cancel", { run_id: runId });
+    const rpc = await response.json();
+    const result = JSON.parse(rpc.result.content[0].text);
+    assert.equal(result.status, "ok");
+    assert.deepEqual(result.machine_state, { run_id: runId, state: "cancelled",
+      cleanup_state: "confirmed", provider_resource_created: false });
+  }
+  assert.equal(batchCount, 1);
+});
+
 test("cancels a queued owned run without asking Runner to clean up a container", async () => {
   const { env, run, updates } = cancellationEnvironment("queued");
   const response = await toolCall(env, "test-owner", "experiment_cancel", { run_id: run.id });

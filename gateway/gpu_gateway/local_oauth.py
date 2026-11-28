@@ -16,7 +16,8 @@ from sqlalchemy import (BigInteger, JSON, Boolean, Column, Integer, String, Tabl
 from .service import GatewayError
 from .store import metadata
 
-LOCAL_SCOPES = ("experiments:read", "experiments:run", "experiments:cancel", "offline_access")
+LOCAL_SCOPES = ("experiments:read", "experiments:run", "experiments:cancel",
+                "gateway:ops:read", "offline_access")
 
 oauth_admin = Table(
     "gateway_oauth_admin_v1", metadata,
