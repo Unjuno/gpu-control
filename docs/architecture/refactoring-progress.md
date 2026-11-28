@@ -5,6 +5,32 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A7: isolate owner-selected execution readiness
+
+**Problem:** the fixed-workload capability projection also resolved a separate
+owner-selected experiment contract: GitHub ownership, custom Modal runtime
+profile, monthly/per-run budget, adapter profile match, and its next actions.
+That mixed fixed-workload availability with a distinct path for ordinary-chat
+repository experiments.
+
+**Change:** moved the owner-selected capability projection and its delegated
+adapter evidence into `worker/owner_training_capabilities.js`. The fixed-route
+projection remains in `worker/provider_capabilities.js`, which composes the
+owner-specific result into the existing MCP response and maps provider adapter
+readiness to registered workloads. Response fields, blockers, ordering and
+admission conditions are preserved. The new boundary is the place to evolve
+owner-selected provider selection independently from fixed demos.
+
+**Validation:** all 120 Sites tests pass, including capability schema,
+owner-bound GitHub, profile mismatch, budget and adapter readiness coverage;
+the 28-module graph is acyclic, generated files are current, Worker build,
+artifact validation and diff checks pass. This is local source only; no
+provider setting or runtime state changed and no compute was started.
+
+**Product boundary:** owner-selected execution remains Modal-only in PR #70.
+RunPod, Kaggle, Hugging Face and Colab have not gained custom-repository
+execution from this extraction.
+
 ## 2026-11-28 — A7: extract the bounded Modal HTTP client
 
 **Problem:** the Worker entrypoint mixed provider origin/credential checks,

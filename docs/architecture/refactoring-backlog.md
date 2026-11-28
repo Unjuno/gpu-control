@@ -239,8 +239,9 @@ Current mode is `parked` in `policies/repository-state.yaml`.
 - **Evidence:** `worker/index.js` is 1,959 lines and remains a large transport
   and composition root for authentication, owner identity, routing and provider
   workflows. MCP schemas/descriptions, experiment input contracts, GitHub
-  ownership, training lifecycle, budgets, RunPod lifecycle, capability
-  projection and the bounded Modal HTTP client now have separate modules, but
+  ownership, training lifecycle, budgets, RunPod lifecycle, fixed-route and
+  owner-training capability projections, and the bounded Modal HTTP client now
+  have separate modules, but
   provider lifecycle orchestration and route dispatch still occupy the entry.
 - **Work:** make `index.js` a small transport/composition root; move cohesive
   GitHub-source, training-plan, artifact, capability and provider operations
