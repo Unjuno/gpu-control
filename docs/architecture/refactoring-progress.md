@@ -1739,6 +1739,28 @@ response-header, consent, token, and revocation contracts. No provider call,
 experiment, live OAuth flow, deployment, or admission change occurred.
 
 
+## 2026-11-28 — A7: isolate shared GitHub OAuth owner-proof routes
+
+**Problem:** `worker/index.js` owned GitHub App installation setup and one
+callback that handled two OAuth purposes: linking the GitHub installation to
+the Sites owner, and proving the same owner for an external MCP client. The
+persisted OAuth state chooses which protocol completes.
+
+**Change:** moved both routes into `worker/github_oauth_routes.js`. It
+dispatches to the existing GitHub App connection or MCP OAuth domain functions
+after verifying the persisted flow type and its matching PKCE cookie. This
+keeps the shared GitHub identity proof together without putting GitHub state
+rules into the general MCP dispatcher.
+
+**Validation:** focused route tests cover the setup method restriction and
+invalid callback state/cookie clearing. All 169 Sites tests pass; the Worker
+graph is acyclic across 61 runtime modules; `git diff --check` passes.
+Independent read-only security review found no actionable issues and confirmed
+separate PKCE cookies, persisted-state classification, callback validation,
+escaping, and route placement before `/mcp` authentication. No GitHub account,
+credential, provider, run, deployment, or admission state was changed.
+
+
 ## 2026-11-28 — A7: isolate Google Colab OAuth HTTP routes
 
 **Problem:** `worker/index.js` still owned the Colab setup and OAuth callback
