@@ -603,7 +603,9 @@ modules; the exact pushed head and CI are recorded in the progress log.
 
 **Progress:** `npm test` runs `scripts/check-worker-architecture.mjs`, which
 uses the same static Worker import graph as packaging. It checks static in-tree
-imports, rejects dynamic imports and entrypoint backedges, and fails on cycles.
+imports and static re-exports, rejects dynamic imports and entrypoint backedges,
+and fails on cycles. Script-level fixtures now guard named/wildcard re-export
+edges and reject semicolonless re-export syntax.
 The build copies the modules reachable from `index.js` and fails if a runtime
 module is orphaned. This establishes Worker dependency and packaging rules;
 Python host direction, schema parity, and append-only migrations remain open.

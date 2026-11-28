@@ -14,10 +14,17 @@ export function discoverWorkerModules(workerRoot) {
 
   for (const file of runtimeFiles) {
     const source = readFileSync(file, "utf8");
-    const imports = [...source.matchAll(/^\s*import\b[^;]*;/gm)];
-    const withoutStaticImports = source.replace(/^\s*import\b[^;]*;/gm, "");
+    const imports = [
+      ...source.matchAll(/^\s*import\b[^;]*;/gm),
+      ...source.matchAll(/^\s*export\s+(?:\*|\{)[^;]*\bfrom\s*["'][^"']+["'][^;]*;/gm),
+    ].sort((left, right) => left.index - right.index);
+    const withoutStaticImports = source
+      .replace(/^\s*import\b[^;]*;/gm, "")
+      .replace(/^\s*export\s+(?:\*|\{)[^;]*\bfrom\s*["'][^"']+["'][^;]*;/gm, "");
     assert.doesNotMatch(withoutStaticImports, /^\s*import\b/m,
       `${file}: use a static import declaration ending in a semicolon`);
+    assert.doesNotMatch(withoutStaticImports, /^\s*export\s+(?:\*|\{)[^;]*\bfrom\b/m,
+      `${file}: use a static re-export declaration ending in a semicolon`);
     assert.doesNotMatch(source, /\bimport\s*\(/,
       `${file}: dynamic imports make the dependency graph incomplete`);
 

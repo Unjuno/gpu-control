@@ -65,6 +65,23 @@ source is not a deployed release.
 `git diff --check`. This documentation-only correction does not change source
 behavior, provider policy, or release state.
 
+## 2026-11-28 — A12: include static re-exports in the Worker dependency graph
+
+**Finding:** the shared Worker graph parsed static `import` declarations but
+not `export … from` declarations. A module could therefore depend on another
+runtime module without that edge participating in cycle checks or the
+architecture guard's dependency rules.
+
+**Change:** the graph builder now records named and wildcard re-exports as
+dependencies and rejects malformed re-export syntax. Added script-level graph
+fixtures and included them in `npm test`, so future graph-parser changes are
+checked in CI. The package build still uses the same graph builder and retains
+its unreachable-module check.
+
+**Validation:** `npm test` passes both new graph tests, all 187 Worker tests,
+the architecture guard, and generated registry validation. The Worker graph
+remains acyclic across 67 runtime modules. No product runtime behavior changed.
+
 ## 2026-11-28 — A13: synchronize client-neutral operations and source map
 
 **Finding:** the operational guide and architecture map still described the
