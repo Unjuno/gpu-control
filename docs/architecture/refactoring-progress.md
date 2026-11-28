@@ -1180,3 +1180,18 @@ scope projection, malformed bearer handling and challenge responses.
 50 runtime modules; D1 forward migration, Worker build, Site artifact
 validation and `git diff --check` pass. Independent Security Review found no
 actionable findings. No provider operation or deployment occurred.
+
+
+## 2026-11-28 — A8: separate MCP schema and GitHub source tests
+
+**Problem:** pure public MCP tool-contract assertions and GitHub source pinning
+tests were embedded in the 3,445-line Worker integration test, alongside route,
+storage and provider lifecycle scenarios.
+
+**Change:** moved tool schema/description assertions into
+`worker/mcp_tool_contract.test.js` and pinned repository/default-branch source
+tests into `worker/training_source.test.js`. The integration suite now tests
+HTTP routing and D1-backed behavior without owning these module contracts.
+
+**Validation:** all 156 Worker tests pass; the graph remains acyclic across 50
+runtime modules. No contract coverage was removed; only test ownership changed.

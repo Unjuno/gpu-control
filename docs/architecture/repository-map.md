@@ -202,7 +202,9 @@ These are investigation targets, not automatic deletion instructions.
    wrappers with verified callers/contracts.
 5. **Large files (2026-11-28 current source after MCP request-auth extraction):**
    `worker/index.js` 815 lines; `worker/delegated_experiment_lifecycle.js` 391 lines;
-   `worker/modal_cpu_lifecycle.js` 165 lines; the Worker test file 3,444 lines.
+   `worker/modal_cpu_lifecycle.js` 165 lines; Worker integration test
+   `worker/index.test.js` 3,326 lines. MCP tool schema and GitHub source tests
+   now live in their respective module test files.
    `gateway/gpu_gateway/store.py` 1,156; Gateway `worker.py` 1,094;
    `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 510;
    `worker/training_plan.js` 660. Split by cohesive domain/use case, not line

@@ -537,3 +537,9 @@ restricts those identity sources to the dedicated request-auth boundary. All
 156 Worker tests, migration checks, build and artifact validation pass; the
 acyclic Worker graph contains 50 runtime modules. Independent Security Review
 found no actionable findings.
+
+**Progress (2026-11-28):** moved public MCP schema/description assertions to
+`worker/mcp_tool_contract.test.js` and GitHub source pinning cases to
+`worker/training_source.test.js`. `worker/index.test.js` shrank from 3,445 to
+3,326 lines without dropping coverage; the full 156-test suite and 50-module
+acyclic graph pass.
