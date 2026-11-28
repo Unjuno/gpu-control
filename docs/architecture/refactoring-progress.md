@@ -1559,3 +1559,21 @@ contracts are resolved and implemented.
 **Remote state:** source batch `bcb5cfac24c94c030f4ef7a1fec4ca746aac2587` was
 pushed to PR #70. GitHub reports the PR open and mergeable, review required,
 and all seven exact-head checks queued. No merge or deployment is established.
+
+
+## 2026-11-28 — A7: isolate the atomic training dispatch claim
+
+**Problem:** `training_plan.js` embedded the transactional D1 claim that
+consumes exact owner authorization, reserves the Modal monthly ceiling, blocks
+parallel unfinished runs, and prevents duplicate dispatch. This atomic
+boundary was difficult to inspect separately from the submit orchestrator.
+
+**Change:** moved the SQL claim and its reservation binding into
+`worker/training_dispatch_claim.js`. Migrated the only direct test caller to
+the new owner module; production orchestration imports the same function. No
+public plan, authorization, or run schema changed.
+
+**Validation:** Sites `npm test` passes all 166 tests; the D1-backed training
+registration/dispatch integration case passes; the Worker graph is acyclic
+across 56 modules and the workload registry is current. `git diff --check`
+passes. No external provider operation occurred.
