@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hashlib
 import json
 import re
 from typing import Any, Mapping
 
+from ..canonical_json import canonical_json as encode_canonical_json
+from ..canonical_json import sha256_fingerprint
 from ..lifecycle import (
     CleanupState,
     JobObservation,
@@ -259,11 +260,10 @@ class ProviderResultCapture:
         }
 
     def canonical_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return encode_canonical_json(self.to_dict())
 
     def fingerprint(self) -> str:
-        digest = hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
-        return f"sha256:{digest}"
+        return sha256_fingerprint(self.to_dict())
 
     @classmethod
     def from_dict(

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-import hashlib
 from importlib.resources import files
 import json
 from pathlib import Path, PurePosixPath
@@ -12,6 +11,8 @@ from typing import Any, Mapping, Sequence
 
 import yaml
 
+from .canonical_json import canonical_json as encode_canonical_json
+from .canonical_json import sha256_fingerprint
 from .lifecycle import JobObservation, JobState, SubmissionReceipt, validate_observation
 
 
@@ -370,11 +371,10 @@ class ResultManifest:
         }
 
     def canonical_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return encode_canonical_json(self.to_dict())
 
     def fingerprint(self) -> str:
-        digest = hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
-        return f"sha256:{digest}"
+        return sha256_fingerprint(self.to_dict())
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any], policy: ResultPolicy) -> ResultManifest:

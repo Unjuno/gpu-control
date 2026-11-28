@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
-import hashlib
 import json
 import re
 from typing import Any, Mapping
 
+from .canonical_json import canonical_json as encode_canonical_json
+from .canonical_json import sha256_fingerprint
 from .container import ContainerVerificationResult
 from .pricing import PricingVerificationError, PricingVerificationResult
 from .source import SourceVerificationResult
@@ -237,12 +238,7 @@ class ApprovedExecutionPlan:
 
     def canonical_json(self) -> str:
         """Serialize the plan deterministically for cross-stage identity."""
-        return json.dumps(
-            self.to_dict(),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        return encode_canonical_json(self.to_dict())
 
     def fingerprint(self) -> str:
         """Return a content fingerprint for correlation, not authorization.
@@ -250,8 +246,7 @@ class ApprovedExecutionPlan:
         The fingerprint detects plan changes and gives asynchronous stages a stable
         identifier. It is not a signature and does not authenticate the caller.
         """
-        digest = hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
-        return f"sha256:{digest}"
+        return sha256_fingerprint(self.to_dict())
 
     def validate_expected_fingerprint(self, expected_fingerprint: str) -> None:
         if not isinstance(expected_fingerprint, str) or not _FINGERPRINT_RE.fullmatch(expected_fingerprint):

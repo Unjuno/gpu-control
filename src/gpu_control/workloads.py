@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from enum import Enum
-import hashlib
-import json
 import re
 
+from .canonical_json import canonical_json as encode_canonical_json
+from .canonical_json import sha256_fingerprint
 from .validation import ValidationError, validate_repo, validate_sha
 
 
@@ -128,9 +128,7 @@ class WorkloadRequirements:
         return _json_value(asdict(self))
 
     def canonical_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=True, sort_keys=True,
-                          separators=(",", ":"), allow_nan=False)
+        return encode_canonical_json(self.to_dict())
 
     def fingerprint(self) -> str:
-        digest = hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
-        return "sha256:" + digest
+        return sha256_fingerprint(self.to_dict())
