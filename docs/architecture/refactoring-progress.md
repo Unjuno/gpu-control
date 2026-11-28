@@ -2035,3 +2035,12 @@ credential, or admission setting changed.
 remain a local compatibility service. This checkout cannot establish whether
 an external operator still uses them; continue with source-level caller and
 package-boundary work before deciding their retirement.
+
+## 2026-11-28 — A4: reconcile current Gateway status documentation
+
+**Finding:** the architecture map incorrectly claimed `gateway/README.md` and
+ChatGPT setup docs disagreed about Gateway status. The current sources agree:
+the FastAPI/PostgreSQL service is local-compatibility code and not a production
+dependency. The map now states that consistently and preserves the separate
+A4 question about unknown external use. No runtime code or deployment behavior
+changed.

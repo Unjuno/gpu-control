@@ -118,10 +118,13 @@ still needed at persisted-contract boundaries rather than importing Python
 code into the Worker.
 
 The intended product flow is Sites-first. The Gateway links above represent a
-separately maintained source tree, not proof it is deployed or the live
-ChatGPT path. The actual `gateway/README.md` and product setup docs disagree on
-Gateway status; see backlog A4 before expanding that coupling. `src/gpu_control`
-is used by Gateway and CLI/offline workflows, not by the Sites Worker.
+separately maintained local-compatibility source tree, not proof it is deployed
+or the live ChatGPT path. `gateway/README.md`, `docs/CHATGPT_SETUP.md`, and
+`docs/STATUS.md` agree that the FastAPI/PostgreSQL Gateway is not a production
+dependency. Its retained local service and deployment templates remain under
+backlog A4 because their external use cannot be inferred from this checkout.
+`src/gpu_control` is used by the Gateway and CLI/offline workflows, not by the
+Sites Worker.
 
 ## Runtime and source ownership
 
