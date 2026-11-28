@@ -3,31 +3,33 @@
 ## Source/release checkpoint — 2026-11-28
 
 - The current source candidate is PR #70 branch
-  `codex/owner-training-workloads`.
-  GitHub reports the PR open, required review outstanding, merge blocked. CI
-  passed all seven required checks on exact head `e35f60d`. Neither result
-  makes the branch deployed. Run exact-head checks again after later commits.
+  `codex/owner-training-workloads`, source head `89dc396` plus the current
+  documentation-only follow-up. PR #70 remains open and unmerged. Exact-head
+  CI must be refreshed after the follow-up commit; mergeability alone does not
+  establish release state.
 - The candidate implements owner-selected GitHub source selection, immutable
-  commit registration, strict `.gpu-control/experiment.json` and lock checks,
-  a fixed Modal staging/runtime image, isolated custom training Sandbox,
-  bounded outputs, and cleanup-aware owner history. It is a Modal-only
-  owner-selected candidate; RunPod/Kaggle/Hugging Face custom-repository
-  execution is not implied by their fixed-workload routes.
+  commit planning and strict `.gpu-control/experiment.json`/lock checks for
+  Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
+  connection, D1 operation journal, verified R2 artifacts and run-owned
+  cleanup. RunPod/Kaggle/Hugging Face custom-repository execution is not
+  implied by their fixed-workload routes. Colab's direct CLI remains a
+  separate local/CI route outside the shared run ledger.
 - `policies/repository-state.yaml` remains `mode: parked` and explicitly keeps
   owner-selected GPU admission disabled. No current claim is made that PR #70
   has been merged, deployed, migrated in hosted D1, or accepted in a new
   ordinary ChatGPT run.
-- The D1 source tree includes migration `0031_training_cleanup_confirmation.sql`;
-  the deployed D1 migration level has not been re-verified for this checkpoint.
+- The D1 source tree includes migrations through `0039_colab_positive_cu_attestation.sql`;
+  the deployed D1 migration level has not been re-verified. Colab admission
+  defaults closed and the exact-submit positive-CU attestation is persisted;
+  its account-level cost is still unknown and runtime egress is unrestricted.
 - For module ownership, duplicated contracts, state authority and the next
   refactoring batches, see [the repository architecture map](architecture/repository-map.md)
   and [the prioritized backlog](architecture/refactoring-backlog.md).
-- The current candidate includes a separate training-tool router, direct
-  register-to-inspect guidance, explicit D1/Modal/provider state authority, and
-  an operator Skill trigger for owner-selected GitHub experiments. Local Sites
-  validation passed 108/108 Worker tests, artifact build/validation passed,
-  and custom training lifecycle tests passed 7/7. The latest router extraction
-  is not covered by the earlier independent security review.
+- Local Sites validation after the Colab attestation change passed 203 tests;
+  the Worker graph is acyclic across 76 modules, build and D1 migration replay
+  passed. The earlier independent Security Review does not cover this latest
+  source. The automated diff scanner could not start on the linked worktree;
+  no independent scan result is claimed.
 
 The dated entries below are historical snapshots. Their deployment versions,
 provider configuration, costs and readiness must not be treated as current

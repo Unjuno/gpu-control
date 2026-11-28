@@ -2634,3 +2634,30 @@ release work includes exact-head CI, independent security review, production
 OAuth/configuration and migration, a verified positive-CU owner attestation
 bound to the exact submit confirmation, and one bounded GPU run with
 independent GPU/artifact/cleanup verification.
+
+## 2026-11-28 — A14: persist Colab quota attestation and refresh architecture truth
+
+**Finding:** Colab submit required a positive-Compute-Unit attestation in the
+tool call but did not persist it with the owner-bound authorization. Capability
+readiness also checked the run/artifact tables without checking that the D1
+attestation migration was present. Several current architecture pages still
+described Colab as not integrated or described Modal as the only
+owner-selected provider.
+
+**Change:** migration `0039_colab_positive_cu_attestation.sql` adds a checked,
+false-by-default attestation column to the exact delegated authorization.
+Colab submit persists `true` only for an exact confirmed call and rejects old
+records without the attestation before runtime creation. Colab capability
+readiness now requires the migration column. Regression coverage verifies
+default-closed prepare, missing-attestation submit and legacy-row migration.
+The architecture index, ADR, provider map, selected-repository guide, chat
+operations, backlog, status and release matrix now distinguish the shared
+hosted-MCP Colab route from standalone CLI/local-MCP jobs and deployed provider
+state.
+
+**Validation:** 203 Sites tests pass; the Worker graph is acyclic across 76
+runtime modules; build and D1 forward migration replay pass; `git diff --check`
+passes. Code batch is commit `89dc396`. This is source evidence only. PR #70
+remains unmerged, hosted migration/configuration and live Colab acceptance are
+unverified, and the official diff scanner did not initialize on this linked
+worktree. The scanner's failure is not a security review result.

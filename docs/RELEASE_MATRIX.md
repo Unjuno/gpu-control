@@ -2,8 +2,10 @@
 
 Live state in the table below was last refreshed 2026-11-22. It is historical
 and does not describe current deployment state. The current source candidate
-and its release boundary are recorded separately below. The product path has exactly four compute
-providers: Modal, RunPod, Kaggle and Hugging Face. Railway, Vercel, Neon, an
+and its release boundary are recorded separately below. The last verified
+production source had four compute providers: Modal, RunPod, Kaggle and Hugging
+Face. PR #70 source adds Google Colab as a fifth candidate compute provider;
+it is not yet a production route. Railway, Vercel, Neon, an
 external PostgreSQL database and a separately hosted Gateway are not runtime
 dependencies.
 
@@ -14,13 +16,13 @@ requires an owner-confirmed real run, terminal result validation and cleanup.
 
 | Gate | Current evidence | Release meaning |
 | --- | --- | --- |
-| Source | PR #70 branch `codex/owner-training-workloads`, head `e35f60d` at this checkpoint | Open; candidate changes are not merged or deployed. |
-| GitHub review | Required review outstanding; merge state `BLOCKED` | Do not bypass; review exact head after any material source change. |
-| CI | Seven required checks passed on exact source head `e35f60d` | Source-level checks only; a later source or documentation commit requires a fresh exact-head run. |
-| Security review | Lock-verification P2 fixed and earlier follow-up found no actionable findings; the latest `training_tools.js` extraction is not covered by that review | Read-only source review; exact-head security review and GitHub-required PR approval remain outstanding. |
-| Owner-selected repository code | Implemented in candidate for a Modal runtime | Admission remains disabled; not a live user capability. |
+| Source | PR #70 branch `codex/owner-training-workloads`, Colab attestation code at `89dc396` plus a documentation-only state refresh | Open and unmerged; candidate source is not deployed. |
+| GitHub review | PR remains open; current review state is not asserted by this release record | Refresh review state directly before merge. |
+| CI | Seven checks passed at exact source head `35697b2`; run the follow-up head after push | Source-level checks only; passing CI is not deployment or provider acceptance. |
+| Security review | No independent review covers the Colab attestation/migration update. The Codex Security scanner could not initialize on the linked worktree. | Do not claim a scan or independent approval for the current head. |
+| Owner-selected repository code | Modal and hosted Colab MCP are implemented in candidate source | Admission remains disabled; neither is a live user capability. |
 | Policy | `policies/repository-state.yaml` says `parked` | No paid/external compute admission is implied. |
-| Hosted Site and D1 | Not refreshed in this checkpoint | Deployment version and applied migration must be checked live before release claims. |
+| Hosted Site and D1 | Not refreshed in this checkpoint; source contains migrations through `0039_colab_positive_cu_attestation.sql` | Deployment version and applied migration level must be checked live before release claims. |
 
 The architecture map lives in [docs/architecture/repository-map.md](architecture/repository-map.md).
 
