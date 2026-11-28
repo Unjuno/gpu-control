@@ -505,3 +505,10 @@ authorization matching, health gating, budget reservation, idempotent run
 creation and lost-submit recovery behind explicit provider/helper ports. All
 151 Worker tests pass; the 47-module graph is acyclic and the packaged artifact
 validates.
+
+**Progress (2026-11-28):** Modal CPU status/submit/cancel synchronization,
+bounded missing-Sandbox recovery, result verification and artifact finalization
+now live in `worker/modal_cpu_lifecycle.js`. The dispatcher composes lifecycle
+operations through narrow imports, and provider result trust rules stay with
+their provider. All 151 Worker tests, D1 migration checks, build and artifact
+validation pass; the 48-module graph remains acyclic. Exact-head CI is pending.

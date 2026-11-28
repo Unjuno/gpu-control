@@ -1097,3 +1097,24 @@ one-use authorization, budget exhaustion, health checks and owner-bound plan
 matching; D1 forward migration tests pass; build packages 47 reachable Worker
 modules; Site artifact validation and `git diff --check` pass. No provider
 operation or deployment occurred.
+
+
+## 2026-11-28 — A7: isolate Modal CPU lifecycle synchronization
+
+**Problem:** Modal CPU status/cancel/submit reconciliation, recovery after an
+absent Sandbox, result validation and artifact finalization still lived in the
+Worker composition root. This left the provider's cleanup and result trust
+rules spread across dispatcher code.
+
+**Change:** moved status-check reservation, bounded missing-run recovery,
+provider state synchronization, cancellation finalization, exact result
+validation and artifact persistence into `worker/modal_cpu_lifecycle.js`.
+`index.js` composes the lifecycle in status and submit routes; the module uses
+the existing Modal HTTP and artifact contracts. Removed the now-unused local
+tokenizer digest constant from the dispatcher.
+
+**Validation:** all 151 Worker tests pass, including Modal status, lost-submit
+recovery, cancellation and artifact verification; D1 forward migration tests
+pass; the Worker graph is acyclic across 48 runtime modules; build, Site
+artifact validation and `git diff --check` pass. No provider operation or
+deployment occurred. Exact-head CI is pending and is tracked separately.
