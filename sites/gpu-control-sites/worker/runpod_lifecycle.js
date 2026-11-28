@@ -3,20 +3,17 @@ import { verifyRunpodCompletion } from "./runpod_completion.js";
 import { RUNPOD_COST_CEILING_MICROUSD, RUNPOD_WORKLOAD, validRunpodApprovedPlan } from "./runpod_plan.js";
 import { RunpodProviderError, RunpodV2Client, validateJobStatus, validateSubmittedJob } from "./runpod_provider.js";
 import { openCompletionKey, sealCompletionKey } from "./runpod_secret.js";
+import { canonicalJson } from "./canonical_json.js";
 
 const JOB_ID = /^[A-Za-z0-9_-]{4,128}$/;
+
+function canonical(value) { return canonicalJson(value, "RUNPOD_PLAN_INVALID"); }
 
 function hex(bytes) { return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join(""); }
 function randomHex(bytes) { return hex(crypto.getRandomValues(new Uint8Array(bytes))); }
 function toBase64(bytes) { let text = ""; for (const byte of bytes) text += String.fromCharCode(byte); return btoa(text); }
 async function digest(value) {
   return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))));
-}
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  if (typeof value === "number" && !Number.isFinite(value)) throw new Error("RUNPOD_PLAN_INVALID");
-  return JSON.stringify(value);
 }
 function parsePlan(row) { try { return JSON.parse(row.provider_plan_json); } catch { return null; } }
 function executionName(runId) { return `gpu-control-${runId.slice(0, 12)}`; }

@@ -1,3 +1,5 @@
+import { canonicalJson } from "./canonical_json.js";
+
 const DELEGATION_TTL_SECONDS = 60;
 // The authenticated Modal adapter can cold-start in roughly the same window as
 // the Modal control API.  Keep the request bounded, but allow the adapter to
@@ -15,12 +17,7 @@ const PROVIDER_ADAPTER_HOSTNAME =
 // adapter; it is separate from the legacy Gateway service.
 
 export function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  }
-  if (typeof value === "number" && !Number.isFinite(value)) throw new Error("GATEWAY_DELEGATION_INVALID_ARGUMENTS");
-  return JSON.stringify(value);
+  return canonicalJson(value, "GATEWAY_DELEGATION_INVALID_ARGUMENTS");
 }
 
 function decodeBase64(value) {

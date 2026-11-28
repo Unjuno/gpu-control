@@ -21,6 +21,7 @@ import { MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE,
   MODAL_SANDBOX_RESOURCES, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { getExperimentCapabilities } from "./provider_capabilities.js";
 import { modalConfigured, modalPayload, modalRequest, providerHealth } from "./modal_http_client.js";
+import { canonicalJson as canonical } from "./canonical_json.js";
 
 const LEGACY_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_VERSION = "2026-07-28";
@@ -81,14 +82,6 @@ function envelope(name, value) {
     next_allowed_actions: [],
     blocking_reason: null,
   };
-}
-
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function submitSummary(state) {

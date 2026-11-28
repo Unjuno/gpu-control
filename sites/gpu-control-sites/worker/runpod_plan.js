@@ -1,5 +1,6 @@
 import { runpodConfigured } from "./runpod_provider.js";
 import { WORKLOADS } from "./workload_registry.js";
+import { canonicalJson } from "./canonical_json.js";
 
 export const RUNPOD_WORKLOAD = WORKLOADS.runpod_canary.id;
 export const RUNPOD_REPOSITORY = WORKLOADS.runpod_canary.repository;
@@ -11,14 +12,7 @@ export const RUNPOD_COST_CEILING_USD = WORKLOADS.runpod_canary.cost_ceiling_usd;
 export const RUNPOD_COST_CEILING_MICROUSD = Number(RUNPOD_COST_CEILING_USD) * 1_000_000;
 export const RUNPOD_PLAN_TTL_SECONDS = 600;
 
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  }
-  if (typeof value === "number" && !Number.isFinite(value)) throw new Error("RUNPOD_PLAN_INVALID");
-  return JSON.stringify(value);
-}
+function canonical(value) { return canonicalJson(value, "RUNPOD_PLAN_INVALID"); }
 
 async function sha256(value) {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));

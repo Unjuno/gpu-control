@@ -1,3 +1,5 @@
+import { canonicalJson } from "./canonical_json.js";
+
 const RESULT_MARKER = "GPU_CONTROL_RESULT_JSON_V1:";
 const COMPLETION_MARKER = "GPU_CONTROL_COMPLETION_JSON_V3:";
 const HEX_32 = /^[0-9a-f]{32}$/;
@@ -10,12 +12,8 @@ export class RunpodCompletionError extends Error {
 }
 
 function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  }
-  if (typeof value === "number" && !Number.isFinite(value)) throw new RunpodCompletionError("RUNPOD_COMPLETION_INVALID");
-  return JSON.stringify(value);
+  try { return canonicalJson(value, "RUNPOD_COMPLETION_INVALID"); }
+  catch { throw new RunpodCompletionError("RUNPOD_COMPLETION_INVALID"); }
 }
 
 function decodeMarker(lines, marker) {

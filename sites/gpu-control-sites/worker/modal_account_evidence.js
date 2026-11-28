@@ -1,14 +1,8 @@
+import { canonicalJson as canonical } from "./canonical_json.js";
+
 const PRICE_SOURCE = "https://modal.com/pricing";
 const EVIDENCE_KEYS = ["charges_usd", "credits_used_usd", "environment", "evidence_id", "expires_at",
   "gpu", "hourly_price_usd", "price_source", "schema_version", "usage_limit_usd", "verified_at", "workspace"];
-
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
 
 function usdToMicrousd(value, decimals) {
   if (typeof value !== "string" || !new RegExp(`^(?:0|[1-9][0-9]*)\\.[0-9]{${decimals}}$`).test(value)) return null;

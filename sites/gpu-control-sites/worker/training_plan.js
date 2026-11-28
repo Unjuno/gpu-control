@@ -7,6 +7,7 @@ import { DEFAULT_MAP_EXECUTION, MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX
   MAP_TRAINING_MAX_RUNTIME_SECONDS, MAP_TRAINING_WORKSPACE_USAGE_LIMIT_USD,
   OWNER_TRAINING_MAX_COST_MICROUSD, OWNER_TRAINING_MAX_MONTHLY_MICROUSD } from "./training_policy.js";
 import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
+import { canonicalJson as canonical } from "./canonical_json.js";
 
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 const MAX_PRICING_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -457,11 +458,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   if (!row) throw new Error("RUN_NOT_FOUND");
   const plan = JSON.parse(row.plan_json);
   const { admission_token: _admissionToken, ...approvedPlan } = approved;
-  const canonical = (value) => Array.isArray(value) ? `[${value.map(canonical).join(",")}]`
-    : value && typeof value === "object"
-      ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`
-      : JSON.stringify(value);
-  if (canonical(approvedPlan) !== canonical(plan)) {
+  if (canonical(approvedPlan, "INVALID_ARGUMENTS") !== canonical(plan, "INVALID_ARGUMENTS")) {
     throw new Error("INVALID_ARGUMENTS");
   }
   if (row.dispatch_claimed_at !== null) return trainingPlanState(env, owner, runId);
@@ -529,11 +526,7 @@ export async function submitTrainingPlan(env, owner, args, delegate, isConfigure
   }
   const current = await previewTrainingPlan(env, owner, plan, async () => sourceToken);
   const { executable, ...currentPlan } = current.machine_state;
-  const canonicalForPreview = (value) => Array.isArray(value) ? `[${value.map(canonicalForPreview).join(",")}]`
-    : value && typeof value === "object"
-      ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalForPreview(value[key])}`).join(",")}}`
-      : JSON.stringify(value);
-  if (current.status !== "ok" || canonicalForPreview(currentPlan) !== canonicalForPreview(plan)) {
+  if (current.status !== "ok" || canonical(currentPlan, "INVALID_ARGUMENTS") !== canonical(plan, "INVALID_ARGUMENTS")) {
     throw new Error("TRAINING_PLAN_EXPIRED");
   }
   if (ownerSelected) {

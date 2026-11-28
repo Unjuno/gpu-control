@@ -3,6 +3,7 @@ import { PROVIDER_ROUTES, PROVIDER_ROUTE_IDS } from "./provider_catalog.js";
 import { MAP_TRAINING_MAX_COST_MICROUSD, MAP_TRAINING_MAX_RUNTIME_SECONDS } from "./training_policy.js";
 import { MAP_TRAINING_REPOSITORY } from "./training_source.js";
 import { RUNPOD_WORKLOAD, validRunpodApprovedPlan, validRunpodPrepare } from "./runpod_plan.js";
+import { canonicalJson } from "./canonical_json.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
 const KAGGLE_WORKLOAD = WORKLOADS.kaggle_training.id;
@@ -18,14 +19,7 @@ const MODAL_MAX_RUNTIME_SECONDS = WORKLOADS.tiny_stories.runtime_seconds;
 const MODAL_SANDBOX_CPU_LIMIT_CORES = 1;
 const MODAL_SANDBOX_MEMORY_LIMIT_MIB = 512;
 
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
-  }
-  if (typeof value === "number" && !Number.isFinite(value)) throw new Error("INVALID_ARGUMENTS");
-  return JSON.stringify(value);
-}
+function canonical(value) { return canonicalJson(value, "INVALID_ARGUMENTS"); }
 
 function randomHex(byteLength) {
   const bytes = crypto.getRandomValues(new Uint8Array(byteLength));

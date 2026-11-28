@@ -34,6 +34,25 @@ not have an exact plan, shared owner-run ledger lifecycle, execution, result
 and artifact verification, cancellation or cleanup integration. It is not
 yet an executable ChatGPT route.
 
+## 2026-11-28 — A7: make canonical JSON serialization authoritative
+
+**Problem:** plan identity, owner authorization, delegation signatures,
+provider receipts, evidence checksums and stored plan comparisons each carried
+their own recursive key-sorting serializer. Small semantic drift between those
+copies could make equivalent plans compare differently or change signed bytes.
+
+**Change:** added `worker/canonical_json.js` as the single Worker serializer
+and migrated the Sites entrypoint, training plan, RunPod plan/lifecycle/result,
+Modal account evidence, provider adapter signing, and experiment input
+validation. Callers may supply their stable domain error code while the byte
+representation remains one implementation. Existing exported adapter helper
+and data formats remain compatible.
+
+**Validation:** all 130 Sites Worker tests pass, including completion signing,
+RunPod plan identity, delegated authorization and Modal evidence tests; the
+32-module graph is acyclic; migration tests, Worker build and artifact checks
+pass. No deployed rows or external provider state changed.
+
 ## 2026-11-28 — A6: start the hosted Colab provider foundation
 
 **Problem:** Colab was requested as a ChatGPT-accessible compute resource, but
