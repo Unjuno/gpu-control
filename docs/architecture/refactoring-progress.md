@@ -492,3 +492,29 @@ security review of PR #70 remains open.
 seven exact-head checks pass. Owner-selected execution remains Modal-only in
 the candidate; RunPod custom execution and the published ChatGPT end-to-end
 path remain unfinished.
+
+
+## 2026-11-28 — A7: extract capability projection and Modal CPU policy
+
+**Problem:** `worker/index.js` built the read-only provider/workload matrix,
+Modal CPU quote and owner-selected readiness response inline. That tied the
+agent-facing discovery contract to the HTTP/MCP composition root and mixed
+fixed CPU pricing policy with lifecycle code.
+
+**Change:** moved capability projection into
+`worker/provider_capabilities.js` and fixed Modal CPU limits/quote into
+`worker/modal_cpu_policy.js`. Dispatch injects the existing `modalConfigured`
+configuration predicate. Existing public tool and response contracts are
+unchanged. No live health probe, provider execution, admission, credentials, or
+deployment behavior was added.
+
+**Validation:** `npm test` passes all 120 Sites Worker tests;
+`node scripts/check-worker-architecture.mjs` reports an acyclic graph of 25
+runtime modules; `node --check worker/provider_capabilities.js` and
+`git diff --check` pass.
+
+**Product boundary:** current-source candidate still offers owner-selected
+execution through Modal only. RunPod is fixed-workload only; Kaggle and
+Hugging Face remain registered-workload routes; Colab remains proposed. This
+refactor improves agent-facing capability ownership but does not by itself
+complete the ordinary-chat external-GPU product or prove deployed behavior.

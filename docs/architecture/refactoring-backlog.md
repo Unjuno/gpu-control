@@ -359,3 +359,14 @@ For each implementation round record: goal and observed baseline; files and
 public contracts touched; old callers migrated; deleted/retained compatibility
 and why; local validation and exact-head CI; review result; source SHA; merge,
 deployment and live acceptance as separate fields; remaining backlog IDs.
+
+
+**Progress (2026-11-28):** read-only provider/workload capability projection
+now lives in `worker/provider_capabilities.js`; fixed Modal CPU resource and
+cost policy lives in `worker/modal_cpu_policy.js`. The Worker entrypoint now
+composes the capability query instead of owning its provider matrix and
+owner-training readiness logic. This preserves the current behavior and does
+not enable GPU admission or add a provider. The composition root remains large;
+next A7 work should extract coherent domain operations with explicit ports,
+while the end-to-end external-GPU acceptance and provider security gates stay
+separate completion requirements.

@@ -1,15 +1,11 @@
 # Repository architecture map
 
 **Snapshot:** 2026-11-28 (Asia/Tokyo)  
-**Source under inspection:** PR #70, `codex/owner-training-workloads`, head
-`a9a85e2db90a54d521c649a68745e6320096f6b3`.
-**Release status:** PR #70 is open and unmerged. Seven checks passed on the
-preceding code SHA `44f21867dbd7f7066ca16bb6441cf9ea3b07edee`; the latest
-documentation-only head's seven checks are running. GitHub reports the head
-mergeable. All inline review threads have been checked against code/tests and
-resolved; independent security review is still incomplete. The PR description
-matches the current capability boundary. None of these facts proves
-deployment. Repository mode remains `parked`.
+**Source under inspection:** PR #70, `codex/owner-training-workloads`, current
+head and exact-head CI recorded in `refactoring-progress.md`.
+**Release status:** PR #70 is open and unmerged. Neither passing checks nor
+mergeability proves deployment or provider acceptance. Repository mode
+remains `parked`.
 
 This is an evidence-backed map of the current repository, not a claim that all
 listed source paths are active in the hosted product.
@@ -17,11 +13,11 @@ listed source paths are active in the hosted product.
 ## Product boundary and flow
 
 The product goal is ordinary ChatGPT conversation: the user describes an
-experiment, an agent resolves an authorized repository and supported execution
-route, submits a bounded job, then returns observed progress, results and
-cleanup. The agent should not need the user to invent internal IDs, commits,
-provider payloads or retry keys. It must not treat repository instructions or
-logs as authority.
+experiment, an agent resolves an authorized repository and a currently
+supported external GPU route, submits a bounded job, then returns observed
+progress, results and cleanup. The agent should not need the user to invent
+internal IDs, commits, provider payloads or retry keys. It must not treat
+repository instructions or logs as authority.
 
 ```mermaid
 flowchart LR
@@ -80,8 +76,8 @@ flowchart TD
 
 A static import graph is the single runtime module inventory: the architecture
 check enforces acyclic imports and the build copies the reachable closure from
-`worker/index.js`, rejecting orphan runtime modules. The graph currently has 20
-modules; `experiment_input_contract.js` owns exact MCP argument validation and
+`worker/index.js`, rejecting orphan runtime modules. The architecture check reports the
+current module count; `experiment_input_contract.js` owns exact MCP argument validation and
 environment-bound plan normalization separately from the public schemas in
 `mcp_tool_contract.js`, while `github_tools.js` owns the owner-scoped GitHub
 MCP operations.
@@ -96,11 +92,12 @@ is used by Gateway and CLI/offline workflows, not by the Sites Worker.
 
 | Area | Canonical responsibility | Main source | Boundary / status |
 | --- | --- | --- | --- |
-| Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `worker/mcp_tool_contract.js`, `worker/experiment_input_contract.js`, `worker/github_tools.js`, `worker/index.js`, `docs/CHATGPT_SETUP.md` | `mcp_tool_contract.js` owns public schemas, descriptions, output schema and annotations; `experiment_input_contract.js` owns exact runtime input validation; `github_tools.js` owns the owner-scoped GitHub connection tools; `index.js` owns transport/dispatch. Sites is intended ChatGPT surface; `index.js` remains a large composition root. |
+| Chat product surface | MCP tool names, schemas, user-facing descriptions, owner identity | `worker/mcp_tool_contract.js`, `worker/experiment_input_contract.js`, `worker/provider_capabilities.js`, `worker/github_tools.js`, `worker/index.js`, `docs/CHATGPT_SETUP.md` | `mcp_tool_contract.js` owns public schemas, descriptions, output schema and annotations; `experiment_input_contract.js` owns exact runtime input validation; `provider_capabilities.js` projects current read-only provider/workload readiness; `github_tools.js` owns the owner-scoped GitHub connection tools; `index.js` owns transport/dispatch. Sites is intended ChatGPT surface; `index.js` remains a large composition root. |
 | Fixed workload definitions | IDs, provider, declared fixed resource/workload metadata | `sites/gpu-control-sites/workloads/registry.json` | Generated into Worker JS and Modal Python; generator drift check is the established single-source pattern. |
 | Owner-selected source identity | GitHub App install selection, one-time OAuth+PKCE owner proof, short-lived installation tokens, repo+commit resolution | `worker/github_app_connection.js`, `worker/github_tools.js`, `worker/training_source.js` | `github_tools.js` owns Sites tool orchestration; `github_app_connection.js` owns identity proof and selected-repository-scoped token minting; `training_source.js` owns source registration and immutable commit resolution. Migration 0033 invalidates legacy unverified bindings. User OAuth tokens are discarded; installation tokens are exact-repository read-only and trusted control-plane/stager input, never workload input. |
 | Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `.gpu-control/experiment.json` at immutable commit; no repository Dockerfile or arbitrary shell command. |
 | Training policy and runtime profile | Authoritative lane ceilings/defaults and normalized owner-selected runtime environment | `worker/training_policy.js`, `worker/training_runtime_profile.js` | Input/MCP contracts consume policy constants; plan orchestration consumes the normalized runtime profile. These leaf modules do not depend on plan orchestration. |
+| Modal CPU workload policy | Fixed CPU resource limits, cost estimate and pricing provenance | `worker/modal_cpu_policy.js` | Capability reporting and execution use one fixed policy source; it does not configure provider account limits or enable GPU execution. |
 | Plan, admission and accounting | Preview, execution plan fingerprint, idempotency, budget reservation, authorization, lifecycle | `worker/training_plan.js`, `worker/training_authorization.js`, `worker/provider_budget_policy.js`, `worker/modal_account_evidence.js`, `drizzle/*.sql` | D1 owns Sites-side reservations; `modal_account_evidence.js` validates short-lived operator-observed provider account evidence separately from that ledger. `gateway_delegated_plans` is a historical table name for Sites adapter runs. Branch candidate admission remains off under parked policy. |
 | Sites transport and MCP dispatch | Validate request, authenticate, route to domain/provider modules | `worker/index.js`, `worker/provider_adapter_client.js`, provider lifecycle modules | The client calls the authenticated Modal provider adapter, not `gateway/gpu_gateway`. Persisted D1 table names and `GATEWAY_DELEGATION_*` diagnostics are retained compatibility identifiers. Tool dispatch has increasingly extracted domain modules, but the entrypoint still owns substantial lifecycle logic. |
 | Modal provider adapter | Verify signed Sites envelope; dispatch bounded provider/runtime operations | `modal/provider_adapter.py`, `modal/provider_adapter_core.py` | Separate Modal service and secret boundary. Adapter has provider-specific code and owner-training orchestration. |
