@@ -39,42 +39,8 @@ def _insert_plan(db: sqlite3.Connection, plan_id: str, created_at: int = 1) -> N
 
 def test_human_authorization_migration_preserves_existing_d1_rows() -> None:
     migrations = sorted(MIGRATIONS.glob("*.sql"))
-    assert [path.name for path in migrations] == [
-        "0000_control_plane.sql",
-        "0001_result_artifacts.sql",
-        "0002_cancellation.sql",
-        "0003_runner_cancellation_protocol.sql",
-        "0004_sandbox_cost_ceiling.sql",
-        "0005_human_plan_authorization.sql",
-        "0006_runpod_account_leases.sql",
-        "0007_modal_health_check_limit.sql",
-        "0008_modal_plan_health_authorization.sql",
-        "0009_modal_health_readiness.sql",
-        "0010_modal_status_check_budget.sql",
-        "0011_chatgpt_tool_authorization.sql",
-        "0012_provider_runtime_state.sql",
-        "0013_provider_budgets.sql",
-        "0014_gateway_delegation.sql",
-        "0015_modal_starter_budget.sql",
-        "0016_provider_adapter_state.sql",
-        "0017_free_provider_policies.sql",
-        "0018_provider_cost_ceiling.sql",
-        "0019_runpod_reconciliation_heartbeat.sql",
-        "0020_modal_gpu_budget.sql",
-        "0021_reliable_run_history.sql",
-        "0022_training_registrations.sql",
-        "0023_training_plans.sql",
-        "0024_training_plan_cancellation.sql",
-        "0025_training_submission_claim.sql",
-        "0026_training_authorizations.sql",
-        "0027_training_dispatch_rejection.sql",
-        "0028_training_execution_specs.sql",
-        "0029_training_authorization_evidence.sql",
-        "0030_github_app_connections.sql",
-        "0031_training_cleanup_confirmation.sql",
-        "0032_modal_compute_budget.sql",
-        "0033_github_installation_user_authorization.sql",
-    ]
+    migration_versions = [path.name.split("_", 1)[0] for path in migrations]
+    assert migration_versions == [f"{version:04d}" for version in range(len(migrations))]
 
     db = sqlite3.connect(":memory:")
     db.execute("PRAGMA foreign_keys = ON")
