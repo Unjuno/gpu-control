@@ -71,8 +71,15 @@ export function validGoogleColabRuntime(value) {
       typeof info.url !== "string" || info.url.length > 2048) return false;
   try {
     const url = new URL(info.url);
-    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+    return isGoogleColabRuntimeProxyUrl(url);
   } catch { return false; }
+}
+
+/** Accept only Google's documented Colab runtime proxy origin, never a caller URL. */
+export function isGoogleColabRuntimeProxyUrl(value) {
+  const url = value instanceof URL ? value : new URL(value);
+  return url.protocol === "https:" && url.hostname === "colab.googleusercontent.com" &&
+    url.port === "" && !url.username && !url.password && !url.hash && !url.search;
 }
 
 export function validGoogleColabSession(value, expectedRuntime) {

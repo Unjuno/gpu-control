@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validGoogleColabExecution, validGoogleColabRuntime, validGoogleColabSession,
-  validGoogleColabToolCall } from "./google_colab_mcp_contract.js";
+  validGoogleColabToolCall, isGoogleColabRuntimeProxyUrl } from "./google_colab_mcp_contract.js";
 
 const runtime = { name: "runtimes/gpu-control-test", runtimeSpec: {
   variant: "VARIANT_GPU", accelerator: "T4", shape: "SHAPE_STANDARD",
 }, connectionInfo: { token: "opaque-private-runtime-token", expireTime: "2026-11-28T12:00:00Z",
-  url: "https://runtime.googleusercontent.com" } };
+  url: "https://colab.googleusercontent.com/runtime" } };
 
 test("Colab calls accept only the documented bounded lifecycle contract", () => {
   assert.equal(validGoogleColabToolCall("list_runtime_specs", {}), true);
@@ -81,6 +81,12 @@ test("Colab runtime, session, and execution responses are bound to expected iden
   assert.equal(validGoogleColabRuntime(runtime), true);
   assert.equal(validGoogleColabRuntime({ ...runtime, connectionInfo: { ...runtime.connectionInfo,
     url: "http://runtime.googleusercontent.com" } }), false);
+  for (const url of ["https://attacker.example", "https://colab.googleusercontent.com.attacker.example",
+    "https://user:pass@colab.googleusercontent.com", "https://colab.googleusercontent.com:444",
+    "https://colab.googleusercontent.com/?redirect=attacker", "https://colab.googleusercontent.com/#fragment"]) {
+    assert.equal(isGoogleColabRuntimeProxyUrl(url), false, url);
+    assert.equal(validGoogleColabRuntime({ ...runtime, connectionInfo: { ...runtime.connectionInfo, url } }), false, url);
+  }
   assert.equal(validGoogleColabSession({ name: "runtimes/gpu-control-test/sessions/run-1" }, runtime.name), true);
   assert.equal(validGoogleColabSession({ name: "runtimes/other/sessions/run-1" }, runtime.name), false);
   assert.equal(validGoogleColabExecution({ session: "runtimes/gpu-control-test/sessions/run-1",

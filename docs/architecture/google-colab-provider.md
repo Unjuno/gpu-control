@@ -190,6 +190,29 @@ back to a paid provider or claim GPU availability from subscription tier alone.
    review, Google-account owner isolation, one bounded live GPU run, digest
    verification, and cleanup verification pass.
 
+## Security implementation notes
+
+The runtime proxy URL is a credential-bearing egress target: the proxy token
+is sent in a request header, so accepting a provider-returned arbitrary URL
+would create an SSRF and credential-forwarding primitive. Validate the URL
+against the exact Google Colab runtime proxy origin before any request, reject
+redirects, and never expose or log either URL or token. The current contract
+allows only `https://colab.googleusercontent.com` with no port, userinfo,
+query, or fragment. Reconfirm that origin against Google's live API contract
+before implementing runtime file transfer. A mismatch must fail closed rather
+than widen the allowlist from observed untrusted response data.
+
+The existing `training_preview` and `training_submit` use cases still apply
+Modal-only pricing, admission and runtime assumptions. Do not route Colab into
+them by adding provider conditionals. Extract a provider-neutral owner-bound
+plan/authorization/ledger contract first, then keep Modal and Colab policy
+adapters separate. Colab's `cost_unknown` cannot be represented by a zero-cost
+USD reservation; the exact plan must instead require an explicit positive-CU
+attestation and disclose that Google does not expose a balance or hard spend
+cap through the documented API. No Colab execution tool should be public
+until this separate policy path, durable recovery, cancellation, artifact
+verification and owned-runtime cleanup are implemented.
+
 ## References
 
 - [Official Colab API MCP tools and schemas](https://developers.google.com/colab/api/reference/mcp)
