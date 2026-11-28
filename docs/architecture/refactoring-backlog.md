@@ -97,9 +97,10 @@ acceptance.
   hard `$1.00` Sites monthly maximum. It is not a signed live billing API
   attestation; release remains blocked until account-side limit and evidence
   are verified.
-- **Remaining:** exact-head CI, independent security review, migration/deploy,
-  production settings, admission, and a real ChatGPT end-to-end GPU lifecycle
-  remain unverified. Source/tests do not close the product acceptance.
+- **Remaining:** independent security review, migration/deploy, production
+  settings, admission, and a real ChatGPT end-to-end GPU lifecycle remain
+  unverified. Exact-head CI currently passes at `2842bd9`; a later source push
+  requires a fresh run. Source/tests do not close product acceptance.
 - **Work:** from a request such as “try training this repository,” discover
   repositories selected in the owner's GitHub App, pin the current default
   commit, inspect the contract, and select only a currently compatible and
@@ -124,8 +125,9 @@ acceptance.
   using the owner-bound Google connection and the same Sites plan/run ledger.
   Colab's unknown account-level compute-unit balance, unrestricted runtime
   egress, long-call recovery, and destructive runtime cleanup are represented
-  in its plan and lifecycle. Exact-head CI, security review, production
-  configuration/migration and one live acceptance run remain release gates.
+  in its plan and lifecycle. Exact-head CI passes at `2842bd9`; independent
+  security review, production configuration/migration and one live acceptance
+  run remain release gates.
   The official `google-colab-cli` remains a local/CI client for
   compatible authenticated agents; direct CLI jobs do not form a second Sites
   provider route or run ledger. Ordinary PR CI stays offline and does not
@@ -323,8 +325,8 @@ acceptance.
   Work and any authenticated compatible MCP client. Exact submit requires a
   positive-CU attestation; migration `0039` persists the exact-call value in
   the plan authorization row and treats prior records as false.
-- **Remaining:** exact-head CI after migration `0039`, independent security
-  review, production configuration and migrations `0034`–`0039`, and one
+- **Remaining:** independent security review, production configuration and
+  migrations `0034`–`0039`, and one
   owner-authorized bounded GPU run that independently verifies GPU, output
   digests, terminal state, and cleanup.
   No live provider runtime was used by this local validation. The plan

@@ -167,8 +167,8 @@ back to a paid provider or claim GPU availability from subscription tier alone.
    bound run ledger. Stable runtime/session/execution IDs recover the same
    operation. Verified output files are stored in private R2 before the
    run-owned runtime is deleted.
-5. **Remaining:** exact-head CI, independent security review, production
-   OAuth/configuration and migration, and one small owner-authorized live GPU
+5. **Remaining:** independent security review, production OAuth/configuration
+   and migration, and one small owner-authorized live GPU
    acceptance with digest and cleanup verification. The submit contract now
    requires an exact-call positive-CU attestation. Routine CI stays offline
    and must not allocate a Colab runtime.

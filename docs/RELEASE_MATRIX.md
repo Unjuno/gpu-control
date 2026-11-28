@@ -16,9 +16,9 @@ requires an owner-confirmed real run, terminal result validation and cleanup.
 
 | Gate | Current evidence | Release meaning |
 | --- | --- | --- |
-| Source | PR #70 branch `codex/owner-training-workloads`, Colab attestation code at `89dc396` plus a documentation-only state refresh | Open and unmerged; candidate source is not deployed. |
+| Source | PR #70 branch `codex/owner-training-workloads`, head `2842bd9f9c01c22a5ad3977fb140d60ac75f117a` | Open and unmerged; candidate source is not deployed. |
 | GitHub review | PR remains open; current review state is not asserted by this release record | Refresh review state directly before merge. |
-| CI | Seven checks passed at exact source head `35697b2`; run the follow-up head after push | Source-level checks only; passing CI is not deployment or provider acceptance. |
+| CI | All seven checks passed at exact source head `2842bd9f9c01c22a5ad3977fb140d60ac75f117a` | Source-level checks only; passing CI is not deployment or provider acceptance. |
 | Security review | No independent review covers the Colab attestation/migration update. The Codex Security scanner could not initialize on the linked worktree. | Do not claim a scan or independent approval for the current head. |
 | Owner-selected repository code | Modal and hosted Colab MCP are implemented in candidate source | Admission remains disabled; neither is a live user capability. |
 | Policy | `policies/repository-state.yaml` says `parked` | No paid/external compute admission is implied. |

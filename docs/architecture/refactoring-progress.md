@@ -2683,6 +2683,25 @@ migrations and current Worker modules; Markdown links resolve and
 provider settings, or admission state. Route-by-route response-loss, terminal,
 cleanup, and record-loss acceptance remains open.
 
+## 2026-11-28 — A0: synchronize source and release evidence after CI
+
+**Finding:** after commit `2842bd9`, the source, local validation, and all seven
+exact-head GitHub checks were current, but STATUS, the release matrix, and the
+repository map still named commit `89dc396`, 203 tests, and pending CI. This
+made the documented release state contradict the authoritative branch and CI.
+
+**Change:** refreshed the source SHA, 204-test count, seven-check result, and
+Colab lifecycle evidence in STATUS, the release matrix, repository map, Colab
+provider guide, ADR 0011, and the prioritized backlog. Explicitly preserved
+the separate unverified boundaries: deployment and D1 migration application,
+independent security review, and live Colab GPU acceptance.
+
+**Validation:** compared the documented SHA with the local and remote branch
+head and GitHub PR #70; compared the CI statement with all seven exact-head
+check results; checked for stale `89dc396`/203-test/pending-CI claims in active
+architecture and release summaries. Documentation-only update; no provider,
+deployment, admission, or runtime state changed.
+
 ## 2026-11-28 — A3: exercise Colab lifecycle recovery after response loss
 
 **Finding:** Colab had unit coverage for its operation journal and MCP protocol,
