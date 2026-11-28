@@ -2746,6 +2746,26 @@ focused Colab tests pass; all seven exact-head GitHub Actions checks pass on
 was used or changed. This fake-provider test does not prove Google's live
 deletion behavior or other providers' terminal-state conformance.
 
+## 2026-11-28 — A3: apply the Colab cleanup contract to cancellation
+
+**Finding:** `advanceGoogleColabRun` validated the empty deletion receipt, but
+`experiment_cancel` called the same provider method and finalized the D1 plan
+and operation journal without validating its response. The same malformed
+`{ "deleted": false }` response could therefore still produce false cleanup
+confirmation on explicit cancellation.
+
+**Change:** reused the shared `validGoogleColabRuntimeDeletion` contract in the
+cancel path. Extended the lifecycle integration case with a second submitted
+run whose runtime is discovered during cancellation: an invalid delete
+response leaves the operation in `cleanup_pending`; a later empty success
+response records cancellation and terminal cleanup on that same run.
+
+**Validation:** all 205 Sites tests pass; build and D1 forward migration replay
+pass; the Worker graph remains acyclic across 76 modules; all seven exact-head
+GitHub Actions checks pass on code commit `fc8931a`. No live provider or
+account state changed. The fake Colab endpoint does not establish live Google
+behavior.
+
 ## 2026-11-28 — A3: exercise Colab lifecycle recovery after response loss
 
 **Finding:** Colab had unit coverage for its operation journal and MCP protocol,

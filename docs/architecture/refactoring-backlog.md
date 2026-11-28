@@ -203,10 +203,11 @@ acceptance.
   same-request-ID recovery, execution failure, and run-owned runtime deletion.
   A negative case rejects a non-empty delete response, preserves
   `cleanup_pending`, then recovers from an exact empty success response without
-  replaying execution. Google's documented `delete_runtime` response is an
-  empty protobuf message. This is source-level evidence only; it does not prove
-  Google's live behavior, provider terminal mismatch, journal-loss recovery,
-  or live GPU execution.
+  replaying execution. Both normal status recovery and explicit cancellation
+  use the same exact-empty deletion validator. Google's documented
+  `delete_runtime` response is an empty protobuf message. This is source-level
+  evidence only; it does not prove Google's live behavior, provider terminal
+  mismatch, journal-loss recovery, or live GPU execution.
 
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 
