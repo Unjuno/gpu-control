@@ -2562,3 +2562,22 @@ not durable by itself, so public execution remains gated on status-driven
 recovery using the persisted operation journal. Migration checks also reject
 truncated, plaintext-sized connection blobs before any runtime token can be
 persisted.
+
+## 2026-11-28 — A6: generate a pinned Colab GPU execution payload
+
+**Change:** added `google_colab_execution_code.js`, which generates a
+deterministic runner only for a public immutable GitHub commit, a validated
+experiment manifest, an eligible T4/L4 profile and a maximum 360-second run.
+The generated code installs the hash-locked dependency file, checks both
+`nvidia-smi` and PyTorch CUDA against the selected accelerator before running
+the entrypoint, bounds output files and total output size, computes SHA-256
+for declared artifacts, and writes a durable run-specific completion receipt
+so a transport replay does not run completed training twice. No credential is
+embedded, and private repository visibility is rejected.
+
+**Validation:** generated Python compiles; source-contract negative cases
+reject invalid source, path, profile and duration. The full Sites suite passes
+194 Worker tests, migration validation passes, and the Worker import graph is
+acyclic across 71 modules. This generator is not yet wired to public MCP plan,
+submit, status, artifact or cancellation tools and has not run on a live Colab
+GPU.

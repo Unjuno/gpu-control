@@ -249,6 +249,16 @@ authenticated data bound to owner, run ID and plan fingerprint. Runtime/session
 identity is immutable after first persistence. These APIs have contract tests
 but are not yet called by public tools.
 
+`google_colab_execution_code.js` now generates a deterministic credential-free
+Python runner for an immutable public source and reviewed manifest. It enforces
+hash-locked dependency installation, a 360-second execution ceiling, a
+run-specific durable receipt, declared-output path/size/checksum capture, and
+an actual `nvidia-smi` plus PyTorch CUDA/GPU-name check before invoking the
+entrypoint. It rejects private source visibility and mismatched GPU profiles.
+The generator is still not connected to a public plan/submit/status lifecycle;
+it cannot currently be invoked by an MCP user and does not establish live
+Colab availability.
+
 ## References
 
 - [Official Colab API MCP tools and schemas](https://developers.google.com/colab/api/reference/mcp)
