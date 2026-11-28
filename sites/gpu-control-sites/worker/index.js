@@ -15,7 +15,7 @@ import { submitRunpodExperiment, synchronizeRunpodExperiment } from "./runpod_li
 import { readModalGpuAccountEvidence } from "./modal_account_evidence.js";
 import { registeredPrepareArguments, resolveZeroGpuPrepare } from "./registered_prepare.js";
 import { WORKLOADS, WORKLOAD_IDS } from "./workload_registry.js";
-import { readProviderBudgetPolicy, usdFromMicrousd, utcMonthKey } from "./provider_budget_policy.js";
+import { readProviderBudgetPolicy, reserveProviderBudget, usdFromMicrousd } from "./provider_budget_policy.js";
 import { MODAL_PRICING_CHECKED_AT, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { getExperimentCapabilities } from "./provider_capabilities.js";
 import { modalConfigured } from "./modal_http_client.js";
@@ -631,25 +631,6 @@ async function readUrlEncodedForm(request, limit = 4096) {
   let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
   return new URLSearchParams(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-}
-
-async function reserveProviderBudget(env, { runId, provider, requestedMicrousd, now }) {
-  const periodKey = utcMonthKey(now);
-  const inserted = await env.DB.prepare(`INSERT INTO provider_budget_reservations
-      (run_id, provider, period_key, reserved_microusd, created_at)
-    SELECT ?, p.provider, ?, ?, ? FROM provider_budget_policies p
-    WHERE p.provider=? AND ?<=p.per_run_limit_microusd
-      AND (p.monthly_limit_microusd IS NULL OR
-        COALESCE((SELECT SUM(r.reserved_microusd) FROM provider_budget_reservations r
-          WHERE r.provider=p.provider AND r.period_key=?), 0) + ? <= p.monthly_limit_microusd)
-    ON CONFLICT(run_id) DO NOTHING`)
-    .bind(runId, periodKey, requestedMicrousd, now, provider, requestedMicrousd,
-      periodKey, requestedMicrousd).run();
-  const reservation = await env.DB.prepare(`SELECT provider, period_key, reserved_microusd
-    FROM provider_budget_reservations WHERE run_id=?`).bind(runId).first();
-  return inserted?.meta?.changes === 1 ||
-    (reservation?.provider === provider && reservation?.period_key === periodKey &&
-      reservation?.reserved_microusd === requestedMicrousd);
 }
 
 async function callTool(name, args, request, env, context = null, principal = null) {

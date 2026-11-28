@@ -1142,3 +1142,21 @@ graph is acyclic across 49 runtime modules. D1 forward migration, Worker build,
 Site artifact validation and `git diff --check` pass. Independent Security
 Review found no actionable findings. No provider operation or deployment
 occurred.
+
+
+## 2026-11-28 — A7: consolidate provider budget reservation authority
+
+**Problem:** D1 budget policy projection and the generic RunPod reservation
+query lived in separate modules. A provider's advertised per-run/monthly rules
+and the reservation enforcement were therefore harder to review as one
+contract.
+
+**Change:** moved `reserveProviderBudget` into `worker/provider_budget_policy.js`
+beside provider budget policy reads and the shared Modal reservation builder.
+`index.js` now consumes the canonical reservation function. Added focused
+SQLite-backed coverage for policy ceilings, exact retries, conflicting retry
+amounts and unknown providers.
+
+**Validation:** all 152 Worker tests pass; the graph remains acyclic across 49
+runtime modules; D1 forward migration, Worker build, Site artifact validation
+and `git diff --check` pass. No provider operation or deployment occurred.

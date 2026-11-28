@@ -19,6 +19,25 @@ export function utcMonthKey(epochSeconds) {
   return `${date.getUTCFullYear().toString().padStart(4, "0")}-${(date.getUTCMonth() + 1).toString().padStart(2, "0")}`;
 }
 
+export async function reserveProviderBudget(env, { runId, provider, requestedMicrousd, now }) {
+  const periodKey = utcMonthKey(now);
+  const inserted = await env.DB.prepare(`INSERT INTO provider_budget_reservations
+      (run_id, provider, period_key, reserved_microusd, created_at)
+    SELECT ?, p.provider, ?, ?, ? FROM provider_budget_policies p
+    WHERE p.provider=? AND ?<=p.per_run_limit_microusd
+      AND (p.monthly_limit_microusd IS NULL OR
+        COALESCE((SELECT SUM(r.reserved_microusd) FROM provider_budget_reservations r
+          WHERE r.provider=p.provider AND r.period_key=?), 0) + ? <= p.monthly_limit_microusd)
+    ON CONFLICT(run_id) DO NOTHING`)
+    .bind(runId, periodKey, requestedMicrousd, now, provider, requestedMicrousd,
+      periodKey, requestedMicrousd).run();
+  const reservation = await env.DB.prepare(`SELECT provider, period_key, reserved_microusd
+    FROM provider_budget_reservations WHERE run_id=?`).bind(runId).first();
+  return inserted?.meta?.changes === 1 ||
+    (reservation?.provider === provider && reservation?.period_key === periodKey &&
+      reservation?.reserved_microusd === requestedMicrousd);
+}
+
 function unavailable() {
   return { schema_version: 1, state: "unavailable", provider_budgets: BUDGET_PROVIDERS.map((provider) => ({
     provider, policy_available: false, blocker: "PROVIDER_BUDGET_POLICY_UNAVAILABLE",

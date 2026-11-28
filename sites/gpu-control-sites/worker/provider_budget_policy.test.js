@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy } from "./provider_budget_policy.js";
+import { prepareModalComputeBudgetReservation, readProviderBudgetPolicy, reserveProviderBudget } from "./provider_budget_policy.js";
 
 function database({ modalMonthly = 30_000_000, modalReserved = 0, freePolicies } = {}) {
   const result = (value) => ({ first: async () => value, all: async () => ({ results: value }), bind() { return this; } });
@@ -51,6 +51,42 @@ test("missing or contradictory policy fails closed without guessed dollar amount
   assert.equal(result.state, "unavailable");
   assert.ok(result.provider_budgets.every((policy) => !Object.hasOwn(policy, "monthly_limit_usd") &&
     policy.blocker === "PROVIDER_BUDGET_POLICY_UNAVAILABLE"));
+});
+
+test("provider budget reservation enforces its per-run policy and exact retry binding", async () => {
+  const sqlite = new DatabaseSync(":memory:");
+  try {
+    sqlite.exec(`CREATE TABLE provider_budget_policies (
+        provider TEXT PRIMARY KEY, monthly_limit_microusd INTEGER, per_run_limit_microusd INTEGER);
+      INSERT INTO provider_budget_policies VALUES ('runpod_gpu', NULL, 1000000);
+      CREATE TABLE provider_budget_reservations (
+        run_id TEXT PRIMARY KEY, provider TEXT, period_key TEXT, reserved_microusd INTEGER, created_at INTEGER);`);
+    const db = { prepare(sql) {
+      const statement = sqlite.prepare(sql);
+      return { bind(...values) { return {
+        run: async () => {
+          const result = statement.run(...values);
+          return { meta: { changes: Number(result.changes) } };
+        },
+        first: async () => statement.get(...values) || null,
+      }; } };
+    } };
+    const reservation = { runId: "a".repeat(32), provider: "runpod_gpu",
+      requestedMicrousd: 1_000_000, now: 1_798_000_000 };
+    assert.equal(await reserveProviderBudget({ DB: db }, reservation), true);
+    assert.equal(await reserveProviderBudget({ DB: db }, reservation), true,
+      "an exact retry observes the existing reservation");
+    assert.equal(await reserveProviderBudget({ DB: db }, { ...reservation, requestedMicrousd: 900_000 }), false,
+      "the same run cannot silently change its reserved amount");
+    assert.equal(await reserveProviderBudget({ DB: db }, { ...reservation,
+      runId: "b".repeat(32), requestedMicrousd: 1_000_001 }), false,
+      "a new run cannot exceed the provider per-run policy");
+    assert.equal(await reserveProviderBudget({ DB: db }, { ...reservation,
+      runId: "c".repeat(32), provider: "unknown" }), false,
+      "a provider without a policy cannot reserve budget");
+  } finally {
+    sqlite.close();
+  }
 });
 
 test("Modal compute policy must match the bounded monthly and per-run limits", async () => {

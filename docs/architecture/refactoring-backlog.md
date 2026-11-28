@@ -521,3 +521,11 @@ native or delegated lifecycle. This keeps the shared D1 run and authorization
 contracts intact for all compatible MCP clients. All 151 Worker tests pass;
 the 49-module graph is acyclic; D1 migration, build and artifact validation
 pass. Independent Security Review found no actionable findings.
+
+
+**Progress (2026-11-28):** provider-specific D1 reservation checks now share
+the authoritative `worker/provider_budget_policy.js` module with budget
+projection and shared Modal reservation construction. Added SQLite-backed
+checks for RunPod per-run ceilings, exact retry binding and fail-closed unknown
+providers. All 152 Worker tests, migration checks, build and artifact
+validation pass; the graph remains acyclic across 49 modules.
