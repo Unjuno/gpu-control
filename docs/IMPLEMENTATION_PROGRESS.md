@@ -4737,3 +4737,27 @@ hashes. Added canonical vector and invalid-input tests.
 Validation: 148 Worker tests pass; D1 forward migrations pass; build packages
 all 40 Worker modules; artifact validation and `git diff --check` pass. A scan
 confirms the shared utility is the only production Worker SHA-256 digest call.
+
+
+## 2026-11-28 architecture batch — Colab lifecycle journal-loss handling
+
+A submitted owner-bound Colab plan with a missing
+`google_colab_run_operations` row previously appeared as `prepared` during
+status reads. Status, cancellation, and repeated submit now return a stable
+`uncertain` result with provider allocation and cleanup unknown. They do not
+call Colab, create a replacement operation, or allocate another runtime. A
+plan still `prepared` with no submit attempt retains normal pre-run behavior.
+
+The SQLite-backed lifecycle integration test covers missing submitted journal
+records across status, cancel, and duplicate submit; it asserts the provider
+endpoint is not called. Local validation passed all 205 Sites Worker tests, the
+acyclic 76-module architecture check, Sites build, D1 forward migration replay,
+and `git diff --check`.
+
+Google's `google-colab-cli` documents headless/ADC and ephemeral `colab run`,
+but direct CLI jobs bypass GPU Control's shared owner, budget, run-history, and
+cleanup ledger. Current repository mode is `parked` and disallows CI provider
+credentials and GPU workflows. Ordinary CI remains offline; any future CI GPU
+path needs an explicit identity and shared-lifecycle design rather than a
+second control plane. No Colab API, runtime, OAuth credential, hosted Site,
+admission, or production migration was used or changed.

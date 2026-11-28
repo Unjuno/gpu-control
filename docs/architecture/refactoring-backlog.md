@@ -207,7 +207,12 @@ acceptance.
   use the same exact-empty deletion validator. Google's documented
   `delete_runtime` response is an empty protobuf message. This is source-level
   evidence only; it does not prove Google's live behavior, provider terminal
-  mismatch, journal-loss recovery, or live GPU execution.
+  mismatch, or live GPU execution. A submitted D1 plan whose Colab operation
+  journal is missing now reports `uncertain` with provider allocation and
+  cleanup unknown. Status, cancellation, and repeated submit fail closed
+  without calling Colab or creating a replacement runtime. This prevents a
+  false `prepared` result and duplicate allocation; it cannot reconstruct lost
+  provider evidence, so manual reconciliation remains necessary.
 
 ### A4. Retire or isolate the legacy Gateway service without losing its real callers
 
@@ -339,9 +344,15 @@ acceptance.
   runtime after artifact collection. No live provider runtime was used in
   source validation. Keep live admission closed until release gates pass.
 - **CLI boundary:** `google-colab-cli` can be used directly by an authenticated
-  local/CI agent, but such jobs are outside the GPU Control run ledger. A
+  local/CI agent, and its documented `colab run` command is designed for
+  ephemeral automation. Such jobs are outside the GPU Control run ledger. A
   client that needs shared history should call the same GPU Control MCP
-  lifecycle; do not add a parallel CLI adapter or second run ledger.
+  lifecycle; do not add a parallel CLI adapter or second run ledger. A Colab
+  GPU workflow in GitHub Actions is not authorized by the current `parked`
+  policy, which forbids provider-secret references and GPU workflows. Before
+  reconsidering it, establish a supported non-interactive identity, ensure the
+  exact job is represented in the shared owner/run/budget/cleanup ledger, and
+  add an explicit policy exception. Ordinary PR CI must remain offline.
 - **Done when:** a compatible MCP client can discover Colab for an owner,
   prepare an owner-selected public repository without manual IDs, submit an
   exact bounded plan, recover the same run, retrieve verified artifacts, and

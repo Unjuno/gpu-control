@@ -4,9 +4,9 @@
 
 - The current source candidate is PR #70 branch
   `codex/owner-training-workloads`, latest code commit
-  `fc8931a43bb0ae1926f15ff49dd22e5c28415d90`. PR #70 remains open and
-  unmerged. All seven exact-head GitHub Actions checks passed; mergeability
-  alone does not establish release state.
+  `31bc1836f35d934b799047e831fb7b0b2ae18dc6`. PR #70 remains open and
+  unmerged. Its exact-head GitHub Actions checks are running; the previous
+  `fc8931a` checks do not cover this update.
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
@@ -34,6 +34,10 @@
   idempotency behavior or real Colab execution. The earlier independent Security Review does not
   cover this latest source. The automated diff scanner could not start on the
   linked worktree; no independent scan result is claimed.
+- The `31bc183` follow-up also fails closed when a submitted Colab plan has lost
+  its operation journal: status, cancel and repeated submit report uncertainty
+  without contacting Colab. Local revalidation passes the same 205 tests, build
+  and migration replay; exact-head checks are pending.
 
 The dated entries below are historical snapshots. Their deployment versions,
 provider configuration, costs and readiness must not be treated as current
