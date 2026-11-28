@@ -87,6 +87,8 @@ complete.
 See [docs/architecture/README.md](docs/architecture/README.md) for source
 ownership, current boundaries and ordered architecture work. See
 [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md) for the ChatGPT integration,
+[docs/GOOGLE_COLAB_CLI.md](docs/GOOGLE_COLAB_CLI.md) for Colab CLI vs.
+GPU Control and CI usage,
 [docs/RELEASE_MATRIX.md](docs/RELEASE_MATRIX.md) for current acceptance gates,
 [docs/STATUS.md](docs/STATUS.md) for current capability blockers, and
 [docs/SITES_MODAL_RUNPOD_DELIVERY.md](docs/SITES_MODAL_RUNPOD_DELIVERY.md) for

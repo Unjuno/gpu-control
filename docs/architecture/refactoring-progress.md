@@ -100,6 +100,15 @@ with ADR 0010/0011, the provider specification, and A6 acceptance gates. No
 Google login, CLI install, runtime allocation, provider credential, D1 or
 admission change occurred.
 
+**Source correction (2026-11-28):** a follow-up check of the official CLI's
+current authentication reference found that OAuth credentials moved to the
+OS-native keyring on 2026-10-21. `~/.config/colab-cli/` still holds session,
+settings, and history files, but is no longer the current OAuth-token store.
+The ADRs and user guide now distinguish these paths. CLI execution can run in
+CI when an accepted Colab identity is available; ordinary hosted CI does not
+inherit a developer's Mac keyring, and a direct CLI job still bypasses the
+GPU Control ledger.
+
 ## 2026-11-28 — A6: isolate Colab capability validation and projection
 
 **Problem:** `google_colab_tools.js` owned OAuth/tool routing, provider-response

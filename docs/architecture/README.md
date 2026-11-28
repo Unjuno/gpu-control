@@ -35,6 +35,9 @@ front end for external compute.
   compatible external MCP clients to the same owner-scoped experiment ledger.
 - [Colab provider specification](google-colab-provider.md): OAuth, runtime,
   idempotency, quota, artifact and cleanup contracts for the integration.
+- [Google Colab CLI guide](../GOOGLE_COLAB_CLI.md): what the official CLI can
+  do in local/CI workflows, how it differs from GPU Control, and why chat use
+  must go through the shared Sites lifecycle.
 - [MCP client connection](../../sites/gpu-control-sites/MCP_CLIENTS.md):
   source-level OAuth client requirements, owner link, scopes and release gate.
 - [Refactoring backlog](refactoring-backlog.md): ordered, evidence-linked

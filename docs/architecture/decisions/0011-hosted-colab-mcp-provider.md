@@ -14,10 +14,11 @@ It uses Google OAuth/ADC; Google's remote MCP does not support dynamic client
 registration.
 
 The official Colab CLI supports headless Linux/macOS automation, including an
-ephemeral `colab run` job that retrieves outputs and tears down its runtime. It
-also exposes account CU usage/balance. Its OAuth/session state lives locally
-under `~/.config/colab-cli/`, separate from Sites D1. Embedding the CLI in a
-Sites Worker is impossible because a Worker cannot launch a local process.
+ephemeral `colab run` job that tears down its runtime. Its current OAuth token
+uses the operating system's native keyring; session metadata and history are
+local under `~/.config/colab-cli/`, separate from Sites D1. The CLI can run in
+CI only when that runner has a supported Colab identity. Embedding the CLI in
+a Sites Worker is impossible because a Worker cannot launch a local process.
 The repository explicitly retired its former macOS Runner, Keychain bearer,
 and `/runner/*` routes; that retired Runner must not return.
 

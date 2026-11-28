@@ -23,8 +23,9 @@ primitive: fresh CPU/GPU/TPU runtime allocation, non-interactive script
 execution, file transfer, status/usage inspection, and a `colab run` command
 that automatically tears down the runtime by default. The current official
 README documents headless Linux/macOS use, OAuth2 or ADC, `colab usage` for CU
-usage/balance, and session/settings files under `~/.config/colab-cli/`; it does
-not describe an OS-keyring credential store. These local CLI credentials and
+usage/balance, and session/settings files under `~/.config/colab-cli/`. The
+current CLI documentation now describes OAuth-token storage in the operating
+system's native keyring; this credential state and the local session metadata
 state are separate from Sites D1. A Cloudflare Sites Worker cannot run a local
 CLI process or read the owner's CLI state.
 
