@@ -5,6 +5,24 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A13: lock ChatGPT/external MCP contract parity
+
+**Problem:** Sites-header authentication and external OAuth both entered the
+same Worker, but the cross-client test only verified OAuth scope behavior. A
+future client-specific dispatcher could have diverged without a test showing
+that both authenticated transports expose the same MCP tool contract.
+
+**Change:** added an integration case that sends `tools/list` through the
+ChatGPT Sites identity header and through an owner-bound OAuth bearer for the
+same owner, then compares the complete tool/schema/annotation response. The
+contract remains shared; the two identity transports remain separate.
+
+**Validation:** the focused MCP request-auth integration suite passes all three
+cases. The full Sites suite passes all 187 tests; the architecture checker
+reports an acyclic graph across 67 runtime modules. This exercises mocked
+D1/OAuth state and the local Sites Worker only; it does not verify a deployed
+external-client handshake or execute a provider.
+
 ## 2026-11-28 — Normalize the client-neutral MCP product boundary
 
 **Finding:** the owner-bound OAuth design, MCP client guide, and provider

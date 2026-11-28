@@ -19,6 +19,14 @@ function request(name, authorization = null) {
   });
 }
 
+function rpcRequest(message, headers = {}) {
+  return new Request(`${siteOrigin}/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(message),
+  });
+}
+
 test("public MCP data tools challenge anonymous callers before touching D1", async () => {
   let databaseReads = 0;
   const env = { DB: { prepare() {
@@ -65,4 +73,33 @@ test("MCP bearer authentication binds audience and separates read and execute sc
   const wrongToken = await send(`gpc_at_${"b".repeat(43)}`, "experiment_list");
   assert.equal(wrongToken.status, 401);
   assert.match(wrongToken.headers.get("www-authenticate"), /error="invalid_token"/);
+});
+
+test("ChatGPT and external OAuth clients receive the same MCP tool contract", async () => {
+  const token = `gpc_at_${"c".repeat(43)}`;
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const env = {
+    GPU_CONTROL_ALLOWED_USER_IDS: "shared-owner",
+    DB: { prepare(sql) {
+      return { bind(...values) {
+        const tokenRow = sql.includes("FROM mcp_oauth_tokens") && values[0] === tokenHash
+          ? { owner_id: "shared-owner", client_id: "external-client", scope: "experiments:read",
+            resource: `${siteOrigin}/mcp`, expires_at: 1_900_000_000 }
+          : null;
+        return { first: async () => tokenRow, all: async () => ({ results: [] }) };
+      } };
+    } },
+  };
+  const message = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
+  const chatgptResponse = await worker.fetch(rpcRequest(message,
+    { "oai-authenticated-user-id": "shared-owner" }), env);
+  const externalResponse = await worker.fetch(rpcRequest(message,
+    { authorization: `Bearer ${token}` }), env);
+
+  assert.equal(chatgptResponse.status, 200);
+  assert.equal(externalResponse.status, 200);
+  const chatgptTools = (await chatgptResponse.json()).result.tools;
+  const externalTools = (await externalResponse.json()).result.tools;
+  assert.deepEqual(externalTools, chatgptTools);
+  assert.ok(chatgptTools.some((tool) => tool.name === "experiment_capabilities"));
 });
