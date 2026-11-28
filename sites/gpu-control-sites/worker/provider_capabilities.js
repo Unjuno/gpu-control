@@ -10,6 +10,7 @@ import { googleColabConnectionConfigured, googleColabConnectionStatus } from "./
 import { googleColabLifecycleConfigured } from "./google_colab_tools.js";
 import { googleColabAdmissionEnabled } from "./google_colab_policy.js";
 import { runpodAdmissionBlocker } from "./runpod_admission.js";
+import { readRunpodConfiguration } from "./runpod_configuration.js";
 import { modalCpuAdmissionEnabled } from "./modal_cpu_policy.js";
 
 const WORKLOAD = WORKLOADS.tiny_stories.id;
@@ -73,7 +74,7 @@ function workloadCapabilityEntries(env, enabledByWorkloadId) {
       capability.estimated_max_sandbox_cost_usd = estimateModalSandboxCostUsd(workload.runtime_seconds);
       capability.image_digest = env.CPU_WORKLOAD_IMAGE_DIGEST || null;
     } else if (workload.id === RUNPOD_WORKLOAD) {
-      capability.image = env.RUNPOD_WORKLOAD_IMAGE || null;
+      capability.image = readRunpodConfiguration(env)?.image ?? null;
     } else if (workload.id === MODAL_GPU_WORKLOAD) {
       capability.gpu = workload.adapter_manifest.gpu;
     } else if ([KAGGLE_WORKLOAD, ZERO_GPU_WORKLOAD].includes(workload.id)) {

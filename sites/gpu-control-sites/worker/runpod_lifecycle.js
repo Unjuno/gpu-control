@@ -6,6 +6,7 @@ import { openCompletionKey, sealCompletionKey } from "./runpod_secret.js";
 import { canonicalJson } from "./canonical_json.js";
 import { sha256Hex } from "./sha256.js";
 import { runpodAdmissionBlocker } from "./runpod_admission.js";
+import { readRunpodConfiguration } from "./runpod_configuration.js";
 
 const JOB_ID = /^[A-Za-z0-9_-]{4,128}$/;
 
@@ -182,11 +183,12 @@ export async function submitRunpodExperiment(env, owner, args, { reserveBudget, 
       WHERE id=? AND owner_id=? AND state='queued' RETURNING id`).bind(nonce, timestamp, keyId, sealed.ivB64,
         sealed.ciphertextB64, timestamp + row.runtime_seconds + 300, timestamp, row.id, owner).first();
     if (!persisted) throw new Error("RUNPOD_RUNTIME_STATE_PERSISTENCE_FAILED");
+    const configuration = readRunpodConfiguration(env);
     currentOffer = client === null ? {
-      gpuId: env.RUNPOD_GPU_ID,
+      gpuId: configuration.gpuId,
       cloud: "SERVERLESS",
-      dataCenterId: env.RUNPOD_SERVERLESS_ENDPOINT_ID,
-      hourlyPriceUsd: Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD),
+      dataCenterId: configuration.endpointId,
+      hourlyPriceUsd: configuration.maximumHourlyPriceUsd,
       checkedAt: timestamp,
     } : await provider.getVerifiedOffer();
   } catch (error) {

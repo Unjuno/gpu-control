@@ -1,7 +1,7 @@
 # Architecture and product-fitness backlog
 
 **Owner:** repository maintainers  
-**Last refreshed:** 2026-11-28
+**Last refreshed:** 2026-11-29
 **Scope:** make an ordinary ChatGPT request reliably run an authorized
 owner-selected experiment on a compatible external compute provider, then
 return verified results, while reducing architectural ambiguity.
@@ -49,6 +49,20 @@ acceptance.
 - Validate these requirements with scenario-driven tool-contract tests and
   real client acceptance before advertising a route. Source checks do not prove
   that an ordinary chat has the integration enabled or deployed.
+
+## Active architecture cleanup
+
+- **A13 — RunPod profile has one parser:** completed in the current PR batch.
+  `runpod_configuration.js` validates and normalizes the immutable image,
+  endpoint, GPU, maximum price, pool, source SHA and transport availability.
+  Provider readiness, planning, capability projection and pre-submit offer
+  construction consume that profile. Direct API-key access remains confined
+  to the provider transport boundary, and a static architecture check prevents
+  consumers from reading profile bindings independently.
+- **Next:** continue identifying duplicated ownership at provider boundaries
+  and split oversized composition modules only where a stable contract and
+  clear behavior owner can be established. Do not merge or collapse distinct
+  authorization, budget, admission, pricing, or provider-lifecycle concepts.
 
 ## P0 — release truth and runnable ChatGPT path
 

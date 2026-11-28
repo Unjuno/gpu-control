@@ -1,4 +1,4 @@
-import { runpodConfigured } from "./runpod_provider.js";
+import { readRunpodConfiguration } from "./runpod_configuration.js";
 import { WORKLOADS } from "./workload_registry.js";
 import { canonicalJson } from "./canonical_json.js";
 import { sha256Hex as sha256 } from "./sha256.js";
@@ -22,15 +22,15 @@ function imageDigest(image) {
 }
 
 export function validRunpodPrepare(input, env) {
-  return runpodConfigured(env) && input && typeof input === "object" && !Array.isArray(input) &&
+  const configuration = readRunpodConfiguration(env);
+  return configuration !== null && input && typeof input === "object" && !Array.isArray(input) &&
     Object.keys(input).sort().join(",") === "commit,idempotency_key,max_cost_usd,parameters,repository,runtime_seconds,workload" &&
     input.workload === RUNPOD_WORKLOAD && input.repository === RUNPOD_REPOSITORY &&
-    typeof env[WORKLOADS.runpod_canary.source_sha_env] === "string" && /^[0-9a-f]{40}$/.test(env[WORKLOADS.runpod_canary.source_sha_env]) &&
-    input.commit === env[WORKLOADS.runpod_canary.source_sha_env] && input.runtime_seconds === RUNPOD_RUNTIME_SECONDS &&
+    input.commit === configuration.sourceSha && input.runtime_seconds === RUNPOD_RUNTIME_SECONDS &&
     input.max_cost_usd === RUNPOD_COST_CEILING_USD && input.parameters &&
     typeof input.parameters === "object" && !Array.isArray(input.parameters) && Object.keys(input.parameters).length === 0 &&
     typeof input.idempotency_key === "string" && /^[A-Za-z0-9_.:-]{8,128}$/.test(input.idempotency_key) &&
-    imageDigest(env.RUNPOD_WORKLOAD_IMAGE) !== null;
+    imageDigest(configuration.image) !== null;
 }
 
 export function validRunpodApprovedPlan(plan) {
@@ -58,17 +58,16 @@ function estimatedCost(hourlyPriceUsd) {
 }
 
 function configuredOffer(env, checkedAt) {
-  const hourlyPriceUsd = Number(env.RUNPOD_SERVERLESS_HOURLY_PRICE_USD);
-  if (!Number.isFinite(hourlyPriceUsd) || hourlyPriceUsd <= 0) {
-    throw new Error("RUNPOD_CONFIGURED_PRICE_INVALID");
-  }
+  const configuration = readRunpodConfiguration(env);
+  if (!configuration) throw new Error("RUNPOD_PROVIDER_NOT_CONFIGURED");
+  const hourlyPriceUsd = configuration.maximumHourlyPriceUsd;
   return {
-    gpuId: env.RUNPOD_GPU_ID,
+    gpuId: configuration.gpuId,
     cloud: "SERVERLESS",
     gpuCount: 1,
     hourlyPriceUsd,
     availability: "CONFIGURED",
-    dataCenterId: env.RUNPOD_SERVERLESS_ENDPOINT_ID,
+    dataCenterId: configuration.endpointId,
     checkedAt,
     validForSeconds: RUNPOD_PLAN_TTL_SECONDS,
     source: "sites-operator-pinned-serverless-maximum",
@@ -77,6 +76,7 @@ function configuredOffer(env, checkedAt) {
 
 export async function prepareRunpodExperiment(env, owner, args, { client = null, now = null } = {}) {
   if (!validRunpodPrepare(args, env)) throw new Error("REGISTERED_WORKLOAD_OR_ARGUMENTS_INVALID");
+  const configuration = readRunpodConfiguration(env);
   const admissionBlocker = runpodAdmissionBlocker(env);
   if (admissionBlocker) return runpodPrepareBlocked(admissionBlocker);
   const checkedAt = now === null ? Math.floor(Date.now() / 1000) : now;
@@ -89,7 +89,7 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
     let plan;
     try { plan = JSON.parse(existing.provider_plan_json); } catch { throw new Error("IDEMPOTENCY_RECORD_INVALID"); }
     if (!plan || plan.workload !== RUNPOD_WORKLOAD || plan.repository !== RUNPOD_REPOSITORY ||
-        plan.source_sha !== env.RUNPOD_WORKLOAD_SOURCE_SHA || plan.image_digest !== imageDigest(env.RUNPOD_WORKLOAD_IMAGE) ||
+        plan.source_sha !== configuration.sourceSha || plan.image_digest !== imageDigest(configuration.image) ||
         plan.owner_binding_sha256 !== await sha256(owner) ||
         await sha256(canonical(plan)) !== existing.fingerprint) throw new Error("IDEMPOTENCY_KEY_CONFLICT");
     return runpodPreparedResponse(existing, plan, checkedAt, true);
@@ -104,11 +104,11 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
     throw new Error("RUNPOD_PRICING_EVIDENCE_INVALID");
   }
   const cost = estimatedCost(offer.hourlyPriceUsd);
-  const digest = imageDigest(env.RUNPOD_WORKLOAD_IMAGE);
+  const digest = imageDigest(configuration.image);
   const plan = {
     schema_version: 1, workload: RUNPOD_WORKLOAD, provider: "runpod_gpu",
-    repository: RUNPOD_REPOSITORY, source_sha: env[WORKLOADS.runpod_canary.source_sha_env],
-    image: env.RUNPOD_WORKLOAD_IMAGE, image_digest: digest, parameters: {},
+    repository: RUNPOD_REPOSITORY, source_sha: configuration.sourceSha,
+    image: configuration.image, image_digest: digest, parameters: {},
     runtime_seconds: RUNPOD_RUNTIME_SECONDS, max_cost_usd: RUNPOD_COST_CEILING_USD,
     cost_ceiling_microusd: RUNPOD_COST_CEILING_MICROUSD,
     estimated_cost_usd: cost.usd, estimated_cost_microusd: cost.microusd,
@@ -127,7 +127,7 @@ export async function prepareRunpodExperiment(env, owner, args, { client = null,
        provider_plan_json, provider_cost_ceiling_microusd)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, '0.01', 'prepared', ?, ?, 'runpod_gpu', ?, ?)`)
     .bind(planId, owner, args.idempotency_key, fingerprint, RUNPOD_WORKLOAD, RUNPOD_REPOSITORY,
-      env[WORKLOADS.runpod_canary.source_sha_env], digest, RUNPOD_RUNTIME_SECONDS, checkedAt, expiresAt,
+      configuration.sourceSha, digest, RUNPOD_RUNTIME_SECONDS, checkedAt, expiresAt,
       canonical(plan), RUNPOD_COST_CEILING_MICROUSD).run();
   const persisted = await env.DB.prepare(`SELECT id, fingerprint, provider_plan_json, state, expires_at
     FROM plans WHERE owner_id=? AND idempotency_key=?`).bind(owner, args.idempotency_key).first();

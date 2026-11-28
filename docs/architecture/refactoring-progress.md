@@ -3300,3 +3300,24 @@ cancellation. Both recover to `released` without duplicate create/cancel. The
 full Sites suite passes 211 tests; architecture graph is acyclic across 77
 modules; Worker build/artifact validation and D1 forward migration replay
 pass. No live RunPod call or state change occurred.
+
+## 2026-11-29 — A13: normalize RunPod provider configuration
+
+**Finding:** RunPod readiness, plan construction, capability projection and
+pre-submit pricing each read or validate the same pinned image, endpoint, GPU,
+maximum price, pool and source SHA independently. This allowed those call
+sites to drift even though they represented one operator-owned profile.
+
+**Change:** introduced `worker/runpod_configuration.js` as the single
+validation and normalization boundary. Provider construction, plan validation
+and creation, capability projection and the default pre-submit offer now
+consume its immutable non-secret profile. The direct API key is retrieved
+through a separate accessor in the same module and is never included in the
+normalized profile. A static architecture guard prevents future direct reads
+of profile bindings outside this owner; the existing `runpodConfigured`
+export remains compatible.
+
+**Validation:** Sites `npm test` passes 215 tests; the Worker graph is acyclic
+across 79 runtime modules. Worker build, artifact validation, D1 forward
+migration replay and `git diff --check` pass. No provider API, credential,
+admission value, deployment, or experiment was accessed or changed.

@@ -64,6 +64,13 @@ const runpodAdmissionSources = modulesReadingBindingsOutside(runpodAdmissionBoun
 assert.deepEqual(runpodAdmissionSources, [],
   "RunPod admission and completion transport settings may only be read by runpod_admission.js");
 
+const runpodConfigurationBoundary = join(workerRoot, "runpod_configuration.js");
+const runpodConfigurationSources = modulesReadingBindingsOutside(runpodConfigurationBoundary,
+  ["RUNPOD_API_KEY", "RUNPOD_WORKLOAD_IMAGE", "RUNPOD_SERVERLESS_ENDPOINT_ID", "RUNPOD_GPU_ID",
+    "RUNPOD_SERVERLESS_HOURLY_PRICE_USD", "RUNPOD_SERVERLESS_GPU_POOL_ID", "RUNPOD_WORKLOAD_SOURCE_SHA"]);
+assert.deepEqual(runpodConfigurationSources, [],
+  "RunPod provider profile settings may only be parsed by runpod_configuration.js");
+
 const modalCpuPolicyBoundary = join(workerRoot, "modal_cpu_policy.js");
 const modalCpuAdmissionSources = modulesReadingBindingsOutside(modalCpuPolicyBoundary,
   ["CPU_WORKLOAD_ADMISSION_ENABLED"]);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { RunpodProviderError, RunpodV2Client, runpodConfigured, validateJobStatus, validateSubmittedJob } from "./runpod_provider.js";
+import { readRunpodConfiguration } from "./runpod_configuration.js";
 
 const env = { RUNPOD_API_KEY: "secret-api-key-with-enough-bytes",
   RUNPOD_WORKLOAD_IMAGE: `ghcr.io/unjuno/gpu-control-runpod@sha256:${"a".repeat(64)}`,
@@ -20,6 +21,12 @@ function catalog(price = 0.24, pool = env.RUNPOD_SERVERLESS_GPU_POOL_ID) {
 
 test("configuration requires an immutable image, endpoint, price, and bounded secret", () => {
   assert.equal(runpodConfigured(env), true);
+  const configuration = readRunpodConfiguration(env);
+  assert.deepEqual(configuration, { image: env.RUNPOD_WORKLOAD_IMAGE, endpointId: env.RUNPOD_SERVERLESS_ENDPOINT_ID,
+    gpuId: env.RUNPOD_GPU_ID, maximumHourlyPriceUsd: 0.24, hourlyPriceUsd: "0.240000",
+    gpuPoolId: "ADA_24", sourceSha: "b".repeat(40), relay: false });
+  assert.equal(Object.hasOwn(configuration, "apiKey"), false);
+  assert.equal(JSON.stringify(configuration).includes(env.RUNPOD_API_KEY), false);
   assert.equal(runpodConfigured({ ...env, RUNPOD_WORKLOAD_IMAGE: "image:latest" }), false);
   assert.equal(runpodConfigured({ ...env, RUNPOD_SERVERLESS_ENDPOINT_ID: ".." }), false);
   assert.equal(runpodConfigured({ ...env, RUNPOD_SERVERLESS_HOURLY_PRICE_USD: "free" }), false);
