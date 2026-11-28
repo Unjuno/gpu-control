@@ -297,6 +297,12 @@ acceptance.
   support. The generated provider catalog now owns route/provider IDs, billing
   class, credit eligibility, adapter hosting and fixed route metadata;
   capability readiness remains dynamic and does not imply execution support.
+- **RunPod admission contract (2026-11-28):** transport verification and
+  workload admission now share one `runpodAdmissionBlocker` decision across
+  capability projection, plan creation, and submission. The dispatcher no
+  longer owns provider admission rules, and the plan boundary blocks before
+  D1/provider access when called directly. This does not change current
+  admission values or enable the provider.
 - **MAP account gate:** ADR 0013 adds a separate L4 Workspace evidence contract
   to prevent the Sites reservation from being mistaken for the actual Modal
   account cap. The candidate rejects a MAP monthly configuration above $1 and
@@ -416,14 +422,12 @@ acceptance.
 
 ### A7. Decompose the Sites Worker by domain and narrow tool dispatch
 
-- **Evidence (source head `eaf3b6783994bd7a99e7caca58067f2208f1580c`):**
-  `worker/index.js` is 147 lines and owns HTTP route composition, MCP protocol
-  handling, principal authentication, and response projection. The 130-line
+- **Evidence:** `worker/index.js` is the HTTP/MCP composition root and
   `worker/mcp_tool_dispatch.js` routes normalized calls to domain operations.
   Tool schemas, validation, OAuth, owner identity, provider lifecycles, budgets,
-  artifact access, and capability projection have dedicated owners. The Worker
-  import graph is acyclic. Earlier 397-line and larger measurements are
-  historical checkpoints, not the current size.
+  artifact access, and capability projection have dedicated owners. Current
+  module-size measurements are dated in the progress log; CI checks the Worker
+  import graph for cycles.
 - **Work:** inspect the remaining dispatcher branches for policy decisions
   that belong inside provider/domain interfaces. Keep HTTP, MCP transport,
   OAuth, and domain operations separate. Extract a branch only when the new
@@ -441,13 +445,14 @@ bounded result routing live in `worker/training_tools.js`. The MAP repository
 slug is centralized in `training_source.js`. Historical checkpoints measured
 2,333 and 2,175 lines before later lifecycle and transport extractions; the
 entrypoint was subsequently reduced to 397 lines and is 147 lines at source
-head `eaf3b6783994bd7a99e7caca58067f2208f1580c`. Provider-specific Colab OAuth,
+checkpoint `eaf3b678`. Provider-specific Colab OAuth,
 external-MCP OAuth, and the shared GitHub owner-proof callbacks now have
 dedicated route modules. Stable MCP tool error projection now has its own
-contract module. At the current snapshot the transport/composition root is
-147 lines; remaining A7 work is to review dispatcher/domain coupling and retain
-the current boundary unless a concrete contract can absorb complexity without
-duplicating transport behavior.
+contract module. The 2026-11-28 RunPod policy review moved admission decisions
+from the MCP dispatcher to a shared provider policy consumed by capability,
+plan, and submit domains. Remaining A7 work is to review dispatcher/domain
+coupling and retain the current boundary unless a concrete contract can absorb
+complexity without duplicating transport behavior.
 `experiment_capabilities.owner_selected_training` now advertises the custom
 GitHub journey, current connection/adapter/admission gates, no paid fallback,
 and the fact that registration IDs are agent-carried internals. Prepare and

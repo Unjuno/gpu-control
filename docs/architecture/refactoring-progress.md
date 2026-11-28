@@ -2976,3 +2976,24 @@ instead of copying mutable SHA/check facts.
 **Validation:** checked references and stale-SHA matches in active release and
 architecture summaries; `git diff --check` passes. Documentation-only batch:
 no provider call, credential, admission, deployment, or runtime state changed.
+
+## 2026-11-28 — A5/A7: centralize RunPod admission policy
+
+**Finding:** `RUNPOD_LIVE_COMPLETION_TRANSPORT_VERIFIED` and
+`RUNPOD_WORKLOAD_ADMISSION_ENABLED` were interpreted separately in provider
+capability projection, the MCP dispatcher, and RunPod submit. The dispatcher
+was the only guard before RunPod prepare, leaving the domain plan boundary
+without its own admission check.
+
+**Change:** introduced `runpod_admission.js` as the single policy decision for
+both gates. Capability projection, plan creation, and submit now consume that
+decision. Removed admission branching and duplicate input validation from the
+MCP dispatcher; the RunPod plan module owns its contract and blocks before D1
+or provider access when invoked directly. Added a focused regression case for
+both gates and their no-I/O behavior. Source commit: `97584ad`.
+
+**Validation:** 11 focused RunPod tests pass; the full Sites suite passes 209
+tests, including an acyclic Worker graph across 77 modules. Worker build and
+artifact validation pass, D1 forward migration replay passes, and
+`git diff --check` passes. No RunPod API, credentials, admission setting, or
+runtime was accessed or changed.
