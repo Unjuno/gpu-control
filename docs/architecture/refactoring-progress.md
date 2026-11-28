@@ -1901,11 +1901,28 @@ boundary as an automated invariant.
 
 ## 2026-11-28 — PR #70 exact-head CI refresh
 
-**Source:** the current code head is `842e30d`; the later `ddaba89` head only
-refreshes the architecture snapshot. PR #70 remains open and mergeable.
+**Source:** the code head at that CI run was `842e30d`; `ddaba89` only
+refreshed the architecture snapshot. PR #70 remains open and mergeable.
 
 **Hosted CI:** all seven exact-head checks passed on `ddaba89`: Python 3.11,
 3.12, 3.13, Gateway, Sites Worker and D1 contract, Project bridge tests, and
 Trusted reference container. This is source/CI evidence only; it does not
 establish merge, deployment, external MCP handshake, provider readiness, or a
 live experiment.
+
+
+## 2026-11-28 — A8: isolate ChatGPT authorization route integration test
+
+**Problem:** the exact-plan browser authorization integration case was embedded
+in the 2,435-line general Worker suite and depended on its provider-heavy
+environment builder, despite having a self-contained D1 behavior fixture.
+
+**Change:** moved the existing case to
+`worker/training_authorization_routes.integration.test.js` and replaced the
+generic environment dependency with the test's own minimal owner configuration
+and D1 fake. Assertions and HTTP route coverage are unchanged.
+
+**Validation:** the focused route integration test passes; the full Sites suite
+still passes all 182 tests and the Worker graph remains acyclic across 66
+runtime modules. `index.test.js` is now 2,317 lines. No production code,
+provider, account, or deployment state changed.
