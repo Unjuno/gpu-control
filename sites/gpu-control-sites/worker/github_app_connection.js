@@ -1,4 +1,5 @@
 import { sha256Bytes, sha256Hex as sha256 } from "./sha256.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
 
 const API_ORIGIN = "https://api.github.com";
 const API_VERSION = "2022-11-28";
@@ -292,27 +293,11 @@ export async function disconnectGithubApp(db, owner) {
 
 async function githubJson(response) {
   if (!response.ok || response.status >= 300) throw new Error("GITHUB_APP_API_FAILED");
-  const length = Number(response.headers.get("content-length"));
-  if (Number.isFinite(length) && length > 32_768) throw new Error("GITHUB_APP_API_RESPONSE_INVALID");
-  if (!response.body) throw new Error("GITHUB_APP_API_RESPONSE_INVALID");
-  const reader = response.body.getReader();
-  let size = 0;
-  const chunks = [];
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > 32_768) {
-        await reader.cancel();
-        throw new Error("GITHUB_APP_API_RESPONSE_INVALID");
-      }
-      chunks.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const bytes = await readBoundedResponseBytes(response, {
+    maxBytes: 32_768,
+    tooLargeCode: "GITHUB_APP_API_RESPONSE_INVALID",
+    missingBodyCode: "GITHUB_APP_API_RESPONSE_INVALID",
+  });
   try { return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
   catch { throw new Error("GITHUB_APP_API_RESPONSE_INVALID"); }
 }

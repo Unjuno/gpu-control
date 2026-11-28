@@ -1,4 +1,5 @@
 import { canonicalJson } from "./canonical_json.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
 
 const DELEGATION_TTL_SECONDS = 60;
 // The authenticated Modal adapter can cold-start in roughly the same window as
@@ -57,27 +58,11 @@ async function signature(payload, encodedKey) {
 }
 
 async function boundedJson(response) {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) throw new Error("GATEWAY_DELEGATION_RESPONSE_TOO_LARGE");
-  if (!response.body) throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
-  const reader = response.body.getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) {
-        try { await reader.cancel(); } catch {}
-        throw new Error("GATEWAY_DELEGATION_RESPONSE_TOO_LARGE");
-      }
-      chunks.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const bytes = await readBoundedResponseBytes(response, {
+    maxBytes: MAX_RESPONSE_BYTES,
+    tooLargeCode: "GATEWAY_DELEGATION_RESPONSE_TOO_LARGE",
+    missingBodyCode: "GATEWAY_DELEGATION_INVALID_RESPONSE",
+  });
   let result;
   try { result = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
   catch { throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE"); }

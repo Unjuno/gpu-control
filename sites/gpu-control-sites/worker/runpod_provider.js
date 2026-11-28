@@ -1,4 +1,5 @@
 import { callProviderAdapterTool, providerAdapterConfigured } from "./provider_adapter_client.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
 
 const RUNPOD_JOB_ORIGIN = "https://api.runpod.ai";
 const RUNPOD_MANAGEMENT_ORIGIN = "https://api.runpod.io";
@@ -49,29 +50,21 @@ function boundedRetryAfter(response) {
   return Number.isSafeInteger(value) && value >= 1 && value <= 300 ? value : null;
 }
 async function readBoundedJson(response, signal = null) {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_JSON_BYTES) throw new RunpodProviderError("RUNPOD_RESPONSE_TOO_LARGE", response.status);
-  if (!response.body) throw new RunpodProviderError("RUNPOD_INVALID_RESPONSE", response.status);
-  const reader = response.body.getReader(); const chunks = []; let size = 0;
+  let bytes;
   try {
-    for (;;) {
-      let onAbort;
-      const read = reader.read();
-      const next = signal === null ? read : Promise.race([read, new Promise((_, reject) => {
-        onAbort = () => reject(new DOMException("The operation was aborted", "AbortError"));
-        if (signal.aborted) onAbort(); else signal.addEventListener("abort", onAbort, { once: true });
-      })]);
-      let chunk;
-      try { chunk = await next; } finally { if (onAbort) signal.removeEventListener("abort", onAbort); }
-      const { done, value } = chunk; if (done) break; size += value.byteLength;
-      if (size > MAX_JSON_BYTES) { await reader.cancel(); throw new RunpodProviderError("RUNPOD_RESPONSE_TOO_LARGE", response.status); }
-      chunks.push(value); }
+    bytes = await readBoundedResponseBytes(response, {
+      maxBytes: MAX_JSON_BYTES,
+      tooLargeCode: "RUNPOD_RESPONSE_TOO_LARGE",
+      missingBodyCode: "RUNPOD_INVALID_RESPONSE",
+      signal,
+    });
   } catch (error) {
-    if (error?.name === "AbortError") { try { await reader.cancel(); } catch {} }
+    if (error?.name === "AbortError") throw error;
+    if (["RUNPOD_RESPONSE_TOO_LARGE", "RUNPOD_INVALID_RESPONSE"].includes(error?.message)) {
+      throw new RunpodProviderError(error.message, response.status);
+    }
     throw error;
-  } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(size); let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  }
   try { const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("shape"); return value;
   } catch { throw new RunpodProviderError("RUNPOD_INVALID_RESPONSE", response.status); }

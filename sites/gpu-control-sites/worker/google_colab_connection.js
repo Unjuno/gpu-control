@@ -1,4 +1,5 @@
 import { sha256Bytes, sha256Hex as sha256 } from "./sha256.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -74,32 +75,15 @@ async function decryptRefreshToken(env, row) {
 }
 
 async function googleJson(response) {
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_GOOGLE_RESPONSE_BYTES) {
-    throw new Error("GOOGLE_COLAB_OAUTH_RESPONSE_INVALID");
-  }
   let text;
   try {
-    if (!response.body) text = "";
-    else {
-      const reader = response.body.getReader();
-      const chunks = [];
-      let size = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > MAX_GOOGLE_RESPONSE_BYTES) {
-          await reader.cancel();
-          throw new Error("GOOGLE_COLAB_OAUTH_RESPONSE_INVALID");
-        }
-        chunks.push(value);
-      }
-      const bytes = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    }
+    const bytes = await readBoundedResponseBytes(response, {
+      maxBytes: MAX_GOOGLE_RESPONSE_BYTES,
+      tooLargeCode: "GOOGLE_COLAB_OAUTH_RESPONSE_INVALID",
+      missingBodyCode: "GOOGLE_COLAB_OAUTH_RESPONSE_INVALID",
+      allowEmptyBody: true,
+    });
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (error) {
     if (error?.message === "GOOGLE_COLAB_OAUTH_RESPONSE_INVALID") throw error;
     throw new Error("GOOGLE_COLAB_OAUTH_FAILED");

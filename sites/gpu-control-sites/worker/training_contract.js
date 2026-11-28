@@ -1,5 +1,6 @@
 import { parseTrainingSource } from "./training_source.js";
 import { sha256Hex } from "./sha256.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
 
 export const TRAINING_MANIFEST_PATH = ".gpu-control/experiment.json";
 const MANIFEST_PATH = TRAINING_MANIFEST_PATH;
@@ -150,27 +151,10 @@ async function boundedJson(response, maxBytes) {
     if (response.status === 403 || response.status === 429) throw new Error("TRAINING_GITHUB_RATE_LIMITED");
     throw new Error("TRAINING_GITHUB_LOOKUP_FAILED");
   }
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maxBytes) throw new Error("TRAINING_EXPERIMENT_MANIFEST_TOO_LARGE");
-  if (!response.body) throw new Error("TRAINING_GITHUB_RESPONSE_INVALID");
-  const reader = response.body.getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maxBytes) {
-        await reader.cancel();
-        throw new Error("TRAINING_EXPERIMENT_MANIFEST_TOO_LARGE");
-      }
-      chunks.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const bytes = await readBoundedResponseBytes(response, {
+    maxBytes, tooLargeCode: "TRAINING_EXPERIMENT_MANIFEST_TOO_LARGE",
+    missingBodyCode: "TRAINING_GITHUB_RESPONSE_INVALID",
+  });
   try { return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
   catch { throw new Error("TRAINING_EXPERIMENT_MANIFEST_INVALID"); }
 }

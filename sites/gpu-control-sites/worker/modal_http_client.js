@@ -1,5 +1,6 @@
 import { WORKLOADS } from "./workload_registry.js";
 import { MODAL_MAX_RUNTIME_SECONDS } from "./modal_cpu_policy.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
 
 // Modal control functions cold-started for ~6.3s in production; retain room
 // for that startup plus normal request latency while keeping calls bounded.
@@ -43,30 +44,12 @@ export async function modalRequest(env, path, payload, { method = "POST", body =
       if (response.status >= 500 && response.status <= 599) throw new Error("MODAL_PROVIDER_HTTP_5XX");
       throw new Error("MODAL_PROVIDER_REQUEST_FAILED");
     }
-    const declaredLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(declaredLength) && declaredLength > MODAL_MAX_RESPONSE_BYTES) {
-      try { await response.body?.cancel(); } catch {}
-      throw new Error("MODAL_PROVIDER_RESPONSE_TOO_LARGE");
-    }
-    if (!response.body) throw new Error("MODAL_PROVIDER_INVALID_RESPONSE");
-    const reader = response.body.getReader();
-    const chunks = [];
-    let size = 0;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > MODAL_MAX_RESPONSE_BYTES) {
-          try { await reader.cancel(); } catch {}
-          throw new Error("MODAL_PROVIDER_RESPONSE_TOO_LARGE");
-        }
-        chunks.push(value);
-      }
-    } finally { reader.releaseLock(); }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const bytes = await readBoundedResponseBytes(response, {
+      maxBytes: MODAL_MAX_RESPONSE_BYTES,
+      tooLargeCode: "MODAL_PROVIDER_RESPONSE_TOO_LARGE",
+      missingBodyCode: "MODAL_PROVIDER_INVALID_RESPONSE",
+      cancelDeclaredOversize: true,
+    });
     const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("MODAL_PROVIDER_INVALID_RESPONSE");
     return value;

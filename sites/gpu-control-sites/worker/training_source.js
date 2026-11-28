@@ -1,4 +1,5 @@
 import { mapTrainingConfiguration } from "./map_training_configuration.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
 
 export const MAP_TRAINING_REPOSITORY = "unjuno/model-as-a-paper";
 
@@ -30,32 +31,10 @@ async function readGithubJson(response) {
   if (response.status === 404) throw new Error("TRAINING_GITHUB_REPOSITORY_NOT_PUBLIC");
   if (response.status === 403 || response.status === 429) throw new Error("TRAINING_GITHUB_RATE_LIMITED");
   if (!response.ok) throw new Error("TRAINING_GITHUB_LOOKUP_FAILED");
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > 16_384) throw new Error("TRAINING_GITHUB_RESPONSE_TOO_LARGE");
-  if (!response.body) throw new Error("TRAINING_GITHUB_RESPONSE_INVALID");
-  const reader = response.body.getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > 16_384) {
-        await reader.cancel();
-        throw new Error("TRAINING_GITHUB_RESPONSE_TOO_LARGE");
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
+  const bytes = await readBoundedResponseBytes(response, {
+    maxBytes: 16_384, tooLargeCode: "TRAINING_GITHUB_RESPONSE_TOO_LARGE",
+    missingBodyCode: "TRAINING_GITHUB_RESPONSE_INVALID",
+  });
   try {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {

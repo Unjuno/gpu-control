@@ -1,29 +1,15 @@
 import { googleColabAccessToken } from "./google_colab_connection.js";
 import { validGoogleColabToolCall } from "./google_colab_mcp_contract.js";
+import { readBoundedResponseBytes } from "./http_response_body.js";
 
 const COLAB_MCP_ENDPOINT = "https://colaboratory.googleapis.com/mcp";
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 async function readBoundedText(response) {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) throw new Error("GOOGLE_COLAB_RESPONSE_TOO_LARGE");
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks = [];
-  let size = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new Error("GOOGLE_COLAB_RESPONSE_TOO_LARGE");
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const bytes = await readBoundedResponseBytes(response, {
+    maxBytes: MAX_RESPONSE_BYTES, tooLargeCode: "GOOGLE_COLAB_RESPONSE_TOO_LARGE",
+    missingBodyCode: "GOOGLE_COLAB_RESPONSE_INVALID", allowEmptyBody: true,
+  });
   try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
   catch { throw new Error("GOOGLE_COLAB_RESPONSE_INVALID"); }
 }

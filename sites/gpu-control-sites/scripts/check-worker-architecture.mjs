@@ -68,6 +68,12 @@ const artifactStorageSources = workerFiles.filter((file) =>
 assert.deepEqual(artifactStorageSources, [],
   "R2 run artifact reads, writes, and cleanup must stay inside run_artifacts.js");
 
+const boundedResponseReader = join(workerRoot, "http_response_body.js");
+const rawResponseReaders = workerFiles.filter((file) =>
+  file !== boundedResponseReader && /response\.body\??\.getReader\s*\(/.test(readFileSync(file, "utf8")));
+assert.deepEqual(rawResponseReaders, [],
+  "External HTTP response streams must use http_response_body.js for bounded byte collection");
+
 for (const [file, dependencies] of graph) {
   assert.ok(workerFiles.includes(file));
   assert.ok(!dependencies.includes(entrypoint), `${file}: domain modules must not import the Worker entrypoint`);
