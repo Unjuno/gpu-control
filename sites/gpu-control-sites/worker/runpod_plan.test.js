@@ -56,6 +56,8 @@ test("prepares one immutable owner-bound Runpod price plan without allocating", 
   assert.equal(result.provider_approved_plan.provider_charge_hard_capped, false);
   assert.equal(validRunpodApprovedPlan({ ...result.provider_approved_plan, schema_version: 1 }), false,
     "a stale plan using the former undercounted estimate must not submit");
+  assert.equal(validRunpodApprovedPlan({ ...result.provider_approved_plan, max_cost_usd: "0.99" }), false,
+    "plan validation must use the registry-owned reservation ceiling");
   assert.equal(result.provider_approved_plan.max_cost_usd, "1.00");
   assert.equal(result.provider_approved_plan.image_digest, `sha256:${"a".repeat(64)}`);
   assert.equal(result.machine_state.state, "prepared");

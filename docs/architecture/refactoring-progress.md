@@ -3564,3 +3564,6 @@ checkpoint. It continues to distinguish the PR source from hosted release.
 code checkpoint's full Sites tests, build, artifact validation and migration
 replay pass; all seven exact-head GitHub checks pass. No runtime or provider
 state changed. PR #70 still requires review and is not deployed.
+
+Approved-plan validation now also reads the per-run reservation ceiling from
+the canonical workload registry instead of repeating the `$1.00` literal.

@@ -41,7 +41,7 @@ export function validRunpodPrepare(input, env) {
 export function validRunpodApprovedPlan(plan) {
   const sha256Digest = /^[0-9a-f]{64}$/;
   if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.schema_version !== 2 ||
-      plan.provider !== "runpod_gpu" || plan.workload !== RUNPOD_WORKLOAD || plan.max_cost_usd !== "1.00" ||
+      plan.provider !== "runpod_gpu" || plan.workload !== RUNPOD_WORKLOAD || plan.max_cost_usd !== RUNPOD_COST_CEILING_USD ||
       plan.cost_ceiling_microusd !== RUNPOD_COST_CEILING_MICROUSD || plan.gpu_count !== 1 ||
       plan.cloud !== "SERVERLESS" || plan.paid !== true || plan.credit_eligible !== false ||
       !sha256Digest.test(plan.owner_binding_sha256 || "") || !sha256Digest.test((plan.image_digest || "").replace(/^sha256:/, "")) ||
