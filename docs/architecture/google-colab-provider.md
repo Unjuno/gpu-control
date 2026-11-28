@@ -44,7 +44,8 @@ CLI:
    Sites authenticates the owner, pins the selected repository commit, validates
    its `.gpu-control/experiment.json`, resolves the requested accelerator and
    a bounded run plan, and records the run. A paired, owner-controlled Colab
-   runner claims that exact run and invokes the pinned CLI. The runner connects
+   runner claims that exact run and invokes the CLI pinned to an immutable
+   upstream commit. The runner connects
    outbound to Sites; Sites never needs a Google token or inbound access to the
    user's machine. This is the route that makes the ordinary ChatGPT request
    work.
@@ -91,7 +92,8 @@ standalone option, but it is not evidence that the GPU Control route works.
 
 ## Delivery sequence
 
-1. Pin a reviewed CLI version and define a machine-readable runner protocol:
+1. Pin a reviewed upstream CLI commit (the repository currently publishes no
+   GitHub releases) and define a machine-readable runner protocol:
    pair/revoke, claim/heartbeat, exact plan delivery, cancel, result upload, and
    cleanup receipt.
 2. Implement Sites-side owner/run/job-lease records and a short-lived,

@@ -26,8 +26,9 @@ local CLI process or read the owner's keyring.
 Keep ChatGPT Sites MCP and its D1 owner, plan, run, budget, event, artifact,
 and cleanup records as the sole user-facing control plane. Add a separately
 installed, owner-controlled Colab runner that connects outbound to Sites and
-executes only exact, server-issued Colab plans through a pinned version of the
-official CLI.
+executes only exact, server-issued Colab plans through the official CLI pinned
+to a reviewed immutable upstream commit. The upstream repository currently
+publishes no GitHub releases.
 
 The runner holds the Google credential locally. It never sends that credential
 to Sites, ChatGPT, CI logs, or the experiment workload. Sites authenticates and
