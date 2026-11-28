@@ -905,3 +905,22 @@ direct tests for CPU/Kaggle/RunPod resolution and unknown-ID rejection.
 build packages all 36 reachable runtime modules; Site artifact validation and
 `git diff --check` pass. `worker/index.js` shrank by 97 lines (2,119 to 2,022).
 No live migration, deployment, or experiment was performed.
+
+
+## 2026-11-28 — A7: unify authorized Modal health checks
+
+**Problem:** the standalone health diagnostic and the submit path each owned
+parallel workspace/plan reservation SQL and provider probing. This risked drift
+in the one-use and rate-limit rules.
+
+**Change:** moved the complete provider health diagnostic into
+`worker/provider_health_diagnostic.js` and made submit reuse that exact path
+after checking for an already successful diagnostic. The shared module now
+owns readiness persistence and request budget semantics. Submit maps the
+shared diagnostic response to the existing submit error code/shape.
+
+**Validation:** all 146 Worker tests pass, including explicit health, provider
+rate-limit, oversized response, parallel submit and lost-response cases. D1
+forward migration tests pass; build packages all 37 reachable modules; Site
+artifact validation and `git diff --check` pass. `worker/index.js` is now
+1,875 lines. No live provider request or deployment occurred.

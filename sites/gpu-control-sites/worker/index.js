@@ -20,7 +20,8 @@ import { MODAL_PRICING_CHECKED_AT, MODAL_PRICING_SOURCE,
   MODAL_SANDBOX_CPU_LIMIT_CORES, MODAL_SANDBOX_MEMORY_LIMIT_MIB,
   MODAL_SANDBOX_RESOURCES, estimateModalSandboxCostUsd } from "./modal_cpu_policy.js";
 import { getExperimentCapabilities } from "./provider_capabilities.js";
-import { modalConfigured, modalPayload, modalRequest, providerHealth } from "./modal_http_client.js";
+import { modalConfigured, modalPayload, modalRequest } from "./modal_http_client.js";
+import { providerHealthDiagnostic, providerHealthDiagnosticForAuthorizedSubmit } from "./provider_health_diagnostic.js";
 import { canonicalJson as canonical } from "./canonical_json.js";
 import { persistRunResultArtifact, readRunResultArtifact, runArtifactBytes, RUN_ARTIFACT_MAX_BYTES } from "./run_artifacts.js";
 import { authenticateMcpAccessToken, beginMcpOAuthGitHubLogin, completeMcpOAuthGitHubLogin,
@@ -54,7 +55,6 @@ const MODAL_MODEL_ID = "karpathy/tinyllamas@0bd21da7698eaf29a0d7de3992de8a46ef62
 const MODAL_MODEL_SHA256 = "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a";
 const MODAL_TOKENIZER_SHA256 = "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361";
 const HUMAN_AUTHORIZATION_TTL_SECONDS = 600;
-const MODAL_HEALTH_CHECK_COOLDOWN_SECONDS = 60;
 const SITE_PUBLIC_ORIGIN = "https://gpu-control-sites.unjuno.chatgpt.site";
 
 function json(data, status = 200, headers = {}) {
@@ -660,111 +660,6 @@ async function reserveModalStatusCheck(env, now) {
       MODAL_STATUS_CHECK_WINDOW_SECONDS, MODAL_STATUS_CHECK_MAX_PER_WINDOW,
       MODAL_STATUS_CHECK_COOLDOWN_SECONDS).run();
   return result?.meta?.changes === 1;
-}
-
-async function providerHealthDiagnostic(env, owner, runId, fingerprint) {
-  if (!env.DB) return {
-    schema_version: 2, status: "blocked", human_summary: "D1 database is not configured; the health-check budget cannot be enforced.",
-    machine_state: { configured: false, sandbox_started: false },
-    next_allowed_actions: [], blocking_reason: "D1_NOT_CONFIGURED",
-  };
-  if (!modalConfigured(env)) return {
-    schema_version: 2, status: "blocked", human_summary: "Modal接続設定が不足しています。Sandboxは起動していません。",
-    machine_state: { configured: false, sandbox_started: false, admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true" },
-    next_allowed_actions: [], blocking_reason: "MODAL_PROVIDER_NOT_CONFIGURED",
-  };
-  const now = Math.floor(Date.now() / 1000);
-  let authorization;
-  try {
-    authorization = await env.DB.prepare(`SELECT p.id FROM plans p JOIN human_authorizations a
-      ON a.plan_id=p.id AND a.owner_id=p.owner_id AND a.fingerprint=p.fingerprint
-      WHERE p.id=? AND p.owner_id=? AND p.fingerprint=? AND p.state='prepared' AND p.expires_at>=?
-        AND a.expires_at>=? AND a.consumed_at IS NULL`)
-      .bind(runId, owner, fingerprint, now, now).first();
-  } catch {
-    return {
-      schema_version: 2, status: "blocked", human_summary: "承認状態を確認できません。Modalには接続していません。",
-      machine_state: { configured: true, sandbox_started: false, inference_started: false },
-      next_allowed_actions: [], blocking_reason: "HUMAN_AUTHORIZATION_STORE_UNAVAILABLE",
-    };
-  }
-  if (!authorization) return {
-    schema_version: 2, status: "blocked", human_summary: "この正確なplanはSites確認ページでまだ承認されていないか、期限切れです。Modalには接続していません。",
-    machine_state: { configured: true, sandbox_started: false, inference_started: false },
-    next_allowed_actions: [], blocking_reason: "HUMAN_AUTHORIZATION_REQUIRED",
-  };
-  if (env.CPU_WORKLOAD_ADMISSION_ENABLED !== "true") return {
-    schema_version: 2, status: "blocked", human_summary: "CPU Admissionは停止中です。Modal healthには接続していません。",
-    machine_state: { configured: true, admission_enabled: false, sandbox_started: false, inference_started: false },
-    next_allowed_actions: [], blocking_reason: "CPU_WORKLOAD_ADMISSION_DISABLED",
-  };
-  let reservation;
-  try {
-    reservation = await env.DB.prepare(`INSERT INTO modal_health_check_limits (scope, last_checked_at)
-      VALUES ('workspace', ?) ON CONFLICT(scope) DO UPDATE SET last_checked_at=excluded.last_checked_at
-      WHERE modal_health_check_limits.last_checked_at <= ?`)
-      .bind(now, now - MODAL_HEALTH_CHECK_COOLDOWN_SECONDS).run();
-  } catch {
-    return {
-      schema_version: 2, status: "blocked", human_summary: "Modal health check budget could not be reserved; no provider request was sent.",
-      machine_state: { configured: true, sandbox_started: false, inference_started: false },
-      next_allowed_actions: [], blocking_reason: "MODAL_HEALTH_CHECK_LIMIT_UNAVAILABLE",
-    };
-  }
-  if (reservation?.meta?.changes !== 1) return {
-    schema_version: 2, status: "blocked", human_summary: "Modal health check was recently used. Wait before checking again.",
-    machine_state: { configured: true, sandbox_started: false, inference_started: false, cooldown_seconds: MODAL_HEALTH_CHECK_COOLDOWN_SECONDS },
-    next_allowed_actions: [], blocking_reason: "MODAL_HEALTH_CHECK_RATE_LIMITED",
-  };
-  let planCheck;
-  try {
-    planCheck = await env.DB.prepare(`INSERT INTO modal_authorized_health_checks (plan_id, owner_id, fingerprint, checked_at)
-      SELECT p.id, p.owner_id, p.fingerprint, ? FROM plans p JOIN human_authorizations a
-        ON a.plan_id=p.id AND a.owner_id=p.owner_id AND a.fingerprint=p.fingerprint
-      WHERE p.id=? AND p.owner_id=? AND p.fingerprint=? AND p.state='prepared' AND p.expires_at>=?
-        AND a.expires_at>=? AND a.consumed_at IS NULL
-      ON CONFLICT(plan_id) DO NOTHING`)
-      .bind(now, runId, owner, fingerprint, now, now).run();
-  } catch {
-    return {
-      schema_version: 2, status: "blocked", human_summary: "plan単位のhealth利用枠を確保できません。Modalには接続していません。",
-      machine_state: { configured: true, sandbox_started: false, inference_started: false },
-      next_allowed_actions: [], blocking_reason: "MODAL_PLAN_HEALTH_LIMIT_UNAVAILABLE",
-    };
-  }
-  if (planCheck?.meta?.changes !== 1) return {
-    schema_version: 2, status: "blocked", human_summary: "このplanのModal health確認はすでに使われています。再確認には新しいplanの確認が必要です。",
-    machine_state: { configured: true, sandbox_started: false, inference_started: false },
-    next_allowed_actions: [], blocking_reason: "MODAL_PLAN_HEALTH_ALREADY_CHECKED",
-  };
-  const result = await providerHealth(env);
-  const ready = !!result.provider;
-  try {
-    const persisted = await env.DB.prepare(`UPDATE modal_authorized_health_checks SET ready=?
-      WHERE plan_id=? AND owner_id=? AND fingerprint=? AND checked_at=?`)
-      .bind(ready ? 1 : 0, runId, owner, fingerprint, now).run();
-    if (persisted?.meta?.changes !== 1) throw new Error("MODAL_HEALTH_RESULT_ROW_MISSING");
-  } catch {
-    return {
-      schema_version: 2, status: "blocked",
-      human_summary: "Modal health確認結果を安全に保存できませんでした。Sandboxは起動していません。",
-      machine_state: { configured: true, sandbox_started: false, inference_started: false },
-      next_allowed_actions: [], blocking_reason: "MODAL_HEALTH_RESULT_PERSISTENCE_FAILED",
-    };
-  }
-  return {
-    schema_version: 2, status: ready ? "ok" : "blocked",
-    human_summary: ready
-      ? "Modalの認証済みhealth応答と登録済みworkload identityが一致しました。Sandboxと推論は開始していません。"
-      : "Modalのhealth確認に失敗したか、登録済みworkload identityと一致しません。Sandboxと推論は開始していません。",
-    machine_state: {
-      configured: true, ready, checks: result.checks,
-      admission_enabled: env.CPU_WORKLOAD_ADMISSION_ENABLED === "true",
-      sandbox_started: false, inference_started: false,
-      control_function_cost_included_in_sandbox_ceiling: false,
-    },
-    next_allowed_actions: [], blocking_reason: ready ? null : "MODAL_PROVIDER_HEALTH_MISMATCH",
-  };
 }
 
 async function authorizeFreeProviderPolicy(env, { runId, provider, fingerprint, now }) {
@@ -1496,10 +1391,8 @@ async function callTool(name, args, request, env, context = null, principal = nu
       human_summary: "CPU実行Admissionは停止中です。Modalには接続していません。",
       machine_state: { run_id: args.run_id, admission_enabled: false, sandbox_started: false },
       next_allowed_actions: [], blocking_reason: "CPU_WORKLOAD_ADMISSION_DISABLED" };
-    // A successful explicit health check is reusable by submit. Otherwise
-    // reserve the separately billed call in the same bounded workspace and
-    // one-use plan ledgers before contacting Modal.
-    const healthReservationAt = Math.floor(Date.now() / 1000);
+    // The standalone health tool owns the one-use workspace and plan health
+    // reservations as well. A successful prior diagnostic can be reused.
     let priorPlanHealth;
     try {
       priorPlanHealth = await env.DB.prepare(`SELECT ready FROM modal_authorized_health_checks
@@ -1516,57 +1409,16 @@ async function callTool(name, args, request, env, context = null, principal = nu
       machine_state: { run_id: args.run_id, sandbox_started: false },
       next_allowed_actions: [], blocking_reason: "MODAL_PLAN_HEALTH_ALREADY_CHECKED" };
     if (!priorPlanHealth) {
-      let healthBudget;
-      try {
-        healthBudget = await env.DB.prepare(`INSERT INTO modal_health_check_limits (scope, last_checked_at)
-          VALUES ('workspace', ?) ON CONFLICT(scope) DO UPDATE SET last_checked_at=excluded.last_checked_at
-          WHERE modal_health_check_limits.last_checked_at <= ?`)
-          .bind(healthReservationAt, healthReservationAt - MODAL_HEALTH_CHECK_COOLDOWN_SECONDS).run();
-      } catch {
-        return { schema_version: 2, status: "blocked",
-          human_summary: "Modal health-check budgetを確保できないため、Modalには接続していません。",
-          machine_state: { run_id: args.run_id, sandbox_started: false },
-          next_allowed_actions: [], blocking_reason: "MODAL_HEALTH_CHECK_LIMIT_UNAVAILABLE" };
-      }
-      if (healthBudget?.meta?.changes !== 1) return { schema_version: 2, status: "blocked",
-        human_summary: "Modal health確認は直近に実行済みです。しばらく待ってから新しいplanで再試行してください。",
-        machine_state: { run_id: args.run_id, sandbox_started: false, cooldown_seconds: MODAL_HEALTH_CHECK_COOLDOWN_SECONDS },
-        next_allowed_actions: [], blocking_reason: "MODAL_HEALTH_CHECK_RATE_LIMITED" };
-      let planHealthReservation;
-      try {
-        planHealthReservation = await env.DB.prepare(`INSERT INTO modal_authorized_health_checks (plan_id, owner_id, fingerprint, checked_at)
-          SELECT p.id, p.owner_id, p.fingerprint, ? FROM plans p JOIN human_authorizations a
-            ON a.plan_id=p.id AND a.owner_id=p.owner_id AND a.fingerprint=p.fingerprint
-          WHERE p.id=? AND p.owner_id=? AND p.fingerprint=? AND p.state='prepared' AND p.expires_at>=?
-            AND a.expires_at>=? AND a.consumed_at IS NULL
-          ON CONFLICT(plan_id) DO NOTHING`)
-          .bind(healthReservationAt, args.run_id, owner, args.plan_fingerprint, healthReservationAt, healthReservationAt).run();
-      } catch {
-        return { schema_version: 2, status: "blocked",
-          human_summary: "このplanのhealth利用枠を確保できないため、Modalには接続していません。",
-          machine_state: { run_id: args.run_id, sandbox_started: false },
-          next_allowed_actions: [], blocking_reason: "MODAL_PLAN_HEALTH_LIMIT_UNAVAILABLE" };
-      }
-      if (planHealthReservation?.meta?.changes !== 1) return { schema_version: 2, status: "blocked",
-        human_summary: "このplanのModal health確認はすでに使われています。新しいplanを確認してください。",
-        machine_state: { run_id: args.run_id, sandbox_started: false },
-        next_allowed_actions: [], blocking_reason: "MODAL_PLAN_HEALTH_ALREADY_CHECKED" };
-      const health = await providerHealth(env);
-      if (!health.provider) return { schema_version: 2, status: "blocked",
-        human_summary: "Modal health確認に失敗しました。Sandboxは起動していません。接続を復旧して新しいplanを確認してください。",
-        machine_state: { run_id: args.run_id, provider: "modal_cpu", workload: WORKLOAD,
-          provider_health_checks: health.checks, sandbox_started: false },
-        next_allowed_actions: [], blocking_reason: "MODAL_PROVIDER_HEALTH_FAILED" };
-      try {
-        const persisted = await env.DB.prepare(`UPDATE modal_authorized_health_checks SET ready=1
-          WHERE plan_id=? AND owner_id=? AND fingerprint=? AND checked_at=?`)
-          .bind(args.run_id, owner, args.plan_fingerprint, healthReservationAt).run();
-        if (persisted?.meta?.changes !== 1) throw new Error("MODAL_HEALTH_RESULT_ROW_MISSING");
-      } catch {
-        return { schema_version: 2, status: "blocked",
-          human_summary: "Modal health確認結果を安全に保存できないため、Sandboxは起動していません。",
-          machine_state: { run_id: args.run_id, sandbox_started: false },
-          next_allowed_actions: [], blocking_reason: "MODAL_HEALTH_RESULT_PERSISTENCE_FAILED" };
+      const health = await providerHealthDiagnosticForAuthorizedSubmit(env, owner, args.run_id, args.plan_fingerprint);
+      if (health.status !== "ok") {
+        const blockingReason = health.blocking_reason === "MODAL_PROVIDER_HEALTH_MISMATCH"
+          ? "MODAL_PROVIDER_HEALTH_FAILED" : health.blocking_reason;
+        const { checks, ...healthState } = health.machine_state || {};
+        return { ...health,
+          machine_state: { run_id: args.run_id, provider: "modal_cpu", workload: WORKLOAD,
+            ...healthState, ...(checks ? { provider_health_checks: checks } : {}), sandbox_started: false },
+          blocking_reason: blockingReason,
+        };
       }
     }
     const reservationAt = Math.floor(Date.now() / 1000);

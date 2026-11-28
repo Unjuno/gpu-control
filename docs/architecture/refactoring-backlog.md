@@ -433,3 +433,12 @@ separate completion requirements.
 **Progress (2026-11-28):** D1/R2 result artifact persistence, cancellation-race cleanup, owner-bound lookup, metadata/checksum verification, and bounded base64 chunk reads now live in `worker/run_artifacts.js`. The entrypoint delegates both Modal result finalization and `experiment_artifact`; a static architecture check keeps direct R2 get/put/delete calls inside this module. Existing artifact identifiers remain readable for stored runs. Focused module tests cover writes, cancellation cleanup, integrity, chunking, and size bounds. `index.js` is now 2,119 lines; the import graph is acyclic across 35 Worker runtime modules.
 
 **Progress (2026-11-28):** fixed registered-workload ID validation and translation to immutable provider plan defaults now live in `worker/registered_prepare.js`. It owns the optional Kaggle-to-ZeroGPU artifact-reference resolution and uses the workload registry as the source for CPU/Kaggle/RunPod/Modal defaults. Existing `experiment_prepare` input and result contracts are unchanged. The entrypoint fell from 2,119 to 2,022 lines from parent `6cc311a`; direct module tests cover fixed defaults and fail-closed unknown IDs.
+
+
+**Progress (2026-11-28):** owner-authorized Modal health checking now has one
+authority in `worker/provider_health_diagnostic.js`. Both `experiment_provider_health`
+and `experiment_submit` use the same workspace rate limit, plan one-use gate,
+provider probe and persisted readiness result; submit can reuse a successful
+plan health check. The existing submit contract is adapted at the caller so its
+error codes remain compatible. `worker/index.js` fell from 2,022 to 1,875
+lines from parent `30c77fc`; the 37-module graph remains acyclic.

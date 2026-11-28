@@ -4695,3 +4695,18 @@ Validation: 146 Worker tests pass, including new direct fixed-default tests; D1
 forward migrations pass; build packages all 36 reachable Worker modules; Site
 artifact validation and `git diff --check` pass. No live migration, deploy or
 provider execution occurred.
+
+
+## 2026-11-28 architecture batch — Modal health gate
+
+Unified the standalone `experiment_provider_health` and implicit submit health
+check behind `worker/provider_health_diagnostic.js`. Exact authorization,
+workspace cooldown, one-use plan reservation, probe and readiness persistence
+now share one implementation; submit reuses a previously successful health
+record and retains its established response contract.
+
+Validation: 146 Worker tests pass, including rate limiting, parallel submit,
+oversized provider response and ambiguous submit recovery; D1 forward migration
+tests pass; Worker build packages all 37 runtime modules; artifact validation
+and `git diff --check` pass. Entry point is 1,875 lines. No live provider call,
+deploy or migration occurred.
