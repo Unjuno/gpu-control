@@ -139,11 +139,46 @@ def test_cancel_during_cpu_staging_finishes_without_gpu_start():
 
 
 def test_adapter_argument_projection_preserves_checkpoint_and_artifact_chunks():
-    common = {"run_id": "a" * 32, "plan_fingerprint": "b" * 64,
+    common = {"run_id": "a" * 32, "plan_fingerprint": "b" * 64, "approved_plan": {"run_id": "a" * 32},
               "offset": 128, "max_bytes": 4096}
     checkpoint = lifecycle_arguments("training_checkpoint", common)
     assert checkpoint == common
     artifact_args = {**common, "artifact_id": "c" * 64}
     assert lifecycle_arguments("training_artifact", artifact_args) == artifact_args
     assert lifecycle_arguments("training_status", common) == {
-        "run_id": common["run_id"], "plan_fingerprint": common["plan_fingerprint"]}
+        "run_id": common["run_id"], "plan_fingerprint": common["plan_fingerprint"],
+        "approved_plan": common["approved_plan"]}
+
+
+def test_missing_journal_recovers_only_the_same_plan_without_starting_again():
+    run = "a" * 32
+    fingerprint = "b" * 64
+    plan = {"run_id": run, "commit": "c" * 40}
+    starts, inspections = [], []
+    backend = SimpleNamespace(
+        recover=lambda candidate: f"custom-training-{run}" if candidate == plan else None,
+        start=lambda *_args, **_kwargs: starts.append("start") or pytest.fail("must not start"),
+        inspect=lambda handle, candidate, cancelled: inspections.append((handle, candidate, cancelled)) or
+            {"state": "succeeded", "cleanup": "confirmed", "gpu_used": True},
+    )
+    store = Store()
+    result = dispatch(store, backend, "owner", "status", {
+        "run_id": run, "plan_fingerprint": fingerprint, "approved_plan": plan,
+    }, validate=lambda *_: None, admission_enabled=False)
+    assert result["state"] == "succeeded"
+    assert inspections == [(f"custom-training-{run}", plan, False)]
+    assert starts == []
+    assert store[f"custom-training:{run}"]["owner"] == "owner"
+
+
+def test_missing_journal_without_recovery_evidence_is_uncertain_and_never_allocates():
+    run = "a" * 32
+    plan = {"run_id": run}
+    starts = []
+    backend = SimpleNamespace(recover=lambda _plan: None,
+        start=lambda *_args, **_kwargs: starts.append(1))
+    result = dispatch(Store(), backend, "owner", "status", {
+        "run_id": run, "plan_fingerprint": "b" * 64, "approved_plan": plan,
+    }, validate=lambda *_: None, admission_enabled=True)
+    assert result == {"state": "uncertain"}
+    assert starts == []

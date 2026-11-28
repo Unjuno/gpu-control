@@ -243,7 +243,8 @@ def _custom_training_backend():
         stage=stage, cleanup_source=cleanup_source,
         cleanup_checkpoint=cleanup_checkpoint,
         commit_source=custom_source_volume.commit,
-        commit_output=custom_checkpoint_volume.commit, checkpoint_root="/checkpoint-store",
+        commit_output=custom_checkpoint_volume.commit, reload_output=custom_checkpoint_volume.reload,
+        checkpoint_root="/checkpoint-store",
     )
 
 
@@ -253,12 +254,13 @@ def _dispatch_custom_training(owner, tool, arguments):
 
     run_id = arguments.get("run_id")
     record = submission_store.get(f"custom-training:{run_id}") if isinstance(run_id, str) else None
-    plan = arguments.get("plan") if tool == "training_submit" else record.get("plan") if isinstance(record, dict) else None
+    plan = (arguments.get("plan") if tool == "training_submit" else
+            record.get("plan") if isinstance(record, dict) else arguments.get("approved_plan"))
     if not isinstance(plan, dict):
         raise ValueError("custom_training_plan_missing")
-    profile = owner_training_profile_settings(os.environ)
 
     def validate(plan_owner, fingerprint, candidate):
+        profile = owner_training_profile_settings(os.environ)
         if candidate.get("execution_kind") != "owner_selected_python":
             raise ValueError("custom_training_execution_kind_invalid")
         validate_custom_plan(candidate, image_id=profile["image_id"],

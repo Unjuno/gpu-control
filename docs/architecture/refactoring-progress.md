@@ -5,6 +5,45 @@ This is the execution log for the architecture task pool in
 work separately from merge, deployment, provider configuration and live
 experiment acceptance.
 
+## 2026-11-28 — A3: recover owner-training results after Modal Dict expiry
+
+**Finding:** Modal Dict entries can expire after seven days without access. The
+Sites D1 row retained the immutable plan and dispatch claim but no terminal
+result; the run-scoped Volume retained the fixed runner's `result.json`, yet a
+status call could not reconstruct the adapter record or inspect that receipt.
+This made the common owner/run ledger dependent on an adapter cache for longer-
+term status and artifact access.
+
+**Change:** added migration `0040_training_terminal_result.sql` for a bounded,
+write-once terminal result projection in D1. Status/cancel/checkpoint/artifact
+calls now pass the exact plan read from the authenticated owner's D1 row over
+the signed adapter channel. With no Modal Dict record, the adapter recovers
+only the deterministic Sandbox or a run-bound Volume receipt; it never calls
+`start()`. The backend reloads the Volume, rejects symlinks, non-regular or
+oversized files, binds the receipt to the run/source, then applies existing
+GPU, manifest, lock, checkpoint and artifact validation. If the provider
+resource and receipt cannot be proven, status remains uncertain. Confirmed
+terminal state is returned from D1 to all MCP clients, and `training_list`
+projects the same terminal state. Large checkpoint/artifact bytes remain in
+Modal Volume and are fetched through the owner/run-bound adapter.
+
+**Validation:** focused Modal lifecycle/backend/adapter packaging tests pass
+(20); focused Sites state and registration tests pass (4); full Sites suite
+passes (213), Worker import graph is acyclic across 77 runtime modules, D1
+forward migration replay passes, Worker build and artifact validation pass,
+and the Python suite passes (626 passed, 1 skipped, 5 subtests). No provider,
+GPU, credential, admission, deployment, or billing state was touched.
+
+**Limit:** Modal Volumes persist until deleted and may incur storage charges;
+an explicit artifact retention/deletion policy and background reconciliation
+host remain open. This is source/test evidence only; exact-head CI, independent
+security review, migration deployment and live provider recovery are not yet
+verified. The Codex Security diff-scan entrypoint rejected both this linked
+worktree and a normal clone with `Review changes requires a non-bare Git
+worktree with a resolvable HEAD`; `git rev-parse --verify HEAD` succeeded for
+both. A local source review was performed, but it is not independent review
+evidence and must not be reported as such.
+
 ## 2026-11-28 — A13: make cross-client onboarding actionable
 
 **Finding:** the shared OAuth and run-ledger contract existed in source, but

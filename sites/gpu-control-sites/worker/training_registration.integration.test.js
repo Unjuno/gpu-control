@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import worker from "./index.js";
 import { submitTrainingPlan } from "./training_submit.js";
-import { confirmTrainingCleanup } from "./training_plan_state.js";
+import { persistTrainingTerminalResult } from "./training_plan_state.js";
 import { claimTrainingDispatch } from "./training_dispatch_claim.js";
 import { confirmTrainingChallenge, issueTrainingChallenge } from "./training_authorization.js";
 import { getOwnedTrainingSource } from "./training_source.js";
@@ -63,6 +63,7 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     db.exec(readFileSync(new URL("../drizzle/0029_training_authorization_evidence.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0030_github_app_connections.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../drizzle/0031_training_cleanup_confirmation.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../drizzle/0040_training_terminal_result.sql", import.meta.url), "utf8"));
     db.exec(`CREATE TABLE provider_budget_policies (
       provider TEXT PRIMARY KEY, monthly_limit_microusd INTEGER, per_run_limit_microusd INTEGER NOT NULL);
       INSERT INTO provider_budget_policies VALUES ('runpod_gpu', NULL, 1000000);
@@ -546,12 +547,6 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     const concurrentClaims = await Promise.all([claim(), claim()]);
     assert.equal(concurrentClaims.filter(Boolean).length, 1);
     assert.equal(await claim(), null);
-    assert.equal(await confirmTrainingCleanup(env.DB, "test-owner", fresh.run_id,
-      fresh.plan_fingerprint, "running", "confirmed", now), false);
-    assert.equal(await confirmTrainingCleanup(env.DB, "test-owner", fresh.run_id,
-      fresh.plan_fingerprint, "succeeded", "pending", now), false);
-    assert.equal(await confirmTrainingCleanup(env.DB, "test-owner", fresh.run_id,
-      fresh.plan_fingerprint, "succeeded", "confirmed", now), true);
     const second = (await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-monthly-limit" })).machine_state;
     await authorizePlan(second);
@@ -651,11 +646,18 @@ test("training registration is authenticated, owner-scoped, and repeatable", asy
     assert.equal(sends, 1);
     const history = await call("test-owner", "training_list", {});
     assert.ok(history.machine_state.runs.some(run => run.run_id === submission.run_id));
+    assert.equal(history.machine_state.runs.find(run => run.run_id === submission.run_id).state, "dispatching");
     assert.ok(history.machine_state.runs.every(run => Number.isInteger(run.dispatch_claimed_at)));
     assert.deepEqual(history.next_allowed_actions, ["training_preview", "training_status"]);
     assert.deepEqual((await call("other-owner", "training_list", {})).machine_state.runs, []);
-    // Model the exact status observation that the cleanup lease requires before a later run.
-    db.prepare("UPDATE training_plans SET cleanup_confirmed_at=? WHERE id=?").run(now, submission.run_id);
+    assert.equal(await persistTrainingTerminalResult(env.DB, "test-owner", submission.run_id,
+      submission.plan_fingerprint, { state: "succeeded", cleanup: "confirmed", gpu_used: true,
+        exit_code: 0, checkpoint: { filename: "checkpoint.pt", size_bytes: 1, sha256: "d".repeat(64) },
+        metrics: { filename: "metrics.json", size_bytes: 2, sha256: "e".repeat(64), values: { loss: 0.5 } },
+        artifacts: [] }, now), true);
+    const recoveredHistory = await call("test-owner", "training_list", {});
+    assert.equal(recoveredHistory.machine_state.runs.find(run => run.run_id === submission.run_id).state,
+      "succeeded");
     const rejectedPlan = await call("test-owner", "training_prepare",
       { ...prepare, idempotency_key: "training-definite-rejection" });
     await authorizePlan(rejectedPlan.machine_state);

@@ -36,12 +36,15 @@ flowchart LR
 - **Artifact stores:** keep large bytes outside D1. Plans retain the immutable parent run, repo, revision, path, size, and digest needed to re-read and verify the exact artifact.
 
 The previous D1 ownership statement describes the fixed Sites provider routes.
-The PR #70 owner-selected Modal adapter also keeps a Modal Dict dispatch claim
-and run journal for exactly-once recovery. D1 owns the owner-facing plan,
-reservation and cleanup confirmation; Modal Dict owns the adapter's dispatch
-claim/provider handle/observed result. Their disagreement and reconciliation
-rules are still backlog item A3 and must be resolved before calling this lane
-operational.
+The PR #70 owner-selected Modal adapter uses a Modal Dict as a short-lived
+atomic create journal. Sites D1 owns the owner-facing plan, reservation,
+bounded terminal result metadata, and cleanup confirmation. The run-scoped
+Modal Volume holds checkpoint/artifact bytes and a fixed-runner result receipt.
+If the Dict expires, the signed adapter request carries the same owner-bound D1
+plan; the adapter inspects only the deterministic Sandbox or Volume receipt
+and never starts a replacement. Compatible MCP clients therefore read the
+same terminal result from the shared ledger. Release and live acceptance are
+still separate from this source-level behavior.
 
 ## Lifecycle contract
 

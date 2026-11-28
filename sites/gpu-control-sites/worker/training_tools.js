@@ -1,7 +1,7 @@
 import { prepareTrainingPlan } from "./training_prepare.js";
 import { previewTrainingPlan } from "./training_preview.js";
 import { submitTrainingPlan } from "./training_submit.js";
-import { confirmTrainingCleanup, trainingPlanState } from "./training_plan_state.js";
+import { loadApprovedTrainingPlan, persistTrainingTerminalResult, trainingPlanState } from "./training_plan_state.js";
 import { ownerTrainingExecutionConfig } from "./training_runtime_profile.js";
 import { listTrainingSources, MAP_TRAINING_REPOSITORY, parseTrainingRepository, registerTrainingSource,
   resolvePublicDefaultBranchCommit, verifyGithubCommit } from "./training_source.js";
@@ -21,9 +21,13 @@ export function isTrainingTool(name) {
 export async function handleTrainingTool(name, args, { env, owner, delegate, isConfigured, getSourceToken }) {
   if (name === "training_checkpoint") {
     const local = await trainingPlanState(env, owner, args.run_id);
-    if (local.machine_state.state !== "dispatching") throw new Error("RESULT_NOT_READY");
+    if (local.machine_state.state !== "dispatching" && local.machine_state.state !== "succeeded") {
+      throw new Error("RESULT_NOT_READY");
+    }
+    const approvedPlan = await loadApprovedTrainingPlan(env.DB, owner, args.run_id,
+      local.machine_state.plan_fingerprint);
     const remote = await delegate(env, owner, name, {
-      ...args, plan_fingerprint: local.machine_state.plan_fingerprint,
+      ...args, plan_fingerprint: local.machine_state.plan_fingerprint, approved_plan: approvedPlan,
     });
     if (["not_found", "uncertain", "checkpoint_not_ready"].includes(remote?.state)) throw new Error("RESULT_NOT_READY");
     if (remote?.state !== "succeeded" || !remote.checkpoint_chunk) throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
@@ -33,9 +37,13 @@ export async function handleTrainingTool(name, args, { env, owner, delegate, isC
   }
   if (name === "training_artifact") {
     const local = await trainingPlanState(env, owner, args.run_id);
-    if (local.machine_state.state !== "dispatching") throw new Error("RESULT_NOT_READY");
+    if (local.machine_state.state !== "dispatching" && local.machine_state.state !== "succeeded") {
+      throw new Error("RESULT_NOT_READY");
+    }
+    const approvedPlan = await loadApprovedTrainingPlan(env.DB, owner, args.run_id,
+      local.machine_state.plan_fingerprint);
     const remote = await delegate(env, owner, name, {
-      ...args, plan_fingerprint: local.machine_state.plan_fingerprint,
+      ...args, plan_fingerprint: local.machine_state.plan_fingerprint, approved_plan: approvedPlan,
     });
     if (["not_found", "uncertain", "artifact_not_ready"].includes(remote?.state)) throw new Error("RESULT_NOT_READY");
     if (remote?.state !== "succeeded" || !remote.artifact_chunk) throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
@@ -46,11 +54,13 @@ export async function handleTrainingTool(name, args, { env, owner, delegate, isC
   if (name === "training_status" || name === "training_cancel") {
     const local = await trainingPlanState(env, owner, args.run_id, name === "training_cancel", isConfigured);
     if (local.machine_state.state !== "dispatching") return local;
+    const approvedPlan = await loadApprovedTrainingPlan(env.DB, owner, args.run_id,
+      local.machine_state.plan_fingerprint);
     const remote = await delegate(env, owner, name, {
-      run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint,
+      run_id: args.run_id, plan_fingerprint: local.machine_state.plan_fingerprint, approved_plan: approvedPlan,
     });
-    const missingAdapterRecord = remote?.state === "not_found";
-    const state = missingAdapterRecord ? "uncertain" : remote?.state;
+    const adapterOutcomeUnknown = remote?.state === "not_found" || remote?.state === "uncertain";
+    const state = adapterOutcomeUnknown ? "uncertain" : remote?.state;
     if (!["staging", "running", "cleanup_pending", "cancel_requested", "cancelled", "succeeded", "failed", "uncertain"].includes(state)) {
       throw new Error("GATEWAY_DELEGATION_INVALID_RESPONSE");
     }
@@ -63,16 +73,18 @@ export async function handleTrainingTool(name, args, { env, owner, delegate, isC
     }
     const cleanupConfirmed = ["succeeded", "failed", "cancelled"].includes(state) &&
       (remote?.cleanup_state === "confirmed" || remote?.cleanup === "confirmed");
-    if (cleanupConfirmed) await confirmTrainingCleanup(env.DB, owner, args.run_id,
-      local.machine_state.plan_fingerprint, state, "confirmed", Math.floor(Date.now() / 1000));
-    return { ...local, human_summary: missingAdapterRecord
-        ? "Modal adapterの受付記録が見つからないため、実行・provider resource・cleanup状態を確定できません。二重実行を避けて同じrunの照合を続けます。"
+    if (cleanupConfirmed && !await persistTrainingTerminalResult(env.DB, owner, args.run_id,
+      local.machine_state.plan_fingerprint, remote, Math.floor(Date.now() / 1000))) {
+      throw new Error("TRAINING_RESULT_PERSIST_FAILED");
+    }
+    return { ...local, human_summary: adapterOutcomeUnknown
+        ? "Modalの実行結果を確定できないため、provider resource・cleanup状態は不明です。二重実行を避けて同じrunの照合を続けます。"
         : "Modalの学習実行状態です。",
       machine_state: { ...local.machine_state, ...remote, state,
-        ...(missingAdapterRecord ? { provider_resource_created: "unknown", cleanup_state: "unknown" } : {}),
+        ...(adapterOutcomeUnknown ? { provider_resource_created: "unknown", cleanup_state: "unknown" } : {}),
         ...(cleanupConfirmed ? { cleanup_state: "confirmed" } : {}) },
       next_allowed_actions: nextActions,
-      ...(missingAdapterRecord ? { blocking_reason: "SUBMISSION_OUTCOME_UNCONFIRMED" } : {}) };
+      ...(adapterOutcomeUnknown ? { blocking_reason: "SUBMISSION_OUTCOME_UNCONFIRMED" } : {}) };
   }
   if (name === "training_submit") return submitTrainingPlan(env, owner, args, delegate,
     isConfigured, getSourceToken);

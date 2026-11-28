@@ -8,6 +8,12 @@ import re
 import time
 
 
+def _handle(value):
+    if not isinstance(value, str) or re.fullmatch(r"custom-training-[a-f0-9]{32}", value) is None:
+        raise ValueError("invalid_sandbox_handle")
+    return value
+
+
 def dispatch(store, backend, owner, action, args, *, validate, admission_enabled):
     run_id = args.get("run_id")
     fingerprint = args.get("plan_fingerprint")
@@ -21,6 +27,26 @@ def dispatch(store, backend, owner, action, args, *, validate, admission_enabled
     record = store.get(key)
     if record is not None and (record.get("owner") != owner or record.get("fingerprint") != fingerprint):
         raise ValueError("run_identity_mismatch")
+    if record is None and action in {"status", "cancel", "checkpoint", "artifact"}:
+        plan = args.get("approved_plan")
+        if not isinstance(plan, dict) or plan.get("run_id") != run_id:
+            raise ValueError("run_identity_mismatch")
+        # The Sites Worker supplies this immutable plan from its owner-bound
+        # D1 row over the signed adapter channel. Recovery may inspect only the
+        # deterministic handle and durable output for this run; it never calls
+        # start() and therefore cannot allocate a replacement runtime.
+        recover = getattr(backend, "recover", None)
+        handle = recover(plan) if callable(recover) else None
+        if not isinstance(handle, str):
+            return {"state": "uncertain"}
+        recovered = {"owner": owner, "fingerprint": fingerprint, "plan": plan,
+                     "handle": _handle(handle), "state": "running"}
+        if store.put(key, recovered, skip_if_exists=True):
+            record = recovered
+        else:
+            record = store.get(key)
+            if record is None or record.get("owner") != owner or record.get("fingerprint") != fingerprint:
+                raise ValueError("run_identity_mismatch")
     if action == "submit" and record is None:
         if not admission_enabled:
             return {"state": "blocked", "reason": "TRAINING_ADMISSION_DISABLED"}

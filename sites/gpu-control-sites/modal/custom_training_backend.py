@@ -19,11 +19,11 @@ def _handle(value):
 class CustomTrainingBackend:
     def __init__(self, *, app, image, stage_image=None, source_volume, checkpoint_volume, create, lookup, stage,
                  cleanup_source=None, cleanup_checkpoint=None, commit_source=None,
-                 commit_output=None, checkpoint_root=None, source_root="/source-store"):
+                 commit_output=None, reload_output=None, checkpoint_root=None, source_root="/source-store"):
         self.app, self.image, self.stage_image = app, image, stage_image or image
         self.source_volume, self.checkpoint_volume = source_volume, checkpoint_volume
         self.create, self.lookup, self.stage = create, lookup, stage
-        self.cleanup_source, self.commit_output = cleanup_source, commit_output
+        self.cleanup_source, self.commit_output, self.reload_output = cleanup_source, commit_output, reload_output
         self.cleanup_checkpoint, self.commit_source = cleanup_checkpoint, commit_source
         self.checkpoint_root = checkpoint_root
         self.source_root = source_root
@@ -169,9 +169,19 @@ class CustomTrainingBackend:
         if sandbox is None:
             stage = self.lookup(f"custom-training-stage-{plan['run_id']}")
             if stage is None:
+                saved_result = self._read_saved_result(plan)
+                if saved_result is not None:
+                    cleanup = ("confirmed" if self.cleanup_source is not None and
+                               self.cleanup_source(plan["run_id"]) is True else "pending")
+                    terminal = self._terminal_result(saved_result, plan,
+                        exit_code=0 if saved_result.get("state") == "succeeded" else 1,
+                        cancel_requested=cancel_requested, cleanup=cleanup)
+                    if cleanup != "confirmed":
+                        return {"state": "cleanup_pending", "execution_state": terminal["state"]}
+                    return terminal
                 cleanup = ("confirmed" if self.cleanup_source is not None and
                            self.cleanup_source(plan["run_id"]) is True else "pending")
-                return {"state": "failed", "exit_code": None, "gpu_used": False,
+                return {"state": "uncertain", "exit_code": None, "gpu_used": False,
                         "checkpoint": None, "cleanup": cleanup,
                         "failure_code": "PROVIDER_SANDBOX_NOT_FOUND"}
             staged_result = self._start_gpu_from_stage(stage, plan, handle, cancel_requested)
@@ -228,13 +238,21 @@ class CustomTrainingBackend:
                     cleanup = "pending"
             except Exception:
                 cleanup = "pending"
+        if result is None and not log_truncated:
+            result = self._read_saved_result(plan)
+        return self._terminal_result(result, plan, exit_code=code,
+                                     cancel_requested=cancel_requested, cleanup=cleanup,
+                                     log_truncated=log_truncated)
+
+    def _terminal_result(self, result, plan, *, exit_code, cancel_requested, cleanup, log_truncated=False):
         expected = result is not None and (
             result.get("run_id") == plan["run_id"] and
             result.get("source_sha") == plan["commit"] and
             result.get("manifest_sha256") == plan["manifest_sha256"] and
             result.get("lock_sha256") == plan["lock_sha256"] and
             result.get("gpu_profile") == plan["gpu"] and
-            result.get("gpu_used") is True and self._valid_metrics(result.get("metrics")) and
+            result.get("state") == "succeeded" and result.get("gpu_used") is True and
+            self._valid_metrics(result.get("metrics")) and
             self._valid_artifacts(result.get("artifacts")))
         checkpoint = result.get("checkpoint") if expected else None
         if (not isinstance(checkpoint, dict) or checkpoint.get("filename") != "checkpoint.pt" or
@@ -244,8 +262,8 @@ class CustomTrainingBackend:
                 not 1 <= checkpoint["size_bytes"] <= 1024 ** 3):
             expected = False
             checkpoint = None
-        state = "succeeded" if code == 0 and expected else "cancelled" if cancel_requested else "failed"
-        return {"state": state, "exit_code": code, "gpu_used": expected,
+        state = "succeeded" if exit_code == 0 and expected else "cancelled" if cancel_requested else "failed"
+        return {"state": state, "exit_code": exit_code, "gpu_used": expected,
                 "gpu": result.get("gpu") if expected else None,
                 "checkpoint": checkpoint, "metrics": result.get("metrics") if expected else None,
                 "artifacts": result.get("artifacts") if expected else [],
@@ -256,11 +274,32 @@ class CustomTrainingBackend:
                 "output": result.get("output", "") if isinstance(result, dict) else "",
                 "output_truncated": log_truncated or bool(result.get("output_truncated")) if isinstance(result, dict) else log_truncated}
 
+    def _read_saved_result(self, plan):
+        if self.checkpoint_root is None:
+            return None
+        try:
+            if self.reload_output is not None:
+                self.reload_output()
+            path = os.path.join(self.checkpoint_root, plan["run_id"], "result.json")
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or not 1 <= info.st_size <= 262144:
+                    return None
+                value = json.loads(stream.read(262145).decode("utf-8"))
+            if (not isinstance(value, dict) or value.get("run_id") != plan["run_id"] or
+                    value.get("source_sha") != plan["commit"]):
+                return None
+            return value
+        except Exception:
+            return None
+
     def recover(self, plan):
-        """Recover the deterministic stage/GPU name without creating a second run."""
+        """Recover this run's deterministic handle or durable result without allocation."""
         handle = _handle(f"custom-training-{plan['run_id']}")
         return handle if (self.lookup(handle) is not None or
-                          self.lookup(f"custom-training-stage-{plan['run_id']}") is not None) else None
+                          self.lookup(f"custom-training-stage-{plan['run_id']}") is not None or
+                          self._read_saved_result(plan) is not None) else None
 
     def cancel(self, handle):
         handle = _handle(handle)

@@ -84,8 +84,8 @@ flowchart TD
   MA --> AD[Modal provider_adapter]
   AD --> CT[Custom training modules]
   AD --> PR[provider_runtime package]
-  CT --> MD[(Modal Dict dispatch journal)]
-  CT --> MV[(Modal Volumes source/checkpoints)]
+  CT --> MD[(Modal Dict short-lived create journal)]
+  CT --> MV[(Modal Volumes run outputs and result receipt)]
   PR --> KH[Kaggle and Hugging Face]
   RP --> D1
   AD --> D1

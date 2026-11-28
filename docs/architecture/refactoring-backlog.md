@@ -203,16 +203,20 @@ acceptance.
   fences custom-training Sandbox creation. This inventory documents distinct
   responsibilities; it does not yet prove every route's response-loss,
   terminal-state, cleanup, or durable-record-loss behavior.
-- **Modal journal retention gap (2026-11-28):** the custom-training
-  `submission_store` is a Modal Dict. [Modal's current security guide](https://modal.com/docs/guide/security#data-privacy)
-  says Dict entries expire after seven days without a read or write. The
-  custom-training route has no scheduled journal refresher, and D1 remains
-  `dispatching` until a terminal adapter observation is confirmed. If a run is
-  not polled or reconciled within that inactivity window, the adapter can lose
-  the only provider handle/result record; a later status call reports missing
-  state rather than recovering it. Bound the recovery horizon explicitly or
-  move authoritative recovery evidence to storage with a verified retention
-  contract before advertising long-term resumability.
+- **Modal journal retention gap and mitigation (2026-11-28):** the custom-
+  training `submission_store` is a Modal Dict. [Modal's current security
+  guide](https://modal.com/docs/guide/security#data-privacy) says Dict entries
+  expire after seven days without a read or write. The candidate now stores a
+  bounded terminal result projection in D1 and passes the exact owner-bound D1
+  plan on status, cancellation, checkpoint and artifact calls. If the Dict is
+  absent, the adapter recovers only the deterministic Sandbox or the run-scoped
+  Modal Volume's validated `result.json`; it never starts a replacement. A
+  missing/contradictory plan, resource or receipt remains uncertain. This
+  closes the sole-journal gap for this source path, but does not add a
+  background reconciler. Modal Volumes persist until deleted and may incur
+  storage charges ([Volumes guide](https://modal.com/docs/guide/volumes)); an
+  explicit artifact retention/deletion policy remains open. This source change
+  is not deployed or live-provider evidence.
 - **Colab lifecycle evidence (2026-11-28):**
   `worker/google_colab_lifecycle.integration.test.js` exercises the real Sites
   lifecycle and migration with a SQLite-backed D1 adapter and a deterministic

@@ -159,12 +159,22 @@ export async function listTrainingSources(db, owner, env = {}) {
   const { results } = await db.prepare(`SELECT id AS registration_id, repository, source_sha AS "commit", created_at
     FROM training_registrations WHERE owner_id = ?
     ORDER BY created_at DESC, id DESC LIMIT 50`).bind(owner).all();
-  const { results: runs } = await db.prepare(`SELECT p.id AS run_id, r.repository, r.source_sha AS "commit",
-      p.dispatch_claimed_at
+  const { results: storedRuns } = await db.prepare(`SELECT p.id AS run_id, r.repository, r.source_sha AS "commit",
+      p.dispatch_claimed_at, p.cleanup_confirmed_at, p.provider_result_json
     FROM training_plans p JOIN training_registrations r
       ON p.registration_id=r.id AND p.owner_id=r.owner_id
     WHERE p.owner_id=? AND p.dispatch_claimed_at IS NOT NULL
     ORDER BY p.dispatch_claimed_at DESC, p.id DESC LIMIT 50`).bind(owner).all();
+  const runs = storedRuns.map(({ provider_result_json: resultJson, cleanup_confirmed_at, ...run }) => {
+    let result = null;
+    if (typeof resultJson === "string" && resultJson.length <= 65536) {
+      try { result = JSON.parse(resultJson); } catch { result = null; }
+    }
+    const terminal = result && ["succeeded", "failed", "cancelled"].includes(result.state) &&
+      result.cleanup === "confirmed" && cleanup_confirmed_at !== null;
+    return { ...run, state: terminal ? result.state : "dispatching",
+      cleanup_state: cleanup_confirmed_at !== null ? "confirmed" : "unknown" };
+  });
   const { results: specs } = await db.prepare(`SELECT id AS execution_spec_id, registration_id, spec_json, created_at
     FROM training_execution_specs WHERE owner_id=?
     ORDER BY created_at DESC, id DESC LIMIT 50`).bind(owner).all();

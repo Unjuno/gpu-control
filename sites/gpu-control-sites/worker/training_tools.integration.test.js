@@ -51,7 +51,31 @@ test("missing owner-training adapter journal stays uncertain and cannot resubmit
   }, services);
   assert.equal(repeatedSubmit.machine_state.state, "dispatching");
   assert.deepEqual(delegatedCalls, [
-    { tool: "training_status", args: { run_id: runId, plan_fingerprint: fingerprint } },
-    { tool: "training_cancel", args: { run_id: runId, plan_fingerprint: fingerprint } },
+    { tool: "training_status", args: { run_id: runId, plan_fingerprint: fingerprint, approved_plan: plan } },
+    { tool: "training_cancel", args: { run_id: runId, plan_fingerprint: fingerprint, approved_plan: plan } },
   ]);
+});
+
+test("a durable terminal training result survives adapter journal loss", async () => {
+  const runId = "c".repeat(32);
+  const fingerprint = "d".repeat(64);
+  const providerResult = { state: "succeeded", cleanup: "confirmed", gpu_used: true,
+    exit_code: 0, checkpoint: { filename: "checkpoint.pt", size_bytes: 10, sha256: "e".repeat(64) },
+    artifacts: [] };
+  const row = { fingerprint, plan_json: JSON.stringify({ execution_kind: "owner_selected_python", run_id: runId }),
+    expires_at: 1, cancelled_at: null, dispatch_claimed_at: 2, dispatch_rejection: null,
+    cleanup_confirmed_at: 5, provider_result_json: JSON.stringify(providerResult) };
+  const env = { DB: { prepare(sql) { return { bind(...values) { return {
+    first: async () => sql.includes("FROM training_plans") ? row : null,
+    run: async () => ({ meta: { changes: 0 } }),
+  }; } }; } } };
+  let delegateCalls = 0;
+  const response = await handleTrainingTool("training_status", { run_id: runId }, {
+    env, owner: "owner", delegate: async () => { delegateCalls++; throw new Error("must use D1 result"); },
+    isConfigured: () => false,
+  });
+  assert.equal(response.machine_state.state, "succeeded");
+  assert.equal(response.machine_state.gpu_used, true);
+  assert.equal(delegateCalls, 0);
+
 });

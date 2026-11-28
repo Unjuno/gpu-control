@@ -14,7 +14,7 @@ class Volume:
 
 def test_stages_before_creation_and_observes_same_sandbox(tmp_path):
     events = []
-    gpu_result = {"run_id": "a" * 32, "source_sha": "b" * 40,
+    gpu_result = {"state": "succeeded", "run_id": "a" * 32, "source_sha": "b" * 40,
               "manifest_sha256": "c" * 64, "lock_sha256": "d" * 64,
               "gpu_profile": "L4", "gpu_used": True, "gpu": {"name": "NVIDIA L4"},
               "checkpoint": {"filename": "checkpoint.pt", "size_bytes": 5, "sha256": "e" * 64},
@@ -63,6 +63,51 @@ def test_stages_before_creation_and_observes_same_sandbox(tmp_path):
     assert sandbox_options[0]["env"]["GPU_CONTROL_PYTHON_VERSION"] == "3.12"
     assert [event[0] for event in events] == ["create", "terminate_stage", "commit_source",
                                                "commit_output", "create", "terminate_gpu", "commit_output"]
+
+
+def test_recovers_terminal_result_from_volume_after_adapter_journal_loss(tmp_path):
+    run_id = "a" * 32
+    payload = {"state": "succeeded", "run_id": run_id, "source_sha": "b" * 40,
+        "manifest_sha256": "c" * 64, "lock_sha256": "d" * 64, "gpu_profile": "L4",
+        "gpu_used": True, "gpu": {"name": "NVIDIA L4"},
+        "checkpoint": {"filename": "checkpoint.pt", "size_bytes": 5, "sha256": "e" * 64},
+        "metrics": {"filename": "metrics.json", "size_bytes": 12, "sha256": "f" * 64,
+                    "values": {"loss": 0.5}}, "artifacts": []}
+    result_path = tmp_path / run_id / "result.json"
+    result_path.parent.mkdir()
+    result_path.write_text(json.dumps(payload))
+    reloads, lookups, starts, cleanups = [], [], [], []
+    def lookup(name):
+        lookups.append(name)
+        return None
+    backend = CustomTrainingBackend(app=None, image=None, source_volume=Volume(), checkpoint_volume=Volume(),
+        create=lambda *_args, **_kwargs: starts.append(1), lookup=lookup, stage=lambda: None,
+        cleanup_source=lambda value: cleanups.append(value) or True,
+        reload_output=lambda: reloads.append("reload"), checkpoint_root=str(tmp_path))
+    plan = {"run_id": run_id, "commit": "b" * 40, "manifest_sha256": "c" * 64,
+        "lock_sha256": "d" * 64, "gpu": "L4"}
+    handle = f"custom-training-{run_id}"
+    assert backend.recover(plan) == handle
+    result = backend.inspect(handle, plan)
+    assert result["state"] == "succeeded" and result["cleanup"] == "confirmed"
+    assert result["gpu_used"] is True and result["checkpoint"] == payload["checkpoint"]
+    assert reloads == ["reload", "reload"]
+    assert lookups == [handle, f"custom-training-stage-{run_id}", handle, f"custom-training-stage-{run_id}"]
+    assert cleanups == [run_id] and starts == []
+
+
+def test_missing_or_mismatched_volume_result_stays_uncertain(tmp_path):
+    run_id = "a" * 32
+    result_path = tmp_path / run_id / "result.json"
+    result_path.parent.mkdir()
+    result_path.write_text(json.dumps({"state": "succeeded", "run_id": run_id, "source_sha": "z" * 40}))
+    backend = CustomTrainingBackend(app=None, image=None, source_volume=Volume(), checkpoint_volume=Volume(),
+        create=lambda *_args, **_kwargs: pytest.fail("must not allocate"), lookup=lambda _name: None,
+        stage=lambda: None, cleanup_source=lambda _run_id: True, checkpoint_root=str(tmp_path))
+    plan = {"run_id": run_id, "commit": "b" * 40, "manifest_sha256": "c" * 64,
+        "lock_sha256": "d" * 64, "gpu": "L4"}
+    assert backend.recover(plan) is None
+    assert backend.inspect(f"custom-training-{run_id}", plan)["state"] == "uncertain"
 
 
 def test_stage_failure_does_not_allocate_gpu():
