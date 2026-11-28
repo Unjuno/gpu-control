@@ -25,8 +25,10 @@ lifecycle.
 **Validation:** checked current MCP client setup and Colab integration docs
 against ADRs 0010–0012 and the A0/A1 release gates. `git diff --check` passes.
 No runtime code, OAuth configuration, provider, admission, deployment, or
-experiment was changed. PR #70 exact-head CI was green at `69591b3` before this
-documentation-only batch; the new commit requires fresh hosted checks.
+experiment was changed. The client-neutral documentation batch is commit
+`3ff08412c235bd2baa17e22bb863d95476ededf2`, pushed to PR #70. All seven
+exact-head hosted checks passed on that commit. The Sites Worker and root
+Python test counts remain the code-validation baseline recorded above.
 
 ## 2026-11-28 — A0: refresh the exact source and verification snapshot
 
