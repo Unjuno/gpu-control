@@ -97,8 +97,21 @@ repository, the current candidate exposes a separate sequence:
 5. Recover or monitor the same run, retrieve bounded result/artifact data and
    verify provider terminal state and cleanup before declaring completion.
 
-In PR #70 source, that custom-code route uses Modal only. It is not merged or
-deployed in the current checkpoint, and parked policy keeps admission off.
-Fixed RunPod/Kaggle/Hugging Face routes remain separate. Google Colab is not
-integrated with this lifecycle. See [the selected-repository design](chatgpt-selected-repository-experiments.md)
-and [current source map](repository-map.md).
+PR #70 also adds Google Colab owner-selected execution through the same
+`experiment_prepare` / `experiment_submit` / status / result / artifact / cancel
+contract. It uses Google's hosted Colab MCP, an owner-scoped Google OAuth
+connection, and a D1 operation journal; it is not a direct local CLI dispatch.
+Colab admission defaults closed, and submit requires an exact-call attestation
+that positive Compute Units are available because the hosted API cannot expose
+their balance or a dollar cap. Colab-managed runtime egress is unrestricted.
+
+The Modal `training_*` route and Colab `experiment_*` route remain separate
+provider implementations behind shared MCP ownership and run history; they do
+not share a misleading generic provider command. Both are source-only in the
+open, unmerged PR #70 and remain unavailable under parked admission until
+release gates pass. Direct `google-colab-cli` jobs are a separate local/CI
+workflow and do not appear in the shared ledger. Fixed RunPod/Kaggle/Hugging
+Face routes remain limited to their registered workloads. See [the
+selected-repository design](chatgpt-selected-repository-experiments.md), [Colab
+provider design](google-colab-provider.md), and [current source
+map](repository-map.md).

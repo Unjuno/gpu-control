@@ -45,10 +45,14 @@ every run. A user-configured provider budget lease bounds repeated runs.
   isolated Modal GPU Sandbox. The workload receives no GitHub/provider token,
   uses the manifest-declared Python entrypoint, and returns bounded metrics,
   checkpoints/artifacts and cleanup evidence.
-- This owner-selected implementation currently targets Modal only. The fixed
-  RunPod, Kaggle and Hugging Face paths do not mean those providers can execute
-  arbitrary owner-selected repositories. Colab is also not connected to the
-  shared lifecycle.
+- The PR #70 candidate has two owner-selected implementations: the Modal
+  `training_*` route and a Google Colab hosted-MCP provider routed through the
+  shared `experiment_*` lifecycle. They keep provider-specific plans and
+  execution policies behind one authenticated owner/run ledger. Colab admission
+  defaults closed, requires an exact-submit positive-CU attestation, has
+  unknown account-level cost, and allows unrestricted network egress. The
+  fixed RunPod, Kaggle and Hugging Face paths remain workload-specific and do
+  not mean those providers can execute arbitrary owner-selected repositories.
 - `policies/repository-state.yaml` keeps owner-selected admission disabled and
   repository mode parked. PR #70 has not been merged or deployed as of this
   snapshot; hosted tool schema, migrations, credentials, account limits and an
@@ -67,6 +71,11 @@ every run. A user-configured provider budget lease bounds repeated runs.
   registration, inspection, preview, prepare, submit, status, cancel and
   bounded artifact/checkpoint tools. Ordinary-chat usability still needs a
   fresh published ChatGPT/Work end-to-end acceptance.
+- Colab uses the hosted Google API MCP from the Sites Worker; the owner-scoped
+  Google OAuth grant, prepared public source plan, stable operation journal,
+  result/artifact retrieval, and run-owned runtime cleanup feed the same
+  `experiment_list` and artifact ledger. Local/CI `google-colab-cli` runs are
+  deliberately separate and are not reported as GPU Control runs.
 - The implementation is more than source inspection but less than a released
   capability. Its policy and admission gates remain closed.
 
@@ -188,9 +197,9 @@ specific limit and the smallest action needed to change it.
   idempotent, observable, cancellable, and verifiably cleaned up.
 - The agent distinguishes queued, running, succeeded, failed, and cleanup
   states, and never reports a CPU result as a GPU result.
-- Modal, RunPod, Kaggle, and Hugging Face appear only for task types their
-  current adapters actually support; no paid fallback occurs for a free-only
-  request.
+- Modal and Colab appear only for task types their current adapters actually
+  support; RunPod, Kaggle, and Hugging Face remain limited to their fixed
+  workloads. No paid fallback occurs for a free-only request.
 - ChatGPT and Work can use the deployed tools without relying on local Codex
   filesystem access or a browser page for each ordinary run.
 

@@ -10,9 +10,13 @@ acceptance claims below remain ChatGPT/Sites-specific unless stated otherwise.
 
 This document describes the fixed-workload provider design as previously
 verified; its provider rows are not a fresh live check. The current PR #70
-source candidate additionally implements an owner-selected repository lane for
-Modal GPU only; it remains unmerged, undispatched under parked policy, and is
-not a fifth provider. See [the selected-repository architecture](chatgpt-selected-repository-experiments.md).
+source candidate additionally implements owner-selected repository lanes for
+Modal GPU and Google Colab. The Colab route uses Google's hosted API MCP behind
+Sites and the shared owner-bound run lifecycle; it is a fifth compute provider
+in source, not a direct parallel MCP or CLI control plane. Both lanes remain
+unmerged and undispatched under parked policy. See [the selected-repository
+architecture](chatgpt-selected-repository-experiments.md) and [Colab provider
+design](google-colab-provider.md).
 
 The current production ChatGPT path has four compute providers:
 
@@ -22,15 +26,16 @@ The current production ChatGPT path has four compute providers:
 4. Hugging Face
 
 Google Colab is a fifth target provider, not a separate completion path. Google
-offers a hosted MCP endpoint at `https://colaboratory.googleapis.com/mcp`, but
-a user's ChatGPT OAuth connection is not automatically available to the Sites
-Worker. A direct ChatGPT-to-Colab app may be used separately for exploration;
-its runs are outside the D1 ledger and do not satisfy GPU Control acceptance.
-The unified Colab route remains unavailable until GPU Control has its own
-owner-scoped Google connection and the common run lifecycle. The published
-Colab tools do not expose a compute-unit balance or exact per-run quote, so
-the route cannot promise a dollar/CU ceiling until a trusted quota control is
-available.
+offers a hosted MCP endpoint at `https://colaboratory.googleapis.com/mcp`.
+Sites uses a separate owner-scoped Google OAuth grant. PR #70 source implements
+that connection and the shared lifecycle; the production route remains
+unavailable until deployment/configuration and live acceptance. The hosted API
+exposes neither remaining Compute Units nor an exact per-run quote. Submit
+therefore requires a fresh owner attestation of positive CU, discloses unknown
+actual consumption, forbids top-up/fallback, and keeps admission disabled by
+default. Colab runtime egress is unrestricted, so the route forbids private
+data and credentials. Direct `google-colab-cli` or local Colab MCP sessions are
+separate and do not satisfy GPU Control run acceptance.
 
 Railway, Vercel, Neon, and a separately hosted PostgreSQL Gateway are not part
 of the production execution path.
@@ -45,6 +50,7 @@ when connected)
      -> Modal provider adapter
         -> Kaggle: fixed private GPU workload
         -> Hugging Face: fixed private ZeroGPU Space
+     -> Google hosted Colab MCP: owner-selected public repository
 ```
 
 The Modal provider adapter is infrastructure for the Kaggle and Hugging Face
@@ -63,6 +69,10 @@ Gateway API, OAuth, worker, PostgreSQL store, migrations, or service modules.
 - Sites authenticates the ChatGPT user and enforces the owner allowlist.
 - D1 owns the Sites-facing plan, one-use confirmation, budget reservation,
   owner-visible run state and cleanup evidence for the fixed provider routes.
+- Colab's encrypted Google refresh credential is owner-scoped in D1. Its
+  provider-specific operation journal binds runtime/session/execution identity
+  and recovery to the shared plan; verified artifacts are copied to private R2
+  before deleting only the run-owned runtime.
 - Modal endpoints require Modal proxy authentication plus a separate
   Sites-to-adapter HMAC with a short expiry and nonce.
 - The PR #70 owner-selected Modal path additionally keeps an atomic dispatch

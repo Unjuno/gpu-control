@@ -14,7 +14,9 @@ export async function googleColabLifecycleConfigured(env) {
   try {
     const rows = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table'
       AND name IN ('google_colab_run_operations','google_colab_run_artifacts')`).all();
-    return Array.isArray(rows?.results) && rows.results.length === 2;
+    const authorizationColumns = await env.DB.prepare("PRAGMA table_info(gateway_delegated_authorizations)").all();
+    return Array.isArray(rows?.results) && rows.results.length === 2 &&
+      authorizationColumns?.results?.some((column) => column.name === "positive_compute_units_attested") === true;
   } catch { return false; }
 }
 

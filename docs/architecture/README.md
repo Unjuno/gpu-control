@@ -52,7 +52,7 @@ conversations a reliable front end for external compute.
 - [Selected-repository experiments](chatgpt-selected-repository-experiments.md):
   owner-selected GitHub source and constrained custom training lane.
 - [Sites provider control plane](sites-four-provider-control-plane.md):
-  fixed-workload provider topology and Colab's future integration boundary.
+  fixed-workload provider topology and Colab's shared-lifecycle integration.
 
 The current source candidate is PR #70, branch `codex/owner-training-workloads`.
 That is not the deployed Site revision. `policies/repository-state.yaml` is

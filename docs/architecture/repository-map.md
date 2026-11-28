@@ -7,15 +7,13 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** implementation head `0af5bd25c32396013076518b8674e469cd09ed17` on PR #70. The
-Sites Worker suite passes 188 tests, its graph is acyclic across 69 runtime
-modules, and two dependency-graph script tests pass. Exact-head hosted CI is
-queued or in progress; earlier commit results do not substitute for it.
-The root Python suite last passed 624 tests, one skipped, and five subtests at
-the preceding recorded source checkpoint. The Sites CI enforces append-only
-migration history, and the build copies all 69 reachable Worker modules.
-These measurements describe this source candidate only and do not prove hosted
-release.
+**Current source snapshot:** implementation head `35697b2b1b89bdedee78db144eb66802c13366c0` on PR #70. The
+Sites Worker suite passes 202 tests, its graph is acyclic across 76 runtime
+modules, the Sites build and D1 forward migration replay pass, and exact-head
+GitHub CI has seven passing checks. The root Python suite last passed 624
+tests, one skipped, and five subtests at the preceding recorded source
+checkpoint. These measurements describe this source candidate only and do not
+prove hosted release.
 `worker/index.js` is 147 lines,
 while `worker/index.test.js` is 1,867 lines and remains the largest integration
 fixture. Dedicated integration tests cover ChatGPT authorization (125 lines),
@@ -142,7 +140,7 @@ Sites Worker.
 | Custom workload contract and inspection use case | Allowed task, entrypoint, Python version, GPU profiles, output paths, pinned lock and safe user-facing inspection response | `worker/training_contract.js`, `worker/training_inspection.js` | `readTrainingSourceContract` owns provider-neutral immutable manifest/lock verification; `readPublicTrainingContract` composes Modal readiness for compatibility. `.gpu-control/experiment.json` is required at the immutable commit; no repository Dockerfile or arbitrary shell command. |
 | Training policy, runtime profile, and authorization identity | Authoritative lane ceilings/defaults, normalized owner-selected runtime environment, and shared training control-plane identity | `worker/training_policy.js`, `worker/training_runtime_profile.js`, `worker/map_training_configuration.js`, `worker/training_security_configuration.js` | Input/MCP contracts consume policy constants; MAP runtime bindings are normalized by `map_training_configuration.js`; owner runtime bindings are normalized by `training_runtime_profile.js`; the shared control-plane SHA is read only by `training_security_configuration.js`. The architecture check enforces these raw-binding boundaries. These leaf modules do not depend on plan orchestration. |
 | Modal CPU workload policy | Fixed CPU resource limits, cost estimate and pricing provenance | `worker/modal_cpu_policy.js` | Capability reporting and execution use one fixed policy source; it does not configure provider account limits or enable GPU execution. |
-| Plan, admission and accounting | Source preview, prepared-plan persistence, exact submit, budget reservation, authorization, lifecycle | `worker/training_preview.js`, `worker/training_prepare.js`, `worker/training_submit.js`, `worker/training_plan_state.js`, `worker/training_authorization.js`, `worker/modal_cpu_submission.js`, `worker/provider_budget_policy.js`, `worker/modal_account_evidence.js`, `drizzle/*.sql` | `training_preview.js` resolves owner sources, applies safe defaults and builds the current MAP/Modal plans; owner-selected planning currently requires Modal. `training_prepare.js` fingerprints and persists the exact plan with readiness and idempotency. `training_submit.js` revalidates, authorizes, reserves and dispatches that exact plan. `training_plan_state.js` owns persisted status, cancellation and cleanup projection; `training_authorization.js` owns exact owner confirmation and its canonical URL. `modal_cpu_submission.js` owns exact owner-plan authorization, health gate, shared-budget reservation, and idempotent local run creation for Modal CPU. `provider_budget_policy.js` owns D1-backed provider budget projection, shared Modal training budget assessment, and atomic reservations. D1 owns Sites-side reservations; `modal_account_evidence.js` validates short-lived operator-observed provider account evidence separately from that ledger. `gateway_delegated_plans` is a historical table name for Sites adapter runs. Branch candidate admission remains off under parked policy. |
+| Plan, admission and accounting | Source preview, prepared-plan persistence, exact submit, budget reservation, authorization, lifecycle | `worker/training_preview.js`, `worker/training_prepare.js`, `worker/training_submit.js`, `worker/google_colab_plan.js`, `worker/google_colab_lifecycle.js`, `worker/training_plan_state.js`, `worker/training_authorization.js`, `worker/modal_cpu_submission.js`, `worker/provider_budget_policy.js`, `worker/modal_account_evidence.js`, `drizzle/*.sql` | `training_preview.js` and `training_prepare.js` own the Modal MAP/custom-training plans; `google_colab_plan.js` prepares a separate owner-selected public-source Colab plan for the shared `experiment_*` interface. `training_submit.js` and `google_colab_lifecycle.js` enforce their provider-specific submit/recovery contracts. `provider_budget_policy.js` owns D1-backed provider budget projection and atomic reservations. D1 owns Sites-side authorization/reservations; `modal_account_evidence.js` validates short-lived operator-observed Modal account evidence separately from that ledger. Colab stores an exact-submit positive-CU attestation in the shared authorization row; the new column defaults false for historical records. `gateway_delegated_plans` is a historical table name for Sites adapter runs. Admission remains off under parked policy. |
 | Sites transport and MCP dispatch | Validate request, authenticate, route to domain/provider modules | `worker/index.js`, `worker/http_request_body.js`, `worker/http_response_body.js`, `worker/training_authorization_routes.js`, `worker/mcp_protocol.js`, `worker/mcp_tool_dispatch.js`, `worker/mcp_tool_errors.js`, `worker/mcp_tool_result.js`, `worker/experiment_list.js`, `worker/experiment_status.js`, `worker/execution_origin.js`, `worker/provider_adapter_run_store.js`, `worker/local_run_cancellation.js`, `worker/run_reconciliation.js`, `worker/modal_cpu_submission.js`, `worker/modal_cpu_lifecycle.js`, `worker/delegated_experiment_lifecycle.js`, `worker/modal_http_client.js`, `worker/provider_adapter_client.js`, provider lifecycle modules | `index.js` owns HTTP route composition and wires protocol, identity, result, authentication, and provider-specific route modules; `http_request_body.js` owns bounded request-body reading and format-neutral form/JSON decoding; `http_response_body.js` owns bounded external response byte collection and cancellation while callers retain provider-specific status, decoding, and public error semantics; `training_authorization_routes.js` owns the legacy MAP/fixed-CPU Sites browser confirmation and exact one-use challenge lifecycle; owner-selected plans use MCP submit authorization; `mcp_protocol.js` owns supported versions, request metadata/name checks, and read/execute scope selection; `mcp_tool_dispatch.js` owns authenticated tool-to-domain/provider routing; `mcp_tool_errors.js` owns the bounded stable public MCP error-code mapping; `mcp_tool_result.js` owns the canonical result envelope and versioned text/structured response projection; `experiment_list.js` owns the owner-scoped merged local/delegated run-list read model; `experiment_status.js` owns the local ledger status/result projection; `modal_cpu_submission.js` owns the owner-bound Modal CPU submit use case; `modal_cpu_lifecycle.js` owns Modal CPU status synchronization, recovery, cancellation finalization, result verification and artifact persistence; `delegated_experiment_lifecycle.js` owns adapter-backed plan preparation, exact authorization, provider budget/lease claims, submit recovery, and existing-run status/cancel/artifact routing; `execution_origin.js` owns shared run-bound execution provenance validation; `provider_adapter_run_store.js` owns bounded provider-observation persistence and private-handle redaction; `local_run_cancellation.js` owns local queued/running cancellation transitions and RunPod adapter dispatch; `run_reconciliation.js` owns recovery selection/aggregation across existing delegated and RunPod runs. `modal_http_client.js` owns the fixed-origin bounded HTTP contract for Modal CPU lifecycle operations; `provider_adapter_client.js` owns signed Sites-to-Modal-adapter delegation. Persisted D1 table names and `GATEWAY_DELEGATION_*` diagnostics are retained compatibility identifiers. `index.js` remains the HTTP/auth composition root, not an experiment/provider dispatcher.
 | Modal provider adapter | Verify signed Sites envelope; dispatch bounded provider/runtime operations | `modal/provider_adapter.py`, `modal/provider_adapter_core.py` | Separate Modal service and secret boundary. Adapter has provider-specific code and owner-training orchestration. |
 | Custom GPU staging/execution | Fetch pinned source, resolve hash-locked wheels for manifest Python, execute manifest entrypoint under CPU/memory hard limits, collect bounded outputs and cleanup | `modal/custom_training_*.py`, `modal/custom_sandbox_entrypoint.py` | Implemented in PR #70 source; admission and release acceptance are separate. Source fetch and job execution are separate sandboxes. |
@@ -163,9 +161,9 @@ Sites Worker.
   per-owner connection state is read-only, and preview remains authoritative
   for each source's current runtime, manifest, quote and budget.
 - **External-compute acceptance:** a configured GPU provider is not necessarily
-  able to run an owner-selected repository. PR #70 proposes the first such lane
-  on Modal only; existing RunPod, Kaggle and Hugging Face fixed workloads do
-  not imply arbitrary-source support. See
+  able to run an owner-selected repository. PR #70 contains Modal and hosted
+  Colab owner-selected lanes in source; existing RunPod, Kaggle and Hugging Face
+  fixed workloads do not imply arbitrary-source support. See
   [ADR 0006](decisions/0006-chat-first-external-compute.md).
 - **Sites web surface:** public status/connection pages and the legacy MAP
   exact-plan confirmation page. Public visibility is separate from owner-bound
@@ -199,8 +197,9 @@ Sites Worker.
 | RunPod fixed workload | Sites -> RunPod REST v2 or adapter relay, depending on lifecycle | Fixed canary has historical acceptance. Queue endpoints document automatic retry-on-failure; no owner-selected route is supported. See [ADR 0008](decisions/0008-runpod-owner-selected-execution.md) for the isolation, retry-accounting and artifact durability gates. |
 | Kaggle GPU | Sites -> authenticated Modal adapter -> fixed registered Kaggle workload | Fixed workload route has historical live acceptance; free quota and exact current account state must be refreshed. |
 | Hugging Face ZeroGPU/artifacts | Sites -> Modal adapter -> fixed Space/private artifact path | Fixed workload and immutable artifact round trip have historical evidence; not general arbitrary-code execution. |
-| Owner-selected repository | Sites GitHub App selection -> immutable SHA -> strict manifest/lock -> trusted Modal stager -> isolated Modal GPU Sandbox | PR #70 source advertises this as a separate capability; owner admission is separate and repository policy remains parked. Not released/accepted by this map. |
-| Google Colab | Candidate hosted Colab MCP/provider path | Not wired into Sites lifecycle. Direct MCP would be outside shared owner, budget, retry, artifact and cleanup contract. |
+| Owner-selected repository on Modal | Sites GitHub App selection -> immutable SHA -> strict manifest/lock -> trusted Modal stager -> isolated Modal GPU Sandbox | PR #70 source has a separate `training_*` capability; owner admission is separate and repository policy remains parked. Not released/accepted by this map. |
+| Google Colab owner-selected repository | Sites owner-scoped Google OAuth -> hosted Colab API MCP -> D1 operation journal -> private R2 verified artifacts -> run-owned runtime deletion | Integrated in PR #70 source behind the shared `experiment_*` lifecycle. Admission is closed by default; exact-head CI passes. Production OAuth/configuration, migration, security review and live GPU acceptance remain open. |
+| Google Colab CLI/local MCP | Direct terminal CLI or browser-session local MCP | Optional for authenticated terminal clients and CI. These sessions are outside the GPU Control owner/run ledger and are not a second Sites provider route. |
 
 ## Technology and contract inventory
 
@@ -257,9 +256,11 @@ These are investigation targets, not automatic deletion instructions.
    atomic D1 authorization/budget/dispatch claim in
    `worker/training_dispatch_claim.js` (80 lines), and the existing Modal
    owner-selected builder in `worker/modal_owner_training_plan.js` (72 lines).
-   Colab's capability handler is 85 lines and its transport client is 87 lines;
-   no Colab plan or run lifecycle caller exists yet. MCP tool schema and GitHub
-   source tests also live beside their module contracts.
+   Colab plan and lifecycle modules now own the hosted-MCP provider path;
+   `google_colab_lifecycle.js` is 403 lines and is a candidate for cohesive
+   recovery/cleanup extraction only if that reduces, rather than relocates,
+   state-transition complexity. MCP tool schema and GitHub source tests live
+   beside their module contracts.
    `gateway/gpu_gateway/store.py` 1,156; Gateway `worker.py` 1,094;
    `modal/provider_adapter.py` 720; `src/gpu_control/execution.py` 510.
    Split by cohesive domain/use case, not line count alone.

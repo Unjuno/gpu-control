@@ -102,6 +102,11 @@ except sqlite3.IntegrityError:
 oauth_migration = next(path for path in paths if path.name == "0036_mcp_oauth_clients.sql")
 conn.executescript(oauth_migration.read_text(encoding="utf-8"))
 for path in paths[paths.index(oauth_migration) + 1:]:
+    if path.name == "0039_colab_positive_cu_attestation.sql":
+        conn.execute("""INSERT INTO gateway_delegated_authorizations
+            (authorization_id,owner_id,plan_id,fingerprint,authorization_source,authorized_at,expires_at,consumed_at)
+            VALUES (?,?,?,?,?,?,?,?)""",
+            ("c" * 32, "owner", "a" * 32, "d" * 64, "chatgpt_mcp_write_confirmation", 150, 200, 150))
     conn.executescript(path.read_text(encoding="utf-8"))
 oauth_tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'mcp_oauth_%'")}
 assert oauth_tables == {"mcp_oauth_clients", "mcp_oauth_registration_limits", "mcp_oauth_authorization_requests",
@@ -173,6 +178,17 @@ assert {row[1] for row in conn.execute("PRAGMA table_info(google_colab_oauth_sta
 }
 assert conn.execute("SELECT COUNT(*) FROM google_colab_accounts").fetchone() == (0,)
 assert conn.execute("SELECT COUNT(*) FROM google_colab_oauth_states").fetchone() == (0,)
+assert conn.execute("SELECT positive_compute_units_attested FROM gateway_delegated_authorizations WHERE authorization_id=?",
+                    ("c" * 32,)).fetchone() == (0,)
+try:
+    conn.execute("""INSERT INTO gateway_delegated_authorizations
+        (authorization_id,owner_id,plan_id,fingerprint,authorization_source,authorized_at,expires_at,
+         positive_compute_units_attested)
+        VALUES (?,?,?,?,?,?,?,?)""",
+        ("d" * 32, "owner", "a" * 32, "d" * 64, "chatgpt_mcp_write_confirmation", 151, 201, 2))
+    raise AssertionError("Colab attestation must be a boolean database value")
+except sqlite3.IntegrityError:
+    pass
 assert any(path.name == "0037_colab_run_operations.sql" for path in paths)
 assert any(path.name == "0038_colab_run_artifacts.sql" for path in paths)
 assert {row[1] for row in conn.execute("PRAGMA table_info(google_colab_run_operations)")} == {

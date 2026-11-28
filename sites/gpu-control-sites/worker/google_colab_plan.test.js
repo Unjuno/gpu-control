@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { prepareGoogleColabExperiment, validGoogleColabApprovedPlan, validGoogleColabPrepare } from "./google_colab_plan.js";
+import { submitGoogleColabExperiment } from "./google_colab_lifecycle.js";
 
 const commit = "a".repeat(40);
 const manifest = { schema_version: 1, task: "train", entrypoint: "train.py", python_version: "3.11",
@@ -17,6 +18,7 @@ function githubFile(path, bytes) {
 
 function database() {
   const rows = new Map();
+  const byId = new Map();
   return {
     rows,
     prepare(sql) {
@@ -27,13 +29,18 @@ function database() {
               if (sql.startsWith("SELECT id, fingerprint, workload, approved_plan_json")) {
                 return rows.get(`${values[0]}:${values[1]}`) || null;
               }
+              if (sql.startsWith("SELECT id, owner_id, fingerprint, approved_plan_json")) {
+                return byId.get(`${values[0]}:${values[1]}`) || null;
+              }
               throw new Error("unexpected query");
             },
             async run() {
               if (sql.includes("INSERT OR IGNORE INTO gateway_delegated_plans")) {
                 const [id, owner, key, fingerprint, workload, plan, createdAt, expiresAt, updatedAt] = values;
-                rows.set(`${owner}:${key}`, { id, fingerprint, workload, approved_plan_json: plan,
-                  state: "prepared", expires_at: expiresAt, created_at: createdAt, updated_at: updatedAt });
+                const row = { id, owner_id: owner, idempotency_key: key, fingerprint, workload, approved_plan_json: plan,
+                  state: "prepared", expires_at: expiresAt, created_at: createdAt, updated_at: updatedAt };
+                rows.set(`${owner}:${key}`, row);
+                byId.set(`${owner}:${id}`, row);
                 return { meta: { changes: 1 } };
               }
               throw new Error("unexpected query");
@@ -91,6 +98,20 @@ test("Colab prepare binds selected public source, manifest, eligible GPU, and un
   assert.equal(result.provider_approved_plan.network_egress, "unrestricted");
   assert.equal(result.machine_state.runtime_allocated, false);
   assert.equal(validGoogleColabApprovedPlan(result.provider_approved_plan), true);
+  assert.equal(state.db.rows.size, 1);
+});
+
+test("Colab submit requires the exact-call positive-CU attestation before provider access", async () => {
+  const state = setup();
+  const env = { DB: state.db, GOOGLE_COLAB_WORKLOAD_ADMISSION_ENABLED: "true" };
+  const prepared = await prepareGoogleColabExperiment(env, "owner-1", state.args, state.options);
+  const result = await submitGoogleColabExperiment(env, "owner-1", {
+    run_id: prepared.machine_state.run_id,
+    plan_fingerprint: prepared.machine_state.plan_fingerprint,
+    provider_approved_plan: prepared.provider_approved_plan,
+  });
+  assert.equal(result.blocking_reason, "GOOGLE_COLAB_POSITIVE_COMPUTE_UNITS_ATTESTATION_REQUIRED");
+  assert.equal(result.machine_state.provider_resource_created, false);
   assert.equal(state.db.rows.size, 1);
 });
 

@@ -57,9 +57,10 @@ itself.
   capability statements.
 - A single conversational journey can choose among providers without exposing
   provider payloads or requiring provider-specific plans from the user.
-- The current PR #70 source is only a Modal owner-selected lane; it is not a
-  released multi-provider route. Existing RunPod, Kaggle and Hugging Face fixed
-  workloads do not imply arbitrary-source execution.
+- PR #70 now contains owner-selected source lanes for Modal and hosted Colab,
+  but neither is a released capability. RunPod, Kaggle and Hugging Face still
+  support only their current fixed workloads; that does not imply arbitrary-
+  source execution.
 - Acceptance evidence must identify the exact source commit, selected provider,
   observed GPU, result provenance and cleanup. Unit tests, preview, CPU runs and
   old provider canaries do not prove this outcome.

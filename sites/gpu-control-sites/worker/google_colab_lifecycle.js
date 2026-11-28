@@ -100,31 +100,37 @@ export async function submitGoogleColabExperiment(env, owner, args, options = {}
     "prepared", "not_required", [], "GOOGLE_COLAB_WORKLOAD_ADMISSION_DISABLED");
   if (planRow.state === "prepared" && args.positive_compute_units_attested !== true) return result("blocked",
     "Google Colabの正のCompute Unit残高と、上限を確認できない実消費へのowner確認がありません。runtimeは作成していません。",
-    args.run_id, "prepared", "not_required", [], "GOOGLE_COLAB_POSITIVE_COMPUTE_UNITS_ATTESTATION_REQUIRED");
+    args.run_id, "prepared", "not_required", [], "GOOGLE_COLAB_POSITIVE_COMPUTE_UNITS_ATTESTATION_REQUIRED",
+    { provider_resource_created: false });
   if (!env.BUCKET || typeof env.BUCKET.put !== "function" || typeof env.BUCKET.get !== "function") return result("blocked",
     "Colab成果物を安全に保存するR2がありません。runtimeは作成していません。", args.run_id,
     "prepared", "not_required", [], "ARTIFACT_STORAGE_NOT_CONFIGURED");
   let operation = await readGoogleColabOperation(env.DB, owner, args.run_id, args.plan_fingerprint);
   if (!operation) {
-    let authorization = await env.DB.prepare(`SELECT authorization_id, expires_at FROM gateway_delegated_authorizations
+    let authorization = await env.DB.prepare(`SELECT authorization_id, expires_at, positive_compute_units_attested FROM gateway_delegated_authorizations
       WHERE owner_id=? AND plan_id=? AND fingerprint=? AND authorization_source='chatgpt_mcp_write_confirmation'`)
       .bind(owner, args.run_id, args.plan_fingerprint).first();
     if (!authorization) {
       const authorizationId = crypto.randomUUID().replaceAll("-", "");
       const expiresAt = Math.min(now + 300, planRow.expires_at);
       await env.DB.prepare(`INSERT OR IGNORE INTO gateway_delegated_authorizations
-        (authorization_id, owner_id, plan_id, fingerprint, authorization_source, authorized_at, expires_at, consumed_at)
-        SELECT ?, owner_id, id, fingerprint, 'chatgpt_mcp_write_confirmation', ?, ?, ?
+        (authorization_id, owner_id, plan_id, fingerprint, authorization_source, authorized_at, expires_at, consumed_at,
+         positive_compute_units_attested)
+        SELECT ?, owner_id, id, fingerprint, 'chatgpt_mcp_write_confirmation', ?, ?, ?, ?
         FROM gateway_delegated_plans WHERE owner_id=? AND id=? AND fingerprint=?
           AND state='prepared' AND cancelled_at IS NULL AND expires_at>=?`)
-        .bind(authorizationId, now, expiresAt, now, owner, args.run_id, args.plan_fingerprint, now).run();
-      authorization = await env.DB.prepare(`SELECT authorization_id, expires_at FROM gateway_delegated_authorizations
+        .bind(authorizationId, now, expiresAt, now, args.positive_compute_units_attested === true ? 1 : 0,
+          owner, args.run_id, args.plan_fingerprint, now).run();
+      authorization = await env.DB.prepare(`SELECT authorization_id, expires_at, positive_compute_units_attested FROM gateway_delegated_authorizations
         WHERE owner_id=? AND plan_id=? AND fingerprint=? AND authorization_source='chatgpt_mcp_write_confirmation'`)
         .bind(owner, args.run_id, args.plan_fingerprint).first();
     }
     if (!authorization || authorization.expires_at < now) return result("blocked",
       "ChatGPTのこの正確なplanに対する実行確認がありません。runtimeは作成していません。",
       args.run_id, "prepared", "not_required", [], "HUMAN_AUTHORIZATION_REQUIRED");
+    if (authorization.positive_compute_units_attested !== 1) return result("blocked",
+      "このColab planの実行確認に、正のCompute Unit残高のowner attestationが記録されていません。runtimeは作成していません。",
+      args.run_id, "prepared", "not_required", [], "GOOGLE_COLAB_POSITIVE_COMPUTE_UNITS_ATTESTATION_REQUIRED");
     try {
       operation = await createGoogleColabOperation(env.DB, { owner, runId: args.run_id,
         fingerprint: args.plan_fingerprint, runtimeRequestId: crypto.randomUUID(), now });

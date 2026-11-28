@@ -296,16 +296,18 @@ acceptance.
   journal; status-driven recovery; owner-scoped cancellation; bounded checksum
   verified R2 artifacts; shared status/result/list/reconcile routes; provider
   catalog and budget semantics. The same MCP contract is available to ChatGPT/
-  Work and any authenticated compatible MCP client.
-- **Remaining:** exact-head CI, independent security review, production
-  configuration and migration, and one owner-authorized bounded GPU run that
-  independently verifies GPU, output digests, terminal state, and cleanup.
+  Work and any authenticated compatible MCP client. Exact submit requires a
+  positive-CU attestation; migration `0039` persists the exact-call value in
+  the plan authorization row and treats prior records as false.
+- **Remaining:** exact-head CI after migration `0039`, independent security
+  review, production configuration and migrations `0034`–`0039`, and one
+  owner-authorized bounded GPU run that independently verifies GPU, output
+  digests, terminal state, and cleanup.
   No live provider runtime was used by this local validation. The plan
   discloses `network_egress: unrestricted`, unknown account CU/USD cost, no
   automatic top-up or paid fallback, and deletion of only the run-owned
-  runtime after artifact collection. Source must prove that positive-CU owner
-  attestation is bound to the exact native submit confirmation before live
-  admission.
+  runtime after artifact collection. No live provider runtime was used in
+  source validation. Keep live admission closed until release gates pass.
 - **CLI boundary:** `google-colab-cli` can be used directly by an authenticated
   local/CI agent, but such jobs are outside the GPU Control run ledger. A
   client that needs shared history should call the same GPU Control MCP
@@ -397,8 +399,9 @@ have one authority in `worker/training_policy.js`; owner-selected Modal runtime
 configuration is normalized by `worker/training_runtime_profile.js`. The MCP
 and input-contract modules no longer import the training plan orchestrator to
 read policy constants. The Worker architecture check now rejects direct
-contract-to-plan dependencies. This is a boundary improvement only: Modal
-remains the sole owner-selected provider in source, and PR #70 is not deployed.
+contract-to-plan dependencies. This improves the provider boundary; PR #70 now
+contains both Modal and Colab owner-selected source lanes and remains
+undeployed.
 
 **Progress (2026-11-28):** the ordinary custom-repository route is now
 The default source-run path is now `experiment_capabilities` →
