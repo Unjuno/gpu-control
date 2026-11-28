@@ -74,14 +74,18 @@ pretending that Sites authentication automatically grants Google access.
 
 The Colab API MCP can report the user's subscription tier and eligible runtime
 specs, but it does not expose a documented per-run monetary quote or compute
-unit balance. The CLI's `colab usage` command reports a balance and aggregate
-CU/hour through an undocumented Colab endpoint; this is useful for operator
-visibility but is not yet a documented billing guarantee. A Sites-side budget
+unit balance. Google's FAQ says a paid user's Colab execution falls back to
+free-tier policies and restrictions after their compute-unit balance is
+exhausted. This makes remaining units an availability limit, not a per-run
+price quote or a provider-side dollar cap. The CLI's `colab usage` command
+reports a balance and aggregate CU/hour through an undocumented Colab endpoint;
+do not use that private endpoint as a billing authority. A Sites-side budget
 reservation therefore cannot be described as a Google billing stop. Until a
 trusted and fresh account limit can be enforced, show the account's current
 quota limitations, set strict run duration/GPU/session bounds, and do not
 promise a dollar ceiling. If the user requires an exact spend cap, block Colab
-submission while allowing other eligible providers.
+submission while allowing other eligible providers. See Google's [Colab usage
+limits FAQ](https://research.google.com/colaboratory/faq.html).
 
 Runtime creation can be slow and quota-limited. Google documents
 `FAILED_PRECONDITION` when eligibility, capacity, or usage limits prevent

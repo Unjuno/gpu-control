@@ -34,7 +34,9 @@ export async function handleGoogleColabTool(name, env, owner, options = {}) {
         subscription_tier: tier, eligible_gpu_specs: eligibleGpuSpecs, active_runtime_count: activeRuntimeCount,
         active_gpu_runtime_count: activeGpuRuntimeCount, execution_lifecycle_enabled: false,
         cost_terms: { per_run_usd: null, remaining_quota: null,
-          semantics: "google_account_entitlement_not_quantified_per_run", paid_fallback_allowed: false },
+          semantics: "google_account_subscription_quota_not_quantified_per_run",
+          quota_exhaustion_effect: "google_paid_account_reverts_to_free_tier_restrictions",
+          paid_fallback_allowed: false },
         blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED", exact_run_cost_available: false },
       next_allowed_actions: [], blocking_reason: "COLAB_EXECUTION_LIFECYCLE_NOT_IMPLEMENTED" };
   }

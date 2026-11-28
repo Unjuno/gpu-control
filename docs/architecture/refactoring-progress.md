@@ -32,6 +32,13 @@ and operator Skill now direct Colab-specific requests to the separate
 Sites-ledger runs. This closes the discovery/documentation gap without
 advertising an unsupported submit route or silently switching providers.
 
+**Quota semantics:** Google's current FAQ says paid accounts revert to free
+tier restrictions after compute units are exhausted. The MCP still exposes no
+remaining-unit balance or per-run quote. The capability response and provider
+specification now distinguish subscription-quota availability from both
+included-free execution and a dollar spending cap. GPU Control has no
+additional-unit purchase or paid-provider fallback path.
+
 ## 2026-11-28 — A6: validate Colab capability responses at the provider boundary
 
 **Problem:** the hosted Colab client bounded and parsed responses, but the

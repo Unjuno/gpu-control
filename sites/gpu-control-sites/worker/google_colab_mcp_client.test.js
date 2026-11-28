@@ -104,7 +104,9 @@ test("Colab capability projection reports eligible GPUs without exposing runtime
     assert.equal(result.machine_state.active_gpu_runtime_count, 1);
     assert.equal(result.machine_state.execution_lifecycle_enabled, false);
     assert.deepEqual(result.machine_state.cost_terms, { per_run_usd: null, remaining_quota: null,
-      semantics: "google_account_entitlement_not_quantified_per_run", paid_fallback_allowed: false });
+      semantics: "google_account_subscription_quota_not_quantified_per_run",
+      quota_exhaustion_effect: "google_paid_account_reverts_to_free_tier_restrictions",
+      paid_fallback_allowed: false });
     assert.equal(JSON.stringify(result).includes("secret-runtime-token"), false);
     assert.equal(JSON.stringify(result).includes("private-runtime.example"), false);
   } finally { db.close(); }
