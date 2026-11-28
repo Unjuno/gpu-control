@@ -5,12 +5,12 @@
 - The current source candidate is [PR #70](https://github.com/Unjuno/gpu-control/pull/70),
   branch `codex/owner-training-workloads`. GitHub is the live authority for PR
   head, review and exact-head CI; architecture documents record only fixed
-  source checkpoints. At source head `b4159bc46c6466d77b6e8391effbd0e72f16a60b`,
-  the 221-test Sites suite, 84-module acyclic Worker graph, Worker
+  source checkpoints. At source head `7fd3f0d0517daf19b96987d7d89d72148195ccf5`,
+  the 222-test Sites suite, 85-module acyclic Worker graph, Worker
   build/artifact validation, and D1 forward migration replay pass locally.
-  All three exact-head GitHub Actions workflows passed (CI run `46167667946`,
-  Project bridge tests `46167667656`, Sites provider runtime offline tests
-  `46167667662`).
+  All three exact-head GitHub Actions workflows passed (CI run `46170100773`,
+  Project bridge tests `46170100764`, Sites provider runtime offline tests
+  `46170100783`).
 - The candidate implements owner-selected GitHub source selection, immutable
   commit planning and strict `.gpu-control/experiment.json`/lock checks for
   Modal, plus a hosted Colab MCP provider using an owner-scoped Google OAuth
@@ -38,8 +38,10 @@
   refactoring batches, see [the repository architecture map](architecture/repository-map.md)
   and [the prioritized backlog](architecture/refactoring-backlog.md).
 - Focused tests for RunPod public errors and custom-training journal loss
-  pass 5/5 across their two suites. Exact-head CI and review state are visible
-  on [PR #70](https://github.com/Unjuno/gpu-control/pull/70).
+  pass 5/5 across their two suites. Current RunPod plan/provider/MCP contract
+  tests pass 28/28, including the shared execution-cost policy and rejection
+  of stale undercounted plans. Exact-head CI and review state are visible on
+  [PR #70](https://github.com/Unjuno/gpu-control/pull/70).
   The Colab
   lifecycle integration test covers same-request-ID recovery after lost
   mocked runtime-create and cleanup responses on both status and cancellation.

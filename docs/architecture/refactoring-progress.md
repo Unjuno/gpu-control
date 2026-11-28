@@ -3546,3 +3546,21 @@ source for execution, TTL, idle, initialization estimate, and cost-window
 values shared by plan preparation and the provider request. The plan response
 summary now renders its assumption values from the immutable plan. A focused
 test binds the estimator formula to this policy.
+
+## 2026-11-29 — A0/A22: refresh release and architecture snapshots
+
+**Finding:** after the shared RunPod policy extraction, the architecture map
+still measured the prior 84-module tree and `docs/STATUS.md` named a stale PR
+head, test count, and CI runs. The old status could misstate which source was
+actually verified.
+
+**Change:** refreshed the status record to source checkpoint
+`7fd3f0d0517daf19b96987d7d89d72148195ccf5`, 222 Sites tests, an acyclic
+85-module Worker graph, and the exact CI workflow run IDs. The architecture map
+now includes the RunPod policy authority and labels the same measured source
+checkpoint. It continues to distinguish the PR source from hosted release.
+
+**Validation:** file line counts match `wc -l`; `git diff --check` passes. The
+code checkpoint's full Sites tests, build, artifact validation and migration
+replay pass; all seven exact-head GitHub checks pass. No runtime or provider
+state changed. PR #70 still requires review and is not deployed.
