@@ -100,6 +100,13 @@ workload metadata from the generated workload registry and provider route
 catalog; `provider_budget_policy.js` owns the D1-backed budget projection and atomic provider reservation checks;
 and `github_tools.js` owns owner-scoped GitHub MCP operations.
 
+Python core plan, workload, capability, lifecycle, and result fingerprints use
+`src/gpu_control/canonical_json.py` as their single serialization/digest
+implementation. The Sites Worker has a separate `canonical_json.js` because it
+runs in a different runtime; cross-runtime byte compatibility fixtures are
+still needed at persisted-contract boundaries rather than importing Python
+code into the Worker.
+
 The intended product flow is Sites-first. The Gateway links above represent a
 separately maintained source tree, not proof it is deployed or the live
 ChatGPT path. The actual `gateway/README.md` and product setup docs disagree on

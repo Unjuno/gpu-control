@@ -1652,3 +1652,28 @@ ChatGPT MCP write confirmation. External MCP clients must use their native
 confirmation policy when available; OAuth authentication does not authorize
 spending. This removes instructions that could send owner-selected users
 through a redundant browser step while preserving the legacy contract.
+
+
+## 2026-11-28 — A10: make Python fingerprint encoding authoritative
+
+**Problem:** core Python value objects independently implemented the same
+sorted compact JSON encoding and `sha256:` digest format. A serialization tweak
+could silently make plan, capability, workload, lifecycle, and result identity
+drift between types.
+
+**Change:** introduced `src/gpu_control/canonical_json.py` and migrated the
+approved plan, provider capability, workload spec, submission receipt, job
+observation, result manifest, and provider result capture. The shared helper
+rejects non-finite JSON numbers. Added behavioral vectors and an AST
+architecture contract to prevent these model methods from reintroducing direct
+serializer/hash implementations. Public JSON shapes and digest bytes for valid
+existing values remain unchanged.
+
+**Validation:** the full Python suite passes (one existing skip); focused
+canonical serialization, plan, lifecycle, capability, workload, result, and
+provider-finalization tests pass. `git diff --check` passes. No provider or
+deployment operation occurred.
+
+**Limit:** the Sites Worker has its own runtime-local serializer. Persisted
+cross-runtime contract fixtures still need a separate audit; this change
+centralizes Python behavior only.

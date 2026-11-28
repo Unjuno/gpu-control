@@ -453,6 +453,13 @@ duplicate source and provider reads in the ordinary run path.
   rules.
 - **Done when:** Worker, adapter and any retained Gateway pass identical
   contract fixtures and fail closed on unknown versions/fields.
+- **Progress (2026-11-28):** Python core plan, workload, capability,
+  lifecycle, and result fingerprints now delegate canonical JSON bytes and
+  SHA-256 formatting to `src/gpu_control/canonical_json.py`. A focused
+  architecture test prevents those model modules from reintroducing direct
+  `json.dumps`/`hashlib.sha256` implementations. The Worker keeps its own
+  runtime-local serializer; matching persisted contracts still need
+  cross-runtime fixtures before claiming end-to-end normalization.
 
 ### A11. Inventory and normalize configuration
 
