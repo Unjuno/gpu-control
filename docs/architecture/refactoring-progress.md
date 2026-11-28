@@ -1897,3 +1897,15 @@ provider or deployment operation occurred.
 The architecture checker also rejects browser confirmation challenge SQL
 outside `worker/training_authorization_routes.js`, preserving that security
 boundary as an automated invariant.
+
+
+## 2026-11-28 — PR #70 exact-head CI refresh
+
+**Source:** the current code head is `842e30d`; the later `ddaba89` head only
+refreshes the architecture snapshot. PR #70 remains open and mergeable.
+
+**Hosted CI:** all seven exact-head checks passed on `ddaba89`: Python 3.11,
+3.12, 3.13, Gateway, Sites Worker and D1 contract, Project bridge tests, and
+Trusted reference container. This is source/CI evidence only; it does not
+establish merge, deployment, external MCP handshake, provider readiness, or a
+live experiment.

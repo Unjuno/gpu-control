@@ -7,11 +7,12 @@ head and exact-head CI recorded in `refactoring-progress.md`.
 mergeability proves deployment or provider acceptance. Repository mode
 remains `parked`.
 
-**Current source snapshot:** code head `0c23606` on PR #70. The full Python
+**Current source snapshot:** code head `842e30d` on PR #70. The full Python
 suite passes with one skip; the Sites Worker suite passes 182 tests and its
 graph is acyclic across 66 runtime modules. GitHub exact-head CI and review
-state are recorded in `refactoring-progress.md`; local success is not release
-evidence. `worker/index.js` is 147 lines,
+state are recorded in `refactoring-progress.md`; exact-head CI passed on
+`ddaba89` after this code head. Local success is not release evidence.
+`worker/index.js` is 147 lines,
 while `worker/index.test.js` is 2,435 lines and remains the largest integration
 fixture. The owner-training registration integration test is 682 lines, the
 experiment read-model route test is 222 lines, and the MCP request-auth route
@@ -227,7 +228,7 @@ These are investigation targets, not automatic deletion instructions.
    such as Kaggle/HF backends that delegate to `modal/provider_runtime`; tests
    and Docker packaging enforce those compatibility imports. Preserve only
    wrappers with verified callers/contracts.
-5. **Large files (current worktree at PR #70 code head `0c23606`):**
+5. **Large files (current worktree at PR #70 code head `842e30d`):**
    `worker/index.js` 147 lines; `worker/training_authorization_routes.js` 210 lines;
    `worker/mcp_tool_dispatch.js` 122 lines;
    `worker/delegated_experiment_lifecycle.js` 391 lines;
