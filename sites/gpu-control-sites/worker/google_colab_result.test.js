@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseGoogleColabExecutionReceipt } from "./google_colab_result.js";
+import { parseGoogleColabExecutionReceipt } from "../colab/lifecycle/google_colab_result.js";
 
 const expected = { runId: "a".repeat(32), repository: "owner/model", commit: "b".repeat(40),
   accelerator: "T4", outputs: ["metrics.json", "checkpoints/final.pt"] };

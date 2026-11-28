@@ -1,4 +1,4 @@
-import { canonicalJson } from "./canonical_json.js";
+import { canonicalJson } from "../../worker/canonical_json.js";
 
 const STATES = new Set(["runtime_create_pending", "runtime_ready", "session_create_pending",
   "execution_pending", "execution_complete", "cleanup_pending", "terminal"]);

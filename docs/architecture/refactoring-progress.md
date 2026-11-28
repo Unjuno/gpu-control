@@ -2604,7 +2604,10 @@ successful result requires CUDA evidence, exit code zero and metrics output.
 The runner now requires declared metrics and checkpoint outputs and caps the
 metrics file at 8 KiB.
 
-**Validation:** focused Colab tests pass; the full Sites suite passes 198
-Worker tests, migration checks pass, and the import graph is acyclic across
-73 modules. This parser is not yet connected to public MCP execution tools;
-Colab is not yet a usable experiment route and no live runtime was started.
+**Validation:** focused Colab tests pass and migration checks pass. The first
+exact-head CI build found that these four pre-integration modules were placed
+inside the production Worker source tree without imports from its entrypoint.
+They are now isolated under `colab/lifecycle/`; tests still import those
+modules directly, while the Worker bundle includes only reachable production
+code. This parser is not yet connected to public MCP execution tools; Colab is
+not yet a usable experiment route and no live runtime was started.

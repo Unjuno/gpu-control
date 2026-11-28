@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { buildGoogleColabExecutionCode } from "./google_colab_execution_code.js";
+import { buildGoogleColabExecutionCode } from "../colab/lifecycle/google_colab_execution_code.js";
 
 const manifest = { schema_version: 1, task: "train", entrypoint: "train.py", python_version: "3.11",
   dependencies_lock: "requirements.lock", gpu_profiles: ["T4"],

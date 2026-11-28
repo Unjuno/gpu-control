@@ -1,5 +1,5 @@
-import { parseTrainingSource } from "./training_source.js";
-import { validateTrainingManifest } from "./training_contract.js";
+import { parseTrainingSource } from "../../worker/training_source.js";
+import { validateTrainingManifest } from "../../worker/training_contract.js";
 
 const MAX_RUNTIME_SECONDS = 360;
 const MAX_OUTPUT_FILE_BYTES = 50 * 1024 * 1024;
