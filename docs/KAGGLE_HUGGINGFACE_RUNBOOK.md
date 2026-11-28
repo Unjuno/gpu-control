@@ -1,5 +1,10 @@
 # Kaggle and Hugging Face provider runbook
 
+> **Scope:** this is the legacy self-hosted Gateway/worker operator runbook. It
+> does not configure the ChatGPT Sites MCP. Sites owns its fixed workload
+> identity in `sites/gpu-control-sites/workloads/registry.json`; do not copy
+> this runbook's Gateway environment variables or workload JSON into Sites.
+
 ## Current activation state
 
 The repository remains `parked`. Offline tests may run, but Kaggle Kernel submission, ZeroGPU calls, Hugging Face uploads, Modal/RunPod GPU allocation, and paid Hugging Face Jobs must remain disabled until the owner deliberately opens the existing repository and execution gates. Free quota is still an external account resource and requires an explicit live-job decision.
@@ -92,7 +97,8 @@ action.
 
 The source cache directory for a commit is `<cache-root>/<40-character-sha>`. It must be a clean Git checkout at that exact commit. Staging copies only the `orbitune` Python package and the registered training entrypoint. Preparation performs no provider call; `kaggle kernels push` occurs only after approval, quota verification, and the durable submission intent.
 
-Start from `gateway/examples/kaggle-hf-workloads.template.json`. Replace `OWNER`,
+For a legacy Gateway deployment only, start from
+`gateway/examples/kaggle-hf-workloads.template.json`. Replace `OWNER`,
 the approved Space name and revision, and the ZeroGPU contract digest. The
 committed Kaggle digest was generated from the audited Orbitune commit plus the
 registered entrypoint and must equal `image_digest` in
